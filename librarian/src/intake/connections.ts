@@ -18,7 +18,7 @@ export const SECRET_MASK = '••••';
 export const AUDIENCES = ['auto', 'dm', 'party'] as const;
 export type SourceAudience = (typeof AUDIENCES)[number];
 export const normAudience = (v: unknown): SourceAudience => (v === 'dm' || v === 'party' ? v : 'auto');
-export const AUDIENCE_LABEL: Record<SourceAudience, string> = { auto: 'Follows the source', dm: 'DM only', party: 'Shared with players' };
+export const AUDIENCE_LABEL: Record<SourceAudience, string> = { auto: 'Follows the source', dm: 'GM only', party: 'Shared with players' };
 
 const parse = (s: unknown): Record<string, any> => { try { const v = JSON.parse(String(s || '{}')); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } };
 
@@ -116,7 +116,7 @@ export function migrateSources(db: DB): number {
   return n;
 }
 
-/** Records (relations, timelines, calendars, markers) a source gave: `dm` forces them DM-only. */
+/** Records (relations, timelines, calendars, markers) a source gave: `dm` forces them GM-only. */
 export function forceRecordsDm(db: DB, sourceId: string) {
   for (const t of ['intake_relations', 'intake_timelines', 'intake_calendars', 'intake_markers']) {
     try { run(db, `UPDATE ${t} SET visibility = 'dm' WHERE source_id = ?`, sourceId); } catch { /* the intake tables are made by the intake feature */ }

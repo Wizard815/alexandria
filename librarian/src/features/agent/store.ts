@@ -111,7 +111,7 @@ export interface Timings {
   fast?: boolean;
   /** Time the player leak gate spent checking sentences. */
   gateMs?: number;
-  /** The DM harness only: the titles of the library matches the first message was given, best first. */
+  /** The GM harness only: the titles of the library matches the first message was given, best first. */
   hits?: string[];
 }
 
@@ -134,7 +134,7 @@ export const messageView = (m: any) => ({
 /** The guides a reply follows ("Using guide: Towns") and what each step did, shown above the reply. */
 export const setGuideNotes = (db: DB, msgId: string, notes: unknown[]) => { run(db, 'UPDATE agent_messages SET guides = ? WHERE id = ?', JSON.stringify(notes), msgId); };
 
-/** A chat with its messages and the actions waiting on the DM. */
+/** A chat with its messages and the actions waiting on the GM. */
 export function chatView(db: DB, chatId: string) {
   const c = one<any>(db, 'SELECT * FROM agent_chats WHERE id = ?', chatId)!;
   // A run that died with the server never finishes: show it as failed.

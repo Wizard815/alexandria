@@ -171,7 +171,7 @@ export function genDungeon(o: MapOpts = {}): MapResult {
       dm: [...new Set(dm)].join(' '),
     });
   }
-  // traps in the corridors (DM view only)
+  // traps in the corridors (GM view only)
   const corr = floorCells.filter(([x, y]) => at(x, y) === -1);
   const trapN = size === 'small' ? 1 : size === 'medium' ? 2 : 4;
   for (let i = 0; i < trapN && corr.length; i++) {
@@ -193,7 +193,7 @@ export function genDungeon(o: MapOpts = {}): MapResult {
 
   return {
     kind: 'dungeon', seed, size, flavour: fname, title, ftPerCell: 5, canvas: c, key,
-    legend: ['Brown rectangle: door', 'Gap in the wall: open archway', 'UP: stairs to the surface', 'DM view only: S = secret door, T = trap'],
+    legend: ['Brown rectangle: door', 'Gap in the wall: open archway', 'UP: stairs to the surface', 'GM view only: S = secret door, T = trap'],
     stats: { rooms: rooms.length, total: rooms.length, reached, connected: reached === rooms.length, doors: door.size, secretDoors: [...door.values()].filter((v) => v === 'secret').length, width: W, height: H },
   };
 }

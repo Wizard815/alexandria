@@ -152,7 +152,7 @@ test('Mods: presets read the options', () => {
 
 // ---- shipped rules, on and off --------------------------------------------------------------------------------------
 
-test('Mods: the DM sees every shipped rule; players see only rules that are on', async () => {
+test('Mods: the GM sees every shipped rule; players see only rules that are on', async () => {
   const dm = await ok('GET', M(), T.dm);
   const ids = dm.mods.map((m: any) => m.id);
   for (const id of ['inspiration-rerolls', 'mana-system', 'spell-points', 'mana-pool', 'spell-crafting']) assert.ok(ids.includes(id), id);
@@ -183,7 +183,7 @@ test('Mods: magic rules are one group; turning one off restores the settings it 
   assert.deepEqual(s.spellManaMaxLevel, before0.spellManaMaxLevel);
 });
 
-test('Mods: spell crafting (Codex) switches on with the DM\'s approval option', async () => {
+test('Mods: spell crafting (Codex) switches on with the GM\'s approval option', async () => {
   await ok('PUT', `${M()}/spell-crafting/enabled`, T.dm, { on: true });
   assert.equal((await settings()).spellCrafting, true);
   assert.equal((await settings()).spellCraftApproval, 'dm');
@@ -197,7 +197,7 @@ test('Mods: spell crafting (Codex) switches on with the DM\'s approval option', 
 
 // ---- inspiration rerolls --------------------------------------------------------------------------------------------
 
-test('Mods: the DM grants rerolls with a reason, up to the cap; players cannot grant', async () => {
+test('Mods: the GM grants rerolls with a reason, up to the cap; players cannot grant', async () => {
   await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.dm, { on: true });
   assert.equal((await ok('GET', M(), T.jess)).mods.length, 1);
   const g = await ok('POST', `${M()}/inspiration-rerolls/act`, T.dm, { action: 'grant', player: 'Jessamine', resource: 'personal', note: 'Stayed in character' });
@@ -248,7 +248,7 @@ test('Mods: an everyone reroll works on an ally\'s roll; a personal one does not
   assert.equal((await call('POST', `${M()}/inspiration-rerolls/act`, T.tom, { action: 'use-personal', player: ID.jess, atTable: true })).status, 403);
 });
 
-test('Mods: a DM reroll makes the DM roll again; keep the better posts which one stands', async () => {
+test('Mods: a GM reroll makes the GM roll again; keep the better posts which one stands', async () => {
   await ok('PUT', `${M()}/inspiration-rerolls/options`, T.dm, { options: { keepBetter: true, cap: 2 } });
   await ok('POST', `${M()}/inspiration-rerolls/act`, T.dm, { action: 'grant', player: ID.tom, resource: 'dm' });
   const dms = await say('dm', '/roll 1d20+5 goblin attack');
@@ -297,7 +297,7 @@ const HERO = {
   rules: [{ term: 'Hero points', text: 'Spend one to add 1d6 to a roll.' }],
 };
 
-test('Mods: the DM checks, imports, exports and removes a rule; shipped ids are taken', async () => {
+test('Mods: the GM checks, imports, exports and removes a rule; shipped ids are taken', async () => {
   const chk = await ok('POST', `${M()}/check`, T.dm, { mod: { ...HERO, actions: [] } });
   assert.equal(chk.ok, false);
   const good = await ok('POST', `${M()}/check`, T.dm, { mod: HERO });
@@ -448,7 +448,7 @@ test('Mods: turning a rule on turns on what it needs and off what it conflicts w
   const list = (await ok('GET', `${M()}/`, T.dm)).mods;
   assert.equal(list.find((r: any) => r.id === 'k-base').enabled, true);
   assert.match(list.find((r: any) => r.id === 'k-old').needs[0], /Needs Base \^2 \(this world has 1.4.0\)/);
-  // Turning the base off would leave the addon without it: refused, unless the DM turns both off.
+  // Turning the base off would leave the addon without it: refused, unless the GM turns both off.
   const no = await call('PUT', `${M()}/k-base/enabled`, T.dm, { on: false });
   assert.equal(no.status, 409);
   assert.match(no.body.error, /Addon needs Base/);
@@ -503,7 +503,7 @@ test('Mods: a data system is checked: kinds, fields, actions, timers, prompts an
   }
 });
 
-test('Mods: a data system runs: seeds, record actions with who may, a DM prompt, timers to the goal, and its log', async () => {
+test('Mods: a data system runs: seeds, record actions with who may, a GM prompt, timers to the goal, and its log', async () => {
   await ok('POST', `${M()}/import`, T.dm, { mod: DOWNTIME });
   assert.equal((await call('GET', `${M()}/downtime-lite/records`, T.jess)).status, 404, 'a player sees nothing of a rule that is off');
   await ok('PUT', `${M()}/downtime-lite/enabled`, T.dm, { on: true });
@@ -518,13 +518,13 @@ test('Mods: a data system runs: seeds, record actions with who may, a DM prompt,
   assert.equal(task.goal, 2);
   assert.equal(task.status, 'open');
   assert.equal((await call('POST', `${M()}/downtime-lite/records/start`, T.jess, { values: { activity: trade, goal: 1 } })).status, 400, 'only asked fields');
-  assert.equal((await call('POST', `${M()}/downtime-lite/records/adjust`, T.jess, { recordId: task.id, amount: 5 })).status, 403, 'adjust is the DM\'s');
+  assert.equal((await call('POST', `${M()}/downtime-lite/records/adjust`, T.jess, { recordId: task.id, amount: 5 })).status, 403, 'adjust is the GM\'s');
   assert.equal((await call('POST', `${M()}/downtime-lite/records/work`, T.tom, { recordId: task.id })).status, 403, 'not Tomas\'s task');
   assert.equal((await ok('GET', `${M()}/downtime-lite/records?kind=task`, T.tom)).records.task.length, 0, 'Tomas does not see Jess\'s tasks');
   // A player adds an activity everyone can pick.
   const made = await ok('POST', `${M()}/downtime-lite/records/new-activity`, T.tom, { values: { name: 'Carve a figurehead', tier: 'legendary', days: 90 } });
   assert.equal(made.record.player, null);
-  // The DM opens a downtime day; Jess keeps working, Tomas skips.
+  // The GM opens a downtime day; Jess keeps working, Tomas skips.
   const round = await call('POST', `${M()}/downtime-lite/prompts/downtime-day`, T.dm, {});
   assert.equal(round.status, 201);
   assert.equal((await call('POST', `${M()}/downtime-lite/prompts/downtime-day`, T.dm, {})).status, 409, 'one open at a time');
@@ -541,7 +541,7 @@ test('Mods: a data system runs: seeds, record actions with who may, a DM prompt,
   const done = (await ok('GET', `${M()}/downtime-lite/records?kind=task`, T.dm)).records.task[0];
   assert.deepEqual([done.done, done.status], [2, 'done']);
   assert.equal((await call('POST', `${M()}/downtime-lite/records/work`, T.jess, { recordId: task.id })).status, 409, 'a finished task takes no more work');
-  // The DM takes a day back; the log shows every step with who and when.
+  // The GM takes a day back; the log shows every step with who and when.
   await ok('POST', `${M()}/downtime-lite/records/adjust`, T.dm, { recordId: task.id, amount: -1, note: 'Lost a day to the storm' });
   const log = (await ok('GET', `${M()}/downtime-lite/records-log?record=${task.id}`, T.dm)).log.map((l: any) => l.action);
   assert.deepEqual(log, ['adjust', 'timer:day:done', 'timer:day', 'work', 'timer:day', 'work', 'start']);
@@ -576,15 +576,15 @@ test('Mods: the Mod studio guide covers every part, and every rule shipped or in
   assert.equal((await call('GET', `${M()}/nope/file`, T.dm)).status, 404);
 });
 
-test('Mods: the check preview tells the DM what a rule does in plain words', async () => {
+test('Mods: the check preview tells the GM what a rule does in plain words', async () => {
   const dl = (await ok('GET', `${M()}/downtime-lite/file`, T.dm)).file;
   const p: string[] = (await ok('POST', `${M()}/check`, T.dm, { mod: { ...dl, id: 'studio-downtime' } })).preview;
   const all = p.join('\n');
   assert.match(all, /Keeps a list of Activities: .*starts with 5 ready-made/);
   assert.match(all, /Keeps a list of Tasks \(each player has their own\)/);
-  assert.match(all, /The DM gets a Downtime button: every player is asked "How do you spend the day\?" with Keep working \/ Start something \/ Skip the day/);
+  assert.match(all, /The GM gets a Downtime button: every player is asked "How do you spend the day\?" with Keep working \/ Start something \/ Skip the day/);
   assert.match(all, /Each A downtime day \(for players who did not skip\): \+1 done on each task; done when it reaches its goal/);
-  assert.match(all, /The DM can Add or take days: add or take done on a task/);
+  assert.match(all, /The GM can Add or take days: add or take done on a task/);
   const hp = (await ok('GET', `${M()}/hero-points/file`, T.dm)).file;
   const h: string[] = (await ok('POST', `${M()}/check`, T.dm, { mod: { ...hp, id: 'studio-hero' } })).preview;
   assert.ok(h.some((l) => /^Each player has Hero point \(starts at 1, at most 3 \(option max\)\)/.test(l)), h.join('\n'));
@@ -621,9 +621,9 @@ test('Mods: chat text in a data system names real fields; {kind.field} is the re
   await ok('DELETE', `${M()}/studio-projects`, T.dm);
 });
 
-test('Mods: the assistant part is checked, kept in the file, and its DM guidance never reaches players', async () => {
+test('Mods: the assistant part is checked, kept in the file, and its GM guidance never reaches players', async () => {
   const base = { kit: 2, id: 'studio-assist', name: 'Assisted', resources: [{ id: 'pt', label: 'Point' }], actions: [{ id: 'give', label: 'Give', by: 'dm', resource: 'pt', add: 1 }] };
-  const good = checkMod({ ...base, assistant: { words: ['Lucky'], dm: 'SECRET DM HINT', player: 'Help them spend.', tools: ['my_spell_codex'] } });
+  const good = checkMod({ ...base, assistant: { words: ['Lucky'], dm: 'SECRET GM HINT', player: 'Help them spend.', tools: ['my_spell_codex'] } });
   assert.deepEqual(good.errors, []);
   assert.deepEqual(good.mod!.assistant!.words, ['lucky']);
   assert.deepEqual((toFile(good.mod!) as any).assistant.tools, ['my_spell_codex']);
@@ -635,7 +635,7 @@ test('Mods: the assistant part is checked, kept in the file, and its DM guidance
   assert.match(bad.errors.join('\n'), /assistant\.tools\[0\] must be a tool name/);
   await ok('POST', `${M()}/import`, T.dm, { mod: toFile(good.mod!) });
   await ok('PUT', `${M()}/studio-assist/enabled`, T.dm, { on: true });
-  assert.ok(!JSON.stringify(await ok('GET', `${M()}`, T.jess)).includes('SECRET DM HINT'));
+  assert.ok(!JSON.stringify(await ok('GET', `${M()}`, T.jess)).includes('SECRET GM HINT'));
   assert.equal((await call('GET', `${M()}/studio-assist/file`, T.jess)).status, 403);
   for (const id of ['spell-crafting', 'spell-points', 'mana-pool']) assert.ok(shippedMod(id)!.mod.assistant?.player, `${id} helps players`);
   await ok('DELETE', `${M()}/studio-assist`, T.dm);

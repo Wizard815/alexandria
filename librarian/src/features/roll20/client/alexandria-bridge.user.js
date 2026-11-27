@@ -32,7 +32,7 @@
 // Whatever the GM is typing in the chat box is put back after each line.
 (function () {
   'use strict';
-  // Filled in when the DM downloads this from Alexandria's Roll20 page.
+  // Filled in when the GM downloads this from Alexandria's Roll20 page.
   var PRESET_URL = '__ALX_URL__';
   var PRESET_KEY = '__ALX_KEY__';
   var VERSION = '1.0.0';
@@ -427,7 +427,7 @@
   function setup() {
     var url = root.prompt('Alexandria address (e.g. https://alexandria.example.com)', cfg.url || '');
     if (url === null) return;
-    var k = root.prompt('Roll20 bridge key from Alexandria (DM → Roll20 → Make a bridge key)', cfg.key || '');
+    var k = root.prompt('Roll20 bridge key from Alexandria (GM → Roll20 → Make a bridge key)', cfg.key || '');
     if (k === null) return;
     cfg = { url: url.trim().replace(/\/+$/, ''), key: k.trim() };
     store.set('url', cfg.url); store.set('key', cfg.key);

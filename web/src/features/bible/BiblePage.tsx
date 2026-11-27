@@ -1,6 +1,6 @@
 // The story bible: facts about people, places, factions, items, events and
 // lore, grouped by subject, each citing its library page. Built for the caller
-// from the pages they may open (GET /bible); a DM gets the DM bible, a player
+// from the pages they may open (GET /bible); a GM gets the GM bible, a player
 // their own.
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -27,7 +27,7 @@ export default function BiblePage() {
   const data = useLoad<Bible>(() => w.call('GET', path), [w, path], ['page']);
   const href = (id: string) => `/w/${info.slug}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(id)}`;
   const b = data.data;
-  // The DM sees how far the background reading has got, so an empty bible is not a mystery.
+  // The GM sees how far the background reading has got, so an empty bible is not a mystery.
   const status = useLoad<{ configured: boolean; progress?: Progress; reading?: boolean; runs?: string }>(() => (isDM ? w.call('GET', '/bible/status') : Promise.resolve({ configured: false })), [w, isDM], ['page']);
   const left = progressText(status.data?.progress);
   useEffect(() => {

@@ -2,11 +2,11 @@
 // folder as a slideshow, a stage card, or media off), sound (a track and/or an ambience, volume, stop the rest), a lights
 // preset, and the table map (which picture, and optionally a saved fog state). Unset parts are left alone.
 //
-// Everything here is DM-only. Activating applies each part through the same world API the DM's own controls use, so a
+// Everything here is GM-only. Activating applies each part through the same world API the GM's own controls use, so a
 // part that fails (a deleted track, no lights set up) is reported and the others still happen; "undo scene" puts back what
 // the parts that worked had changed, as far as that is possible (it says what is not).
 //
-// Live event `scenes` (DM only, clients refetch) on any change, activation or undo. The parts' own events (`screen`,
+// Live event `scenes` (GM only, clients refetch) on any change, activation or undo. The parts' own events (`screen`,
 // `sound`, `stage`, `fog`, `table-display`) reach every screen as usual.
 import { Router, type Request } from 'express';
 import type { Feature } from '../types.ts';
@@ -52,7 +52,7 @@ const colorOf = (v: unknown) => {
   return c;
 };
 
-/** The world API as the DM making this request: the same call the DM's own buttons would make. */
+/** The world API as the GM making this request: the same call the GM's own buttons would make. */
 export function selfFor(req: Request, worldId: string): Call {
   const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
   const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : { Cookie: String(req.headers.cookie ?? '') };
@@ -194,10 +194,10 @@ const feature: Feature = {
     return r;
   },
   mcpTools: [
-    { name: 'list_scenes', dmOnly: true, description: "DM: the saved scenes (one-button presets that set the players' TV, sound, lights and the table map): name and which parts each sets.", props: {}, call: () => ({ method: 'GET', path: '/scenes' }) },
+    { name: 'list_scenes', dmOnly: true, description: "GM: the saved scenes (one-button presets that set the players' TV, sound, lights and the table map): name and which parts each sets.", props: {}, call: () => ({ method: 'GET', path: '/scenes' }) },
     {
       name: 'activate_scene', write: true,
-      description: "DM: activate a saved scene by name or id: sets the players' TV, sound, lights and table map in one go, and reports per part (one failing part does not stop the others). Scenes are listed by list_scenes.",
+      description: "GM: activate a saved scene by name or id: sets the players' TV, sound, lights and table map in one go, and reports per part (one failing part does not stop the others). Scenes are listed by list_scenes.",
       props: { scene: { type: 'string', description: 'Scene name or id' } },
       required: ['scene'],
       call: (a) => ({ method: 'POST', path: `/scenes/${encodeURIComponent(String(a.scene ?? ''))}/activate`, body: {} }),

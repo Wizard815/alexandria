@@ -1,4 +1,4 @@
-// The Library, for the DM and for players. A file browser for thousands of
+// The Library, for the GM and for players. A file browser for thousands of
 // pages, a page view that keeps the layout of the app a page came from
 // (LegendKeeper infoboxes, callouts, secrets, mentions), and offline copies.
 // Players only ever receive the player copy from the server, so what they
@@ -185,7 +185,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
               <div className="lib-filters">
                 <select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}><option value="">All tags</option>{tags.map((t) => <option key={t} value={t}>{t}</option>)}</select>
                 {kinds.length > 1 && <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}><option value="">All kinds</option>{kinds.map((k) => <option key={k} value={k}>{k}</option>)}</select>}
-                {isDM && <select aria-label="Who can read" value={vis} onChange={(e) => setVis(e.target.value as any)}><option value="all">All levels</option><option value="party">Shared with the party</option><option value="broker">Broker</option><option value="dm">DM only</option><option value="classified">Classified</option></select>}
+                {isDM && <select aria-label="Who can read" value={vis} onChange={(e) => setVis(e.target.value as any)}><option value="all">All levels</option><option value="party">Shared with the party</option><option value="broker">Broker</option><option value="dm">GM only</option><option value="classified">Classified</option></select>}
                 <select aria-label="Order" value={sort} onChange={(e) => setSort(e.target.value as Sort)}><option value="tree">Source order</option><option value="recent">Recent</option><option value="title">A–Z</option></select>
                 <label className="lib-check"><input type="checkbox" checked={savedOnly} onChange={(e) => setSavedOnly(e.target.checked)} /> Saved for offline</label>
                 {rows.some((r) => r.sharedWithMe) && <label className="lib-check"><input type="checkbox" checked={sharedOnly} onChange={(e) => setSharedOnly(e.target.checked)} /> Shared with me</label>}
@@ -225,7 +225,7 @@ export default function LibraryPage({ embedded = false }: { embedded?: boolean }
             <PageView key={selected} id={selected} rows={rows} copies={whole.rows.find((r) => r.id === whole.repOf.get(selected))?.copies ?? []} savedAt={saved.find((s) => s.pageId === selected)?.savedAt ?? null} onOpen={open}
               onSavedChange={refreshSaved} toast={toast} onDeleted={() => { toast('Page deleted'); setParams({}); }} />
           ) : (
-            <div className="card"><Empty>{rows.length ? 'Pick a page on the left.' : offline ? 'Nothing is saved on this device yet.' : isDM ? 'No pages yet. Make one, or add a source in Library admin.' : 'Your DM hasn\'t shared any pages yet.'}</Empty>{isDM && <SecretHint />}</div>
+            <div className="card"><Empty>{rows.length ? 'Pick a page on the left.' : offline ? 'Nothing is saved on this device yet.' : isDM ? 'No pages yet. Make one, or add a source in Library admin.' : 'Your GM hasn\'t shared any pages yet.'}</Empty>{isDM && <SecretHint />}</div>
           )}
         </section>
       </div>
@@ -286,7 +286,7 @@ function SavedPanel({ saved, offline, onOpen, onRemove, onUpdate, onZip }: { sav
 function LintPanel({ rows, error, onOpen }: { rows: any[] | null; error: string | null; onOpen: (id: string) => void }) {
   return (
     <div className="stack">
-      <p className="small muted">Shared pages that still read like DM notes ("The secret:", "DM note:", "GM only"). The leak guard can't tell plain prose is secret: hide the page or move the text into a secret block.</p>
+      <p className="small muted">Shared pages that still read like GM notes ("The secret:", "GM note:", "GM only"). The leak guard can't tell plain prose is secret: hide the page or move the text into a secret block.</p>
       <ErrorBox error={error} />
       {rows === null ? <Loading /> : rows.length ? (
         <div className="lib-flat">
@@ -297,7 +297,7 @@ function LintPanel({ rows, error, onOpen }: { rows: any[] | null; error: string 
             </button>
           ))}
         </div>
-      ) : <div className="ok-box small">Nothing flagged. Shared pages don't read like DM notes.</div>}
+      ) : <div className="ok-box small">Nothing flagged. Shared pages don't read like GM notes.</div>}
       <SecretHint />
     </div>
   );
@@ -355,7 +355,7 @@ function PageView({ id, rows, copies, savedAt, onOpen, onSavedChange, toast, onD
     toast(`Level: ${LEVEL_LABEL[levelOf(level)]}`);
     await load();
   });
-  // The librarian sends the link to a player only when the DM allowed it for this source.
+  // The librarian sends the link to a player only when the GM allowed it for this source.
   const src = sourceLink(pg);
   const crumbs = [pg.source, ...(pg.folder ?? [])].filter(Boolean);
   const parent = rows.find((r) => r.id === rows.find((x) => x.id === id)?.parentId);
@@ -413,7 +413,7 @@ function PageView({ id, rows, copies, savedAt, onOpen, onSavedChange, toast, onD
           </>}
         </div>
         {copies.length > 1 && <div className="row wrap lib-copies" role="group" aria-label="Copies of this page"><span className="tiny faint">Copies:</span>
-          {copies.map((c) => <button key={c.id} type="button" className={`chip${c.id === id ? ' gold' : ''}`} aria-current={c.id === id || undefined} onClick={() => onOpen(c.id)}>{c.source ?? 'Imported'}{isDM && (c.visibility === 'party' ? ' · players see' : ' · DM')}</button>)}
+          {copies.map((c) => <button key={c.id} type="button" className={`chip${c.id === id ? ' gold' : ''}`} aria-current={c.id === id || undefined} onClick={() => onOpen(c.id)}>{c.source ?? 'Imported'}{isDM && (c.visibility === 'party' ? ' · players see' : ' · GM')}</button>)}
         </div>}
         {pg.source && <p className="tiny faint lib-source" style={{ margin: '6px 0 0' }}>From {pg.source}{pg.synced_at ? <>, last synced {when(pg.synced_at)}</> : null}.{isDM && ' Edit it there. Delete removes it here until the next sync brings it back.'}</p>}
         <ErrorBox error={act.error} />
@@ -433,7 +433,7 @@ function PageView({ id, rows, copies, savedAt, onOpen, onSavedChange, toast, onD
         </div>
         {facts.length > 0 && <aside className="lib-side-facts" aria-label="Facts"><Facts groups={facts} ctx={ctx} /></aside>}
       </div>
-      {ask && <AskModal kind={ask} page={{ id: pg.id, title: pg.title }} onClose={() => setAsk(null)} onSent={() => { setAsk(null); toast('Sent to your DM'); }} />}
+      {ask && <AskModal kind={ask} page={{ id: pg.id, title: pg.title }} onClose={() => setAsk(null)} onSent={() => { setAsk(null); toast('Sent to your GM'); }} />}
     </article>
   );
 }

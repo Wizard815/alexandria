@@ -1,5 +1,5 @@
-// End-to-end test of the DM's multi-monitor screens: every pop-out panel, the portrait side screen (choose, order, fold,
-// resize, remembered), the table screen (rotate, and that nothing DM-only is ever in it, even on the DM's login) and the
+// End-to-end test of the GM's multi-monitor screens: every pop-out panel, the portrait side screen (choose, order, fold,
+// resize, remembered), the table screen (rotate, and that nothing GM-only is ever in it, even on the GM's login) and the
 // Screens page, on the demo world with fake models.
 // Run from web/: npm run build && node e2e/screens.mjs   (SCREENS_PORT)
 import path from 'node:path';
@@ -22,12 +22,12 @@ const watch = (page, who) => {
 const shows = (loc, ms = 6000) => loc.waitFor({ state: 'visible', timeout: ms }).then(() => true, () => false);
 const settle = async (page, ms = 700) => { await page.waitForTimeout(ms); };
 
-const SECRET_PIN = 'ZZ-DM-ONLY-PIN';
+const SECRET_PIN = 'ZZ-GM-ONLY-PIN';
 const SECRET_FOE = 'ZZ-HIDDEN-AMBUSHER';
 const HIDDEN_MARK = 'ZZ-HIDDEN-PARTY-PIN';
 
 try {
-  const { ctx, page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
+  const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
   watch(page, 'dm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body) => {
@@ -35,7 +35,7 @@ try {
     return { status: r.status, json: await r.json().catch(() => null) };
   };
 
-  // What the table must never show: a DM-only pin, a party pin the DM hid, a hidden foe, and a monster's AC and temp HP.
+  // What the table must never show: a GM-only pin, a party pin the GM hid, a hidden foe, and a monster's AC and temp HP.
   const info = (await api('GET', '')).json;
   await api('POST', '/map/world/marks', { kind: 'pin', x: 40, y: 40, label: SECRET_PIN, visibility: 'dm' });
   await api('POST', '/map/world/marks', { kind: 'pin', x: 55, y: 55, label: 'Open Gate', visibility: 'party' });
@@ -52,7 +52,7 @@ try {
     await page.goto(`${W}/panel/${id}`);
     await page.getByTestId(`panel-${id}`).waitFor({ timeout: 8000 }).catch(() => problems.push(`panel ${id}: did not render`));
     await settle(page, 500);
-    check(await page.locator('nav.side, nav[aria-label="DM"]').count() === 0, `panel ${id}: the DM menu is around it`);
+    check(await page.locator('nav.side, nav[aria-label="GM"]').count() === 0, `panel ${id}: the GM menu is around it`);
     const text = (await page.locator('body').innerText()).trim();
     check(text.length > 10 && !/something went wrong|cannot read prop|undefined is not/i.test(text), `panel ${id}: empty or crashed`);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -63,13 +63,13 @@ try {
   check(await shows(page.getByText('Marsh Goblin').first()), 'panel combat: the combat tracker should list the goblin');
   await page.goto(`${W}/panel/nonsense`);
   check(await shows(page.getByText(/no panel called/i)), 'an unknown panel should say so');
-  note(`${PANEL_IDS.length} pop-out panels render without the DM menu`);
+  note(`${PANEL_IDS.length} pop-out panels render without the GM menu`);
 
   // The old assistant window still works.
   await page.goto(`${W}/assistant-window`);
   check(await shows(page.getByText('Assistant').first()), 'the assistant-window route still renders');
 
-  // The pop-out button on a DM page opens the named window.
+  // The pop-out button on a GM page opens the named window.
   await page.goto(`${W}/dm/combat`);
   const pop = page.getByTestId('popout');
   check(await shows(pop), 'dm/combat: no pop-out button');
@@ -83,7 +83,7 @@ try {
     for (const r of ['panel/combat', 'screen/side', 'screen/table']) {
       await pp.goto(`${W}/${r}`);
       await settle(pp, 500);
-      check(/for the DM|opened by the DM/i.test(await pp.locator('body').innerText()), `a player at /${r} should be told it is the DM's`);
+      check(/for the GM|opened by the GM/i.test(await pp.locator('body').innerText()), `a player at /${r} should be told it is the GM's`);
     }
     await pctx.close();
   }
@@ -137,7 +137,7 @@ try {
   const dump = async () => table.evaluate(() => document.documentElement.outerHTML + '\n' + document.body.innerText);
   const looksSafe = async (where) => {
     const all = await dump();
-    for (const s of [SECRET_PIN, SECRET_FOE, HIDDEN_MARK, 'ZZ-']) check(!all.includes(s), `table (${where}) shows DM-only text "${s}"`);
+    for (const s of [SECRET_PIN, SECRET_FOE, HIDDEN_MARK, 'ZZ-']) check(!all.includes(s), `table (${where}) shows GM-only text "${s}"`);
     const ord = await table.getByTestId('table-order').innerText().catch(() => '');
     check(/Marsh Goblin/.test(ord), `table (${where}): the order should list the goblin: ${ord.slice(0, 100)}`);
     check(!/\bAC\b|temp|19|13\b.*AC/i.test(ord.replace(/Round \d+/g, '')), `table (${where}): the order shows AC or temp HP: ${ord.slice(0, 160)}`);
@@ -150,8 +150,8 @@ try {
   const reads = requests.filter((u) => /\/live\/combat|\/map\/[^/]+\/marks|\/files\/maps|\/intake\/map-images/.test(u) && !/\/prefetch/.test(u));
   check(requests.some((u) => /\/live\/combat\?view=players/.test(u)), 'table: never asked for the players\' combat');
   check(requests.some((u) => /\/marks\?view=players/.test(u)), 'table: never asked for the players\' marks');
-  note(`table: ${reads.filter((u) => u.includes('view=players')).length} player-view reads, DM-only text absent`);
-  // Even after the DM changes things live, nothing new leaks in.
+  note(`table: ${reads.filter((u) => u.includes('view=players')).length} player-view reads, GM-only text absent`);
+  // Even after the GM changes things live, nothing new leaks in.
   await api('POST', '/map/world/marks', { kind: 'note', x: 20, y: 70, text: `${SECRET_PIN} note`, visibility: 'dm' });
   await api('POST', '/live/combatants', { name: `${SECRET_FOE} 2`, initiative: 3, hp: 9, maxHp: 9, hidden: true });
   await settle(table, 1200);

@@ -1,5 +1,5 @@
 // Serves the security crawler's world (librarian/test/security-world.ts: one
-// unique marker at every DM-only, broker and classified spot) on fake models,
+// unique marker at every GM-only, broker and classified spot) on fake models,
 // with the built web app, for web/e2e/leaks.mjs.
 //   node --experimental-strip-types e2e/leakworld.mjs <port> <data dir> <web dist>
 // Prints one line "LEAKWORLD {json}" with the markers, then serves until killed.
@@ -21,8 +21,8 @@ await new Promise((r) => server.once('listening', r));
 const http = client(() => `http://127.0.0.1:${port}`);
 const S = await makeAccounts({ ...http, deps: made.deps });
 await seedContent({ ...http, deps: made.deps }, S);
-// The players' screen: a hidden queue item whose title is a DM-only marker, and a card shown to everyone,
-// so the screen route has content to crawl (leaks.mjs opens it with the DM's own token).
+// The players' screen: a hidden queue item whose title is a GM-only marker, and a card shown to everyone,
+// so the screen route has content to crawl (leaks.mjs opens it with the GM's own token).
 const scr = `/api/worlds/${S.W}/screen/media`;
 const hid = await http.ok('POST', `${scr}/items`, S.T.dm, { kind: 'youtube', url: 'https://youtu.be/dQw4w9WgXcQ', title: mark('screen_hidden', ['dm'], 'a hidden item in the players-screen queue') });
 await http.ok('PATCH', `${scr}/items/${hid.items[0].id}`, S.T.dm, { hidden: true });
@@ -53,8 +53,8 @@ await http.ok('PUT', `${fogw}/fog/table`, S.T.dm, { mapId: 'fogmap', pic: 'none'
   run(db, "UPDATE audio_sessions SET rec_dir = ?, rec_status = 'ready', rec_built_at = ? WHERE id = 'ses_crawl'", rel, at);
   const sum = (aud, text) => run(db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES ('ses_crawl', ?, ?, ?, '', 1, ?) ON CONFLICT (session_id, audience) DO UPDATE SET text = excluded.text", aud, S.W, text, at);
   sum('party', `The party reached the harbour. ${mark('zip_party_summary', ['dm', 'jess', 'tom'], "the players' summary (control)")}`);
-  sum('dm', `The queen waits. ${mark('zip_dm_summary', ['dm'], "the DM's running summary")}`);
-  run(db, "INSERT INTO audio_handoffs (id, session_id, world_id, status, text, source, created_at, updated_at, decided_at) VALUES ('ah_crawl', 'ses_crawl', ?, 'approved', ?, 'final', ?, ?, ?)", S.W, `Approved: ${mark('zip_handoff', ['dm'], 'the approved DM summary in Download all')}`, at, at, at);
+  sum('dm', `The queen waits. ${mark('zip_dm_summary', ['dm'], "the GM's running summary")}`);
+  run(db, "INSERT INTO audio_handoffs (id, session_id, world_id, status, text, source, created_at, updated_at, decided_at) VALUES ('ah_crawl', 'ses_crawl', ?, 'approved', ?, 'final', ?, ?, ?)", S.W, `Approved: ${mark('zip_handoff', ['dm'], 'the approved GM summary in Download all')}`, at, at, at);
 }
 // Library sharing seeds (per-player shares, folder rules, files added later) are in seedContent, so the API crawler covers them too.
 const slug = all(made.deps.db, 'SELECT slug FROM worlds WHERE id = ?', S.W)[0].slug;

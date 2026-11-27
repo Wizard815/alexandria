@@ -3,7 +3,7 @@
 // answers for that address) that speaks the Owlbear SDK's message protocol: it frames the extension, keeps the scene's
 // items and room metadata, and draws the map and fog on a canvas so the screenshots show what a table would see.
 //
-// Checked: the DM makes a link key on DM → Setup → Owlbear Rodeo; the GM pastes it in the popover; the table screen's map
+// Checked: the GM makes a link key on GM → Setup → Owlbear Rodeo; the GM pastes it in the popover; the table screen's map
 // picture lands in the scene with Alexandria's fog on it; a reveal in Alexandria reaches Owlbear; with "Owlbear leads",
 // fog drawn with Owlbear's tools comes back to Alexandria (and hides a party pin from players); a player's popover links
 // to the world and never gets the key.
@@ -128,7 +128,7 @@ const watch = (page, who) => {
 
 try {
   // ---- 1. Alexandria: a party map on the table screen, fog on with a room revealed ------------------------------------
-  const { page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1400, height: 900 }, false, /\/w\/saltreach/);
+  const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 }, false, /\/w\/saltreach/);
   watch(page, 'dm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
@@ -152,7 +152,7 @@ try {
   await api('PUT', '/fog/map/world/enabled', { pic: PIC, enabled: true });
   await api('POST', '/fog/map/world/ops', { pic: PIC, op: { k: 'c', x: 0.5, y: 0.5, r: 0.12, v: 1 } });
 
-  // ---- 2. DM → Setup → Owlbear Rodeo: the address and a link key ----------------------------------------------------------
+  // ---- 2. GM → Setup → Owlbear Rodeo: the address and a link key ----------------------------------------------------------
   await page.goto(`${W}/dm/owlbear`);
   await page.getByTestId('owlbear-page').waitFor({ timeout: 8000 });
   const manifest = await page.getByTestId('owlbear-manifest').innerText();

@@ -57,7 +57,7 @@ export function RulesList() {
       {isDM && on.length > 0 && (
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button type="button" className="btn small" disabled={act.busy} onClick={() => void exportOn()}>Export the {on.length} rule{on.length > 1 ? 's' : ''} that {on.length > 1 ? 'are' : 'is'} on</button>
-          <span className="tiny muted">One package file (.alxmod.json) another DM can add under Make or add one.</span>
+          <span className="tiny muted">One package file (.alxmod.json) another GM can add under Make or add one.</span>
         </div>
       )}
       <ErrorBox error={act.error} />
@@ -69,8 +69,8 @@ export function RulesList() {
 const IDEAS: [string, string][] = [
   ['Hero points', 'Hero points: each player starts a session with 1 (most 3). Spend one to add 1d6 to a roll after seeing it.'],
   ['Lingering injuries', 'Lingering injuries: when a character drops to 0 HP they gain an injury point. A long rest removes one. At 3 they have disadvantage on Strength and Dexterity checks.'],
-  ['Critical fumbles', 'Critical fumbles: on a natural 1 on an attack the DM may describe a mishap. Players can spend a fumble token (DM-given) to turn it into a plain miss.'],
-  ['Session journal XP', 'Journal bonus: the DM gives a journal token to each player who writes a session recap. Spend one for advantage on any check.'],
+  ['Critical fumbles', 'Critical fumbles: on a natural 1 on an attack the GM may describe a mishap. Players can spend a fumble token (GM-given) to turn it into a plain miss.'],
+  ['Session journal XP', 'Journal bonus: the GM gives a journal token to each player who writes a session recap. Spend one for advantage on any check.'],
   ['Downtime', 'Downtime: ready-made activities by tier (common 1 day up to legendary 3 months), players can add their own. When a day passes I press Downtime and each player keeps working, starts something or skips. I can add or take days and set a reward; a task is done when its days are in.'],
   ['Crafting projects', 'Crafting projects: a player starts a project with a name and the gold it costs; each long rest adds 1 day of work, and it is done after the days the item needs. I can drop a project or add days.'],
   ['Spell points', 'Spell points instead of spell slots, using the standard variant table, called "Spell points" on the sheet.'],

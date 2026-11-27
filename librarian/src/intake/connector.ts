@@ -39,7 +39,7 @@ export interface ConnectorContext {
   signal: AbortSignal;
   /** The source's own id, for scratch folders. */
   sourceId: string;
-  /** Pages the source shows to players become party, unless the admin keeps them DM-only. */
+  /** Pages the source shows to players become party, unless the admin keeps them GM-only. */
   shareVisible: boolean;
   /** Record kinds whose listing could not be read this time. Their stored records are kept, not removed. */
   incomplete: Set<SyncRecord['kind']>;
@@ -101,7 +101,7 @@ export interface TierState {
 export interface Tiered {
   /** Detail calls a minute that stay inside the source's published rate limit, with room for other users of the same key. */
   budgetPerMinute: number;
-  /** Background detail calls a minute when the DM sets none (default: half of budgetPerMinute). */
+  /** Background detail calls a minute when the GM sets none (default: half of budgetPerMinute). */
   budgetDefault?: number;
   /** Tier 1. Only list calls. */
   index(cfg: Record<string, any>, ctx: ConnectorContext): AsyncIterable<SyncItem>;
@@ -126,7 +126,7 @@ export type SyncRecord =
   /**
    * A picture of a page (`pageRef`: the source's own id of the page, or of the record the picture belongs to). `data` is the file when it was
    * downloaded now; without it the picture already stored under `externalId` is kept (and its link refreshed). `marker` says which version of the
-   * picture was stored (its URL and update time). `visibility` `party` means the picture may follow its page; it never makes a DM-only page visible.
+   * picture was stored (its URL and update time). `visibility` `party` means the picture may follow its page; it never makes a GM-only page visible.
    * `later`: not downloaded now but queued (with `url`) for the picture downloader (intake/imagequeue.ts). `inline`: a picture in the page's
    * text (served in place of its address, not listed with the page's own pictures).
    */
@@ -181,7 +181,7 @@ export interface ConnectorWrite {
   deletePage(cfg: Record<string, any>, ctx: ConnectorContext, a: { root: string; id: string }): Promise<void>;
   /** The page as an entry, to re-sync just that page. Null: not readable (sync the whole source instead). */
   readPage?(cfg: Record<string, any>, ctx: ConnectorContext, a: { root: string; id: string }): Promise<Entry | null>;
-  /** Top-level things the DM may pick as the workspace root. */
+  /** Top-level things the GM may pick as the workspace root. */
   roots?(cfg: Record<string, any>, ctx: ConnectorContext): Promise<{ id: string; title: string; folder?: boolean; kind?: string }[]>;
   /** Pages at any depth whose name has `q`, as possible roots (for sources too big to list). */
   search?(cfg: Record<string, any>, ctx: ConnectorContext, q: string): Promise<{ id: string; title: string; folder?: boolean; kind?: string }[]>;

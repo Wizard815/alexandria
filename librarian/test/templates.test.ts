@@ -1,5 +1,5 @@
-// Templates & guides: trigger matching, guide injection into the DM's assistant, web query blocking (fail closed:
-// DM-only and classified words never leave), drafting with the assistant and deriving a guide from example pages.
+// Templates & guides: trigger matching, guide injection into the GM's assistant, web query blocking (fail closed:
+// GM-only and classified words never leave), drafting with the assistant and deriving a guide from example pages.
 // The chat model and the web search are the fake models server (scripts/fake-models.ts): it answers SearXNG's
 // GET /search too, so every outgoing search is visible in its request log.
 import { test, after } from 'node:test';
@@ -58,7 +58,7 @@ const dm = (m: string, p: string, b?: unknown) => ok(m, w(p), T.dm, b);
 const CLASSIFIED = 'The Moonvault opens only when the Quorlith sigil burns under three moons at once';
 const page = async (p: string, visibility: string, markdown: string) => (await dm('PUT', '/library/pages', { path: p, visibility, markdown })).id as string;
 const PG: Record<string, string> = {};
-PG.saltmarsh = await page('Places/Towns/Saltmarsh', 'party', '---\ntags: [town, coast]\n---\n# Saltmarsh\n## Overview\nA fishing town on the coast, ruled by a harbour council. The [[Greywater Ferry]] crosses the river.\n## People\nFishers and ferrymen.\n## Rumours\nThe lighthouse is dark.\n> [!secret] DM\n> The council answers to Velmira, the smuggler queen.\n');
+PG.saltmarsh = await page('Places/Towns/Saltmarsh', 'party', '---\ntags: [town, coast]\n---\n# Saltmarsh\n## Overview\nA fishing town on the coast, ruled by a harbour council. The [[Greywater Ferry]] crosses the river.\n## People\nFishers and ferrymen.\n## Rumours\nThe lighthouse is dark.\n> [!secret] GM\n> The council answers to Velmira, the smuggler queen.\n');
 PG.ferry = await page('Places/Towns/Greywater Ferry', 'party', '---\ntags: [town, river]\n---\n# Greywater Ferry\n## Overview\nA ferry hamlet on the Greywater, linked to [[Saltmarsh]].\n## People\nBoatwrights.\n## Rumours\nA drowned bell rings at night.\n');
 PG.mill = await page('Places/Towns/Brindle Mill', 'party', '---\ntags: [town]\n---\n# Brindle Mill\n## Overview\nA mill village upriver.\n## Trade\nFlour.\n## People\nMillers.\n## Rumors\nThe wheel turns by itself.\n');
 PG.velmira = await page('People/Velmira', 'dm', '# Velmira\nThe smuggler queen of the coast. She keeps her treasury beneath the dark lighthouse.');
@@ -80,7 +80,7 @@ const modelContexts = (reqs: typeof fakes.requests) => reqs.filter((r) => r.path
 const searches = () => fakes.requests.filter((r) => r.path === '/search');
 const searxUrl = fakes.baseUrl.replace(/\/v1$/, '');
 
-test('Templates: DM only; versioned; on and off; classified text is refused', async () => {
+test('Templates: GM only; versioned; on and off; classified text is refused', async () => {
   assert.equal((await call('GET', w('/templates'), T.jess)).status, 403);
   assert.equal((await call('POST', w('/templates/draft'), T.jess, { kind: 'guide', description: 'x' })).status, 403);
   assert.equal((await call('POST', w('/templates/web/search'), T.jess, { queries: ['x'] })).status, 403);
@@ -102,13 +102,13 @@ test('Templates: DM only; versioned; on and off; classified text is refused', as
   await dm('DELETE', `/templates/${t.id}`);
 });
 
-test('Web research: off by default; DM-only and classified words never leave (fail closed)', async () => {
+test('Web research: off by default; GM-only and classified words never leave (fail closed)', async () => {
   assert.equal((await dm('GET', '/templates/web')).config.enabled, false);
   const off = await call('POST', w('/templates/web/search'), T.dm, { queries: ['Tomonoura Japan'] });
   assert.equal(off.status, 403);
   await dm('PUT', '/templates/web', { enabled: true, provider: 'searxng', searxUrl });
   const terms = secretTerms(deps, W);
-  assert.ok(terms.dm.has('velmira'), 'a DM-only name');
+  assert.ok(terms.dm.has('velmira'), 'a GM-only name');
   assert.ok(terms.classified.has('quorlith') && terms.classified.has('moonvault'), 'classified words');
   assert.ok(!terms.dm.has('saltmarsh') && !terms.dm.has('fishing'), 'public names and common words are not secret');
   assert.equal(blockedQuery(deps, W, ['Tomonoura Japan town history']), null);
@@ -117,12 +117,12 @@ test('Web research: off by default; DM-only and classified words never leave (fa
   const before = searches().length;
   const dmTerm = await call('POST', w('/templates/web/search'), T.dm, { queries: ['Tomonoura history', 'Velmira'] });
   assert.equal(dmTerm.status, 422);
-  assert.match(dmTerm.body.error, /DM-only name/);
+  assert.match(dmTerm.body.error, /GM-only name/);
   const cl = await call('POST', w('/templates/web/search'), T.dm, { queries: ['Moonvault Quorlith'] });
   assert.equal(cl.status, 422);
   assert.ok(!/quorlith|moonvault/i.test(cl.body.error), 'a classified word is never repeated');
   assert.equal(searches().length, before, 'nothing was sent for a refused query, not even the allowed one beside it');
-  // The DM may allow a DM-only word, never a classified one.
+  // The GM may allow a GM-only word, never a classified one.
   await dm('PUT', '/templates/web', { allowTerms: ['velmira', 'quorlith'] });
   assert.equal(blockedQuery(deps, W, ['Velmira']), null);
   assert.equal(blockedQuery(deps, W, ['Quorlith'])?.level, 'classified');
@@ -162,7 +162,7 @@ test('Guides: a matching request gets the guide, its steps run, and the chat sho
   const guide = await dm('POST', '/templates', {
     kind: 'guide', name: 'Towns', triggers: ['town', 'village', 'city'],
     spec: {
-      task: 'Make a town', instructions: 'Keep the coast towns poor and proud.', sections: ['Overview', 'People', 'Rumours', 'Secrets (DM)'], folder: 'Places/Towns',
+      task: 'Make a town', instructions: 'Keep the coast towns poor and proud.', sections: ['Overview', 'People', 'Rumours', 'Secrets (GM)'], folder: 'Places/Towns',
       steps: [
         { kind: 'library', text: 'Search the library for lore.' },
         { kind: 'neighbours', text: 'Find the towns around it.' },
@@ -194,7 +194,7 @@ test('Guides: a matching request gets the guide, its steps run, and the chat sho
   // A question about a town is not a request to make one.
   assert.equal((await ask('how many people live in the town of Saltmarsh?')).chat.messages.at(-1).guides.length, 0);
 
-  // Web research on, Ask first: the search is a card with the query, nothing is sent until the DM approves.
+  // Web research on, Ask first: the search is a card with the query, nothing is sent until the GM approves.
   await dm('PUT', '/templates/web', { enabled: true, provider: 'searxng', searxUrl });
   await dm('PATCH', '/settings', { agentAuto: false });
   const r2 = await ask('Make a town called Kirihama based on Tomonoura, near Saltmarsh');
@@ -224,7 +224,7 @@ test('Guides: a matching request gets the guide, its steps run, and the chat sho
   assert.equal(web3.status, 'done', JSON.stringify(web3));
   assert.ok(r3.chat.messages.at(-1).citations.some((x: any) => x.kind === 'web' && /^https:\/\/example\.org\//.test(x.id)));
   assert.match(modelContexts(r3.requests).join('\n'), /Web research for \\"Kotohira Japan town history\\"/);
-  // A reference that is a DM-only name is blocked before anything is sent, in Auto too.
+  // A reference that is a GM-only name is blocked before anything is sent, in Auto too.
   const n = searches().length;
   const r4 = await ask('Make a town based on Velmira near Saltmarsh');
   assert.equal(r4.chat.messages.at(-1).guides[0].steps.find((s: any) => s.kind === 'web').status, 'blocked');
@@ -326,8 +326,8 @@ test('Templates: the assistant\'s draft from a description works with no model',
 
 test('Templates: the common structure of example pages', () => {
   const st = commonStructure([
-    { id: 'a', title: 'A', path: 'Places/Towns/A', tags: ['town', 'coast'], body: '# A\n## Overview\nx [[B]]\n## People\ny\n## Rumours\nz\n> [!secret] DM\n> s' },
-    { id: 'b', title: 'B', path: 'Places/Towns/B', tags: ['town'], body: '# B\n## Overview\nx [[A]]\n## Trade\nq\n## People\ny\n## Rumours\nz\n> [!secret] DM\n> s' },
+    { id: 'a', title: 'A', path: 'Places/Towns/A', tags: ['town', 'coast'], body: '# A\n## Overview\nx [[B]]\n## People\ny\n## Rumours\nz\n> [!secret] GM\n> s' },
+    { id: 'b', title: 'B', path: 'Places/Towns/B', tags: ['town'], body: '# B\n## Overview\nx [[A]]\n## Trade\nq\n## People\ny\n## Rumours\nz\n> [!secret] GM\n> s' },
     { id: 'c', title: 'C', path: 'Places/Towns/C', tags: ['town', 'river'], body: '# C\n## Overview\nx\n## People\ny\n## Rumors\nz' },
   ]);
   assert.deepEqual(st.sections, ['Overview', 'People', 'Rumours']);
@@ -345,7 +345,7 @@ test('Templates: export a package and import it into another world (all or none;
   assert.equal(pkg.templates.length, 2);
   assert.deepEqual(pkg.templates[0].spec.exemplars, [], "example pages are this world's library, so they stay home");
   assert.ok(!JSON.stringify(pkg).includes(g.id), 'no ids travel');
-  // Another world (same DM).
+  // Another world (same GM).
   const W2 = (await ok('POST', '/api/admin/worlds', ads, { name: 'Elsewhere', dmAccountId: dmId })).id;
   const w2 = (p: string) => `/api/worlds/${W2}${p}`;
   const checked = await ok('POST', w2('/templates/import'), T.dm, { file: pkg, check: true });

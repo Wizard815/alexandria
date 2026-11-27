@@ -21,11 +21,11 @@ export type SettingSpec =
 export interface McpTool {
   name: string;
   description: string;
-  /** Only listed for a DM's write key. */
+  /** Only listed for a GM's write key. */
   write?: boolean;
-  /** Only listed for a player's key (never a DM's, read or write). */
+  /** Only listed for a player's key (never a GM's, read or write). */
   playerOnly?: boolean;
-  /** Only listed for the DM (any key): a DM-only read players would only get 403 from. */
+  /** Only listed for the GM (any key): a GM-only read players would only get 403 from. */
   dmOnly?: boolean;
   props: Record<string, any>;
   required?: string[];
@@ -59,7 +59,7 @@ export interface Feature {
   /**
    * House rules (mods, see features/mods and docs/MODS.md) this feature ships: the id of a rule file in the repo's
    * mods/ folder, or a mod file object. A big system usually ships one whose `presets` switch its own settings on,
-   * so the DM turns it on under House rules.
+   * so the GM turns it on under House rules.
    */
   houseRules?: unknown[];
 }

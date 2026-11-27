@@ -1,4 +1,4 @@
-// The assistant's read-aloud endpoint and the chat list: the voice job turns a reply into audio for the DM's own device
+// The assistant's read-aloud endpoint and the chat list: the voice job turns a reply into audio for the GM's own device
 // only, the markdown is stripped and capped first, and every account sees only its own chats.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';

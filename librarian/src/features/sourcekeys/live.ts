@@ -1,7 +1,7 @@
 // Talking to a source with a person's key: check it belongs to this world,
 // probe what it sees, list what it can see, and search live. The key replaces
 // the connection's secret in a copy of the source's settings; it is only ever
-// sent to the host the DM already set up for the source (the connectors build
+// sent to the host the GM already set up for the source (the connectors build
 // the requests, and Kanka's refuses any URL outside the API base).
 import type { Deps } from '../../app.ts';
 import { effectiveConfig } from '../../intake/connections.ts';
@@ -83,8 +83,8 @@ export async function verifyKey(d: Deps, src: SourceRow, secret: string): Promis
 export interface Probe { verdict: 'sees-everything' | 'sees-less' | 'unknown'; keyCount: number | null; dmCount: number | null; note: string }
 
 /**
- * Help the DM decide the trust question. Kanka: the number of entities the key
- * can list against the number the DM's own connection lists. Equal looks like
+ * Help the GM decide the trust question. Kanka: the number of entities the key
+ * can list against the number the GM's own connection lists. Equal looks like
  * a blanket key; fewer looks like per-user permissions. Not a proof, so it only
  * ever informs: it never changes trust. Other sources: unknown.
  */
@@ -92,7 +92,7 @@ export async function probeKey(d: Deps, src: SourceRow, secret: string): Promise
   const unknown = (note: string): Probe => ({ verdict: 'unknown', keyCount: null, dmCount: null, note });
   try {
     const { c } = keyConnector(d, src);
-    if (c.id !== 'kanka-api') return unknown('Alexandria cannot compare this kind of source. Treated as a blanket key until the DM says otherwise.');
+    if (c.id !== 'kanka-api') return unknown('Alexandria cannot compare this kind of source. Treated as a blanket key until the GM says otherwise.');
     const count = (tok: string) => withKey(d, src, tok, async ({ cfg, ctx }) => {
       const r = await kankaHttp(ctx, cfg, 'GET', `${kankaBase(cfg)}/campaigns/${encodeURIComponent(String(cfg.campaignId))}/entities?page=1`);
       if (r.status !== 200) return null;
@@ -101,9 +101,9 @@ export async function probeKey(d: Deps, src: SourceRow, secret: string): Promise
     });
     const dmToken = String(effectiveConfig(d.db, src).token ?? '');
     const [keyCount, dmCount] = [await count(secret), dmToken ? await count(dmToken) : null];
-    if (keyCount === null || dmCount === null) return unknown('Could not count what the key and the DM connection can see.');
-    if (keyCount >= dmCount) return { verdict: 'sees-everything', keyCount, dmCount, note: `This key lists ${keyCount} entities, as many as the DM connection (${dmCount}): it looks like a blanket key.` };
-    return { verdict: 'sees-less', keyCount, dmCount, note: `This key lists ${keyCount} of the ${dmCount} entities the DM connection lists: it looks like per-user permissions.` };
+    if (keyCount === null || dmCount === null) return unknown('Could not count what the key and the GM connection can see.');
+    if (keyCount >= dmCount) return { verdict: 'sees-everything', keyCount, dmCount, note: `This key lists ${keyCount} entities, as many as the GM connection (${dmCount}): it looks like a blanket key.` };
+    return { verdict: 'sees-less', keyCount, dmCount, note: `This key lists ${keyCount} of the ${dmCount} entities the GM connection lists: it looks like per-user permissions.` };
   } catch (e: any) {
     return unknown(`The probe failed: ${say(e)}`);
   }

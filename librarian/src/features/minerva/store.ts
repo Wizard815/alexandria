@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS minerva_sessions (
   filed_at TEXT NOT NULL,
   PRIMARY KEY (world_id, entry_id)
 );
--- What Minerva proposes (or a player's tool wrote) and the DM decides on the review page.
+-- What Minerva proposes (or a player's tool wrote) and the GM decides on the review page.
 CREATE TABLE IF NOT EXISTS minerva_drafts (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -112,12 +112,12 @@ export function requireEnabled(db: DB, worldId: string) {
 export function worldSettings(d: Deps, worldId: string): WorldSettings {
   return { ...DEFAULT_SETTINGS, ...parseJson(one<any>(d.db, 'SELECT settings FROM worlds WHERE id = ?', worldId)?.settings ?? '{}', {}) };
 }
-/** What the DM calls the assistant (default Minerva). Only the DM side ever uses it. */
+/** What the GM calls the assistant (default Minerva). Only the GM side ever uses it. */
 export function agentName(d: Deps, worldId: string): string {
   const v = String(featureSetting<string>(worldSettings(d, worldId), 'agentName') ?? '').trim();
   return v || 'Minerva';
 }
-/** Tools the DM turned auto-approve on. */
+/** Tools the GM turned auto-approve on. */
 export const autoApproved = (d: Deps, worldId: string, tool: string): boolean => (featureSetting<string[]>(worldSettings(d, worldId), 'agentAutoApprove') ?? []).includes(tool);
 
 // ---- arcs ----------------------------------------------------------------------

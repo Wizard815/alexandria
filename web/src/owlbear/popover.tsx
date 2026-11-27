@@ -58,7 +58,7 @@ function KeyForm({ onSaved }: { onSaved: () => void }) {
     <form onSubmit={(e) => { e.preventDefault(); void save(); }}>
       <p>Link this room to your Alexandria world.</p>
       <ol className="muted">
-        <li>In Alexandria, open <b>DM → Setup → Owlbear Rodeo</b>.</li>
+        <li>In Alexandria, open <b>GM → Setup → Owlbear Rodeo</b>.</li>
         <li>Press <b>Make a link key</b> and copy it.</li>
         <li>Paste it here. It stays in this browser only.</li>
       </ol>

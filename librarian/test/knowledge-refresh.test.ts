@@ -1,5 +1,5 @@
 // Refresh world and pictures stored here: a page's portrait and the pictures in its text are queued by a sync, downloaded by the picture
-// downloader, served from this server in place of the source's address, and a DM-only picture never reaches a player. "Refresh world" runs
+// downloader, served from this server in place of the source's address, and a GM-only picture never reaches a player. "Refresh world" runs
 // sources, pictures, index and Minerva's codex links as one job.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -53,9 +53,9 @@ test('TestKnowledge_EntryPicturesFollowThePageAndSecrets', () => {
     ['https://img.example/mira.png', 'party', false, true],
     ['https://img.example/a.png', 'party', true, true],
     ['https://img.example/s.png', 'dm', true, true],
-  ], 'banner first, each address once, a secret picture is the DM\'s, no script address, maps left to the connector');
+  ], 'banner first, each address once, a secret picture is the GM\'s, no script address, maps left to the connector');
   assert.ok(r.every((x) => x.pageRef === 'kanka:7' && x.externalId.startsWith('kanka:7#pic:')));
-  assert.ok(entryPictures({ ...e, visibility: 'dm' }).every((x: any) => x.visibility === 'dm'), 'a DM-only page gives only DM pictures');
+  assert.ok(entryPictures({ ...e, visibility: 'dm' }).every((x: any) => x.visibility === 'dm'), 'a GM-only page gives only GM pictures');
 });
 
 test('TestKnowledge_PicturesAreStoredAndServedHere', async () => {
@@ -93,7 +93,7 @@ test('TestKnowledge_PicturesAreStoredAndServedHere', async () => {
     assert.ok(pg.pictures[0].primary && pg.pictures[0].url === pg.banner, 'the banner copy is the primary picture');
     assert.equal(pg.pictures.length, 1, 'pictures in the text are not listed in the gallery');
     const imgs = JSON.stringify(pg.blocks);
-    assert.ok(!imgs.includes('img.example/gate.png') && !imgs.includes('img.example/secret.png'), 'the DM sees every stored picture from here');
+    assert.ok(!imgs.includes('img.example/gate.png') && !imgs.includes('img.example/secret.png'), 'the GM sees every stored picture from here');
     assert.ok(imgs.includes('img.example/broken.png'), 'a picture that could not be stored keeps its address');
     const media = await fetch(w.base + pg.banner);
     assert.equal(media.status, 200);
@@ -178,7 +178,7 @@ test('TestKnowledge_RefreshWorldRunsEveryStep', async () => {
   try {
     const { deps, W } = w;
     enable(deps, W, null);
-    assert.equal((await w.call('POST', `/api/worlds/${W}/knowledge/refresh`, w.jess, {})).status, 403, 'the DM refreshes');
+    assert.equal((await w.call('POST', `/api/worlds/${W}/knowledge/refresh`, w.jess, {})).status, 403, 'the GM refreshes');
     assert.equal((await w.call('GET', `/api/worlds/${W}/knowledge`, w.jess)).status, 403);
     const s = await w.call('POST', `/api/worlds/${W}/knowledge/refresh`, w.dm, {});
     assert.equal(s.status, 202);

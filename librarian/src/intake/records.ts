@@ -157,7 +157,7 @@ export function imageIdForPage(db: DB, worldId: string, sourceId: string | null,
   return imagesForPage(db, worldId, sourceId, externalId).find((i) => i.kind !== 'inline')?.id ?? null;
 }
 
-/** Imported map images the viewer may open, for the Map page: the DM all, anyone else only maps that pass `imageVisibleTo`. Each has the page it belongs to. */
+/** Imported map images the viewer may open, for the Map page: the GM all, anyone else only maps that pass `imageVisibleTo`. Each has the page it belongs to. */
 export function mapImagesFor(db: DB, worldId: string, role: string): { id: string; name: string; source_id: string; size: number; page: { id: string; title: string } | null }[] {
   initRecords(db);
   const out: any[] = [];
@@ -170,8 +170,8 @@ export function mapImagesFor(db: DB, worldId: string, role: string): { id: strin
 }
 
 /**
- * May this viewer fetch this picture? The DM: yes. Everyone else: only when the picture itself may follow its page AND the page it belongs
- * to has a player copy (shared and checked). A picture with no page, or whose page is DM-only, is the DM's alone. Fail closed.
+ * May this viewer fetch this picture? The GM: yes. Everyone else: only when the picture itself may follow its page AND the page it belongs
+ * to has a player copy (shared and checked). A picture with no page, or whose page is GM-only, is the GM's alone. Fail closed.
  */
 export function imageVisibleTo(db: DB, img: { world_id: string; source_id: string; visibility: string; page_external: string | null }, role: string): boolean {
   if (role === 'dm') return true;
@@ -357,7 +357,7 @@ export const MAX_TRIES = 5;
 const isDm = (v: RecordViewer) => v.role === 'dm';
 
 interface PageRef { id: string; title: string; party: boolean; classified: boolean }
-/** A model-facing read of the DM's records must not see a page that is classified, or its title. */
+/** A model-facing read of the GM's records must not see a page that is classified, or its title. */
 const modelBlind = (v: RecordViewer, p: PageRef | null | undefined) => v.role === 'dm' && v.audience !== undefined && !!p?.classified;
 /** Looks up a source's page by its own id. A page not found counts as not shared. */
 function pageLookup(db: DB, worldId: string) {
@@ -400,7 +400,7 @@ export function timelinesFor(db: DB, worldId: string, viewer: RecordViewer) {
     const dm = isDm(viewer);
     const model = dm && viewer.audience !== undefined;
     const hidden = (m: Mention) => !m.ref || !find(t.source_id, m.ref)?.party;
-    // Descriptions for the DM's models: no link to a classified page, and a link that resolves to nothing is hidden too.
+    // Descriptions for the GM's models: no link to a classified page, and a link that resolves to nothing is hidden too.
     const blind = (m: Mention) => !m.ref || !find(t.source_id, m.ref) || find(t.source_id, m.ref)!.classified;
     const desc = (b: Block[]): Block[] => (!dm ? playerBlocks(b, hidden) : model ? blocksFor(b, 'ai', blind) : b);
     const groups = (JSON.parse(t.data || '[]') as TimelineGroup[]).map((g) => ({

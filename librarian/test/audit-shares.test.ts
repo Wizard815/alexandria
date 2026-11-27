@@ -7,7 +7,7 @@ let k: Kit;
 before(async () => { k = await boot(); });
 after(() => k?.close());
 
-test('Audit_Shares: a DM share dies when the page rises above dm, and never reaches search or bulk', async () => {
+test('Audit_Shares: a GM share dies when the page rises above dm, and never reaches search or bulk', async () => {
   const p = await k.ok('PUT', k.w('/library/pages'), k.T.dm, { path: 'shared/Toll Road.md', visibility: 'dm', body: '# Toll Road\nThe toll road ZSHARE1PUBLIC is watched.\n\n> [!secret]\n> ZSHARE1SECRET the keeper is bribed\n' });
   const asJess = (u: string) => k.call('GET', k.w(u), k.T.jess);
   assert.equal((await asJess(`/library/pages/${p.id}`)).status, 404, 'not shared yet');

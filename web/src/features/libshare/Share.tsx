@@ -1,5 +1,5 @@
-// Sharing the library, for the DM: who can see each page, file and folder, one small dialog to change it,
-// the "Shared with players" list, and (for players) what is new from the DM.
+// Sharing the library, for the GM: who can see each page, file and folder, one small dialog to change it,
+// the "Shared with players" list, and (for players) what is new from the GM.
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Empty, Loading, Modal, useAction } from '../../ui/index.tsx';
@@ -13,7 +13,7 @@ export interface FolderRule { sourceId: string; path: string; mode: 'party' | 'p
 export interface SharedItem { kind: 'page' | 'file'; id: string; pageId: string; title: string; mode: string; to: string[]; via: string[]; where: string }
 export interface Overview { players: { id: string; name: string }[]; pages: Record<string, AudEntry>; files: Record<string, AudEntry>; folders: FolderRule[]; shared: SharedItem[] }
 
-/** The DM's picture of who can see what. Players get nothing here. */
+/** The GM's picture of who can see what. Players get nothing here. */
 export function useSharing() {
   const { w, isDM } = useWorld();
   return useLoad<Overview | null>(() => (isDM ? w.call<Overview>('GET', '/libshare/overview') : Promise.resolve(null)), [w, isDM], ['libshare', 'page', 'libfile']);
@@ -21,7 +21,7 @@ export function useSharing() {
 
 const names = (o: Overview | null | undefined, ids: string[]) => ids.map((id) => o?.players.find((p) => p.id === id)?.name ?? 'Someone').join(', ');
 
-/** A chip saying who can see something: Party, N players, DM, Broker or Classified. */
+/** A chip saying who can see something: Party, N players, GM, Broker or Classified. */
 export function AudBadge({ level, entry, o, kind }: { level: unknown; entry?: AudEntry; o?: Overview | null; kind?: 'folder' }) {
   const l = levelOf(level);
   if (l === 'classified' || l === 'broker') return <LevelChip level={l} />;
@@ -38,7 +38,7 @@ export const ShareBtn = ({ onClick, label = 'Share…', primary }: { onClick: ()
 
 export interface Target { kind: 'page' | 'file' | 'folder'; id?: string; title: string; sourceId?: string; path?: string }
 
-/** One small dialog: Everyone, only these players, or DM only (and for a folder, a rule that also covers what is added later). */
+/** One small dialog: Everyone, only these players, or GM only (and for a folder, a rule that also covers what is added later). */
 export function ShareDialog({ target, onClose, onDone }: { target: Target; onClose: () => void; onDone?: (msg: string) => void }) {
   const { w } = useWorld();
   const act = useAction();
@@ -69,7 +69,7 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
   const lvl: string | undefined = target.kind === 'file' ? prev.data?.level : prev.data?.level;
   const pg = target.kind === 'file' ? prev.data?.page : prev.data;
   const hidden = lvl === 'classified' ? 'classified' : lvl === 'broker' ? 'broker' : target.kind === 'file' && (pg?.level === 'classified' || pg?.level === 'broker') ? `page-${pg.level}` : null;
-  const pageHint = target.kind === 'file' && pg ? (pg.hiddenParts || pg.classifiedText ? 'Its page holds text players will not see. Only the shared parts of the page are shown.' : pg.level === 'dm' ? 'Its page is DM only.' : '') : '';
+  const pageHint = target.kind === 'file' && pg ? (pg.hiddenParts || pg.classifiedText ? 'Its page holds text players will not see. Only the shared parts of the page are shown.' : pg.level === 'dm' ? 'Its page is GM only.' : '') : '';
   const wp = withPage ?? false;
 
   // Sent with fetch because the confirm question comes back as a 409 with needsConfirm, not as an error.
@@ -81,7 +81,7 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
       if (res.status === 409 && j.needsConfirm) { setConfirm(j.error); return; }
       if (!res.ok) throw new Error(j.error ?? `Could not share (${res.status})`);
       await sharing.reload();
-      onDone?.(m === 'dm' ? `“${target.title}” is DM only again` : m === 'party' ? `Shared “${target.title}” with everyone` : `Shared “${target.title}” with ${ids.length} player${ids.length === 1 ? '' : 's'}`);
+      onDone?.(m === 'dm' ? `“${target.title}” is GM only again` : m === 'party' ? `Shared “${target.title}” with everyone` : `Shared “${target.title}” with ${ids.length} player${ids.length === 1 ? '' : 's'}`);
       onClose();
     });
   };
@@ -98,8 +98,8 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
         {(!o || prev.loading) && <Loading what="sharing" />}
         {hidden && (
           <div className="error-box" role="note">
-            {hidden === 'classified' && <><i className="fa-solid fa-lock" aria-hidden="true" /> This is classified and can never be shared. Classified content stays with the DM.</>}
-            {hidden === 'broker' && 'This is at the broker level. Change its level to DM only or Party first, then share it.'}
+            {hidden === 'classified' && <><i className="fa-solid fa-lock" aria-hidden="true" /> This is classified and can never be shared. Classified content stays with the GM.</>}
+            {hidden === 'broker' && 'This is at the broker level. Change its level to GM only or Party first, then share it.'}
             {hidden.startsWith('page-') && `The page this file is on is ${hidden.slice(5)}, so the file cannot be shared.`}
           </div>
         )}
@@ -114,7 +114,7 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
                   {!players.length && <span className="small muted">No players have joined yet.</span>}
                 </div>
               )}
-              <label className={`shr-choice${m === 'dm' ? ' on' : ''}`}><input type="radio" name="shr" checked={m === 'dm'} onChange={() => choose('dm')} /><span><strong>DM only</strong><span className="tiny muted">{target.kind === 'folder' ? 'Remove the folder rule. Items keep their own sharing.' : 'Nobody but you.'}</span></span></label>
+              <label className={`shr-choice${m === 'dm' ? ' on' : ''}`}><input type="radio" name="shr" checked={m === 'dm'} onChange={() => choose('dm')} /><span><strong>GM only</strong><span className="tiny muted">{target.kind === 'folder' ? 'Remove the folder rule. Items keep their own sharing.' : 'Nobody but you.'}</span></span></label>
             </div>
             {target.kind === 'folder' && prev.data && (
               <p className="small muted">{prev.data.shareable} page{prev.data.shareable === 1 ? '' : 's'} and {prev.data.files} file{prev.data.files === 1 ? '' : 's'} in this {whole ? 'source' : 'folder'}.
@@ -128,8 +128,8 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
             {target.kind === 'page' && m !== 'dm' && prev.data?.files > 0 && (
               <label className="row shr-opt"><input type="checkbox" checked={withFiles} onChange={(e) => setWithFiles(e.target.checked)} /><span>Also share its {prev.data.files} file{prev.data.files === 1 ? '' : 's'}</span></label>
             )}
-            {target.kind === 'page' && m !== 'dm' && prev.data?.hiddenParts && <p className="tiny muted"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> This page has parts players will not see (secret blocks and DM facts stay hidden).</p>}
-            {m !== 'dm' && <label className="row shr-opt"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /><span>Tell the players now <span className="tiny muted">(“New from the DM” on their Home and Library)</span></span></label>}
+            {target.kind === 'page' && m !== 'dm' && prev.data?.hiddenParts && <p className="tiny muted"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> This page has parts players will not see (secret blocks and GM facts stay hidden).</p>}
+            {m !== 'dm' && <label className="row shr-opt"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /><span>Tell the players now <span className="tiny muted">(“New from the GM” on their Home and Library)</span></span></label>}
             {(confirm || needsAsk) && m !== 'dm' && (
               <div className="shr-confirm" role="alert">{confirm ?? `Share everything in “${target.title}”, including pages and files added later? Classified and broker pages are skipped.`}</div>
             )}
@@ -138,7 +138,7 @@ export function ShareDialog({ target, onClose, onDone }: { target: Target; onClo
         <div className="row end">
           <button type="button" className="btn small" onClick={onClose}>Cancel</button>
           <button type="button" className="btn small primary" disabled={!canSend} onClick={() => void go(!!confirm || needsAsk)}>
-            {m === 'dm' ? 'Make DM only' : confirm ? 'Share anyway' : needsAsk ? 'Yes, share the folder' : notify ? 'Share and tell them' : 'Share'}
+            {m === 'dm' ? 'Make GM only' : confirm ? 'Share anyway' : needsAsk ? 'Yes, share the folder' : notify ? 'Share and tell them' : 'Share'}
           </button>
         </div>
       </div>
@@ -205,7 +205,7 @@ export function SharedPanel({ onOpen }: { onOpen: (pageId: string) => void }) {
 
 interface NewItem { id: string; kind: 'page' | 'file' | 'folder'; itemId: string; title: string; at: string; isNew: boolean; from: string; pageId?: string | null; url?: string; family?: string; pages?: { id: string; title: string }[] }
 
-/** What the DM sent or shared with this player, newest first: "From the DM" in the Library, and a card on Home. */
+/** What the GM sent or shared with this player, newest first: "From the GM" in the Library, and a card on Home. */
 export function useNewFromDM() {
   const { w, isDM } = useWorld();
   return useLoad<{ items: NewItem[]; newCount: number }>(() => (isDM ? Promise.resolve({ items: [], newCount: 0 }) : w.call('GET', '/libshare/new')), [w, isDM], ['libshare-new', 'libshare', 'page', 'libfile']);
@@ -215,7 +215,7 @@ export function FromDM({ onOpen, compact, autoSeen }: { onOpen?: (pageId: string
   const { w, on } = useWorld();
   const data = useNewFromDM();
   const [toast, setToast] = useState<string | null>(null);
-  useEffect(() => on(['libshare-new'], (e: any) => { setToast(`New from the DM: ${e.data?.title ?? 'something'}`); }), [on]);
+  useEffect(() => on(['libshare-new'], (e: any) => { setToast(`New from the GM: ${e.data?.title ?? 'something'}`); }), [on]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
   const n = data.data?.newCount ?? 0;
   useEffect(() => {
@@ -228,7 +228,7 @@ export function FromDM({ onOpen, compact, autoSeen }: { onOpen?: (pageId: string
   return (
     <section className="card shr-from" aria-labelledby="shr-from-h">
       <style>{SHARE_CSS}</style>
-      <div className="card-head"><h2 id="shr-from-h"><i className="fa-solid fa-scroll" aria-hidden="true" /> From the DM</h2>{n > 0 && <span className="shr-new" aria-label={`${n} new`}>{n} new</span>}</div>
+      <div className="card-head"><h2 id="shr-from-h"><i className="fa-solid fa-scroll" aria-hidden="true" /> From the GM</h2>{n > 0 && <span className="shr-new" aria-label={`${n} new`}>{n} new</span>}</div>
       <div className="stack tight">
         {items.map((it) => (
           <div key={it.id} className="shr-item">

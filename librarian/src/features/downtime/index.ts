@@ -1,9 +1,9 @@
 // DownTime: Wizard's downtime house rule. Characters spend downtime days on
-// activities (ready-made ones from the rule file, the DM's own, and ones
+// activities (ready-made ones from the rule file, the GM's own, and ones
 // players make), each with a tier from common to legendary that sets how
-// long it takes. When days pass at the table the DM presses Downtime: every
+// long it takes. When days pass at the table the GM presses Downtime: every
 // player gets a popup to pick what to work on, skip, or make a new activity.
-// The DM can add or take away time, stop a task midway and set a reward for
+// The GM can add or take away time, stop a task midway and set a reward for
 // the end. Every change is logged with the real time and the in-world date.
 // Ties: the world clock (a round moves it), the Codex (crafting a spell is an
 // activity), the sheet (a Downtime module), the assistant (tools) and the
@@ -71,9 +71,9 @@ function routes(d: Deps) {
     const nm = nameMap(W(res));
     return { ...t, memberNames: t.members.map((m) => nm[m] ?? ''), contributions: t.contributions.map((c) => ({ ...c, name: nm[c.accountId] ?? '' })) };
   };
-  const need = (res: Response) => { if (!isOn(S(res))) throw new HttpError(403, 'DownTime is off in this world: the DM turns it on under House rules'); };
+  const need = (res: Response) => { if (!isOn(S(res))) throw new HttpError(403, 'DownTime is off in this world: the GM turns it on under House rules'); };
   const guestNo = (res: Response) => { if (ctx(res).viewer.role === 'guest') throw new HttpError(403, 'Guests have no downtime'); };
-  /** Whose tasks: a player always their own; the DM names one (or null for everyone). */
+  /** Whose tasks: a player always their own; the GM names one (or null for everyone). */
   const whose = (res: Response, v: unknown, dmDefault: string | null = null): string | null => (isDM(res) ? (v === undefined || v === null || v === '' ? dmDefault : findPlayer(d, W(res), v)) : me(res));
 
   /** Activities one character can start: the world's (players see ones that are on, plus their own proposals) and those linked features offer. */
@@ -109,7 +109,7 @@ function routes(d: Deps) {
     const w = W(res);
     const s = S(res);
     const dm = isDM(res);
-    // A group task: the party's, shared. The DM may start one for the whole party (no player); a player starts it and joins.
+    // A group task: the party's, shared. The GM may start one for the whole party (no player); a player starts it and joins.
     const who = b.player ?? b.accountId;
     const wantGroup = b.group === true || b.scope === 'group';
     const aid = dm ? (wantGroup && (who === undefined || who === null || who === '' || who === PARTY) ? PARTY : findPlayer(d, w, who)) : me(res);
@@ -117,14 +117,14 @@ function routes(d: Deps) {
     let status: 'active' | 'proposed' = 'active';
     if (b.activity && typeof b.activity === 'object') {
       const mode = featureSetting<string>(s, 'downtimePlayerNew');
-      if (!dm && mode === 'off') throw new HttpError(403, 'Only the DM makes new activities in this world');
+      if (!dm && mode === 'off') throw new HttpError(403, 'Only the GM makes new activities in this world');
       const raw = { ...b.activity, ...(wantGroup ? { group: true } : {}) };
       if (!tierOf(raw.tier) && !dm) {
         const dec = await decideTier(d, String(raw.name ?? ''), String(raw.summary ?? ''), tierDays(s), dayHours(s));
         Object.assign(raw, { tier: dec.tier, days: raw.days ?? dec.days, hoursPerDay: raw.hoursPerDay ?? dec.hoursPerDay });
       }
       if (!dm) { delete raw.reward; status = mode === 'free' ? 'active' : 'proposed'; }
-      // A DM's one-off for one character stays off the list unless they say save; a player's goes on it (as a proposal).
+      // A GM's one-off for one character stays off the list unless they say save; a player's goes on it (as a proposal).
       if (dm && b.save !== true) act = checkActivity(raw, '');
       else act = saveActivity(db, w, raw, me(res), dm ? 'dm' : 'player', status === 'proposed' ? 'proposed' : 'ok');
     } else {
@@ -215,8 +215,8 @@ function routes(d: Deps) {
     const t = findTask(res, String(req.params.id), b.player);
     let row: any;
     if (!isDM(res)) {
-      if (isGroup(t)) throw new HttpError(403, 'A group task is the whole party\'s: leave it, or ask the DM to pause it');
-      if (b.status !== 'paused' && b.status !== 'active') throw new HttpError(403, 'Players can pause or go back to their own tasks; the DM changes the rest');
+      if (isGroup(t)) throw new HttpError(403, 'A group task is the whole party\'s: leave it, or ask the GM to pause it');
+      if (b.status !== 'paused' && b.status !== 'active') throw new HttpError(403, 'Players can pause or go back to their own tasks; the GM changes the rest');
       row = setStatus(d, w, t.id, b.status, me(res));
     } else {
       row = Object.keys(b).some((k) => !['status', 'player', 'note'].includes(k)) ? editTask(d, w, t.id, b, me(res)) : t;
@@ -227,7 +227,7 @@ function routes(d: Deps) {
     res.json(out(res, row));
   });
 
-  /** The DM adds (or takes away) time: { days | hours | minutes, note }. Negative takes time away. */
+  /** The GM adds (or takes away) time: { days | hours | minutes, note }. Negative takes time away. */
   r.post('/tasks/:id/time', requireDM, (req, res) => {
     need(res);
     const w = W(res);
@@ -238,7 +238,7 @@ function routes(d: Deps) {
     res.json(out(res, p.row));
   });
 
-  /** The DM (or the assistant) logs work done outside a Downtime round: { days | hours, note }. */
+  /** The GM (or the assistant) logs work done outside a Downtime round: { days | hours, note }. */
   r.post('/tasks/:id/work', requireDM, (req, res) => {
     need(res);
     const w = W(res);
@@ -258,13 +258,13 @@ function routes(d: Deps) {
   r.delete('/tasks/:id', requirePlayerOrDM, (req, res) => {
     need(res);
     const t = findTask(res, String(req.params.id), req.query.player);
-    if (!isDM(res) && isGroup(t)) throw new HttpError(403, 'A group task is the whole party\'s: leave it instead, and the DM can remove it');
+    if (!isDM(res) && isGroup(t)) throw new HttpError(403, 'A group task is the whole party\'s: leave it instead, and the GM can remove it');
     const row = setStatus(d, W(res), t.id, 'removed', me(res), typeof req.query.note === 'string' ? req.query.note : '');
     changed(W(res), row.account_id);
     res.json(out(res, row));
   });
 
-  /** Join or leave a group task: a player for themselves, the DM for a named player. Work already done stays in it. */
+  /** Join or leave a group task: a player for themselves, the GM for a named player. Work already done stays in it. */
   for (const verb of ['join', 'leave'] as const) {
     r.post(`/tasks/:id/${verb}`, requirePlayerOrDM, (req, res) => {
       need(res);
@@ -307,7 +307,7 @@ function routes(d: Deps) {
     return taskRow(db, w, t.id);
   }
 
-  /** A task that just finished: with auto rewards on, give it now; tell the player and the DM. */
+  /** A task that just finished: with auto rewards on, give it now; tell the player and the GM. */
   function afterFinish(w: string, row: any) {
     if (!row || row.status !== 'done' || row.reward_given_at) return;
     const rw = checkReward(parseJson(row.reward, {}));
@@ -334,7 +334,7 @@ function routes(d: Deps) {
       log: rows.map((x) => ({
         id: x.id, at: x.at, worldDate: x.world_label, worldMinutes: x.world_minutes, accountId: x.account_id, player: nm[x.account_id] ?? '',
         taskId: x.task_id, task: x.task_name, kind: x.kind, minutes: x.minutes, time: x.minutes ? `${x.minutes < 0 ? '-' : ''}${span(Math.abs(x.minutes), hpd)}` : '',
-        by: x.by_id ? (nm[x.by_id] ?? (x.by_id === x.account_id ? 'the player' : 'the DM')) : '', note: x.note, undone: !!x.undone, roundId: x.round_id,
+        by: x.by_id ? (nm[x.by_id] ?? (x.by_id === x.account_id ? 'the player' : 'the GM')) : '', note: x.note, undone: !!x.undone, roundId: x.round_id,
       })),
     });
   });
@@ -353,7 +353,7 @@ function routes(d: Deps) {
     res.json({ rounds: rows.map((x) => roundView(res, x)) });
   });
 
-  /** The DM presses Downtime: { days (default 1), note?, advance? (move the world clock; the world's setting by default) }. */
+  /** The GM presses Downtime: { days (default 1), note?, advance? (move the world clock; the world's setting by default) }. */
   r.post('/rounds', requireDM, (req, res) => {
     need(res);
     const w = W(res);
@@ -374,7 +374,7 @@ function routes(d: Deps) {
 
   /**
    * A player's pick: { skip?: true, picks: [{ taskId | activityId | activity: { name, summary, ... }, days }], note? }.
-   * The DM may pick for a player ({ player }). A new pick replaces the earlier one. Rid "current" is the open round.
+   * The GM may pick for a player ({ player }). A new pick replaces the earlier one. Rid "current" is the open round.
    */
   r.post('/rounds/:rid/pick', requirePlayerOrDM, async (req, res) => {
     need(res);
@@ -415,7 +415,7 @@ function routes(d: Deps) {
     res.json({ round: roundView(res, roundRow(db, w, round.id)), finished: result.finished.map((x) => out(res, x)) });
   });
 
-  /** The DM closes the round. Players who did not answer are logged as missed. */
+  /** The GM closes the round. Players who did not answer are logged as missed. */
   r.post('/rounds/:rid/close', requireDM, (req, res) => {
     const w = W(res);
     const round = req.params.rid === 'current' ? openRound(db, w) : roundRow(db, w, String(req.params.rid));
@@ -430,7 +430,7 @@ function routes(d: Deps) {
     res.json({ round: roundView(res, roundRow(db, w, round.id)) });
   });
 
-  /** The DM takes the round back: every pick is undone and the world clock goes back (when nothing moved it since). */
+  /** The GM takes the round back: every pick is undone and the world clock goes back (when nothing moved it since). */
   r.post('/rounds/:rid/cancel', requireDM, (req, res) => {
     const w = W(res);
     const round = req.params.rid === 'current' ? openRound(db, w) : roundRow(db, w, String(req.params.rid));
@@ -448,7 +448,7 @@ function routes(d: Deps) {
 
   // ---- the helper model: rank and decide ----
 
-  /** Rank the activities a character could start for what they want: { player? (DM), want? }. */
+  /** Rank the activities a character could start for what they want: { player? (GM), want? }. */
   r.post('/suggest', requirePlayerOrDM, async (req, res) => {
     need(res);
     const w = W(res);
@@ -466,7 +466,7 @@ function routes(d: Deps) {
   /** Decide a new activity's tier, days and hours a day: { name, summary }. */
   r.post('/decide', requirePlayerOrDM, async (req, res) => {
     need(res);
-    if (!isDM(res) && featureSetting<string>(S(res), 'downtimePlayerNew') === 'off') throw new HttpError(403, 'Only the DM makes new activities in this world');
+    if (!isDM(res) && featureSetting<string>(S(res), 'downtimePlayerNew') === 'off') throw new HttpError(403, 'Only the GM makes new activities in this world');
     const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 80) : '';
     if (!name) throw new HttpError(400, 'name is needed');
     res.json(await decideTier(d, name, typeof req.body?.summary === 'string' ? req.body.summary.slice(0, 600) : '', tierDays(S(res)), dayHours(S(res))));
@@ -494,28 +494,28 @@ const feature: Feature = {
   houseRules: ['downtime'],
   mcpTools: [
     {
-      name: 'downtime', description: "DownTime (downtime activities): each character's personal tasks and the party's shared group tasks (scope personal|group, members, each one's share) with progress, tier, time left and reward, and the open Downtime round with who has picked. The DM sees everyone (or one player); a player sees their own.",
-      props: { player: P('DM: one player (name or id)'), all: { type: 'boolean', description: 'Include finished and removed tasks' } },
+      name: 'downtime', description: "DownTime (downtime activities): each character's personal tasks and the party's shared group tasks (scope personal|group, members, each one's share) with progress, tier, time left and reward, and the open Downtime round with who has picked. The GM sees everyone (or one player); a player sees their own.",
+      props: { player: P('GM: one player (name or id)'), all: { type: 'boolean', description: 'Include finished and removed tasks' } },
       call: (a) => ({ method: 'GET', path: `/downtime?${[a.player && `player=${enc(a.player)}`, a.all && 'all=1'].filter(Boolean).join('&')}` }),
     },
     {
       name: 'downtime_log', description: 'The downtime log: what was worked on, when (real time and in-world date), for how long, time added or lost, tasks started, stopped, finished and rewarded.',
-      props: { player: P('DM: one player'), task: P('Task id'), limit: { type: 'integer' } },
+      props: { player: P('GM: one player'), task: P('Task id'), limit: { type: 'integer' } },
       call: (a) => ({ method: 'GET', path: `/downtime/log?${[a.player && `player=${enc(a.player)}`, a.task && `task=${enc(a.task)}`, a.limit && `limit=${enc(String(a.limit))}`].filter(Boolean).join('&')}` }),
     },
     {
-      name: 'downtime_activities', description: 'Downtime activities a character can start (ready-made, the DM\'s, players\', and Codex spell crafting), each with tier (common to legendary), days and hours a day.',
-      props: { player: P('DM: whose options (adds their Codex crafts)') },
+      name: 'downtime_activities', description: 'Downtime activities a character can start (ready-made, the GM\'s, players\', and Codex spell crafting), each with tier (common to legendary), days and hours a day.',
+      props: { player: P('GM: whose options (adds their Codex crafts)') },
       call: (a) => ({ method: 'GET', path: `/downtime/activities${a.player ? `?player=${enc(a.player)}` : ''}` }),
     },
     {
       name: 'downtime_suggest', description: 'Rank downtime activities for what a character wants (e.g. "earn money", "get stronger") with the small helper model; returns the best three with a reason each.',
-      props: { player: P('DM: which player'), want: P('What they want from their downtime') },
+      props: { player: P('GM: which player'), want: P('What they want from their downtime') },
       call: (a) => ({ method: 'POST', path: '/downtime/suggest', body: { player: a.player, want: a.want } }),
     },
     {
       name: 'downtime_start', playerOnly: true,
-      description: 'Start one of your own downtime tasks: an activity by id or name, or a new activity { name, summary } (its tier is decided for you; the DM may need to approve it).',
+      description: 'Start one of your own downtime tasks: an activity by id or name, or a new activity { name, summary } (its tier is decided for you; the GM may need to approve it).',
       props: { activityId: P('Activity id or name'), activity: { type: 'object', description: '{ name, summary } for a new activity' }, group: { type: 'boolean', description: 'A group activity the whole party shares (you join it)' } },
       call: (a) => ({ method: 'POST', path: '/downtime/tasks', body: { activityId: a.activityId, activity: a.activity, group: a.group } }),
     },
@@ -527,8 +527,8 @@ const feature: Feature = {
     },
     {
       name: 'downtime_assign', write: true, dmOnly: true,
-      description: 'Give a player (or, with group: true, the whole party) a downtime task: an activity (id or name) or a new one { name, summary, tier (common|uncommon|rare|very-rare|legendary), days?, hoursPerDay? }, with an optional reward { text, gp, item, qty, hidden } and a private DM note.',
-      props: { player: P('Player name or id (leave out with group: true for the whole party)'), group: { type: 'boolean', description: 'A group task: the party shares its progress and the reward goes to the party pouch' }, activityId: P('Activity id or name'), activity: { type: 'object' }, reward: { type: 'object' }, dmNote: P('Only the DM sees it'), save: { type: 'boolean', description: 'Also add a new activity to the world\'s list' } },
+      description: 'Give a player (or, with group: true, the whole party) a downtime task: an activity (id or name) or a new one { name, summary, tier (common|uncommon|rare|very-rare|legendary), days?, hoursPerDay? }, with an optional reward { text, gp, item, qty, hidden } and a private GM note.',
+      props: { player: P('Player name or id (leave out with group: true for the whole party)'), group: { type: 'boolean', description: 'A group task: the party shares its progress and the reward goes to the party pouch' }, activityId: P('Activity id or name'), activity: { type: 'object' }, reward: { type: 'object' }, dmNote: P('Only the GM sees it'), save: { type: 'boolean', description: 'Also add a new activity to the world\'s list' } },
       call: (a) => ({ method: 'POST', path: '/downtime/tasks', body: a }),
     },
     {

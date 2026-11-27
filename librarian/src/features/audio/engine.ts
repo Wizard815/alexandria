@@ -1,6 +1,6 @@
 // The audio pipeline: chunk -> speech to text -> per-mic words -> merged
 // lines with an audience. Everything that decides who may read a line is in
-// flush(): it fails closed (a line is DM-only unless every rule lets
+// flush(): it fails closed (a line is GM-only unless every rule lets
 // players have it).
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -130,7 +130,7 @@ export interface LineRow {
   text: string; words: string; sources: string; audience: 'players' | 'dm'; audience_override: 'players' | 'dm' | null; rev: number; updated_at: string;
 }
 
-// A line is DM-only only if it overlaps the aside (plus a little for clock jitter between devices); the lines either side stay with the table.
+// A line is GM-only only if it overlaps the aside (plus a little for clock jitter between devices); the lines either side stay with the table.
 const ASIDE_PAD = 40;
 
 /** Split an utterance wherever a cut time falls between two of its words. */
@@ -177,7 +177,7 @@ export class Engine {
 
   // ---- hints for the speech model --------------------------------------
 
-  /** What a world's players may read: see hint.ts. Never a DM-only, broker or classified title. */
+  /** What a world's players may read: see hint.ts. Never a GM-only, broker or classified title. */
   hint(worldId: string): string {
     const c = this.hints.get(worldId);
     if (c && Date.now() - c.at < 15_000) return c.text;
@@ -188,7 +188,7 @@ export class Engine {
   }
   resetHint(worldId?: string) { if (worldId) this.hints.delete(worldId); else this.hints.clear(); this.terms.clear(); }
 
-  /** DM-only titles and aliases of a world, as token lists (cached for a short while). */
+  /** GM-only titles and aliases of a world, as token lists (cached for a short while). */
   private dmTerms(worldId: string): string[][] {
     const c = this.terms.get(worldId);
     if (c && Date.now() - c.at < 15_000) return c.list;
@@ -388,7 +388,7 @@ export class Engine {
   /**
    * After a recording stops: listen to the kept audio again in windows of up to 60 s with the audio job's `refineModel`
    * (a bigger model; longer context is worth about ten points of word error over 5 s pieces) and replace the words. Lines
-   * keep their ids and DM-only flags, and a line that was DM-only stays DM-only (nothing is loosened). Off unless the
+   * keep their ids and GM-only flags, and a line that was GM-only stays GM-only (nothing is loosened). Off unless the
    * world's transcriptRefine is on and the job names a refineModel. Returns how many windows were redone.
    */
   async refine(sessionId: string, opts: { force?: boolean } = {}): Promise<number> {
@@ -468,7 +468,7 @@ export class Engine {
     if (row) this.d.hub.emit(worldId, 'transcript-final', { sessionId, status: row.status, step: row.step, pct: row.pct }, (v) => v.role === 'dm');
   }
 
-  /** The final pass of a session (running, finished or undone), for the DM. */
+  /** The final pass of a session (running, finished or undone), for the GM. */
   finalView(sessionId: string) {
     const f = one<any>(this.d.db, 'SELECT * FROM audio_final WHERE session_id = ?', sessionId);
     if (!f) return null;
@@ -478,7 +478,7 @@ export class Engine {
     };
   }
 
-  /** The lines as they were live, before the final pass (as the DM's view). */
+  /** The lines as they were live, before the final pass (as the GM's view). */
   liveLines(sessionId: string): LineRow[] {
     const f = one<any>(this.d.db, 'SELECT live_lines FROM audio_final WHERE session_id = ?', sessionId);
     return f ? parseJson<LineRow[]>(f.live_lines, []) : [];
@@ -496,7 +496,7 @@ export class Engine {
    * The final transcript of a stopped session: every mic's words put on one timeline (clock offsets from the words they
    * share and from the clock samples of their uploads), the best mic for each moment, duplicates across mics removed,
    * speakers from the mic's owner, line breaks fixed. It replaces the live lines (kept in audio_final for comparing and
-   * undo); DM-only lines stay DM-only and a DM's own audience marks are kept. With `retranscribe` the kept audio is first
+   * undo); GM-only lines stay GM-only and a GM's own audience marks are kept. With `retranscribe` the kept audio is first
    * listened to again with the server's speech model. Transcript.md is written again after.
    */
   finalize(sessionId: string, opts: { retranscribe?: boolean } = {}): Promise<void> {
@@ -566,7 +566,7 @@ export class Engine {
     }
   }
 
-  /** Put the live lines back (the DM prefers them) and write Transcript.md again. */
+  /** Put the live lines back (the GM prefers them) and write Transcript.md again. */
   undoFinal(sessionId: string): number {
     const { db } = this.d;
     const f = one<any>(db, 'SELECT * FROM audio_final WHERE session_id = ?', sessionId);
@@ -663,14 +663,14 @@ export class Engine {
     for (const [micId, words] of raw) {
       const m = mics.get(micId);
       if (!m) continue;
-      // A mic marked "aside" is an aside whenever it hears speech; a DM-only mic that is hold-to-talk likewise
+      // A mic marked "aside" is an aside whenever it hears speech; a GM-only mic that is hold-to-talk likewise
       // (in case its hold events never arrived).
       if (m.aside || (!m.players_transcript && m.mode === 'hold-to-talk')) for (const u of utterances(micId, words, 1000)) aside.push([u.start, u.end]);
     }
 
     // Speech never joins across an aside's edges: without this a mic's talk just
     // before an aside and the aside itself become one utterance, and the merge
-    // splices them together (the whole line then turns DM-only).
+    // splices them together (the whole line then turns GM-only).
     const cuts = [...new Set(aside.flatMap(([a, b]) => [a, b]))].sort((x, y) => x - y);
 
     // Per mic: apply its mode and hold windows, then split into utterances.
@@ -716,7 +716,7 @@ export class Engine {
       // Audience: fail closed.
       const inAside = aside.some(([a, b]) => overlaps(l.start - ASIDE_PAD, l.end + ASIDE_PAD, a, b));
       const anyPlayersMic = l.mics.some((id) => mics.get(id)?.players_transcript === 1);
-      // A DM-only title in a line that only one mic heard may be the speech model repeating something it was given: DM-only.
+      // A GM-only title in a line that only one mic heard may be the speech model repeating something it was given: GM-only.
       const echoRisk = l.mics.length < 2 && containsTerm(l.text, terms);
       const computed: 'players' | 'dm' = !anyPlayersMic || inAside || echoRisk ? 'dm' : 'players';
 
@@ -770,20 +770,20 @@ export class Engine {
     return (accountId: string) => m.get(accountId) ?? 'Someone';
   }
 
-  /** Live event: the DM gets every revision; a player only lines that are (or were just) theirs. */
+  /** Live event: the GM gets every revision; a player only lines that are (or were just) theirs. */
   emitLine(l: LineRow, prevAudience: 'players' | 'dm' | null, nameOf: (id: string) => string, removed = false) {
     notifyLine(this.d, l.world_id, l.id, removed);
     this.d.hub.emitPer(l.world_id, 'transcript-line', (v) => {
       if (v.role === 'dm') return removed ? { id: l.id, rev: l.rev, removed: true, sessionId: l.session_id } : { ...lineView(l, true, nameOf) };
       if (v.role !== 'player') return null;
       if (!removed && l.audience === 'players') return lineView(l, false, nameOf);
-      // It was visible and now is not (marked DM-only, or gone): tell players to drop it.
+      // It was visible and now is not (marked GM-only, or gone): tell players to drop it.
       if (prevAudience === 'players') return { id: l.id, rev: l.rev, removed: true, sessionId: l.session_id };
       return null;
     });
   }
 
-  /** DM marks a line (or clears the mark with 'auto'). */
+  /** GM marks a line (or clears the mark with 'auto'). */
   setAudience(line: LineRow, to: 'players' | 'dm' | 'auto', worldId: string) {
     const override = to === 'auto' ? null : to;
     let audience: 'players' | 'dm' = override ?? line.audience;

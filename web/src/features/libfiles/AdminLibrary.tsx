@@ -1,5 +1,5 @@
 // The library inside the gateway admin: pick a world, browse its pages and files, upload files.
-// It reuses LibraryPage. The librarian answers with the DM view only when this admin is the world's DM;
+// It reuses LibraryPage. The librarian answers with the GM view only when this admin is the world's GM;
 // otherwise it is the party copy (being an admin does not open a world's secrets) and nothing can be changed.
 import { useEffect, useMemo } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
@@ -27,7 +27,7 @@ export default function AdminLibrary() {
   const list = worlds.data ?? [];
   const cur = list.find((w) => w.id === world || w.slug === world) ?? null;
 
-  // With no world in the address, open the first one this admin is the DM of, else the first.
+  // With no world in the address, open the first one this admin is the GM of, else the first.
   if (!world && list.length) return <Navigate to={`/admin/library/${(list.find((w) => w.view === 'dm') ?? list[0]).id}`} replace />;
 
   return (
@@ -37,7 +37,7 @@ export default function AdminLibrary() {
           <label className="adm-lib-pick"><span className="sr-only">World</span>
             <select value={cur?.id ?? ''} onChange={(e) => nav(`/admin/library/${e.target.value}`)} aria-label="World">
               {!cur && <option value="">Pick a world…</option>}
-              {list.map((w) => <option key={w.id} value={w.id}>{w.name}{w.view === 'dm' ? ' (you are the DM)' : ''}</option>)}
+              {list.map((w) => <option key={w.id} value={w.id}>{w.name}{w.view === 'dm' ? ' (you are the GM)' : ''}</option>)}
             </select>
           </label>
         )}
@@ -48,8 +48,8 @@ export default function AdminLibrary() {
       {cur && (
         <>
           {cur.view === 'dm'
-            ? <div className="adm-lib-who"><Pill tone="teal">DM view</Pill> <span className="small muted">You are the DM of {cur.name}, so you see every level and can upload files.</span></div>
-            : <Callout tone="warn">You are not the DM of {cur.name}. Being an admin does not open a world's secrets, so this shows only the party copy: pages and files shared with the players. Uploads are off.</Callout>}
+            ? <div className="adm-lib-who"><Pill tone="teal">GM view</Pill> <span className="small muted">You are the GM of {cur.name}, so you see every level and can upload files.</span></div>
+            : <Callout tone="warn">You are not the GM of {cur.name}. Being an admin does not open a world's secrets, so this shows only the party copy: pages and files shared with the players. Uploads are off.</Callout>}
           <AdminWorldView key={cur.id} w={cur} client={client} accountId={me?.account.id ?? ''} />
         </>
       )}

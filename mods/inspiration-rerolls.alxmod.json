@@ -4,7 +4,7 @@
   "name": "Inspiration as rerolls",
   "version": "1.0.0",
   "author": "Wizard",
-  "summary": "The DM rewards good roleplay with rerolls: a personal reroll for your own roll, an everyone reroll for any player's roll, and a DM reroll that makes the DM roll again.",
+  "summary": "The GM rewards good roleplay with rerolls: a personal reroll for your own roll, an everyone reroll for any player's roll, and a GM reroll that makes the GM roll again.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": ["sheet", "chat"]
@@ -41,7 +41,7 @@
     },
     {
       "id": "dm",
-      "label": "DM reroll",
+      "label": "GM reroll",
       "icon": "fa-dragon",
       "max": "$cap",
       "start": 0
@@ -91,7 +91,7 @@
     },
     {
       "id": "use-dm",
-      "label": "Make the DM reroll",
+      "label": "Make the GM reroll",
       "by": "owner",
       "resource": "dm",
       "add": -1,
@@ -129,7 +129,7 @@
   "rules": [
     {
       "term": "Inspiration (house rule)",
-      "text": "Inspiration comes as rerolls, given by the DM to reward roleplay. **Personal reroll**: reroll one of your own rolls. **Everyone reroll**: reroll any player's roll, yours or an ally's. **DM reroll**: make the DM reroll one of their rolls. The new roll stands unless the DM turned on \"keep the better\". In session chat, press Reroll on a roll or type `/reroll personal`, `/reroll everyone` or `/reroll dm`."
+      "text": "Inspiration comes as rerolls, given by the GM to reward roleplay. **Personal reroll**: reroll one of your own rolls. **Everyone reroll**: reroll any player's roll, yours or an ally's. **GM reroll**: make the GM reroll one of their rolls. The new roll stands unless the GM turned on \"keep the better\". In session chat, press Reroll on a roll or type `/reroll personal`, `/reroll everyone` or `/reroll dm`."
     }
   ]
 }

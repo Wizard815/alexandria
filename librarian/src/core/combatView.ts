@@ -5,7 +5,7 @@ import { type DB, one, all } from './db.ts';
 import { healthForPlayers, type Viewer, type WorldSettings } from './policy.ts';
 import { parseJson } from './util.ts';
 
-/** What a viewer may see of the combat tracker (the DM everything; players no hidden foes, monster health as the setting allows). Also used by the stage's combat card. */
+/** What a viewer may see of the combat tracker (the GM everything; players no hidden foes, monster health as the setting allows). Also used by the stage's combat card. */
 export function combatViewFor(db: DB, worldId: string, v: Viewer, s: WorldSettings) {
   const state = one<any>(db, 'SELECT * FROM combat WHERE world_id = ?', worldId) ?? { active: 0, round: 1, turn: 0 };
   const list = all<any>(db, 'SELECT * FROM combatants WHERE world_id = ? ORDER BY initiative DESC, name', worldId);

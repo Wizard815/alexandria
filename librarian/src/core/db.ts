@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS sync_runs (
   error TEXT
 );
 
--- body is the DM copy. player_body is computed at write time by the leak
+-- body is the GM copy. player_body is computed at write time by the leak
 -- guard and is NULL unless the page is shared with the party.
 CREATE TABLE IF NOT EXISTS pages (
   id TEXT PRIMARY KEY,
@@ -352,7 +352,7 @@ CREATE TABLE IF NOT EXISTS whiteboard_history (
   PRIMARY KEY (world_id, version)
 );
 
--- Item changes: player proposals waiting for the DM, and DM changes the
+-- Item changes: player proposals waiting for the GM, and GM changes the
 -- owner is told about (and can dispute).
 CREATE TABLE IF NOT EXISTS item_changes (
   id TEXT PRIMARY KEY,
@@ -398,8 +398,8 @@ CREATE TABLE IF NOT EXISTS broker_requests (
   delivered_at TEXT
 );
 
--- Broker v2: what each question was judged to be (DM only), DM-written
--- notes the broker may sell, per-page price rules, and DM-sent offers.
+-- Broker v2: what each question was judged to be (GM only), GM-written
+-- notes the broker may sell, per-page price rules, and GM-sent offers.
 CREATE TABLE IF NOT EXISTS broker_notes (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -456,7 +456,7 @@ CREATE TABLE IF NOT EXISTS coin_requests (
   at TEXT NOT NULL
 );
 
--- Free moves between players and the party: logged for the DM, never pending.
+-- Free moves between players and the party: logged for the GM, never pending.
 CREATE TABLE IF NOT EXISTS transfers (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -573,7 +573,7 @@ function migrate(db: DB) {
   // Search: create the FTS tables, or rebuild them when the layout/version changed (needs the pages columns above).
   ensureSearchIndex(db);
 
-  // DM approvals: player coin changes and player-added items wait for the DM.
+  // GM approvals: player coin changes and player-added items wait for the GM.
   if (!cols('ledger').includes('status')) {
     db.exec(`ALTER TABLE ledger ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'`);
     db.exec('ALTER TABLE ledger ADD COLUMN decided_by TEXT');
@@ -590,7 +590,7 @@ function migrate(db: DB) {
   if (!cbc.includes('death_saves')) db.exec('ALTER TABLE combatants ADD COLUMN death_saves TEXT');
   if (!cols('broker_requests').includes('classification')) db.exec('ALTER TABLE broker_requests ADD COLUMN classification TEXT');
   if (!cols('ledger').includes('transfer_id')) db.exec('ALTER TABLE ledger ADD COLUMN transfer_id TEXT');
-  // 'noted': a question the broker turned away; only the DM sees it.
+  // 'noted': a question the broker turned away; only the GM sees it.
   const brSql = (db.prepare(`SELECT sql FROM sqlite_master WHERE name = 'broker_requests'`).get() as any)?.sql ?? '';
   if (!brSql.includes("'noted'")) {
     db.exec('PRAGMA foreign_keys = OFF');

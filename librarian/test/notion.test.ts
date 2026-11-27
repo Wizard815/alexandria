@@ -98,13 +98,13 @@ function realm() {
   n.page(PLOT, 'The plot', { type: 'page_id', page_id: ROOT });
   n.objs.set(DB, { object: 'database', id: DB, parent: { type: 'page_id', page_id: ROOT }, title: rt('People'), properties: { Name: { type: 'title' }, Visibility: { type: 'select', select: { options: [] } } }, last_edited_time: '2026-11-01T00:00:00.000Z', url: `https://www.notion.so/${DB.replace(/-/g, '')}`, public_url: null });
   n.page(MIRA, 'Mira', { type: 'database_id', database_id: DB }, { properties: { Name: { type: 'title', title: rt('Mira') }, Visibility: { type: 'select', select: { name: 'Party' } }, Tags: { type: 'multi_select', multi_select: [{ name: 'innkeeper' }] }, Age: { type: 'number', number: 41 }, Home: { type: 'relation', relation: [{ id: TOWN }] } } });
-  n.page(VILLAIN, 'The Lich', { type: 'database_id', database_id: DB }, { public_url: 'https://realm.notion.site/lich', properties: { Name: { type: 'title', title: rt('The Lich') }, Visibility: { type: 'select', select: { name: 'DM' } } } });
+  n.page(VILLAIN, 'The Lich', { type: 'database_id', database_id: DB }, { public_url: 'https://realm.notion.site/lich', properties: { Name: { type: 'title', title: rt('The Lich') }, Visibility: { type: 'select', select: { name: 'GM' } } } });
   n.page(OUT, 'Shopping list', { type: 'workspace', workspace: true }, { public_url: 'https://realm.notion.site/shop' });
   n.blocks.set(TOWN, [
     { type: 'heading_2', id: uid(100), has_children: false, heading_2: { rich_text: rt('Harbour') } },
     P('A busy harbour.'),
     { type: 'paragraph', id: uid(101), has_children: false, paragraph: { rich_text: [{ type: 'mention', plain_text: 'Mira', mention: { type: 'page', page: { id: MIRA } }, annotations: {} }, ...rt(' runs the inn.')] } },
-    { type: 'toggle', id: uid(102), has_children: true, toggle: { rich_text: rt('🔒 DM notes') } },
+    { type: 'toggle', id: uid(102), has_children: true, toggle: { rich_text: rt('🔒 GM notes') } },
     { type: 'callout', id: uid(103), has_children: false, callout: { rich_text: rt('Secret: SMUGGLERS use the old pier'), icon: { type: 'emoji', emoji: '🤫' } } },
     { type: 'bulleted_list_item', id: uid(104), has_children: false, bulleted_list_item: { rich_text: rt('Fish') } },
     { type: 'bulleted_list_item', id: uid(105), has_children: false, bulleted_list_item: { rich_text: rt('Rope') } },
@@ -130,10 +130,10 @@ test('TestNotion_VisibilityFailsClosed', () => {
   const sel = (name: string) => ({ properties: { Visibility: { type: 'select', select: { name } } } });
   assert.deepEqual(notionAccess(sel('Party'), {}), { shared: true });
   assert.deepEqual(notionAccess(sel('Players'), {}), { shared: true });
-  assert.equal(notionAccess(sel('DM'), {}).shared, false);
+  assert.equal(notionAccess(sel('GM'), {}).shared, false);
   assert.equal(notionAccess({ ...sel('GM only'), public_url: 'https://x.notion.site/p' }, {}).shared, false, 'the property wins over publishing');
   assert.deepEqual(notionAccess(sel('Broker'), {}), { shared: false, level: 'broker' });
-  assert.equal(notionAccess({ properties: { Visibility: { type: 'multi_select', multi_select: [{ name: 'party' }, { name: 'dm' }] } } }, {}).shared, false, 'mixed: the DM\'s');
+  assert.equal(notionAccess({ properties: { Visibility: { type: 'multi_select', multi_select: [{ name: 'party' }, { name: 'dm' }] } } }, {}).shared, false, 'mixed: the GM\'s');
   assert.equal(notionAccess({ public_url: 'https://x.notion.site/p' }, {}).shared, true, 'published to the web');
   assert.equal(notionAccess({}, {}).shared, false);
   assert.equal(notionAccess({}, { defaultShared: true }).shared, true);
@@ -144,7 +144,7 @@ test('TestNotion_SecretTogglesAndCalloutsNeverReachPlayers', () => {
     P('Open text'),
     { type: 'toggle', toggle: { rich_text: rt('Secret') }, children: [P('HIDDEN1')] },
     { type: 'heading_3', heading_3: { rich_text: rt('GM notes'), is_toggleable: true }, children: [P('HIDDEN2')] },
-    { type: 'callout', callout: { rich_text: rt('DM: HIDDEN3') } },
+    { type: 'callout', callout: { rich_text: rt('GM: HIDDEN3') } },
     { type: 'toggle', toggle: { rich_text: rt('Rumours') }, children: [P('Shown')] },
     { type: 'numbered_list_item', numbered_list_item: { rich_text: rt('One') } },
     { type: 'numbered_list_item', numbered_list_item: { rich_text: rt('Two') } },
@@ -152,7 +152,7 @@ test('TestNotion_SecretTogglesAndCalloutsNeverReachPlayers', () => {
     { type: 'table', table: { has_column_header: true }, children: [{ type: 'table_row', table_row: { cells: [rt('Name'), rt('HP')] } }, { type: 'table_row', table_row: { cells: [rt('Orc'), rt('15')] } }] },
   ]);
   const md = blocksToMarkdown(b);
-  for (const w of ['Open text', 'HIDDEN1', 'HIDDEN2', 'HIDDEN3', 'Rumours', 'Orc']) assert.ok(md.includes(w), `the DM sees ${w}`);
+  for (const w of ['Open text', 'HIDDEN1', 'HIDDEN2', 'HIDDEN3', 'Rumours', 'Orc']) assert.ok(md.includes(w), `the GM sees ${w}`);
   const pl = blocksToMarkdown(playerBlocks(b, () => false));
   for (const w of ['HIDDEN1', 'HIDDEN2', 'HIDDEN3']) assert.ok(!pl.includes(w), `a player never sees ${w}`);
   assert.ok(pl.includes('Shown') && pl.includes('Orc'));
@@ -169,13 +169,13 @@ test('TestNotion_SyncReadsPagesDatabasesAndKeepsDmContentBack', async () => {
   const dmTitles = lib.list('w', dm).map((p: any) => p.title).sort();
   assert.deepEqual(dmTitles, ['Mira', 'People', 'Port Town', 'The Lich', 'The Realm', 'The plot'], 'only pages under the root page');
   const plTitles = lib.list('w', player).map((p: any) => p.title).sort();
-  assert.deepEqual(plTitles, ['Mira', 'Port Town', 'The Realm'], 'Visibility = party or published; a DM row stays DM-only even when published');
+  assert.deepEqual(plTitles, ['Mira', 'Port Town', 'The Realm'], 'Visibility = party or published; a GM row stays GM-only even when published');
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pl = JSON.stringify(lib.get('w', town.id, player));
   assert.ok(pl.includes('busy harbour'));
   for (const w of ['TIDETRAP', 'SMUGGLERS']) assert.ok(!pl.includes(w), `a player never sees ${w}`);
   const dmTown = JSON.stringify(lib.get('w', town.id, dm));
-  assert.ok(dmTown.includes('TIDETRAP') && dmTown.includes('SMUGGLERS'), 'the DM sees the hidden parts (nested toggle children were read)');
+  assert.ok(dmTown.includes('TIDETRAP') && dmTown.includes('SMUGGLERS'), 'the GM sees the hidden parts (nested toggle children were read)');
   const mira = lib.list('w', dm).find((p: any) => p.title === 'Mira') as any;
   const miraJ = JSON.stringify(lib.get('w', mira.id, dm));
   assert.ok(miraJ.includes('innkeeper') && miraJ.includes('41'), 'database properties and tags');

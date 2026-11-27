@@ -122,7 +122,7 @@ test('TestSound_MoodPickPlaysNearestAndCrossfades', async () => {
   // Sneaky corner finds the yaml spot.
   r = await ok('POST', `${S()}/music/mood`, T.dm, { x: 0.05, y: 0.95, area: 'dungeon' });
   assert.equal(r.track.path, 'dungeon/odd.wav');
-  // The DM can move a track.
+  // The GM can move a track.
   const id = await trackId('village/market/bazaar.wav');
   await ok('PUT', `${S()}/tracks/${id}/mood`, T.dm, { x: 0.5, y: 0.5 });
   r = await ok('POST', `${S()}/music/mood`, T.dm, { x: 0.5, y: 0.5, area: 'village' });
@@ -144,7 +144,7 @@ test('TestSound_PlayerCannotFetchWhatIsNotPlaying', async () => {
   const got = await call('GET', file, T.jess);
   assert.equal(got.status, 200);
   assert.equal(got.headers.get('content-type'), 'audio/wav');
-  // A ticket lets an <audio> tag play it, and stops working when the DM moves on.
+  // A ticket lets an <audio> tag play it, and stops working when the GM moves on.
   const tk = await ok('GET', `${file}/ticket`, T.jess);
   assert.match(tk.url, /^\/api\/media\/sound\//);
   assert.equal((await call('GET', tk.url)).status, 200);
@@ -170,7 +170,7 @@ test('TestSound_PlayerCannotFetchWhatIsNotPlaying', async () => {
   assert.equal((await call('GET', tk.url)).status, 404, 'the ticket stops working once the track is replaced');
   await ok('POST', `${S()}/music/stop`, T.dm, {});
   assert.equal((await call('GET', `${S()}/file/music/${other}`, T.jess)).status, 404);
-  // A sound effect is open to players for a while after the DM sends it to devices.
+  // A sound effect is open to players for a while after the GM sends it to devices.
   const sfx = (await lib()).sfx[0].id;
   assert.equal((await call('GET', `${S()}/file/sfx/${sfx}`, T.jess)).status, 404);
   await ok('POST', `${S()}/sfx/play`, T.dm, { id: sfx, target: 'players' });
@@ -324,7 +324,7 @@ test('TestSound_SpotifyFlowWithFakeFetch', async () => {
   assert.match(nodev.body.error, /active device/);
   playStatus = 204;
 
-  // Spotify is DM only and never produces a live event for players.
+  // Spotify is GM only and never produces a live event for players.
   const tom = await listen(base, W, T.tom);
   await wait();
   await ok('POST', `${cb}/play`, T.dm, { event: 'combat' });

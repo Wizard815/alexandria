@@ -1,6 +1,6 @@
 // Statblocks in the game module's monster format (docs/MODULES.md): built
 // from a module monster (a copy, no model), a library page or a prompt (the
-// chat model), checked, and saved as a DM-only page in "Statblocks".
+// chat model), checked, and saved as a GM-only page in "Statblocks".
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, type ChatMessage } from '../../core/ai.ts';
 import { one } from '../../core/db.ts';
@@ -136,7 +136,7 @@ export async function buildStatblock(d: Deps, worldId: string, viewer: Viewer, s
     source = { kind: 'prompt', ref: '', title: src.prompt.slice(0, 80) };
   }
   const messages: ChatMessage[] = [
-    { role: 'system', content: `You write D&D 5e statblocks for a game master. Answer with one JSON object only, in this shape (all fields shown; ac, hp, speed, abilities and at least one action are required):\n${SHAPE}\nAbility scores are integers 1 to 30. Keep action text short, with attack bonus and damage.` },
+    { role: 'system', content: `You write 5e statblocks for a Game Master. Answer with one JSON object only, in this shape (all fields shown; ac, hp, speed, abilities and at least one action are required):\n${SHAPE}\nAbility scores are integers 1 to 30. Keep action text short, with attack bonus and damage.` },
     { role: 'user', content: user },
   ];
   const raw = await chatJson<any>(d, 'chat', messages);
@@ -144,7 +144,7 @@ export async function buildStatblock(d: Deps, worldId: string, viewer: Viewer, s
   return { statblock: normalizeStatblock(raw, source.kind === 'page' ? source.title : ''), source };
 }
 
-/** Save a statblock as a DM-only library page in "Statblocks". */
+/** Save a statblock as a GM-only library page in "Statblocks". */
 export function saveStatblockPage(d: Deps, worldId: string, accountId: string, sb: Statblock, source: { kind: string; ref: string; title: string; attribution?: string }) {
   const base = `Statblocks/${sb.name.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim() || 'Creature'}`;
   let path = `${base}.md`;

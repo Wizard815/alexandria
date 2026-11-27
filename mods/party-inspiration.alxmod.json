@@ -95,7 +95,7 @@
   "rules": [
     {
       "term": "Party inspiration (house rule)",
-      "text": "The DM puts inspiration into **one pool the whole party shares** (up to 10). Any player may **draw a point** to gain advantage on a roll they are about to make. Only one point can be drawn each round."
+      "text": "The GM puts inspiration into **one pool the whole party shares** (up to 10). Any player may **draw a point** to gain advantage on a roll they are about to make. Only one point can be drawn each round."
     }
   ],
   "assistant": {

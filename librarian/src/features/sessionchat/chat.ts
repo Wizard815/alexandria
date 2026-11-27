@@ -1,7 +1,7 @@
 // Session chat storage and rules. Two channels per game session:
-//   table: everyone in the world (DM included)
+//   table: everyone in the world (GM included)
 //   party: players only. Nobody else can read, list or receive it: not the
-//          DM, not an admin, not a DM's key, not the DM agent.
+//          GM, not an admin, not a GM's key, not the GM agent.
 // Every reader goes through canRead(); there is no other path to party rows.
 import { type DB, all, one, run } from '../../core/db.ts';
 import { DEFAULT_SETTINGS } from '../../core/policy.ts';
@@ -25,7 +25,7 @@ export function readable(v: Viewer): Channel[] { return CHANNELS.filter((c) => c
 // ---- sessions ----
 
 /**
- * The session chats belong to: the one the DM started, else the recording
+ * The session chats belong to: the one the GM started, else the recording
  * session or the people checked in on /live. Starts one by itself only when
  * something is going on that began after the last chat session ended.
  */
@@ -83,7 +83,7 @@ export function renderBody(db: DB, worldId: string, body: string, role: Role): s
   });
 }
 
-/** Players may only link what they can open; the DM may link any page of the world. */
+/** Players may only link what they can open; the GM may link any page of the world. */
 export function checkLinks(db: DB, worldId: string, body: string, role: Role) {
   for (const pid of linkedPages(body)) {
     if (!pageFor(db, worldId, pid, role)) throw new HttpError(400, 'You can only link pages you can see');

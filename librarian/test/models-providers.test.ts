@@ -510,7 +510,7 @@ test('ModelsRerank_ReordersLibrarySearchAndOnlyReadsThisViewersCopy', async () =
     assert.deepEqual(new Set(hits.map((h) => h.id)), new Set(plain.map((h) => h.id)), 'nothing added or lost');
     assert.equal(f.requests.filter((r) => r.path === '/v1/rerank').length, 1);
     const sent = JSON.stringify(f.requests.map((r) => r.body));
-    assert.ok(!sent.includes('zzsecretmarker'), 'the player search sent no DM-only text');
+    assert.ok(!sent.includes('zzsecretmarker'), 'the player search sent no GM-only text');
     assert.ok(!sent.includes('Harbour smugglers'));
     assert.equal(f.requests.find((r) => r.path === '/v1/rerank')!.body.top_n, hits.length);
   } finally { await f.close(); }

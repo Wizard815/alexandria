@@ -1,4 +1,4 @@
-// The Assistant / Active badge: visible on every DM screen, one tap to switch.
+// The Assistant / Active badge: visible on every GM screen, one tap to switch.
 import { Link, useLocation } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
 import { useActive } from './shared.tsx';

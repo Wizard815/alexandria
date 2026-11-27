@@ -1,7 +1,7 @@
 // The Discord bot against a stand-in Discord (discord-fake.ts): setting it up,
 // linking a player with a code, /roll, /ask (the quick helper), /recap, and
 // what Alexandria posts by itself (recaps, table rolls, broker messages),
-// with nothing DM-only or party-only ever leaving.
+// with nothing GM-only or party-only ever leaving.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -89,7 +89,7 @@ before(async () => {
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  await ok('PUT', w('/library/pages'), T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `# Saltmarsh\nSaltmarsh is a fishing town ruled by a council of seven captains.\n\n> [!secret] DM\n> ${SECRET}.\n` });
+  await ok('PUT', w('/library/pages'), T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `# Saltmarsh\nSaltmarsh is a fishing town ruled by a council of seven captains.\n\n> [!secret] GM\n> ${SECRET}.\n` });
 });
 
 after(async () => {
@@ -198,7 +198,7 @@ test('TestDiscord_TableRollsArePostedPartyRollsAreNot', async () => {
   await ok('POST', w('/sessionchat/chat/table'), T.tom, { body: 'plain words, not a roll' });
   await new Promise((res) => setTimeout(res, 100));
   assert.equal(fake.find('POST', new RegExp(`/channels/${ROLLS}/messages`), from).length, 1, 'party chat and plain text stay home');
-  // The DM hides the roll: it comes down in Discord too.
+  // The GM hides the roll: it comes down in Discord too.
   await ok('POST', w(`/sessionchat/messages/${m.id}/hide`), T.dm, {});
   await until('the delete', () => fake.find('DELETE', new RegExp(`/channels/${ROLLS}/messages/${post.body ? '\\d+' : ''}`), from)[0]);
 });
@@ -218,12 +218,12 @@ test('TestDiscord_AskUsesTheQuickHelperPrivately', async () => {
   // Shared: posted for the channel.
   const s: any = await answerTo(fake.interaction(JESS, 'ask', { task: 'turn', share: true }));
   assert.equal(s.flags, 0);
-  // The DM is not a player: no quick helper.
+  // The GM is not a player: no quick helper.
   const dmCode = await ok('POST', w('/discord/me/code'), T.dm);
-  const DM = { id: '500000000000000005', username: 'the_dm' };
-  await answerTo(fake.interaction(DM, 'link', { code: dmCode.code }));
-  assert.match((await answerTo(fake.interaction(DM, 'ask', { question: 'Hi?' })) as any).content, /for players/);
-  // The DM switches the helper off for Discord.
+  const GM = { id: '500000000000000005', username: 'the_dm' };
+  await answerTo(fake.interaction(GM, 'link', { code: dmCode.code }));
+  assert.match((await answerTo(fake.interaction(GM, 'ask', { question: 'Hi?' })) as any).content, /for players/);
+  // The GM switches the helper off for Discord.
   await ok('PUT', w('/discord'), T.dm, { helper: false });
   assert.match((await answerTo(fake.interaction(JESS, 'ask', { question: 'What does Dodge do?' })) as any).content, /turned the quick helper off in Discord/);
   await ok('PUT', w('/discord'), T.dm, { helper: true });
@@ -244,35 +244,35 @@ test('TestDiscord_PublishedRecapIsPostedOnce', async () => {
   const mine: any = await answerTo(fake.interaction(TOM, 'recap'));
   assert.match(mine.content, /met the keeper/);
   assert.equal(mine.flags, 64);
-  // The DM can post it again on purpose.
+  // The GM can post it again on purpose.
   const entry = pub.entry?.id ?? one<any>(deps.db, 'SELECT id FROM sessionlog_entries WHERE world_id = ?', W).id;
   await ok('POST', w(`/discord/recap/${entry}`), T.dm);
   assert.equal(fake.find('POST', new RegExp(`/channels/${RECAPS}/messages`), from).length, 2);
 });
 
 test('TestDiscord_BrokerMessagesGoToTheAskerOnly', async () => {
-  // A guarded question waits for the DM's price.
+  // A guarded question waits for the GM's price.
   const rid = 'brq_discordtest1';
   run(deps.db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at) VALUES (?, ?, ?, ?, 'short', 'secret', 'pricing', ?)`, rid, W, ID.jess, 'Who does the council answer to?', new Date().toISOString());
   const jessDm = `7${JESS.id.slice(1)}`;
   const from = fake.calls.length;
   await ok('POST', w(`/broker/${rid}/price`), T.dm, { costCp: 500, answer: 'To the smuggler queen.', waitAmount: 0, waitUnit: 'minutes', clock: 'real' });
-  const priced: any = await until('the price DM', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from)[0]);
+  const priced: any = await until('the price direct message', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from)[0]);
   assert.match(priced.body.content, /names a price/);
   assert.equal(priced.body.content.includes('smuggler queen'), false, 'no answer before paying');
   await ok('POST', w('/live/ledger'), T.dm, { owner: ID.jess, amountCp: 1000, note: 'Reward' });
   await ok('POST', w(`/broker/${rid}/accept`), T.jess, { from: 'me' });
   const st = one<any>(deps.db, 'SELECT status FROM broker_requests WHERE id = ?', rid).status;
   if (st === 'waiting') await ok('POST', w(`/broker/${rid}/deliver`), T.dm, {});
-  const answered: any = await until('the answer DM', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from).find((c) => /has an answer/.test(c.body.content)));
+  const answered: any = await until('the answer direct message', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from).find((c) => /has an answer/.test(c.body.content)));
   assert.match(answered.body.content, /To the smuggler queen/);
-  assert.equal(fake.find('POST', /\/users\/@me\/channels/, from).every((c) => c.body.recipient_id === JESS.id), true, 'only Jess got a DM');
+  assert.equal(fake.find('POST', /\/users\/@me\/channels/, from).every((c) => c.body.recipient_id === JESS.id), true, 'only Jess got a direct message');
 });
 
 test('TestDiscord_BrokerOffersSendTheTeaserNotTheInfo', async () => {
   const from = fake.calls.length;
   await ok('POST', w('/broker/offers'), T.dm, { title: 'The vault key', teaser: 'I know where a key is kept.', info: 'Under the third step of the lighthouse.', priceCp: 2000, targets: ['party'] });
-  await until('two offer DMs', () => fake.find('POST', /\/channels\/7\d+\/messages/, from).length >= 2);
+  await until('two offer direct messages', () => fake.find('POST', /\/channels\/7\d+\/messages/, from).length >= 2);
   const posts = fake.find('POST', /\/channels\/7\d+\/messages/, from);
   assert.ok(posts.every((p) => /The vault key/.test(p.body.content) && /key is kept/.test(p.body.content)));
   assert.ok(posts.every((p) => !p.body.content.includes('third step')), 'the information stays in the app');

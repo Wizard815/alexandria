@@ -1,6 +1,6 @@
 // House rules: Alexandria's mods. A house rule is a mod file (format.ts) that
 // adds counters, actions, chat words and rule text, or switches a whole
-// system on through presets (spell points, MANA, spell crafting). The DM turns
+// system on through presets (spell points, MANA, spell crafting). The GM turns
 // rules on under World settings → House rules; players use them from their
 // sheet and session chat; the assistant can explain, grant, spend and draft
 // them. See docs/MODS.md.
@@ -67,7 +67,7 @@ const label = (m: Installed, rid: string) => m.mod.resources.find((r) => r.id ==
 function rerollTarget(db: DB, worldId: string, a: Action, actor: Actor, owner: string, rollId: string | null, channel: Channel) {
   const whose = a.effect!.reroll!.whose;
   const fits = (author: string, role: Role) => (whose === 'own' ? author === owner : whose === 'anyPlayer' ? role === 'player' : role === 'dm');
-  const want = whose === 'own' ? 'one of your own rolls' : whose === 'anyPlayer' ? 'a player\'s roll' : 'one of the DM\'s rolls';
+  const want = whose === 'own' ? 'one of your own rolls' : whose === 'anyPlayer' ? 'a player\'s roll' : 'one of the GM\'s rolls';
   if (rollId) {
     const r = rollMessage(db, worldId, rollId);
     if (!r || !canRead(actor, r.row.channel)) throw new HttpError(404, 'That roll is not in this chat');
@@ -114,13 +114,13 @@ function routes(d: Deps) {
 
   const nameFn = (w: string) => { const nm = names(db, w); return (aid: string | null) => (aid ? nm[aid] ?? 'someone' : 'everyone'); };
   const changedRecords = (w: string, modId: string) => d.hub.emit(w, 'mods-records', { mod: modId }, () => true);
-  /** Post what a change says: chat lines to the table (as the actor, or the DM), DM notes to the DM. */
+  /** Post what a change says: chat lines to the table (as the actor, or the GM), GM notes to the GM. */
   const say = (w: string, who: Actor | null, said: Said, modId: string) => {
     const author = who ?? (() => { const dm = one<any>(db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'dm' ORDER BY rowid LIMIT 1", w); return dm ? { accountId: dm.account_id as string, role: 'dm' as Role } : null; })();
     for (const line of said.chat) if (author && line.trim()) { try { postChat(d, w, 'table', author.accountId, author.role, line); } catch { /* no session running: the log has it */ } }
     for (const line of said.dmnote) if (line.trim()) d.hub.emit(w, 'mods-note', { mod: modId, text: line }, (v) => v.role === 'dm');
   };
-  /** A record as a viewer may see it: the DM all, a player shared records and their own. */
+  /** A record as a viewer may see it: the GM all, a player shared records and their own. */
   const canSee = (res: Response, rec: Rec) => isDM(res) || rec.player === null || rec.player === me(res);
   const liveMod = (res: Response, idParam: string) => {
     const m = getModRaw(db, W(res), idParam);
@@ -156,7 +156,7 @@ function routes(d: Deps) {
     res.status(out.before === null ? 201 : 200).json(out);
   });
 
-  // The DM opens a prompt: every player gets its choices.
+  // The GM opens a prompt: every player gets its choices.
   r.post('/:id/prompts/:prompt', requireDM, (req, res) => {
     const w = W(res);
     const m = getModRaw(db, w, String(req.params.id));
@@ -218,7 +218,7 @@ function routes(d: Deps) {
     throw new HttpError(404, `No house rule or example ${id.slice(0, 40)}; examples: ${exampleIds().join(', ')}`);
   });
 
-  // ---- the DM: check, import, export, turn on and off, options, remove ----
+  // ---- the GM: check, import, export, turn on and off, options, remove ----
 
   r.post('/check', requireDM, (req, res) => {
     const { mods, errors, info } = unpack(req.body?.mod);
@@ -366,7 +366,7 @@ function routes(d: Deps) {
   return r;
 }
 
-/** The chat and DM-note effects of an action (rerolls are handled where the roll is known). */
+/** The chat and GM-note effects of an action (rerolls are handled where the roll is known). */
 function afterEffects(d: Deps, w: string, m: Installed, a: Action, who: Actor, target: string, note: string) {
   const e = a.effect;
   if (!e) return;
@@ -445,7 +445,7 @@ const feature: Feature = {
   worldRoutes: routes,
   mcpTools: [
     {
-      name: 'house_rules', description: "The world's house rules (mods) that are on: what each does, its rule text, its counters (e.g. reroll tokens) and the actions and chat words it adds. The DM also sees rules that are off. Use it to explain a house rule or before granting or spending.",
+      name: 'house_rules', description: "The world's house rules (mods) that are on: what each does, its rule text, its counters (e.g. reroll tokens) and the actions and chat words it adds. The GM also sees rules that are off. Use it to explain a house rule or before granting or spending.",
       props: {}, call: () => ({ method: 'GET', path: '/mods' }),
     },
     {
@@ -454,7 +454,7 @@ const feature: Feature = {
     },
     {
       name: 'house_rule_grant', write: true, dmOnly: true,
-      description: 'Run a DM action of a house rule on a player, usually Grant (e.g. give Mira a personal reroll for good roleplay). Always pass the reason as note: it is logged and shown to the player.',
+      description: 'Run a GM action of a house rule on a player, usually Grant (e.g. give Mira a personal reroll for good roleplay). Always pass the reason as note: it is logged and shown to the player.',
       props: {
         mod: { type: 'string', description: 'House rule id, e.g. inspiration-rerolls' },
         player: { type: 'string', description: 'Player account id or character name' },
@@ -467,14 +467,14 @@ const feature: Feature = {
     },
     {
       name: 'house_rule_records',
-      description: "A house rule's own lists (a data system such as downtime: its activities, each player's tasks and how far along they are). The DM sees every record; a player sees shared ones and their own. Use house_rules first to see each rule's record kinds and actions.",
-      props: { mod: { type: 'string', description: 'The rule id, e.g. downtime' }, kind: { type: 'string', description: 'A record kind of the rule, e.g. task (default: all)' }, player: { type: 'string', description: 'DM: only this player\'s (account id)' } },
+      description: "A house rule's own lists (a data system such as downtime: its activities, each player's tasks and how far along they are). The GM sees every record; a player sees shared ones and their own. Use house_rules first to see each rule's record kinds and actions.",
+      props: { mod: { type: 'string', description: 'The rule id, e.g. downtime' }, kind: { type: 'string', description: 'A record kind of the rule, e.g. task (default: all)' }, player: { type: 'string', description: 'GM: only this player\'s (account id)' } },
       required: ['mod'],
       call: (a) => ({ method: 'GET', path: `/mods/${enc(a.mod)}/records?${new URLSearchParams(Object.entries({ kind: a.kind, player: a.player }).filter(([, v]) => v) as [string, string][]).toString()}` }),
     },
     {
       name: 'house_rule_record_act', write: true, dmOnly: true,
-      description: "DM: run one of a house rule's record actions: create a record (values for the fields it asks), change one (recordId), add to a number (amount, negative takes away, e.g. days of downtime lost) or remove one. Logged with the note. For a player's own record, pass player when creating.",
+      description: "GM: run one of a house rule's record actions: create a record (values for the fields it asks), change one (recordId), add to a number (amount, negative takes away, e.g. days of downtime lost) or remove one. Logged with the note. For a player's own record, pass player when creating.",
       props: {
         mod: { type: 'string' }, action: { type: 'string', description: 'The record action id' }, recordId: { type: 'string' },
         player: { type: 'string', description: 'Whose (account id or name), for a record a player owns' }, values: { type: 'object', description: 'Field values the action asks for' },
@@ -485,7 +485,7 @@ const feature: Feature = {
     },
     {
       name: 'house_rule_prompt', write: true, dmOnly: true,
-      description: "DM: open one of a house rule's prompts, e.g. a downtime day: every player gets its choices (keep working, start something, skip) and their answers move their records.",
+      description: "GM: open one of a house rule's prompts, e.g. a downtime day: every player gets its choices (keep working, start something, skip) and their answers move their records.",
       props: { mod: { type: 'string' }, prompt: { type: 'string', description: 'The prompt id' } },
       required: ['mod', 'prompt'],
       call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/prompts/${enc(a.prompt)}`, body: {} }),
@@ -510,7 +510,7 @@ const feature: Feature = {
     },
     {
       name: 'house_rule_guide', dmOnly: true,
-      description: 'How to write a house rule file (a mod): read it before making or changing one. Part start (default) says which kind fits and how to work; counters (points and tokens), data (lists, tasks, progress, a popup for each player such as downtime), presets (switch on spell points, MANA and other systems with world settings), manifest (targets, requires, conflicts) and assistant (how the DM assistant and the player helper help with the rule) give every field.',
+      description: 'How to write a house rule file (a mod): read it before making or changing one. Part start (default) says which kind fits and how to work; counters (points and tokens), data (lists, tasks, progress, a popup for each player such as downtime), presets (switch on spell points, MANA and other systems with world settings), manifest (targets, requires, conflicts) and assistant (how the GM assistant and the player helper help with the rule) give every field.',
       props: { part: { type: 'string', enum: ['start', 'counters', 'data', 'presets', 'manifest', 'assistant'], description: 'Which part (default start)' } },
       call: (a) => ({ method: 'GET', path: `/mods/guide${a.part ? `?part=${enc(a.part)}` : ''}` }),
     },
@@ -522,13 +522,13 @@ const feature: Feature = {
     },
     {
       name: 'house_rule_check', dmOnly: true,
-      description: 'Check a draft house rule (mod file JSON, see house_rule_guide) without saving it. Returns plain errors to fix, notes, a preview (what the rule does, in plain words, to tell the DM), the cleaned file and a draft id. Use it until ok is true, then tell the DM the preview and save with house_rule_save { draft } once they agree.',
+      description: 'Check a draft house rule (mod file JSON, see house_rule_guide) without saving it. Returns plain errors to fix, notes, a preview (what the rule does, in plain words, to tell the GM), the cleaned file and a draft id. Use it until ok is true, then tell the GM the preview and save with house_rule_save { draft } once they agree.',
       props: { mod: { type: 'object', description: 'The mod file, or a package of several' } }, required: ['mod'],
       call: (a) => ({ method: 'POST', path: '/mods/check', body: { mod: a.mod } }),
     },
     {
       name: 'house_rule_save', write: true, dmOnly: true,
-      description: "Save a checked house rule to the world (it starts off; the DM turns it on under House rules → Rules). Pass draft, the id house_rule_check gave, so exactly the checked file is saved; or the whole mod. Saving a rule with an existing id replaces it and keeps its counters. One rule or a package (several).",
+      description: "Save a checked house rule to the world (it starts off; the GM turns it on under House rules → Rules). Pass draft, the id house_rule_check gave, so exactly the checked file is saved; or the whole mod. Saving a rule with an existing id replaces it and keeps its counters. One rule or a package (several).",
       props: { draft: { type: 'string', description: 'The draft id from house_rule_check (preferred)' }, mod: { type: 'object', description: 'The mod file, or a package of several, when there is no draft' } },
       call: (a) => ({ method: 'POST', path: '/mods/import', body: a.draft ? { draft: a.draft } : { mod: a.mod } }),
     },

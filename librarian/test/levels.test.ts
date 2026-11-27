@@ -103,7 +103,7 @@ before(async () => {
   P.harbor = await page('places/Harbor', 'party', `---\ntags: [town]\nclassified_plan: classifiedmarker8812\nbroker_price: brokermarker9913\nsecret:\n  spy: dmmarker7788\n---\n# Harbor\nHarbor is a fishing town with a busy ${M.party} market.\n\n> [!broker]\n> ${M.broker} the harbor master sells gate passes to the city at night.\n\n> [!secret]\n> ${M.dm} the harbor master is a spy.\n\n> [!classified]\n> ${M.cls} the harbor master is secretly the lich who rules the drowned crypt.\n`);
   P.vault = await page('lore/Old Vault', 'classified', `# Old Vault\nclassifiedmarker6601 the vault hides a crown.\n`);
   P.rumor = await page('lore/Duke Rumor', 'broker', `---\nknowledge: common\n---\n# Duke Rumor\nThe duke owes forty thousand gold to the moneylenders guild ${BRK[0]}.\n`);
-  P.sections = await page('places/Sections', 'party', `# Sections\nOpen words about the ${M.party} docks.\n\n## Classified\nclassifiedmarker2201 hidden for ever.\n\n## Broker notes\nbrokermarker2202 sells rumors.\n\n## DM notes\n${M.dm} dm text.\n\n## After\nBack in the open.\n`);
+  P.sections = await page('places/Sections', 'party', `# Sections\nOpen words about the ${M.party} docks.\n\n## Classified\nclassifiedmarker2201 hidden for ever.\n\n## Broker notes\nbrokermarker2202 sells rumors.\n\n## GM notes\n${M.dm} dm text.\n\n## After\nBack in the open.\n`);
   P.byTag = await page('misc/Tagged Classified', 'party', `---\ntags: [classified]\n---\n# Tagged Classified\nclassifiedmarker4401 shared by the source but tagged.\n`);
   P.byTagBroker = await page('misc/Tagged Broker', 'party', `---\ntags: [broker]\n---\n# Tagged Broker\nbrokermarker4402 tagged as broker.\n`);
   P.dmPage = await page('lore/Lighthouse Lich', 'dm', `# Lighthouse Lich\nThe lich beneath the lighthouse is ${M.dm} the harbor master.\n`);
@@ -279,7 +279,7 @@ test('TestLevels_PlayersNeverSeeBrokerOrClassified', async () => {
     await call('PUT', `/api/worlds/${W}/itemcards/${it.body.id}/page`, T.dm, { pageId: P.vault });
     noneOf('itemcard', (await call('GET', `/api/worlds/${W}/itemcards/${it.body.id}`, j)).text, SECRET_FOR_PLAYERS);
   }
-  // Live events: the page event for a hidden page is DM-only; the copies on disk for players hold no secrets.
+  // Live events: the page event for a hidden page is GM-only; the copies on disk for players hold no secrets.
   const partyDir = path.join(tmp, 'data', 'worlds');
   const walk = (d: string): string[] => (fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)])) : []);
   for (const f of walk(partyDir).filter((x) => /[\\/](party|_api)[\\/]/.test(x))) noneOf(`mirror ${f}`, fs.readFileSync(f, 'utf8'), SECRET_FOR_PLAYERS);
@@ -308,7 +308,7 @@ test('TestLevels_CopiesPerAudience', () => {
   assert.ok(/dmmarker/.test(idx('fts_ai')) && /brokermarker/.test(idx('fts_broker')));
 });
 
-// ---- the DM, and every model-facing path ------------------------------------------------
+// ---- the GM, and every model-facing path ------------------------------------------------
 
 test('TestLevels_DMStillSeesClassifiedInLibrary', async () => {
   const pg = await ok('GET', `${L()}/pages/${P.vault}`, T.dm);
@@ -317,7 +317,7 @@ test('TestLevels_DMStillSeesClassifiedInLibrary', async () => {
   const harbor = await ok('GET', `${L()}/pages/${P.harbor}`, T.dm);
   assert.ok(JSON.stringify(harbor).includes(M.cls) && JSON.stringify(harbor).includes('"level":"classified"'));
   assert.ok((await ok('GET', `${L()}/pages`, T.dm)).some((p: any) => p.title === 'Old Vault' && p.visibility === 'classified'));
-  assert.ok(JSON.stringify(await ok('GET', `${L()}/search?q=classifiedmarker6601`, T.dm)).includes('Old Vault'), 'DM keyword search finds it');
+  assert.ok(JSON.stringify(await ok('GET', `${L()}/search?q=classifiedmarker6601`, T.dm)).includes('Old Vault'), 'GM keyword search finds it');
   // Setting the level of an Alexandria page.
   const lv = await ok('PUT', `${L()}/pages/${P.dmPage}/level`, T.dm, { level: 'classified' });
   assert.equal(lv.visibility, 'classified');
@@ -330,7 +330,7 @@ test('TestLevels_McpAndHeaderServeTheAiCopy', async () => {
   const key = (await ok('POST', '/api/keys', T.dm, { scope: 'scribe', label: 'dm mcp', worldId: W, access: 'write' })).key;
   const mcp = async (name: string, args: any = {}) => JSON.stringify((await call('POST', '/mcp', key, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body);
   const rd = await mcp('read_page', { page: P.harbor });
-  assert.ok(rd.includes(M.dm) && rd.includes(M.broker) && !/classifiedmarker/.test(rd), 'the DM key still goes to a model: AI copy');
+  assert.ok(rd.includes(M.dm) && rd.includes(M.broker) && !/classifiedmarker/.test(rd), 'the GM key still goes to a model: AI copy');
   assert.ok(/not found|404/i.test(await mcp('read_page', { page: P.vault })) && !(await mcp('read_page', { page: P.vault })).includes('classifiedmarker6601'));
   const lst = await mcp('list_pages');
   assert.ok(!lst.includes('Old Vault') && lst.includes('Duke Rumor') && lst.includes('Harbor'));
@@ -338,7 +338,7 @@ test('TestLevels_McpAndHeaderServeTheAiCopy', async () => {
   noneOf('mcp search 2', await mcp('search_library', { query: 'classifiedmarker6601 vault' }), [...CLS, 'Old Vault'], 'classifiedmarker6601');
   noneOf('mcp search_world', await mcp('search_world', { query: 'classifiedmarker2201 vault' }), [...CLS, 'Old Vault'], 'classifiedmarker2201');
   noneOf('mcp sections', await mcp('read_page', { page: P.sections }), CLS);
-  // The header on a plain DM session does the same.
+  // The header on a plain GM session does the same.
   noneOf('header read', await ok('GET', `${L()}/pages/${P.sections}`, T.dm, undefined, MODEL_MARK), CLS);
   assert.equal((await call('GET', `${L()}/pages/${P.vault}`, T.dm, undefined, MODEL_MARK)).status, 404);
   noneOf('header bulk', await ok('POST', `${L()}/pages/bulk`, T.dm, { ids: Object.values(P) }, MODEL_MARK), CLS);
@@ -350,17 +350,17 @@ test('TestLevels_McpAndHeaderServeTheAiCopy', async () => {
 
 test('TestLevels_NoModelEverSeesClassified', async () => {
   seen.length = 0;
-  // Embeddings: classified is never embedded, and the DM semantic index is the AI copy.
+  // Embeddings: classified is never embedded, and the GM semantic index is the AI copy.
   await syncEmbeddings(deps, { maxPages: 100 });
   const chunks = all<any>(deps.db, `SELECT scope, text FROM search_chunks`);
   assert.ok(chunks.length > 0);
   noneOf('chunks', chunks.filter((c) => c.scope === 'dm'), CLS);
   noneOf('chunks party', chunks.filter((c) => c.scope === 'party'), SECRET_FOR_PLAYERS);
-  assert.ok(chunks.some((c) => c.scope === 'dm' && c.text.includes(M.dm)), 'dm-level text is embedded for the DM scope');
+  assert.ok(chunks.some((c) => c.scope === 'dm' && c.text.includes(M.dm)), 'dm-level text is embedded for the GM scope');
   assert.ok(!all<any>(deps.db, 'SELECT page_id FROM search_chunks').some((c) => c.page_id === P.vault), 'a classified page is never embedded');
   const sem = await ok('GET', `${L()}/search?q=${encodeURIComponent('vault crown classified')}&semantic=1`, T.dm, undefined, MODEL_MARK);
   noneOf('semantic as model', sem, [...CLS, 'Old Vault']);
-  // The DM agent: context prefetch and read_page.
+  // The GM agent: context prefetch and read_page.
   script = [
     { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_page', arguments: JSON.stringify({ page: 'places/Sections' }) } }] },
     { role: 'assistant', content: null, tool_calls: [{ id: 'c2', type: 'function', function: { name: 'read_page', arguments: JSON.stringify({ page: P.vault }) } }] },
@@ -371,7 +371,7 @@ test('TestLevels_NoModelEverSeesClassified', async () => {
   for (let i = 0; i < 200; i++) { const c = await ok('GET', `/api/worlds/${W}/agent/chats/${chat.id}`, T.dm); if (!c.busy) break; await new Promise((r) => setTimeout(r, 25)); }
   const chatSeen = seen.filter((s) => s.url.endsWith('/chat/completions'));
   assert.ok(chatSeen.length >= 2, 'the agent made model calls');
-  assert.ok(chatSeen.some((s) => s.body.includes(M.dm)), 'dm-level text does reach the DM agent (control)');
+  assert.ok(chatSeen.some((s) => s.body.includes(M.dm)), 'dm-level text does reach the GM agent (control)');
   // Sculpting, statblock from a page, session log draft.
   const tpls = await ok('GET', `/api/worlds/${W}/sculpt/templates`, T.dm);
   const npc = (tpls.templates ?? tpls).find((t: any) => /NPC/.test(t.name));
@@ -401,7 +401,7 @@ test('TestLevels_LeakChecksTreatBrokerAndClassifiedAsNotForPlayers', () => {
 test('TestLevels_BrokerSellsBrokerLevelAfterReviewAndNeverDmOrClassified', async () => {
   const B = `/api/worlds/${W}/broker`;
   const ask = async (q: string, token = T.jess) => { const qt = await ok('POST', `${B}/quote`, token, { question: q }); return { qt, r: await ok('POST', `${B}/ask`, token, { quoteId: qt.quoteId }) }; };
-  // Broker-level text answers, but waits for the DM (default brokerLevelDelivery: review).
+  // Broker-level text answers, but waits for the GM (default brokerLevelDelivery: review).
   const { qt, r } = await ask('duke owes gold moneylenders guild');
   assert.equal(qt.secret, false);
   assert.equal(qt.delivery, 'review');
@@ -423,7 +423,7 @@ test('TestLevels_BrokerSellsBrokerLevelAfterReviewAndNeverDmOrClassified', async
   assert.equal(a2.r.status, 'answered');
   assert.ok(a2.r.answer.includes(BRK[0]));
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { brokerLevelDelivery: 'review' });
-  // dm and classified text is never sold: those questions go to the DM.
+  // dm and classified text is never sold: those questions go to the GM.
   for (const q of ['who is the lich beneath the lighthouse', 'what does the old vault hide crown', 'harbor master spy lich']) {
     const x = await ask(q);
     assert.ok(['pricing', 'noted'].includes(x.r.status) || x.r.answer === undefined || x.r.answer === null, `${q} -> ${x.r.status}`);
@@ -432,12 +432,12 @@ test('TestLevels_BrokerSellsBrokerLevelAfterReviewAndNeverDmOrClassified', async
   }
   const all_ = await ok('GET', B, T.jess);
   noneOf('player broker list', all_, [...DMM, ...CLS]);
-  // A model reading the DM's broker list gets no classification evidence.
+  // A model reading the GM's broker list gets no classification evidence.
   const asModel = await ok('GET', B, T.dm, undefined, MODEL_MARK);
   noneOf('broker as model', asModel, CLS);
   assert.ok(asModel.requests.every((x: any) => x.classification === null || x.classification === undefined));
   const dmList = await ok('GET', B, T.dm);
-  assert.ok(dmList.requests.some((x: any) => (x.classification?.dmEvidence ?? []).some((e: any) => e.level === 'classified' || e.level === 'dm')), 'the DM sees evidence marked by level');
+  assert.ok(dmList.requests.some((x: any) => (x.classification?.dmEvidence ?? []).some((e: any) => e.level === 'classified' || e.level === 'dm')), 'the GM sees evidence marked by level');
 });
 
 test('TestLevels_BrokerGuardAllowsBrokerOnlyInBrokerAnswers', async () => {

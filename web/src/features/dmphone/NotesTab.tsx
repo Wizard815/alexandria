@@ -1,5 +1,5 @@
-// Notes: the live transcript as the DM sees it (asides marked, one tap to make
-// a line DM-only), quick prep notes saved to the library as DM-only, and the
+// Notes: the live transcript as the GM sees it (asides marked, one tap to make
+// a line GM-only), quick prep notes saved to the library as GM-only, and the
 // quick generators.
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -38,9 +38,9 @@ function Live() {
       {!lines.length && <div className="c"><div className="empty">No transcript yet. Start recording from the desktop or the app.</div></div>}
       {lines.map((l) => (
         <div key={l.id} className={`line${l.audience === 'dm' ? ' aside' : ''}`} data-aside={l.audience === 'dm' ? '1' : undefined}>
-          <div className="row between"><span className="sub"><b>{l.speaker}</b></span>{l.audience === 'dm' && <span className="pill red">DM only</span>}</div>
+          <div className="row between"><span className="sub"><b>{l.speaker}</b></span>{l.audience === 'dm' && <span className="pill red">GM only</span>}</div>
           <div className="tx">{l.text}</div>
-          <button type="button" className="b" style={{ marginTop: 6 }} disabled={act.busy} onClick={() => void setAud(l.id, l.audience === 'dm' ? 'auto' : 'dm')}>{l.audience === 'dm' ? 'Let players see it' : 'Make DM-only'}</button>
+          <button type="button" className="b" style={{ marginTop: 6 }} disabled={act.busy} onClick={() => void setAud(l.id, l.audience === 'dm' ? 'auto' : 'dm')}>{l.audience === 'dm' ? 'Let players see it' : 'Make GM-only'}</button>
         </div>
       ))}
     </>
@@ -55,9 +55,9 @@ function Prep({ draft, setDraft }: { draft: string; setDraft: (s: string) => voi
   const save = () => act.run(async () => {
     const name = (title.trim() || `Phone note ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`).replace(/[\\/]/g, '-').slice(0, 80);
     // visibility 'dm': players never see this page.
-    await w.call('PUT', '/library/pages', { path: `DM/Phone notes/${name}`, title: name, body: draft.trim(), visibility: 'dm' });
+    await w.call('PUT', '/library/pages', { path: `GM/Phone notes/${name}`, title: name, body: draft.trim(), visibility: 'dm' });
     buzz(15);
-    flash(`Saved "${name}" as DM-only`);
+    flash(`Saved "${name}" as GM-only`);
     setDraft(''); setTitle('');
   });
   return (
@@ -65,8 +65,8 @@ function Prep({ draft, setDraft }: { draft: string; setDraft: (s: string) => voi
       <Err error={act.error} />
       {msg && <div className="pill green" role="status">{msg}</div>}
       <label className="f">Title (optional)<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Next session hooks" /></label>
-      <label className="f">Note<textarea style={{ minHeight: 160 }} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Jot it down. It is saved to the library for the DM only." /></label>
-      <button type="button" className="b primary big full" disabled={act.busy || !draft.trim()} onClick={() => void save()}>Save as DM-only</button>
+      <label className="f">Note<textarea style={{ minHeight: 160 }} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Jot it down. It is saved to the library for the GM only." /></label>
+      <button type="button" className="b primary big full" disabled={act.busy || !draft.trim()} onClick={() => void save()}>Save as GM-only</button>
     </div>
   );
 }

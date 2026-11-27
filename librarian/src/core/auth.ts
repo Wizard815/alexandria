@@ -181,12 +181,12 @@ export function loadWorld(db: DB) {
     if (auth.via === 'scribe_key' && auth.keyWorldId !== world.id) throw new HttpError(403, 'This key is for another world');
     const m = one<{ role: Role }>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', world.id, auth.account.id);
     if (!m) throw new HttpError(404, 'World not found');
-    // A write key only writes while its owner is a DM of this world.
+    // A write key only writes while its owner is a GM of this world.
     if (auth.via !== 'session' && auth.access === 'write' && m.role !== 'dm') {
       auth.access = 'read';
-      if (!READ_METHODS.has(req.method)) throw new HttpError(403, 'Write keys work only for the DM of this world');
+      if (!READ_METHODS.has(req.method)) throw new HttpError(403, 'Write keys work only for the GM of this world');
     }
-    // A request from a model (the MCP server, the agent's tools) says so: a DM's copy of it then has no classified content. Spoofing only shows less.
+    // A request from a model (the MCP server, the agent's tools) says so: a GM's copy of it then has no classified content. Spoofing only shows less.
     const fromModel = String(req.headers['x-alexandria-caller'] ?? '').toLowerCase() === 'model';
     const ctx: WorldCtx = { world, viewer: { accountId: auth.account.id, role: m.role, ...(fromModel && m.role === 'dm' ? { audience: 'ai' as const } : {}) } };
     res.locals.w = ctx;
@@ -203,7 +203,7 @@ export function loadWorld(db: DB) {
 }
 
 export function requireDM(req: Request, res: Response, next: NextFunction) {
-  if ((res.locals.w as WorldCtx).viewer.role !== 'dm') throw new HttpError(403, 'DMs only');
+  if ((res.locals.w as WorldCtx).viewer.role !== 'dm') throw new HttpError(403, 'GMs only');
   next();
 }
 

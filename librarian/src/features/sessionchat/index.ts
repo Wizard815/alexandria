@@ -1,7 +1,7 @@
 // Session chats (table + party) and trade offers between players.
 // Party chat is for players only: every route and every live event goes
-// through canRead()/readable() in chat.ts, so the DM, an admin, a DM's key
-// and the DM agent get a 403 and never a live event.
+// through canRead()/readable() in chat.ts, so the GM, an admin, a GM's key
+// and the GM agent get a 403 and never a live event.
 import { Router, type Response } from 'express';
 import type { Deps } from '../../app.ts';
 import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
@@ -225,7 +225,7 @@ const feature: Feature = {
       res.json({ ok: true });
     });
 
-    // Moderation: the DM hides a table-chat message. Party chat is not theirs to moderate.
+    // Moderation: the GM hides a table-chat message. Party chat is not theirs to moderate.
     r.post('/messages/:mid/hide', requireDM, (req, res) => {
       const m = messageFor(res, String(req.params.mid));
       if (m.channel !== 'table') throw new HttpError(403, 'Only table chat can be moderated');
@@ -264,7 +264,7 @@ const feature: Feature = {
     const tradeAudience = (t: any) => only(t.from_id, t.to_id);
     const emitTrade = (w: string, t: any) => d.hub.emit(w, 'trade', tradeOut(t), tradeAudience(t));
     const tradingOn = (res: Response) => {
-      if (!settings(res).playerTransfers) throw new HttpError(403, 'Giving and trading is turned off in this world; ask the DM');
+      if (!settings(res).playerTransfers) throw new HttpError(403, 'Giving and trading is turned off in this world; ask the GM');
     };
     const playerOnly = (res: Response) => { if (viewer(res).role !== 'player') throw new HttpError(403, 'Trades are between players'); };
 
@@ -324,12 +324,12 @@ const feature: Feature = {
   },
   mcpTools: [
     { name: 'get_game_session', description: 'The game session chat is open for now (title, who started it) and your chat channels with unread counts. No session means the table is between games.', props: {}, call: () => ({ method: 'GET', path: '/sessionchat/current' }) },
-    { name: 'start_game_session', write: true, description: 'DM: open the table: starts the game session whose table and party chats the players use.', props: { title: { type: 'string', description: 'e.g. Session 23' } }, call: (a) => ({ method: 'POST', path: '/sessionchat/sessions/start', body: { title: a.title } }) },
-    { name: 'end_game_session', write: true, description: 'DM: close the table: ends the running game session; its chat becomes read-only.', props: {}, call: () => ({ method: 'POST', path: '/sessionchat/sessions/end', body: {} }) },
+    { name: 'start_game_session', write: true, description: 'GM: open the table: starts the game session whose table and party chats the players use.', props: { title: { type: 'string', description: 'e.g. Session 23' } }, call: (a) => ({ method: 'POST', path: '/sessionchat/sessions/start', body: { title: a.title } }) },
+    { name: 'end_game_session', write: true, description: 'GM: close the table: ends the running game session; its chat becomes read-only.', props: {}, call: () => ({ method: 'POST', path: '/sessionchat/sessions/end', body: {} }) },
     { name: 'list_my_trades', playerOnly: true, description: 'Trades offered between you and other players (yours only). Trading is done in the app.', props: {}, call: () => ({ method: 'GET', path: '/sessionchat/trades' }) },
-    { name: 'read_table_chat', description: 'The table chat of the current game session (everyone in the world, DM included): newest messages, dice rolls and replies.', props: { limit: { type: 'integer', description: 'How many messages (default 50, max 200)' } }, call: (a) => ({ method: 'GET', path: `/sessionchat/chat/table?limit=${Math.min(200, Math.max(1, Number(a.limit) || 50))}` }) },
-    { name: 'send_table_chat', write: true, description: 'Post to the table chat of the current game session as the DM. Start with /roll 2d6+3 for a server-side dice roll. Player keys are read-only, so players post from the app.', props: { body: { type: 'string', description: 'Up to 2000 characters' }, replyTo: { type: 'string', description: 'Message id to reply to' } }, required: ['body'], call: (a) => ({ method: 'POST', path: '/sessionchat/chat/table', body: { body: a.body, replyTo: a.replyTo } }) },
-    { name: 'read_party_chat', playerOnly: true, description: 'The party chat of the current game session: players only. The DM cannot read it.', props: { limit: { type: 'integer', description: 'How many messages (default 50, max 200)' } }, call: (a) => ({ method: 'GET', path: `/sessionchat/chat/party?limit=${Math.min(200, Math.max(1, Number(a.limit) || 50))}` }) },
+    { name: 'read_table_chat', description: 'The table chat of the current game session (everyone in the world, GM included): newest messages, dice rolls and replies.', props: { limit: { type: 'integer', description: 'How many messages (default 50, max 200)' } }, call: (a) => ({ method: 'GET', path: `/sessionchat/chat/table?limit=${Math.min(200, Math.max(1, Number(a.limit) || 50))}` }) },
+    { name: 'send_table_chat', write: true, description: 'Post to the table chat of the current game session as the GM. Start with /roll 2d6+3 for a server-side dice roll. Player keys are read-only, so players post from the app.', props: { body: { type: 'string', description: 'Up to 2000 characters' }, replyTo: { type: 'string', description: 'Message id to reply to' } }, required: ['body'], call: (a) => ({ method: 'POST', path: '/sessionchat/chat/table', body: { body: a.body, replyTo: a.replyTo } }) },
+    { name: 'read_party_chat', playerOnly: true, description: 'The party chat of the current game session: players only. The GM cannot read it.', props: { limit: { type: 'integer', description: 'How many messages (default 50, max 200)' } }, call: (a) => ({ method: 'GET', path: `/sessionchat/chat/party?limit=${Math.min(200, Math.max(1, Number(a.limit) || 50))}` }) },
   ],
   start: (d: Deps) => {
     const t = setInterval(() => { try { purgeChat(d.db); } catch { /* next time */ } }, 3_600_000);

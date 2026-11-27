@@ -1,4 +1,4 @@
-// A small entry point other screens drop in: a button that opens a template in a side sheet. DM only.
+// A small entry point other screens drop in: a button that opens a template in a side sheet. GM only.
 import { useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import SculptSheet from './SculptSheet.tsx';

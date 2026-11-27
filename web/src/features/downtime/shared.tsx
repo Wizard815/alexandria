@@ -1,5 +1,5 @@
 // DownTime in the app: types, the tier chip, the progress bar and the data
-// hooks the DM page, the player page, the popup and the sheet module share.
+// hooks the GM page, the player page, the popup and the sheet module share.
 import { useLoad, useWorld } from '../../lib/world.tsx';
 
 export type Tier = 'common' | 'uncommon' | 'rare' | 'very-rare' | 'legendary';

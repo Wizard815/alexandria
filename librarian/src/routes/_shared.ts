@@ -9,10 +9,10 @@ export const isDM = (res: Response) => ctx(res).viewer.role === 'dm';
 export const me = (res: Response) => ctx(res).viewer.accountId;
 
 /**
- * Who a read is answered for. A DM who adds ?view=players gets exactly what a player gets: the screen lying on the table is
- * seen by the players, so it asks for their copy instead of trusting the page to hide things. `keepAccount` keeps the DM's
- * account id (for a signed picture address) while still dropping the role; otherwise the id goes too, so nothing the DM
- * authored or owns ("only me" marks, the DM's own combatant) can match. Anyone else always gets their own view.
+ * Who a read is answered for. A GM who adds ?view=players gets exactly what a player gets: the screen lying on the table is
+ * seen by the players, so it asks for their copy instead of trusting the page to hide things. `keepAccount` keeps the GM's
+ * account id (for a signed picture address) while still dropping the role; otherwise the id goes too, so nothing the GM
+ * authored or owns ("only me" marks, the GM's own combatant) can match. Anyone else always gets their own view.
  */
 export function readerFor(req: Request, res: Response, keepAccount = false): Viewer {
   const v = ctx(res).viewer;

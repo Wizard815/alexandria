@@ -1,6 +1,6 @@
 // House rule "Inspiration as re-rolls" (World settings → Player sheets): the
-// DM rewards good role play with re-roll tokens of three kinds. The player
-// spends their own; the DM gives and takes back, from the sheet or the
+// GM rewards good role play with re-roll tokens of three kinds. The player
+// spends their own; the GM gives and takes back, from the sheet or the
 // status bar's quick panel. The server keeps and logs them (features/sheet/rerolls.ts).
 import { useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
@@ -11,11 +11,11 @@ export type Rerolls = { on: false } | { on: true; cap: number; personal: number;
 export const REROLL: Record<RerollKind, { label: string; short: string; icon: string; help: string }> = {
   personal: { label: 'Personal re-roll', short: 'Me', icon: 'fa-dice-d20', help: 'Re-roll one of your own rolls.' },
   party: { label: 'Everyone re-roll', short: 'All', icon: 'fa-people-group', help: 'Re-roll anyone’s roll at the table, yours or a friend’s.' },
-  dm: { label: 'DM re-roll', short: 'DM', icon: 'fa-hat-wizard', help: 'Make the DM re-roll one of their rolls.' },
+  dm: { label: 'GM re-roll', short: 'GM', icon: 'fa-hat-wizard', help: 'Make the GM re-roll one of their rolls.' },
 };
 const KINDS: RerollKind[] = ['personal', 'party', 'dm'];
 
-/** The re-roll module: tokens per kind, Use for the player, give and take back for the DM. */
+/** The re-roll module: tokens per kind, Use for the player, give and take back for the GM. */
 export function RerollMod({ account, r, dm, onChanged }: { account: string; r: Rerolls; dm: boolean; onChanged: () => void }) {
   const { w } = useWorld();
   const act = useAction();
@@ -41,11 +41,11 @@ export function RerollMod({ account, r, dm, onChanged }: { account: string; r: R
   );
 }
 
-/** Small token counts for the DM's status bar. */
+/** Small token counts for the GM's status bar. */
 export function RerollChips({ r }: { r: Rerolls }) {
   if (!r.on) return null;
   return (
-    <span className="tiny faint row" style={{ gap: 6 }} aria-label={`Re-rolls: personal ${r.personal}, everyone ${r.party}, DM ${r.dm}`}>
+    <span className="tiny faint row" style={{ gap: 6 }} aria-label={`Re-rolls: personal ${r.personal}, everyone ${r.party}, GM ${r.dm}`}>
       {KINDS.map((k) => <span key={k} title={REROLL[k].label}><i className={`fa-solid ${REROLL[k].icon}`} aria-hidden="true" /> {r[k]}</span>)}
     </span>
   );
@@ -66,7 +66,7 @@ export function SheetSettings() {
       <section className="card stack">
         <h3>House rule: inspiration as re-rolls</h3>
         <div className="row between" style={{ gap: 10 }}>
-          <span className="stack tight"><span>Use re-roll tokens</span><span className="tiny muted">Reward good role play with re-rolls instead of plain inspiration. Three kinds: personal (re-roll your own roll), everyone (re-roll anyone’s roll) and DM (make the DM re-roll). Each player’s sheet gets a Re-rolls module; you give them from the status bar.</span></span>
+          <span className="stack tight"><span>Use re-roll tokens</span><span className="tiny muted">Reward good role play with re-rolls instead of plain inspiration. Three kinds: personal (re-roll your own roll), everyone (re-roll anyone’s roll) and GM (make the GM re-roll). Each player’s sheet gets a Re-rolls module; you give them from the status bar.</span></span>
           <Switch checked={s.sheetRerolls === true} label="Use re-roll tokens" onChange={(v) => void save({ sheetRerolls: v })} />
         </div>
         {s.sheetRerolls === true && (

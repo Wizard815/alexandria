@@ -33,8 +33,8 @@ test('Map_ImportedPinsFollowLevelsAndFrame', async () => {
     assert.deepEqual(d.pins.map((p: any) => [p.name, p.x, p.y, p.icon, p.color, p.dm]), [['Town', 50, 50, 'house', '#8b5e3c', false], ['Secret', (10 / 192) * 100, (10 / 256) * 100, null, null, true]]);
     assert.ok(d.pins[0].pageId);
     const j = (await call('GET', `/api/worlds/${W}/map/imported/img1/pins`, jess)).json;
-    assert.deepEqual(j.pins.map((p: any) => p.name), ['Town'], 'a DM-only pin is never sent to a player');
-    // Scale: the DM sets it, everyone reads it.
+    assert.deepEqual(j.pins.map((p: any) => p.name), ['Town'], 'a GM-only pin is never sent to a player');
+    // Scale: the GM sets it, everyone reads it.
     assert.equal((await call('PUT', `/api/worlds/${W}/map/scale`, jess, { pic: 'imp:img1', width: 400, unit: 'miles' })).status, 403);
     assert.equal((await call('PUT', `/api/worlds/${W}/map/scale`, dm, { pic: 'imp:img1', width: 400, unit: 'miles' })).status, 200);
     assert.deepEqual((await call('GET', `/api/worlds/${W}/map/scale?pic=imp:img1`, jess)).json, { width: 400, unit: 'miles' });

@@ -1,4 +1,4 @@
-/* The DM's frame: one bar on top, five areas on a rail, the area's pages as a strip. */
+/* The GM's frame: one bar on top, five areas on a rail, the area's pages as a strip. */
 .dmx { display: flex; flex-direction: column; min-height: 100vh; }
 .dmx-top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 12px; background: var(--side); border-bottom: 1px solid var(--line); }
 .dmx-brand { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--accent); font-family: var(--font-head); font-size: 17px; font-weight: 700; letter-spacing: .04em; cursor: pointer; padding: 6px; border-radius: 6px; white-space: nowrap; }

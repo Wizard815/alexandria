@@ -2,7 +2,7 @@ import type { WebFeature } from '../registry.ts';
 import Journal from './Journal.tsx';
 import MinervaPage from './MinervaPage.tsx';
 
-// The DM's page is Minerva's. Players get their own notebook (journal, goals,
+// The GM's page is Minerva's. Players get their own notebook (journal, goals,
 // what they know), kept for them by the broker: its route and label never name her.
 const feature: WebFeature = {
   id: 'minerva',

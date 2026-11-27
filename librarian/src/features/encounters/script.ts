@@ -15,14 +15,14 @@ export type Effect =
   | { kind: 'pay'; cp: number }
   /** The player loses coin (a thief, a spill): up to what they have, never below nothing. */
   | { kind: 'lose'; cp: number }
-  /** A note only the DM sees (and Minerva's session notes): "kept the stranger's purse". */
+  /** A note only the GM sees (and Minerva's session notes): "kept the stranger's purse". */
   | { kind: 'dmnote'; text: string };
 
 /** An NPC who walks up and talks, or a quick event: something that happens to the player. */
 export const KINDS = ['npc', 'event'] as const;
 export type EncounterKind = (typeof KINDS)[number];
 
-/** Where a quick event can happen. A template lists the places it fits; the DM picks a place to get one. */
+/** Where a quick event can happen. A template lists the places it fits; the GM picks a place to get one. */
 export const PLACES = ['town', 'city', 'village', 'market', 'tavern', 'road', 'woods', 'cave', 'dungeon', 'ruins', 'coast', 'mountains', 'swamp'] as const;
 export type Place = (typeof PLACES)[number];
 export const PLACE_LABEL: Record<Place, string> = {
@@ -33,7 +33,7 @@ export const PLACE_LABEL: Record<Place, string> = {
 export const cleanPlaces = (v: unknown): Place[] => {
   const raw = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,\s]+/) : [];
   const want = new Set(raw.map((x) => String(x).toLowerCase().trim()));
-  // "open road", "forest" and the like, as a DM or a model writes them.
+  // "open road", "forest" and the like, as a GM or a model writes them.
   if (want.has('forest') || want.has('wilderness')) want.add('woods');
   if (want.has('open road') || want.has('open-road') || want.has('roads')) want.add('road');
   if (want.has('caves')) want.add('cave');
@@ -123,7 +123,7 @@ function checkDc(g: any, gat: string): { dc: number | null; dcMax: number | null
 /** The DC to beat this time: the fixed DC, or one picked from the range. */
 export const pickDc = (g: Game, rnd: (n: number) => number = d): number => (g.dcMax && g.dc !== null && g.dcMax > g.dc ? g.dc + rnd(g.dcMax - g.dc + 1) - 1 : g.dc ?? 10);
 
-/** "DC 12" or "DC 10–14", for the DM. */
+/** "DC 12" or "DC 10–14", for the GM. */
 export const dcLabel = (g: { dc: number | null; dcMax?: number | null }): string => (g.dc === null ? '' : `DC ${g.dc}${g.dcMax ? `–${g.dcMax}` : ''}`);
 
 /** Check and normalise a script from a request or the database. Throws 400 on anything wrong. */
@@ -184,7 +184,7 @@ export function parseScript(v: any): Script {
   return { start, nodes };
 }
 
-/** One NPC line with plain end-the-talk answers: what the DM sends by hand. */
+/** One NPC line with plain end-the-talk answers: what the GM sends by hand. */
 export const quickScript = (line: string, answers: string[]): Script => parseScript({
   nodes: [{ id: 'start', text: line, options: answers.map((label) => ({ label, next: null })) }],
 });

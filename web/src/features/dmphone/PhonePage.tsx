@@ -1,4 +1,4 @@
-// The DM phone assistant at /w/:world/dm/phone: five tabs, one job each.
+// The GM phone assistant at /w/:world/dm/phone: five tabs, one job each.
 // A near-square screen (a Fold's inner screen) shows two panes: the chosen
 // tab beside Ask, with the tabs as a side rail.
 import { useEffect, useRef, useState } from 'react';
@@ -31,7 +31,7 @@ export default function PhonePage() {
   const { undo, show, clear } = useUndo();
   const sum = useLoad<Summary>(() => w.call<Summary>('GET', '/dmphone/summary?next=2'), [w], ['combat', 'approval', 'coin', 'item', 'item-removed', 'request', 'broker', 'clock', 'recording', 'agent', 'models-warm']);
 
-  // The combatant the DM sent to the assistant from Now; stays attached to what they ask until dropped.
+  // The combatant the GM sent to the assistant from Now; stays attached to what they ask until dropped.
   const [focus, setFocus] = useState<{ id: string; name: string } | null>(null);
   const kb = useKeyboardInset();
   // An action decided in the chat or in the Queue changes the counts at once, not when the server's event comes back.
@@ -46,7 +46,7 @@ export default function PhonePage() {
   const visible = (k: Tab) => (shape.wide ? k === left || k === 'ask' : k === tab);
   useEffect(() => { if (shape.wide) setSeen((s) => (s.has(left) ? s : new Set(s).add(left))); }, [shape.wide, left]);
 
-  // The desktop plays the table's sound. This phone stays quiet unless the DM turns it on in Remote.
+  // The desktop plays the table's sound. This phone stays quiet unless the GM turns it on in Remote.
   useEffect(() => {
     if (lsGet('alx.dmphone.soundInit')) return;
     lsSet('alx.dmphone.soundInit', '1');

@@ -1,6 +1,6 @@
 // Vault pages the whole party may read (level party, not inside one player's
-// own root, except their shared page) are stored DM-only in the library, so
-// their text must be told apart from real DM-only text: the leak checks
+// own root, except their shared page) are stored GM-only in the library, so
+// their text must be told apart from real GM-only text: the leak checks
 // (the broker's reply gate, the session log's publish check) would otherwise
 // refuse to let anyone repeat what every player may know.
 import type { DB } from '../../core/db.ts';

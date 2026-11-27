@@ -1,17 +1,17 @@
-// Sharing the library with players, made quick for the DM (routes under /api/worlds/:world/libshare).
+// Sharing the library with players, made quick for the GM (routes under /api/worlds/:world/libshare).
 //
 // One answer for every library page, file and folder: who can see it.
 //   party    everyone in the party
 //   players  only the players picked (the per-player shares of features/sourcekeys for a page, libshare_files for a file)
-//   dm       nobody but the DM
+//   dm       nobody but the GM
 // A folder gets a rule that covers its pages and files, also ones added or moved
 // in later (grants.ts reads it live, so nothing goes stale). Broker and classified
 // pages and files are never shared this way: classified can never be shared at all,
 // and a rule skips them. Sharing a page or file that holds classified blocks needs
 // an explicit `confirm`; so does every folder. "Send to players" also records the item
-// so players see it as new from the DM, and sends a live event to the people it is for.
+// so players see it as new from the GM, and sends a live event to the people it is for.
 // A recipient only ever gets what they can open: the same player copy of a page,
-// secret blocks and DM facts already cut.
+// secret blocks and GM facts already cut.
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
@@ -38,12 +38,12 @@ export default {
   mcpTools: [
     {
       name: 'library_sharing', dmOnly: true,
-      description: 'DM: who can see what in the library: pages, files and folder rules shared with the whole party or chosen players, and who each is shared with.',
+      description: 'GM: who can see what in the library: pages, files and folder rules shared with the whole party or chosen players, and who each is shared with.',
       props: {}, call: () => ({ method: 'GET', path: '/libshare/overview' }),
     },
     {
       name: 'share_library_item', write: true, dmOnly: true,
-      description: "DM: share a library page, file or folder with everyone ('party'), only chosen players (list of player account ids), or nobody ('dm'). A folder rule also covers pages and files added later. Classified items can never be shared. notify=true also tells the players ('new from the DM').",
+      description: "GM: share a library page, file or folder with everyone ('party'), only chosen players (list of player account ids), or nobody ('dm'). A folder rule also covers pages and files added later. Classified items can never be shared. notify=true also tells the players ('new from the GM').",
       props: {
         kind: { type: 'string', enum: ['page', 'file', 'folder'] }, id: { type: 'string', description: 'Page id or path, or file id (not for a folder)' },
         sourceId: { type: 'string', description: "Folder: the source id ('' for pages written in Alexandria)" }, path: { type: 'string', description: "Folder: its names joined with '/'" }, whole: { type: 'boolean', description: 'Folder: share the whole source (leave path empty)' },
@@ -90,13 +90,13 @@ function routes(d: Deps) {
   };
   const blocked = (what: string, pageLike: { visibility?: unknown; marker_level?: unknown }) => {
     const l = normLevel(pageLike.visibility);
-    if (l === 'classified' || pageLike.marker_level === 'classified') throw new HttpError(409, `${what} is classified and can never be shared. Classified content stays with the DM.`);
-    if (l === 'broker' || pageLike.marker_level === 'broker') throw new HttpError(409, `${what} is at the broker level. Change its level to DM only or Party first.`);
+    if (l === 'classified' || pageLike.marker_level === 'classified') throw new HttpError(409, `${what} is classified and can never be shared. Classified content stays with the GM.`);
+    if (l === 'broker' || pageLike.marker_level === 'broker') throw new HttpError(409, `${what} is at the broker level. Change its level to GM only or Party first.`);
   };
 
   // ---- Who can see what ----
 
-  /** The DM's own shares of pages: page id -> { star, ids }. */
+  /** The GM's own shares of pages: page id -> { star, ids }. */
   const dmShares = (w: string) => {
     const map = new Map<string, { star: boolean; ids: Set<string> }>();
     try {
@@ -202,7 +202,7 @@ function routes(d: Deps) {
 
   r.get('/overview', requireDM, (_req, res) => res.json(overview(W(res))));
 
-  // What a share would do, so the DM can confirm: how many pages and files, what is skipped, whether text stays hidden.
+  // What a share would do, so the GM can confirm: how many pages and files, what is skipped, whether text stays hidden.
   r.get('/preview', requireDM, (req, res) => {
     const w = W(res);
     const kind = modeOf(req.query.kind, ['page', 'file', 'folder']);
@@ -270,7 +270,7 @@ function routes(d: Deps) {
   };
 
   /**
-   * Tell everyone a share changed. The DM hears every page. A player hears, by id, only the pages they can open now
+   * Tell everyone a share changed. The GM hears every page. A player hears, by id, only the pages they can open now
    * or just lost (sent to that player alone), an id-free libfile signal for a file they hold on a page they cannot
    * open, and the id-free libshare signal. Guests and anyone else hear nothing. Fails closed: no reach, no ids.
    */
@@ -317,8 +317,8 @@ function routes(d: Deps) {
 
   function setFile(w: string, by: string, f: any, mode: Mode, to: string[]) {
     const lvl = normLevel(f.level);
-    if (lvl === 'classified') throw new HttpError(409, `“${f.name}” is classified and can never be shared. Classified content stays with the DM.`);
-    if (lvl === 'broker') throw new HttpError(409, `“${f.name}” is at the broker level. Change its level to DM only or Party first.`);
+    if (lvl === 'classified') throw new HttpError(409, `“${f.name}” is classified and can never be shared. Classified content stays with the GM.`);
+    if (lvl === 'broker') throw new HttpError(409, `“${f.name}” is at the broker level. Change its level to GM only or Party first.`);
     const pg = pageRow(w, f.page_id);
     if (mode !== 'dm') blocked(`The page “${pg.title}”`, pg);
     tx(db, () => {
@@ -408,7 +408,7 @@ function routes(d: Deps) {
     res.json({ ok: true, sent, ...overview(w) });
   });
 
-  // ---- Players: what is new from the DM ----
+  // ---- Players: what is new from the GM ----
 
   const seenAt = (w: string, acc: string): string => one<any>(db, 'SELECT at FROM libshare_seen WHERE world_id = ? AND account_id = ?', w, acc)?.at ?? '';
 
@@ -426,7 +426,7 @@ function routes(d: Deps) {
     for (const s of rows) {
       const ids: string[] = JSON.parse(s.to_ids || '[]');
       if (!isDM(res) && !ids.includes('*') && !ids.includes(me(res))) continue;
-      const base: any = { id: s.id, kind: s.kind, itemId: s.item_id, title: s.title, at: s.at, isNew: s.at > seen, from: nm[s.by_id] ?? 'The DM' };
+      const base: any = { id: s.id, kind: s.kind, itemId: s.item_id, title: s.title, at: s.at, isNew: s.at > seen, from: nm[s.by_id] ?? 'The GM' };
       if (isDM(res)) { items.push({ ...base, to: ids, toNames: ids.map((x) => (x === '*' ? 'Everyone' : nm[x] ?? 'Someone')) }); continue; }
       // Checked again now: it is shown only while this player can still open it.
       const openPage = (pid: string) => {

@@ -22,7 +22,7 @@ interface Overview {
   crawl: Crawl | null; crawling: boolean; status?: WorldStatus;
 }
 
-const LEVELS: [keyof Overview['levels'], string, string][] = [['party', 'Party', 'teal'], ['broker', 'Broker', 'gold'], ['dm', 'DM only', 'red'], ['classified', 'Classified', 'red']];
+const LEVELS: [keyof Overview['levels'], string, string][] = [['party', 'Party', 'teal'], ['broker', 'Broker', 'gold'], ['dm', 'GM only', 'red'], ['classified', 'Classified', 'red']];
 const statusChip = (s: string | null | undefined) => (s === 'ok' ? 'green' : s === 'error' ? 'red' : s === 'running' ? 'gold' : '');
 
 export default function WorldPage() {
@@ -121,7 +121,7 @@ function EmbeddingsBox({ e }: { e: Overview['embeddings'] }) {
       <div className="row between wrap small"><span>Embeddings: <strong>{e.model}</strong>{e.location ? <span className="muted"> ({e.location})</span> : null}</span><span><strong>{e.pages.indexed.toLocaleString()}</strong> of {e.pages.eligible.toLocaleString()} pages indexed · {e.chunks.toLocaleString()} chunks · {e.pages.pending.toLocaleString()} pending</span></div>
       <Bar value={e.pages.indexed} max={e.pages.eligible} label="Pages indexed" />
       {e.scopes && (
-        <div className="tiny muted" title="A page can have several copies (what the DM reads, what the table reads); each copy is indexed on its own.">
+        <div className="tiny muted" title="A page can have several copies (what the GM reads, what the table reads); each copy is indexed on its own.">
           Copies indexed, by who reads them: {SCOPE_LABEL.filter(([k]) => e.scopes![k]?.eligible).map(([k, label]) => `${label} ${e.scopes![k].indexed.toLocaleString()}/${e.scopes![k].eligible.toLocaleString()}`).join(' · ') || 'none yet'}. A page counts once above, however many copies it has.
         </div>
       )}
@@ -129,7 +129,7 @@ function EmbeddingsBox({ e }: { e: Overview['embeddings'] }) {
   );
 }
 
-const SCOPE_LABEL: [string, string][] = [['dm', 'DM copy'], ['broker', 'Broker copy'], ['party', 'Player copy'], ['lifted', 'Shared with some']];
+const SCOPE_LABEL: [string, string][] = [['dm', 'GM copy'], ['broker', 'Broker copy'], ['party', 'Player copy'], ['lifted', 'Shared with some']];
 const EMBED_TEXT: Record<string, string> = { waiting: 'Waiting for the library', running: 'Embedding', done: 'Done', 'no-model': 'No embeddings model set: library only', error: 'Stopped on an error', cancelled: 'Cancelled' };
 
 function CrawlPanel({ crawl, live, onLog }: { crawl: Crawl; live: Progress['levels']; onLog: () => void }) {
@@ -249,7 +249,7 @@ function AudienceDialog({ s, onClose, onDone }: { s: Source; onClose: () => void
   const [aud, setAud] = useState<Audience>(s.audience);
   const [ok, setOk] = useState(false);
   const a = useAction();
-  const save = () => a.run(async () => { await client.request('PATCH', `/api/admin/sources/${s.id}`, { audience: aud, ...(aud === 'party' ? { confirmParty: true } : {}) }); onDone(`${s.name}: ${aud === 'dm' ? 'DM only' : aud === 'party' ? 'shared with players' : 'follows the source'}. The player copies were rebuilt.`); });
+  const save = () => a.run(async () => { await client.request('PATCH', `/api/admin/sources/${s.id}`, { audience: aud, ...(aud === 'party' ? { confirmParty: true } : {}) }); onDone(`${s.name}: ${aud === 'dm' ? 'GM only' : aud === 'party' ? 'shared with players' : 'follows the source'}. The player copies were rebuilt.`); });
   return (
     <Modal title={`Audience · ${s.name}`} onClose={onClose}>
       <div className="stack">

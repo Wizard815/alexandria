@@ -1,5 +1,5 @@
-// DM phone summary: whose turn it is plus the next two, the counts behind the
-// tab badges, the DM-view transcript, and that players are refused.
+// GM phone summary: whose turn it is plus the next two, the counts behind the
+// tab badges, the GM-view transcript, and that players are refused.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

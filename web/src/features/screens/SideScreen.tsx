@@ -1,4 +1,4 @@
-// /w/:world/screen/side: the DM's tall second monitor. A stack of the panels the DM picks, in the order the DM picks, each
+// /w/:world/screen/side: the GM's tall second monitor. A stack of the panels the GM picks, in the order the GM picks, each
 // folding away and resizable in height. Built for a portrait 1080x1920 screen but it is only a column, so it works anywhere.
 // The choice is remembered per browser.
 import { useEffect, useRef, useState } from 'react';
@@ -32,7 +32,7 @@ export default function SideScreen() {
     change(n);
   };
 
-  if (!isDM) return <div className="t-fantasy"><div className="page"><p className="muted">The side screen is for the DM.</p></div></div>;
+  if (!isDM) return <div className="t-fantasy"><div className="page"><p className="muted">The side screen is for the GM.</p></div></div>;
   const spare = PANELS.filter((p) => !stack.some((s) => s.id === p.id));
   return (
     <div className="t-fantasy sc-side" data-testid="side-screen">

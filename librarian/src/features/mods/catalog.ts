@@ -80,7 +80,7 @@ const TARGETS: Record<string, { label: string; feature?: string }> = {
   encounters: { label: 'Encounters', feature: 'encounters' },
   stage: { label: 'Stage', feature: 'stage' },
   assistant: { label: 'Assistant', feature: 'agent' },
-  table: { label: 'DM Table' },
+  table: { label: 'GM Table' },
   combat: { label: 'Combat tracker' },
   inventory: { label: 'Inventory' },
   library: { label: 'Library' },

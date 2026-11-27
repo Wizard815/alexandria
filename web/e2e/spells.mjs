@@ -1,9 +1,9 @@
-// End-to-end test of the Codex: the DM turns on mana and spell crafting in
+// End-to-end test of the Codex: the GM turns on mana and spell crafting in
 // World settings, makes Fire Bolt + Burning Hands -> Scorching Ray with an
 // INT 13 minimum in the recipe editor; a player on a phone sees it locked
 // (and why), raises INT to 13 on their spell sheet, sees it ready, asks to
-// learn it; the DM approves; the player has the spell, sees the mana pool and
-// casts it. Also: the DM's notes on the recipe never reach the player's page.
+// learn it; the GM approves; the player has the spell, sees the mana pool and
+// casts it. Also: the GM's notes on the recipe never reach the player's page.
 // Run from web/: npm run build && node e2e/spells.mjs   (SPELLS_PORT, default 19811)
 import path from 'node:path';
 import { chromium, root, startScript, tmpDir, quiet } from './lib.mjs';
@@ -17,7 +17,7 @@ const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('spells'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'dungeon master 123');
+const dmLogin = await login('dm', 'game master 123');
 const jessLogin = await login('jess', 'player pass 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
@@ -52,8 +52,8 @@ async function signIn(user, pass, opts) {
 const closeQuick = async (page) => { const c = page.locator('.modal[role=dialog]').getByRole('button', { name: 'Close' }); if (await c.waitFor({ timeout: 1200 }).then(() => true, () => false)) await c.click(); };
 
 try {
-  // 1. The DM turns on mana and spell crafting in World settings.
-  const { page: dm } = await signIn('dm', 'dungeon master 123', { viewport: { width: 1366, height: 900 } });
+  // 1. The GM turns on mana and spell crafting in World settings.
+  const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 } });
   await dm.goto(`${W}/dm/settings`);
   await dm.getByRole('tab', { name: 'Spells & mana' }).click();
   await dm.getByRole('switch', { name: 'Use mana' }).click();
@@ -63,7 +63,7 @@ try {
   check(s.spellMana === true && s.spellCrafting === true, `mana and crafting are on (${s.spellMana}, ${s.spellCrafting})`);
   note('settings: mana and crafting on');
 
-  // 2. The DM makes the recipe in the editor.
+  // 2. The GM makes the recipe in the editor.
   await dm.goto(`${W}/dm/codex`);
   await dm.getByRole('tab', { name: 'Recipes' }).click();
   await dm.getByRole('button', { name: 'New recipe' }).click();
@@ -72,7 +72,7 @@ try {
   await ed.getByLabel('Prerequisite 1', { exact: true }).fill('Fire Bolt');
   await ed.getByLabel('Prerequisite 2', { exact: true }).fill('Burning Hands');
   await ed.getByLabel('Minimum INT', { exact: true }).fill('13');
-  await ed.getByLabel('DM notes (never shown to players)').fill('ZQX-E2E-RECIPENOTE the volcano teaches it');
+  await ed.getByLabel('GM notes (never shown to players)').fill('ZQX-E2E-RECIPENOTE the volcano teaches it');
   await ed.getByRole('button', { name: 'Save recipe' }).click();
   await ed.waitFor({ state: 'detached', timeout: 5000 });
   const card = dm.getByTestId('recipe-Scorching Ray');
@@ -90,12 +90,12 @@ try {
   await rc.waitFor({ timeout: 8000 });
   check(/Locked/.test(await rc.innerText()), 'the recipe is locked for the player');
   check(await pl.getByRole('list', { name: 'Still needed for Scorching Ray' }).getByText('Intelligence 13 (12)').isVisible(), 'it says INT 13 is missing (12 now)');
-  check(!(await pl.content()).includes('ZQX-E2E-RECIPENOTE'), 'the DM note on the recipe is not on the player page');
+  check(!(await pl.content()).includes('ZQX-E2E-RECIPENOTE'), 'the GM note on the recipe is not on the player page');
   const wide = await pl.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(wide <= 1, `no sideways scrolling on the phone (${wide}px)`);
   note('player (phone): locked, needs Intelligence 13');
 
-  // 4. The player raises INT to 13 on the spell sheet: learnable now; asks the DM.
+  // 4. The player raises INT to 13 on the spell sheet: learnable now; asks the GM.
   await pl.getByRole('button', { name: 'My spell sheet' }).click();
   const sheet = pl.getByRole('dialog', { name: 'My spell sheet' });
   await sheet.getByLabel('INT', { exact: true }).fill('13');
@@ -105,16 +105,16 @@ try {
   check(/Ready to learn/.test(await rc.innerText()), 'the recipe is ready once INT is 13');
   check(await rc.evaluate((e) => e.classList.contains('ready')), 'the ready recipe is highlighted');
   await rc.getByRole('button', { name: 'Ask to learn Scorching Ray' }).click();
-  await rc.getByText('Waiting for the DM.').waitFor({ timeout: 8000 });
+  await rc.getByText('Waiting for the GM.').waitFor({ timeout: 8000 });
   note('player: ready, asked to learn');
 
-  // 5. The DM approves.
+  // 5. The GM approves.
   await dm.getByRole('tab', { name: /^Requests/ }).click();
   const req = dm.getByRole('button', { name: 'Approve' }).first();
   await req.waitFor({ timeout: 8000 });
   await req.click();
   await dm.getByText(/approved/).first().waitFor({ timeout: 8000 });
-  note('DM: approved');
+  note('GM: approved');
 
   // 6. The player knows it (live), sees the mana pool and casts it.
   await pl.getByRole('tab', { name: /^My spells/ }).click();
@@ -128,7 +128,7 @@ try {
   const me = await api(jessLogin.token, 'GET', '/spells/characters/me');
   check(me.known.some((x) => x.name === 'Scorching Ray' && x.how === 'crafted') && me.mana.now === 9, 'the server agrees: known, crafted, 9 mana');
   const pc = await pl.content();
-  check(!pc.includes('ZQX-E2E-RECIPENOTE'), 'still no DM note on the player page');
+  check(!pc.includes('ZQX-E2E-RECIPENOTE'), 'still no GM note on the player page');
 } catch (e) {
   problems.push('crashed: ' + (e.stack || e));
 } finally {

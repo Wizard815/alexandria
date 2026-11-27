@@ -1,4 +1,4 @@
-// The Mod studio against a REAL chat model (OpenRouter): the DM asks the assistant for each kind of house rule in
+// The Mod studio against a REAL chat model (OpenRouter): the GM asks the assistant for each kind of house rule in
 // plain words (counters, a whole data system, a copy of a built-in rule) and it must read the guide, check the file
 // until it has no errors, and propose saving it. Approving the card saves the rule; then it is turned on, so the rule
 // really works here. No browser. Skipped unless ASSISTANT_REAL=1 (it spends a few cents). Run from web/:
@@ -23,7 +23,7 @@ const j = async (m, p, tok, b) => { const r = await fetch(base + p, { method: m,
 const ASKS = [
   { kind: 'counters', text: 'Make a house rule for my table: luck points. Each player starts a session with 1 luck point and can hold at most 2. A player spends one to reroll their own latest roll. I can give one for good roleplay with a reason.',
     want: (f) => f.resources?.length >= 1 && f.actions?.some((a) => a.by === 'dm') && f.actions?.some((a) => a.by === 'owner') },
-  { kind: 'data', text: 'Make a house rule for my table: crafting projects. A player starts a project with a name and how many days it needs. Each long rest adds 1 day to every open project, and when the days are in it is done and posts to chat. I can add or take days. Show the projects on a DM tab and on the player sheet.',
+  { kind: 'data', text: 'Make a house rule for my table: crafting projects. A player starts a project with a name and how many days it needs. Each long rest adds 1 day to every open project, and when the days are in it is done and posts to chat. I can add or take days. Show the projects on a GM tab and on the player sheet.',
     want: (f) => f.records && Object.keys(f.records).length >= 1 && f.recordActions?.length >= 2 && f.timers?.length >= 1 && f.views?.length >= 1 },
   { kind: 'downtime', text: 'Make a house rule for my table called Downtime. There are ready-made downtime activities by tier, common to legendary, each taking days (common 1 day, uncommon 3, rare 7, very rare 30, legendary 90), and players can add new ones. When a day passes in session I press a Downtime button and every player gets a popup: keep working, start an activity, or skip. I can add or take days and drop a task. A task is done when its days are in.',
     want: (f) => f.records && Object.keys(f.records).length >= 2 && f.prompts?.length >= 1 && f.timers?.some((t) => String(t.on).startsWith('prompt:')) },
@@ -36,7 +36,7 @@ try {
   const prov = (await j('POST', '/api/admin/models/providers', admin, { name: 'OpenRouter', kind: 'openai-compatible', baseUrl: OR, apiKey: KEY, location: 'cloud' })).x;
   const pid = prov.provider?.id ?? prov.id;
   await j('PUT', '/api/admin/models', admin, { jobs: { chat: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } } } });
-  const tok = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'dungeon master 123' })).x.token;
+  const tok = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'game master 123' })).x.token;
   const WID = (await j('GET', '/api/worlds', tok)).x[0].id;
   const P = `/api/worlds/${WID}`;
   const before = new Set(((await j('GET', `${P}/mods`, tok)).x.mods ?? []).map((m) => m.id));

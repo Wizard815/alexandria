@@ -1,4 +1,4 @@
-// DM: how current everything the AI knows about the world is (sources, pictures, search index, story bible, Minerva's codex links), and
+// GM: how current everything the AI knows about the world is (sources, pictures, search index, story bible, Minerva's codex links), and
 // "Refresh world": one job that brings all of it up to date, step by step.
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';

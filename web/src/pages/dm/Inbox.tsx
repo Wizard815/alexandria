@@ -1,4 +1,4 @@
-// Everything waiting on the DM from the players, in one place: coin and item approvals, and requests for edits, pages and answers.
+// Everything waiting on the GM from the players, in one place: coin and item approvals, and requests for edits, pages and answers.
 // The old /dm/approvals and /dm/requests routes redirect here.
 import { useSearchParams } from 'react-router-dom';
 import { PageHead, Tabs } from '../../ui/index.tsx';

@@ -22,7 +22,7 @@ export default function DMPeople() {
 
   return (
     <div className="page wide">
-      <PageHead title="People" lead="Everyone the party has met. Hidden ones stay DM-only.">
+      <PageHead title="People" lead="Everyone the party has met. Hidden ones stay GM-only.">
         <button type="button" className="btn primary" onClick={() => { setAdding(true); setSel(null); }}>＋ Add a person</button>
       </PageHead>
       <ErrorBox error={people.error} />
@@ -90,7 +90,7 @@ function PersonForm({ p, onDone }: { p?: any; onDone: (id?: string) => void }) {
         <Field label="Library page" help="Optional link to their page">
           <select value={pageId} onChange={(e) => setPageId(e.target.value)}>
             <option value="">— none —</option>
-            {(pages.data ?? []).map((pg) => <option key={pg.id} value={pg.id}>{pg.title}{pg.visibility !== 'party' ? ' (DM only)' : ''}</option>)}
+            {(pages.data ?? []).map((pg) => <option key={pg.id} value={pg.id}>{pg.title}{pg.visibility !== 'party' ? ' (GM only)' : ''}</option>)}
           </select>
         </Field>
       )}

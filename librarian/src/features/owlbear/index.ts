@@ -1,8 +1,8 @@
 // Owlbear Rodeo: play a casual online session on an Owlbear Rodeo map, with this world's map pictures and fog of war.
 //
-// The extension (web/owlbear/) is served by this server at /owlbear/, so the DM adds
+// The extension (web/owlbear/) is served by this server at /owlbear/, so the GM adds
 // https://<this server>/owlbear/manifest.json in Owlbear Rodeo and nothing else needs hosting. It runs in every
-// browser in the Owlbear room, but only the GM's copy holds the link key (alx_obr_..., made on DM → Setup → Owlbear
+// browser in the Owlbear room, but only the GM's copy holds the link key (alx_obr_..., made on GM → Setup → Owlbear
 // Rodeo) and does the work:
 //   - it puts the linked map picture into the Owlbear scene as the map (the table screen's picture by default),
 //   - Alexandria leads (default): this world's fog for that picture is drawn as one locked fog shape on top, kept
@@ -80,7 +80,7 @@ function status(d: Deps, l: Link) {
 
 const LEADS: Lead[] = ['alexandria', 'owlbear'];
 
-/** Change what the link shows (from the extension or the DM page). */
+/** Change what the link shows (from the extension or the GM page). */
 function setLink(d: Deps, l: Link, b: any) {
   const follow = b.follow === undefined ? !!l.follow : !!b.follow;
   const mapId = b.mapId === undefined ? l.map_id : b.mapId === null ? null : str(b.mapId, 'mapId', { max: 60 }) || null;
@@ -100,8 +100,8 @@ function linkFromKey(db: DB, req: Request): Link {
   if (!token.startsWith(KEY_PREFIX)) throw new HttpError(401, 'Send the Owlbear Rodeo link key');
   const l = one<Link>(db, 'SELECT * FROM owlbear_links WHERE key_hash = ?', sha256(token));
   if (!l) throw new HttpError(401, 'That Owlbear Rodeo link key is not valid (made a new one?)');
-  // The key belongs to a DM; a DM who lost the world loses the link.
-  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", l.world_id, l.created_by)) throw new HttpError(403, 'The DM who made this key no longer runs the world');
+  // The key belongs to a GM; a GM who lost the world loses the link.
+  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", l.world_id, l.created_by)) throw new HttpError(403, 'The GM who made this key no longer runs the world');
   const was = l.last_seen_at;
   run(db, 'UPDATE owlbear_links SET last_seen_at = ? WHERE world_id = ?', now(), l.world_id);
   return { ...l, last_seen_at: was };

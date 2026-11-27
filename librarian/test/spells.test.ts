@@ -1,8 +1,8 @@
 // Spells: the SRD 5.2.1 list and its search filters, imports and dedupe,
-// homebrew, mana (spend, upcast, overdraw, rests from the world clock, DM
+// homebrew, mana (spend, upcast, overdraw, rests from the world clock, GM
 // adjustments, max castable level), spell crafting (eligibility with 1-5
 // prerequisites, items, ability scores, level and mana; learning with and
-// without the DM's approval; items used up) and what players may see.
+// without the GM's approval; items used up) and what players may see.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -156,7 +156,7 @@ test('Spells: recipe tiers follow chains and survive cycles', () => {
 
 // ---- the API -----------------------------------------------------------------------------------------
 
-test('Spells: players read only spells they know or the DM made public; DM notes never reach them', async () => {
+test('Spells: players read only spells they know or the GM made public; GM notes never reach them', async () => {
   const dmList = await ok('GET', `${SP()}/list?q=fire%20bolt`, T.dm);
   assert.equal(dmList.spells[0].id, 'srd:fire-bolt');
   assert.equal(dmList.spells[0].manaCost, 0);
@@ -172,7 +172,7 @@ test('Spells: players read only spells they know or the DM made public; DM notes
   assert.match(dmSees.dmNotes, /ZQX-SPELLNOTE/);
   for (const u of ['/list', '/list?full=1', '/facets', '/', '/codex', '/recipes', '/s/srd:fireball']) {
     const r = await call('GET', `${SP()}${u}`, T.jess);
-    assert.ok(!r.text.includes('ZQX-SPELLNOTE'), `${u} leaks the DM note`);
+    assert.ok(!r.text.includes('ZQX-SPELLNOTE'), `${u} leaks the GM note`);
   }
   // A known spell is readable; others stay hidden.
   await ok('POST', `${SP()}/characters/${ID.jess}/known`, T.dm, { spellId: 'Fire Bolt' });
@@ -184,7 +184,7 @@ test('Spells: players read only spells they know or the DM made public; DM notes
   await settings({ spellsPublicSrd: true });
   assert.equal((await ok('GET', `${SP()}/list?limit=1`, T.tom)).total, 339);
   await settings({ spellsPublicSrd: false });
-  // Only the DM changes spells.
+  // Only the GM changes spells.
   assert.equal((await call('PUT', `${SP()}/s/srd:fireball/meta`, T.jess, { public: false })).status, 403);
   assert.equal((await call('POST', `${SP()}/s`, T.jess, { name: 'Mine', level: 1 })).status, 403);
 });
@@ -227,12 +227,12 @@ test('Spells: homebrew, import from JSON, CSV, a game module and library pages, 
   // A game module's spells (the SRD 5.1 module ships with the app).
   const mod = await ok('POST', `${SP()}/import`, T.dm, { type: 'module', moduleId: 'dnd-2014' });
   assert.ok(mod.added.length > 250);
-  const old = (await ok('GET', `${SP()}/list?q=magic%20missile&source=${encodeURIComponent('D&D 5e 2014 (SRD 5.1)')}`, T.dm));
+  const old = (await ok('GET', `${SP()}/list?q=magic%20missile&source=${encodeURIComponent('5e 2014 (SRD 5.1)')}`, T.dm));
   assert.equal(old.total, 1);
   assert.match(old.spells[0].attribution, /5\.1/);
   assert.equal((await ok('POST', `${SP()}/import`, T.dm, { type: 'module', moduleId: 'dnd-2014' })).added.length, 0);
 
-  // Library pages: frontmatter gives the fields; DM-only parts and classified pages stay out.
+  // Library pages: frontmatter gives the fields; GM-only parts and classified pages stay out.
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'Spells/Gloom Veil.md', visibility: 'dm', frontmatter: { level: 2, school: 'Illusion', castingTime: 'Action', range: 'Self', components: 'V, S', duration: '1 hour' }, body: '# Gloom Veil\n\nShadows wrap you.\n\n<!-- dm -->ZQX-LIBSECRET the cult made it<!-- /dm -->\n' });
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'Spells/Sealed Word.md', visibility: 'classified', frontmatter: { level: 9 }, body: 'Never read.' });
   const lib = await ok('POST', `${SP()}/import`, T.dm, { type: 'library', folder: 'Spells' });
@@ -254,7 +254,7 @@ test('Spells: homebrew, import from JSON, CSV, a game module and library pages, 
   assert.equal((await call('DELETE', `${SP()}/s/srd:fireball`, T.dm)).status, 400);
 });
 
-test('Spells: mana pool, casting, upcasting, overdraw, DM adjustments, max level and rests from the clock', async () => {
+test('Spells: mana pool, casting, upcasting, overdraw, GM adjustments, max level and rests from the clock', async () => {
   assert.equal((await call('POST', `${SP()}/characters/${ID.jess}/mana`, T.dm, { delta: 1 })).status, 409, 'mana is off');
   const off = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:fire-bolt' });
   assert.equal(off.cost, 0);
@@ -282,13 +282,13 @@ test('Spells: mana pool, casting, upcasting, overdraw, DM adjustments, max level
   c = await ok('POST', `${SP()}/cast`, T.jess, { spellId: 'srd:burning-hands' });
   assert.equal(c.mana, -1);
   await settings({ spellManaOverdraw: false });
-  // The DM adjusts and sets a maximum by hand.
+  // The GM adjusts and sets a maximum by hand.
   me = await ok('POST', `${SP()}/characters/${ID.jess}/mana`, T.dm, { delta: 3, note: 'Potion' });
   assert.equal(me.mana.now, 2);
   me = await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { manaMax: 20 });
   assert.equal(me.mana.max, 20);
   assert.equal((await call('POST', `${SP()}/characters/${ID.jess}/mana`, T.jess, { delta: 50 })).status, 403);
-  // A short rest gives half back, a long rest all, also when the DM rests from the world clock.
+  // A short rest gives half back, a long rest all, also when the GM rests from the world clock.
   await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { preset: 'short-rest' });
   me = await ok('GET', `${SP()}/characters/me`, T.jess);
   assert.equal(me.mana.now, 12);
@@ -304,7 +304,7 @@ test('Spells: mana pool, casting, upcasting, overdraw, DM adjustments, max level
   assert.equal(high.status, 409);
   assert.match(high.body.error, /level 1 or lower/);
   await settings({ spellManaMaxLevel: { on: false, table: DEFAULT_MAX_LEVEL.table } });
-  // The log: the player's own, the DM's all.
+  // The log: the player's own, the GM's all.
   const log = await ok('GET', `${SP()}/log`, T.jess);
   assert.ok(log.log.some((x: any) => x.kind === 'cast') && log.log.some((x: any) => x.kind === 'rest') && log.log.some((x: any) => x.kind === 'adjust'));
   assert.ok(log.log.every((x: any) => x.accountId === ID.jess));
@@ -312,7 +312,7 @@ test('Spells: mana pool, casting, upcasting, overdraw, DM adjustments, max level
   await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { manaMax: null });
 });
 
-test('Spells: recipes, eligibility (prerequisites, items, ability scores, level, mana) and learning with the DM approving', async () => {
+test('Spells: recipes, eligibility (prerequisites, items, ability scores, level, mana) and learning with the GM approving', async () => {
   assert.equal((await call('POST', `${SP()}/recipes`, T.dm, { result: 'Scorching Ray', prereqs: [] })).status, 400, 'at least one prerequisite');
   assert.equal((await call('POST', `${SP()}/recipes`, T.dm, { result: 'Scorching Ray', prereqs: ['Fire Bolt', 'Burning Hands', 'Light', 'Shield', 'Sleep', 'Thunderwave'] })).status, 400, 'at most five');
   assert.equal((await call('POST', `${SP()}/recipes`, T.dm, { result: 'Scorching Ray', prereqs: ['Scorching Ray'] })).status, 400, 'not itself');
@@ -366,7 +366,7 @@ test('Spells: recipes, eligibility (prerequisites, items, ability scores, level,
   assert.ok(row, 'learnable now');
   assert.deepEqual(row.items.map((i: any) => i.have), [3, 1]);
 
-  // Asking waits for the DM; asking twice is refused; the DM sees the request.
+  // Asking waits for the GM; asking twice is refused; the GM sees the request.
   const reqd = await ok('POST', `${SP()}/learn`, T.jess, { recipeId: ray.id });
   assert.equal(reqd.status, 'pending');
   assert.equal((await call('POST', `${SP()}/learn`, T.jess, { recipeId: ray.id })).status, 409);
@@ -411,7 +411,7 @@ test('Spells: recipes, eligibility (prerequisites, items, ability scores, level,
   const r2 = await ok('POST', `${SP()}/learn`, T.tom, { recipeId: ask.id });
   assert.equal((await ok('POST', `${SP()}/learn/${r2.id}/cancel`, T.tom)).status, 'cancelled');
 
-  // A draft is approved by the DM before anyone can use it; drafts from the assistant come in as drafts.
+  // A draft is approved by the GM before anyone can use it; drafts from the assistant come in as drafts.
   await ok('POST', `${SP()}/recipes/${draft.id}/approve`, T.dm);
   assert.ok((await ok('GET', `${SP()}/recipes`, T.jess)).recipes.some((x: any) => x.id === draft.id));
 

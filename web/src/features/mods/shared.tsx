@@ -26,7 +26,7 @@ export interface HouseRule {
   kit: number;
   targets: { builtFor: Target[]; worksWith: Target[] };
   requires: Record<string, string>; conflicts: string[];
-  /** DM only: why it cannot be turned on here, the Alexandria range, the mod API and what it touches. */
+  /** GM only: why it cannot be turned on here, the Alexandria range, the mod API and what it touches. */
   needs?: string[]; alexandria?: string | null; api?: number; permissions?: string[];
   /** Kit 2 data system: the rule's own lists, record actions, prompts and views. */
   system: SystemView | null;

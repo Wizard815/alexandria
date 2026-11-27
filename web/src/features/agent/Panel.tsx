@@ -1,4 +1,4 @@
-// The DM's assistant: docked to the right edge on every DM page, collapsible.
+// The GM's assistant: docked to the right edge on every GM page, collapsible.
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
@@ -20,7 +20,7 @@ export default function AgentPanel() {
   return isDM && !main.hideAssistant ? <Panel /> : null;
 }
 
-/** How many of the assistant's changes wait for the DM: shown on the folded assistant's dock button. */
+/** How many of the assistant's changes wait for the GM: shown on the folded assistant's dock button. */
 function usePendingCount(): number {
   const { w, on } = useWorld();
   const [n, setN] = useState(0);

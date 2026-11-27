@@ -35,8 +35,8 @@ const PLAYER_WINDOW_MS = 60 * 60_000;
 const norm = (s: string) => s.toLowerCase().replace(/[*_`>#\[\]()|~-]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 /**
- * Is any of this text DM-only? True when a chunk of it appears in a page's
- * DM copy but not in the copy players see (a page players cannot see has no
+ * Is any of this text GM-only? True when a chunk of it appears in a page's
+ * GM copy but not in the copy players see (a page players cannot see has no
  * player copy at all). Text that came from somewhere else (the agent's
  * replies, the transcript) cannot be checked here.
  */
@@ -60,7 +60,7 @@ const num = (v: unknown, f: string, min: number, max: number, dflt: number) => {
 };
 
 const NAME = /^v_[A-Za-z0-9_-]+\.(mp3|ogg|wav|flac|m4a)$/;
-/** The spoken line, if this person may hear it: the DM always; a player only if it went to players within the last hour. */
+/** The spoken line, if this person may hear it: the GM always; a player only if it went to players within the last hour. */
 function lineFor(d: Deps, worldId: string, dm: boolean, name: string) {
   if (!NAME.test(name) || !d.dataDir) return null;
   const row = one<any>(d.db, 'SELECT * FROM voice_files WHERE world_id = ? AND name = ?', worldId, name);
@@ -84,10 +84,10 @@ const feature: Feature = {
     });
   },
   mcpTools: [
-    { name: 'list_voice_presets', dmOnly: true, description: 'DM: the saved read-aloud voice presets (name, voice, speed, effect, who hears it).', props: {}, call: () => ({ method: 'GET', path: '/voice/presets' }) },
+    { name: 'list_voice_presets', dmOnly: true, description: 'GM: the saved read-aloud voice presets (name, voice, speed, effect, who hears it).', props: {}, call: () => ({ method: 'GET', path: '/voice/presets' }) },
     {
       name: 'speak', write: true,
-      description: "DM: read text aloud with a voice preset (by name or id). By default it plays at the table; the preset's target says who else hears it. Text copied from DM-only notes is refused when it would reach players.",
+      description: "GM: read text aloud with a voice preset (by name or id). By default it plays at the table; the preset's target says who else hears it. Text copied from GM-only notes is refused when it would reach players.",
       props: { text: { type: 'string', description: 'What to say, up to 2000 characters' }, preset: { type: 'string', description: 'Preset name' }, presetId: { type: 'string' }, target: { type: 'string', enum: [...TARGETS] } },
       required: ['text'],
       call: (a) => ({ method: 'POST', path: '/voice/speak', body: { text: a.text, preset: a.preset, presetId: a.presetId, target: a.target } }),
@@ -143,7 +143,7 @@ const feature: Feature = {
       if (!p) throw new HttpError(404, 'Preset not found');
       const tg = oneOf(req.body?.target, 'target', TARGETS, p.target as Target);
       if (toPlayers(tg) && containsDmOnly(d, w, text) && req.body?.confirm !== true) {
-        return void res.status(409).json({ error: 'This text comes from DM-only notes. Sending it to players would reveal it. Confirm to send anyway.', needsConfirm: true });
+        return void res.status(409).json({ error: 'This text comes from GM-only notes. Sending it to players would reveal it. Confirm to send anyway.', needsConfirm: true });
       }
       let out: { audio: Uint8Array; mime: string };
       try {

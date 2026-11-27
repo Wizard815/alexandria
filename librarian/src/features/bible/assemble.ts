@@ -1,7 +1,7 @@
 // The story bible for one caller: facts of the pages that caller may open now,
 // in the caller's own scope (scopes.ts), grouped by subject.
 //
-//   DM / model   the 'dm' facts (AI copy)
+//   GM / model   the 'dm' facts (AI copy)
 //   broker       the 'broker' facts
 //   player       the 'party' facts plus the 'lifted' facts of pages they may open now
 //

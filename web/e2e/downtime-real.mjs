@@ -1,4 +1,4 @@
-// DownTime against REAL models (OpenRouter), over the API, no browser. The DM's assistant (Hy4 Flash) starts a
+// DownTime against REAL models (OpenRouter), over the API, no browser. The GM's assistant (Hy4 Flash) starts a
 // Downtime round, takes time off a task and assigns one with a reward, each through an approval card; the player
 // helper model (Bonsai 2 9B) ranks activities and rates a new one's tier, and answers a player's "what am I doing in
 // my downtime" with the downtime tool. Skipped unless DOWNTIME_REAL=1 (it spends a few cents). Run from web/:
@@ -27,7 +27,7 @@ try {
     chat: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } },
     player: { providerId: pid, model: PLAYER, enabled: true, options: { reasoning: 'off', reasoningModel: false, contextTokens: 4096 } },
   } });
-  const dm = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'dungeon master 123' })).x.token;
+  const dm = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'game master 123' })).x.token;
   const jess = (await j('POST', '/api/auth/login', null, { username: 'jess', password: 'player pass 123' })).x.token;
   const WID = (await j('GET', '/api/worlds', dm)).x[0].id;
   const P = `/api/worlds/${WID}`;
@@ -35,7 +35,7 @@ try {
   const sh = (await j('POST', `${P}/downtime/tasks`, dm, { player: 'Tomas', activityId: 'pre-stronghold' })).x;
   await j('POST', `${P}/downtime/tasks/${sh.id}/work`, dm, { days: 10 });
 
-  // ---- the DM's assistant (chat model) ----
+  // ---- the GM's assistant (chat model) ----
   const chat = (await j('POST', `${P}/agent/chats`, dm, {})).x;
   const ask = async (tok, chatId, text) => {
     await j('POST', `${P}/agent/chats/${chatId}/messages`, tok, { text });
@@ -55,9 +55,9 @@ try {
     const tools = await approveAll(c);
     const ok = tools.includes(tool) && await verify();
     if (ok) good++;
-    check(ok, `DM: "${text}" -> ${tools.join(', ') || 'no card'}${ok ? '' : ` · ${(c.messages?.at(-1)?.text ?? '').slice(0, 160)}`}`);
+    check(ok, `GM: "${text}" -> ${tools.join(', ') || 'no card'}${ok ? '' : ` · ${(c.messages?.at(-1)?.text ?? '').slice(0, 160)}`}`);
   }
-  console.log(`DM assistant (${CHAT}): ${good}/${prompts.length}`);
+  console.log(`GM assistant (${CHAT}): ${good}/${prompts.length}`);
 
   // ---- the player helper model: rank and decide ----
   const s = (await j('POST', `${P}/downtime/suggest`, jess, { want: 'I need money for a better bow' })).x;

@@ -1,4 +1,4 @@
-// End-to-end test of the DM phone assistant (/w/:world/dm/phone) on the seeded
+// End-to-end test of the GM phone assistant (/w/:world/dm/phone) on the seeded
 // demo world (fake models), at a normal phone (390x844) and the Fold's
 // near-square inner screen (700x850). Each tab loads, an HP change from the
 // phone reaches the desktop combat page and the players' view (health as the
@@ -29,7 +29,7 @@ srv.stderr.on('data', (d) => process.stderr.write('[demo] ' + d));
 for (let i = 0; i < 150 && !out.includes('Alexandria demo is running'); i++) await new Promise((r) => setTimeout(r, 200));
 if (!out.includes('Alexandria demo is running')) { console.log(out); srv.kill(); console.log('demo did not start'); process.exit(1); }
 
-const PASS = { dm: 'dungeon master 123', jess: 'player pass 123' };
+const PASS = { dm: 'game master 123', jess: 'player pass 123' };
 const login = async (u) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: PASS[u] }) })).json()).token;
 const tokDM = await login('dm');
 const tokJess = await login('jess');
@@ -234,7 +234,7 @@ async function askTour(page, label, wide) {
     note(`${label}: hold-to-talk dictated into the box`);
   } else problems.push(`${label}: no mic button`);
 
-  // Quick prompts are the DM's own: add one, and it is still there after a reload.
+  // Quick prompts are the GM's own: add one, and it is still there after a reload.
   await page.getByTestId('quick-edit').click();
   const dlg = page.getByRole('dialog', { name: 'Quick prompts' });
   await dlg.getByRole('button', { name: 'Add a prompt' }).click();
@@ -261,7 +261,7 @@ try {
   await desk.page.goto(`${base}/w/saltreach/dm/combat`);
   await desk.page.locator('main').waitFor();
 
-  // The banner on the DM's table page, dismissible and remembered.
+  // The banner on the GM's table page, dismissible and remembered.
   await page.goto(`${base}/w/saltreach/dm`);
   await page.getByTestId('phone-banner').waitFor({ timeout: 10000 });
   check(/Open the phone assistant/.test(await page.getByTestId('phone-banner').innerText()), 'banner text');
@@ -310,21 +310,21 @@ try {
 
   await askTour(page, 'phone 390x844', false);
 
-  // Notes: quick gen and a DM-only prep note.
+  // Notes: quick gen and a GM-only prep note.
   await tab(page, 'Notes').click();
   await page.getByRole('tab', { name: 'Quick gen' }).click();
   await page.getByRole('button', { name: 'Names', exact: true }).click();
   await page.getByTestId('gen-out').waitFor({ timeout: 8000 });
   await page.getByRole('button', { name: 'Add to note' }).click();
   await page.getByLabel('Title (optional)').fill('Phone e2e note');
-  await page.getByRole('button', { name: 'Save as DM-only' }).click();
+  await page.getByRole('button', { name: 'Save as GM-only' }).click();
   await page.waitForTimeout(800);
   const dmPages = await dm('GET', '/library/pages');
   const saved = dmPages.find?.((p) => p.title === 'Phone e2e note');
-  check(saved && saved.visibility === 'dm', `prep note should be saved DM-only (got ${saved?.visibility})`);
+  check(saved && saved.visibility === 'dm', `prep note should be saved GM-only (got ${saved?.visibility})`);
   const jessPages = await api(tokJess, 'GET', '/library/pages');
-  check(!JSON.stringify(jessPages).includes('Phone e2e note'), 'a DM-only phone note is visible to a player');
-  note('Notes: quick gen and a DM-only prep note');
+  check(!JSON.stringify(jessPages).includes('Phone e2e note'), 'a GM-only phone note is visible to a player');
+  note('Notes: quick gen and a GM-only prep note');
   await ctx.close();
   await desk.ctx.close();
 

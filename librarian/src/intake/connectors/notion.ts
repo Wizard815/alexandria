@@ -5,13 +5,13 @@
 //            GET  /v1/blocks/{id}/children          the page's blocks (100 a call), read again below any block with children
 //   Database GET  /v1/databases/{id}               its title and description (its rows are pages, listed by search)
 //
-// Notion only shows an integration the pages someone shared with it (Share → Connections), so the DM chooses what Alexandria reads.
-// Who may read a page (fails closed: anything unsure is the DM's):
+// Notion only shows an integration the pages someone shared with it (Share → Connections), so the GM chooses what Alexandria reads.
+// Who may read a page (fails closed: anything unsure is the GM's):
 //   - a "Visibility" property (select, status or multi-select) on a database row: party, players, public or shared is the players';
-//     broker and classified are those levels; anything else (dm, gm, secret...) the DM's;
+//     broker and classified are those levels; anything else (dm, gm, secret...) the GM's;
 //   - else a page published to the web (Share → Publish) is the players';
 //   - else the source's "Pages without a visibility are shared" setting (off by default).
-// Toggles, toggle headings and callouts whose title starts with Secret, DM or GM become secret blocks: players never see them.
+// Toggles, toggle headings and callouts whose title starts with Secret, GM or GM become secret blocks: players never see them.
 import type { Connector, ConnectorContext, SyncItem } from '../connector.ts';
 import { ConfigError } from '../connector.ts';
 import { type Block, type Entry, type Inline, type PropertyRow, indexBlocks } from '../model.ts';
@@ -106,7 +106,7 @@ export function notionInline(rich: any[] | undefined): Inline[] {
 }
 const plain = (rich: any[] | undefined) => (Array.isArray(rich) ? rich.map((t) => String(t?.plain_text ?? t?.text?.content ?? '')).join('') : '');
 
-/** A title that marks a hidden part: Secret, DM, GM (with "notes", "only" and the like after it). */
+/** A title that marks a hidden part: Secret, GM, GM (with "notes", "only" and the like after it). */
 export const SECRET_TITLE = /^\s*(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*)?(secret|secrets|dm|gm|dungeon master|game master)\b/iu;
 
 /** A Notion block (with `children` already read in) as Alexandria blocks. */

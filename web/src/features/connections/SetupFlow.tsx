@@ -58,7 +58,7 @@ export default function SetupFlow() {
           <div className="stack">
             <Field label="World name"><input value={name} maxLength={80} placeholder="e.g. The Saltmarsh Chronicles" onChange={(e) => setName(e.target.value)} disabled={!!worldId} /></Field>
             <Field label="Short name for links (optional)" help="Lowercase letters, numbers and dashes. Left empty, it is made from the name."><input className="mono" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={!!worldId} /></Field>
-            <Field label="Dungeon Master"><select value={dm} onChange={(e) => setDm(e.target.value)} disabled={!!worldId}>{accounts.data.map((acc) => <option key={acc.id} value={acc.id}>{acc.display_name} ({acc.username})</option>)}</select></Field>
+            <Field label="Game Master"><select value={dm} onChange={(e) => setDm(e.target.value)} disabled={!!worldId}>{accounts.data.map((acc) => <option key={acc.id} value={acc.id}>{acc.display_name} ({acc.username})</option>)}</select></Field>
           </div>
         )}
         {step === 1 && <div className="stack"><SourceFields d={draft} set={setD} connectors={connectors.data} connections={connections.data} parts={['kind', 'connection']} /></div>}

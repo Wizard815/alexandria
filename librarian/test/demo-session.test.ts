@@ -1,6 +1,6 @@
 // The scripted game night (scripts/demo-session.ts) runs start to finish: the
-// DM, the agent and three players play a session on the seeded demo, and no
-// player view ever holds a DM-only, broker or classified marker.
+// GM, the agent and three players play a session on the seeded demo, and no
+// player view ever holds a GM-only, broker or classified marker.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';

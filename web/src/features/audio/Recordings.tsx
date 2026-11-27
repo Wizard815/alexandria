@@ -1,4 +1,4 @@
-// Recordings: the DM's page (every session's audio: a full recording and one track per mic, the transcript
+// Recordings: the GM's page (every session's audio: a full recording and one track per mic, the transcript
 // beside it, downloads, retention) and the player's "My recordings" (their own mic track and the players'
 // transcript only). Audio is played from signed per-viewer addresses the server hands out.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -45,7 +45,7 @@ const safeName = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').tr
 
 function transcriptText(name: string, date: string, lines: Line[], md: boolean): string {
   const head = md ? `# ${name}\n\n${date}\n\n` : `${name}\n${date}\n\n`;
-  return head + lines.map((l) => (md ? `- \`${clock(l.start)}\` **${l.speaker}**${l.audience === 'dm' ? ' (**DM only**)' : ''}: ${l.text}` : `[${clock(l.start)}] ${l.speaker}${l.audience === 'dm' ? ' (DM only)' : ''}: ${l.text}`)).join('\n') + '\n';
+  return head + lines.map((l) => (md ? `- \`${clock(l.start)}\` **${l.speaker}**${l.audience === 'dm' ? ' (**GM only**)' : ''}: ${l.text}` : `[${clock(l.start)}] ${l.speaker}${l.audience === 'dm' ? ' (GM only)' : ''}: ${l.text}`)).join('\n') + '\n';
 }
 
 /** The transcript; a click on a line moves the player to that moment. */
@@ -64,7 +64,7 @@ function Transcript({ lines, now, onSeek, dm }: { lines: Line[]; now: number; on
         <li key={l.id} className={i === active ? 'on' : ''}>
           <button type="button" className="rec-line" onClick={() => onSeek(l.start)} aria-label={`Play from ${clock(l.start)}`}>
             <span className="rec-t">{clock(l.start)}</span>
-            <span className="rec-s">{l.speaker}{dm && l.audience === 'dm' && <em className="au-tag">DM only</em>}</span>
+            <span className="rec-s">{l.speaker}{dm && l.audience === 'dm' && <em className="au-tag">GM only</em>}</span>
             <span className="rec-x">{l.text}</span>
           </button>
         </li>
@@ -136,7 +136,7 @@ function SessionView({ s, lines, dm }: { s: { id: string; name: string; date: st
   );
 }
 
-// ---- the DM's page ----------------------------------------------------------------------------------
+// ---- the GM's page ----------------------------------------------------------------------------------
 
 function KeepAudio({ s, reload }: { s: RecSession; reload: () => Promise<void> }) {
   const { w } = useWorld();
@@ -245,7 +245,7 @@ const FROM = { live: 'the running notes (live transcript)', final: 'the final tr
 
 /**
  * Where this session's summary went: Minerva's review queue (when Minerva is on), or a "Summary ready" card here to
- * approve (saved as a session log draft), edit or discard. It is the DM's summary, so only the DM's page shows it.
+ * approve (saved as a session log draft), edit or discard. It is the GM's summary, so only the GM's page shows it.
  */
 function SummaryBox({ s }: { s: RecSession }) {
   const { w, info } = useWorld();
@@ -374,7 +374,7 @@ export function MyRecordings() {
     <div className="page">
       <PageHead title="My recordings" lead="Your own microphone from each session, and what the table said." />
       <ErrorBox error={list.error} />
-      {list.loading && !list.data ? <Loading /> : !sessions.length ? <Empty>You have not been recorded in any session yet. Turn on your microphone under My microphone when the DM starts one.</Empty> : (
+      {list.loading && !list.data ? <Loading /> : !sessions.length ? <Empty>You have not been recorded in any session yet. Turn on your microphone under My microphone when the GM starts one.</Empty> : (
         <div className="stack">
           <label className="field" style={{ maxWidth: 420 }}><span className="label">Session</span>
             <select value={sel ?? ''} onChange={(e) => setSel(e.target.value)} aria-label="Session">

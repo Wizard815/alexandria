@@ -1,5 +1,5 @@
 // Starter templates: packages in the repo's top-level `templates/` folder (or ALX_TEMPLATES_DIR), 8 of each kind. The
-// DM browses them on the Starters tab and adds one or all to the world, where they are ordinary templates to change.
+// GM browses them on the Starters tab and adds one or all to the world, where they are ordinary templates to change.
 // A broken file is skipped with a warning. See docs/TEMPLATES.md, "Starter templates".
 import fs from 'node:fs';
 import path from 'node:path';

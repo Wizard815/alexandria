@@ -1,5 +1,5 @@
-// What the DM should know about a world's sources, in plain words: why players see nothing (and what to do), a key the site refuses for page
-// content, and a wait for the site. Used on the world page (admin) and at the top of the DM's library. Players never see it.
+// What the GM should know about a world's sources, in plain words: why players see nothing (and what to do), a key the site refuses for page
+// content, and a wait for the site. Used on the world page (admin) and at the top of the GM's library. Players never see it.
 import { useEffect, useState } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 
@@ -14,7 +14,7 @@ export interface WorldStatus {
 /** "Waiting for the site (12 s)" while a page somebody opened is held back by the site's limit. */
 export const waitText = (w: WorldStatus['waiting']) => (w ? `Waiting for the site (${w.seconds} s)${w.reason === 'asked' ? ': it asked us to slow down' : ''}` : null);
 
-/** The DM's banner. Pass `status` when the page already has it (the world page); otherwise it is loaded here. */
+/** The GM's banner. Pass `status` when the page already has it (the world page); otherwise it is loaded here. */
 export function StatusBanner({ status, compact = false }: { status?: WorldStatus | null; compact?: boolean }) {
   return status !== undefined ? <Banner s={status} compact={compact} /> : <LoadedBanner compact={compact} />;
 }
@@ -41,7 +41,7 @@ function Banner({ s, compact }: { s: WorldStatus | null | undefined; compact: bo
       {s.dmOnly && (
         <div className="note stack tight" role="status" data-testid="dm-only-banner" style={{ borderStyle: 'solid', borderColor: 'var(--accent)', color: 'var(--text)' }}>
           <strong>Players can't see anything yet.</strong>
-          <span className="small">All {s.dmOnly.pages.toLocaleString()} page{s.dmOnly.pages === 1 ? ' is' : 's are'} DM-only{compact ? '.' : ', so the table sees an empty library. Why:'}</span>
+          <span className="small">All {s.dmOnly.pages.toLocaleString()} page{s.dmOnly.pages === 1 ? ' is' : 's are'} GM-only{compact ? '.' : ', so the table sees an empty library. Why:'}</span>
           {!compact && s.dmOnly.reasons.length > 0 && <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{s.dmOnly.reasons.map((r, i) => <li key={`${r.sourceId}-${r.kind}-${i}`}>{r.text}</li>)}</ul>}
           {s.dmOnly.actions.length > 0 && <><span className="small"><strong>What to do</strong></span><ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{s.dmOnly.actions.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
         </div>

@@ -67,7 +67,7 @@ test('TestClock_DefaultsToTheBuiltInCalendar', async () => {
   assert.equal(c.date.monthName, 'Frostmoot');
   assert.equal(c.label, '1 Frostmoot 1492 DR · morning');
   assert.equal(c.calendar.months.length, 12);
-  assert.equal(c.sources, undefined, 'players are not offered the DM setup lists');
+  assert.equal(c.sources, undefined, 'players are not offered the GM setup lists');
   const d = await ok('GET', C(), T.dm);
   assert.deepEqual(d.builtins.map((b: any) => b.key), ['harptos', 'gregorian']);
   assert.equal(d.longRestMode, 'morning');
@@ -166,7 +166,7 @@ const BUILTIN = () => clock.BUILTIN_CALENDARS.harptos;
 
 test('TestClock_EventsPlayersOnlySeePartyEvents', async () => {
   await ok('POST', C() + '/set', T.dm, { year: 1492, month: 5, day: 1, hour: 8, minute: 0 });
-  const secret = await ok('POST', C() + '/events', T.dm, { title: 'Velmira poisons the well', description: 'DM only: the cult strikes', start: { year: 1492, month: 5, day: 2 }, visibility: 'dm', kind: 'deadline' });
+  const secret = await ok('POST', C() + '/events', T.dm, { title: 'Velmira poisons the well', description: 'GM only: the cult strikes', start: { year: 1492, month: 5, day: 2 }, visibility: 'dm', kind: 'deadline' });
   const open = await ok('POST', C() + '/events', T.dm, { title: 'Harvest fair', description: 'Stalls in the square', start: { year: 1492, month: 5, day: 3, hour: 10 }, end: { year: 1492, month: 5, day: 4, hour: 18 }, visibility: 'party', kind: 'holiday' });
   const yearly = await ok('POST', C() + '/events', T.dm, { title: 'Founders Day', start: { year: 1492, month: 5, day: 1 }, visibility: 'party', repeat: 'yearly', kind: 'holiday' });
   assert.equal((await call('POST', C() + '/events', T.dm, { title: 'x', start: 0, visibility: 'everyone' })).status, 400);
@@ -236,7 +236,7 @@ test('TestClock_LiveEventsAreFilteredForPlayers', async () => {
   assert.ok(p.got.includes('Open feast'), 'players hear about party events');
   assert.ok(p.got.includes('"action":"deleted"'), 'and when one is pulled back');
   for (const leak of ['Hidden', 'ambush', 'smuggler', 'secret reason']) assert.ok(!p.got.includes(leak), `player stream leaked ${leak}`);
-  assert.ok(d.got.includes('Hidden ambush 2') && d.got.includes('Open feast'), 'the DM hears everything');
+  assert.ok(d.got.includes('Hidden ambush 2') && d.got.includes('Open feast'), 'the GM hears everything');
   assert.ok(!d.got.includes('smuggler'), 'reasons are only in the log, never on the stream');
 });
 
@@ -261,7 +261,7 @@ test('TestClock_McpToolsAndReadKeys', async () => {
   assert.ok((await rpc(rk, 'get_world_date')).includes('Bloomtide'));
   const pEvents = await rpc(rk, 'list_world_events', { days: 30 });
   assert.ok(pEvents.includes('Parade') && !pEvents.includes('Quiet plot'), 'a player key sees only party events');
-  assert.ok((await rpc(dr, 'list_world_events', { days: 30 })).includes('Quiet plot'), 'a DM read key sees DM events');
+  assert.ok((await rpc(dr, 'list_world_events', { days: 30 })).includes('Quiet plot'), 'a GM read key sees GM events');
   assert.ok((await rpc(dr, 'list_world_events', { from: '1492-5-1', to: '1492-5-30' })).includes('Parade'));
 
   // Read keys cannot write: the tools are not listed, not callable, and the API says no.

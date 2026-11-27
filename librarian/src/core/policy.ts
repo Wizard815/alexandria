@@ -2,10 +2,10 @@
 // read and tested in one place. Two ideas:
 //
 // 1. Visibility is checked on the server for every record. Unknown or
-//    missing visibility is treated as DM-only (fail closed).
+//    missing visibility is treated as GM-only (fail closed).
 // 2. Player copies of library pages are computed when a page is written,
 //    not when it is read. Players are only ever served that copy, and the
-//    party search index is built from it, so DM text cannot reach a player
+//    party search index is built from it, so GM text cannot reach a player
 //    through search, lore, relations or an AI answer built on them.
 import type { FM, FMValue } from './frontmatter.ts';
 import { type Audience, AUDIENCE_MAX, RANK, calloutVariantLevel, headingNamedLevel, keyLevel, levelOfWord, maxLevel } from './levels.ts';
@@ -17,7 +17,7 @@ export interface Viewer {
   accountId: string;
   role: Role;
   /**
-   * Set for a DM whose request comes from a model (header X-Alexandria-Caller:
+   * Set for a GM whose request comes from a model (header X-Alexandria-Caller:
    * model, or an in-process caller that feeds one): `ai` is served the AI copy,
    * which never has classified content. `broker` is the information broker's
    * copy. Players ignore it. Spoofing it can only show less.
@@ -25,7 +25,7 @@ export interface Viewer {
   audience?: 'ai' | 'broker';
 }
 
-/** Which copy of a page a viewer is served: players the player copy, a DM the full copy, unless a model (or the broker) is asking for them. */
+/** Which copy of a page a viewer is served: players the player copy, a GM the full copy, unless a model (or the broker) is asking for them. */
 export function audienceOf(v: Viewer): Audience {
   if (v.role !== 'dm') return 'player';
   return v.audience === 'ai' ? 'ai' : v.audience === 'broker' ? 'broker' : 'dm';
@@ -38,9 +38,9 @@ export function normVisibility(v: unknown): Visibility {
 }
 
 /**
- * dm    - the DMs of the world, plus the record's owner
+ * dm    - the GMs of the world, plus the record's owner
  * party - every member of the world
- * me    - only the owner (a player's "only me" notes are hidden from the DM too)
+ * me    - only the owner (a player's "only me" notes are hidden from the GM too)
  */
 export function canSee(viewer: Viewer, visibility: string, ownerId?: string | null): boolean {
   const v = normVisibility(visibility);
@@ -62,7 +62,7 @@ export function frontmatterFor(fm: FM, audience: Audience): FM {
   return out;
 }
 
-/** Frontmatter with every DM-only key removed (secret:, dm_*, gm_* ...). The player copy. */
+/** Frontmatter with every GM-only key removed (secret:, dm_*, gm_* ...). The player copy. */
 export const playerFrontmatter = (fm: FM): FM => frontmatterFor(fm, 'player');
 
 function stripNested(v: FMValue, max: number): FMValue {
@@ -80,17 +80,17 @@ const DM_HEADING = /\((dm|gm)( only)?\)|\[(dm|gm)\]|\b(dm|gm) only\b|^(secrets?|
 /**
  * Remove the parts of a Markdown body an audience may not read (the player
  * copy unless told otherwise):
- * - Obsidian comments %% ... %% (DM level)
+ * - Obsidian comments %% ... %% (GM level)
  * - <!-- dm --> ... <!-- /dm --> (also gm, secret), <!-- broker --> ... <!-- /broker -->
  *   and <!-- classified --> ... <!-- /classified -->
  * - callouts that start with > [!secret], > [!dm], > [!gm], > [!broker] or
  *   > [!classified], and callouts or toggles titled Broker or Classified
- * - any heading marked (DM), [DM], "DM only", or titled Secrets / DM notes /
+ * - any heading marked (GM), [GM], "GM only", or titled Secrets / GM notes /
  *   Broker / Classified, together with everything under it until the next
  *   heading of the same or a higher level
  * A marker that is never closed hides the rest of the page rather than
  * leaking it. Parts at a level the audience may read are kept (the markers
- * of a region are dropped). The DM audience gets the text unchanged.
+ * of a region are dropped). The GM audience gets the text unchanged.
  */
 export function redactMarkdown(body: string, audience: Audience = 'player'): string {
   if (audience === 'dm') return body;
@@ -98,13 +98,13 @@ export function redactMarkdown(body: string, audience: Audience = 'player'): str
   // Classified regions go first, and only a matching close ends one: no model or other reader ever sees them.
   let s = body.replace(/<!--\s*classified\s*-->[\s\S]*?<!--\s*\/\s*classified\s*-->/gi, '');
   s = s.replace(/<!--\s*classified\s*-->[\s\S]*$/i, '');
-  // Obsidian comments are DM level: kept (unwrapped) for an audience that may read the DM level.
+  // Obsidian comments are GM level: kept (unwrapped) for an audience that may read the GM level.
   s = max >= RANK.dm ? s.replace(/%%/g, '') : s.replace(/%%[\s\S]*?%%/g, '');
   if (max >= RANK.dm) {
     s = s.replace(/<!--\s*\/?\s*(dm|gm|secret)\s*-->/gi, '');
   } else {
     s = s.replace(/<!--\s*(dm|gm|secret)\s*-->[\s\S]*?<!--\s*\/\s*(dm|gm|secret)\s*-->/gi, '');
-    // An unclosed DM marker hides the rest of the page rather than leaking it.
+    // An unclosed GM marker hides the rest of the page rather than leaking it.
     s = s.replace(/<!--\s*(dm|gm|secret)\s*-->[\s\S]*$/i, '');
   }
   if (max >= RANK.broker) {
@@ -150,7 +150,7 @@ export function redactMarkdown(body: string, audience: Audience = 'player'): str
 }
 
 /**
- * Replace wiki links to DM-only pages so players don't learn those pages'
+ * Replace wiki links to GM-only pages so players don't learn those pages'
  * names: [[Hidden Cult]] -> (hidden), [[Hidden Cult|the cult]] -> the cult.
  */
 export function scrubHiddenLinks(text: string, hidden: Set<string>): string {
@@ -169,9 +169,9 @@ export function scrubHiddenValues<T>(v: T, hidden: Set<string>): T {
 }
 
 /**
- * Phrases that suggest DM-only text written as plain prose ("The secret:",
- * "DM note:") rather than in a secret block. The leak guard cannot know such
- * text is secret, so shared pages containing it are listed for the DM.
+ * Phrases that suggest GM-only text written as plain prose ("The secret:",
+ * "GM note:") rather than in a secret block. The leak guard cannot know such
+ * text is secret, so shared pages containing it are listed for the GM.
  */
 const SECRET_HINT = /\b(dm|gm)[ -]?(only|notes?|brief)\b|\bthe secret\b|\bsecret(ly)?:|\bplayers? (don't|do not|must not) know\b|\bhidden from (the )?players?\b/i;
 
@@ -222,16 +222,16 @@ export interface WorldSettings {
   quickEventTimer: number | null;
   themeEffects: boolean;
   calendar: 'builtin' | 'off';
-  /** Players' coin and item changes wait for the DM. */
+  /** Players' coin and item changes wait for the GM. */
   playerChangesNeedApproval: boolean;
-  /** The DM must give a reason when changing someone else's items. */
+  /** The GM must give a reason when changing someone else's items. */
   dmChangeReason: boolean;
   brokerEnabled: boolean;
   /** Who pays the information broker: the asker, or the party pouch. */
   brokerPayer: 'self' | 'party';
   /** Players may choose to pay the broker from the party pouch. */
   brokerPartyPay: boolean;
-  /** Players may give each other coin and items (and move party things) without asking the DM. */
+  /** Players may give each other coin and items (and move party things) without asking the GM. */
   playerTransfers: boolean;
 }
 
@@ -295,9 +295,9 @@ function checkFeatureSetting(k: string, spec: SettingSpec, v: unknown) {
   }
 }
 
-/** Settings only the DM reads: where the WorldLore folder lives and what the DM's agent may do without asking. */
+/** Settings only the GM reads: where the WorldLore folder lives and what the GM's agent may do without asking. */
 const DM_ONLY_SETTINGS = ['worldLore', 'agentAutoApprove', 'agentAuto', 'agentName'] as const;
-/** The settings as a viewer may read them (a player, a guest or a model asking as one gets no DM-only key). */
+/** The settings as a viewer may read them (a player, a guest or a model asking as one gets no GM-only key). */
 export function settingsFor<T extends object>(s: T, role: string): Partial<T> {
   if (role === 'dm') return s;
   const out: Record<string, unknown> = { ...(s as Record<string, unknown>) };

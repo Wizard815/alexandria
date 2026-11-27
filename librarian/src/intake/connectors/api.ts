@@ -11,7 +11,7 @@
 // connectors: the list endpoints make the index (title, type, tags, parent,
 // an excerpt when the list has one, the whole body when the list carries it),
 // and an endpoint's detail path (when mapped) gives whole pages later.
-// An endpoint the DM has not assigned is never called.
+// An endpoint the GM has not assigned is never called.
 import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRecord, Tiered } from '../connector.ts';
 import { ConfigError } from '../connector.ts';
 import { type Block, type Entry, indexBlocks, markdownToBlocks } from '../model.ts';
@@ -72,7 +72,7 @@ function legacyEndpoint(cfg: any): ApiEndpoint {
   };
 }
 
-/** Which endpoints this source reads: the endpoint list (the DM's review), else the one list URL or tool. */
+/** Which endpoints this source reads: the endpoint list (the GM's review), else the one list URL or tool. */
 export function activeEndpoints(cfg: any): ApiEndpoint[] {
   const eps = endpointsOf(cfg);
   if (eps.length) return usedEndpoints(eps).map((e) => ({ ...e, path: fillPlaceholders(e.path, placeholderValues(cfg), 'url') }));
@@ -354,7 +354,7 @@ async function* apiIndex(raw: any, ctx: ConnectorContext): AsyncIterable<SyncIte
 
 /**
  * Tier 3 for an MCP source: the per-item read tool chosen in setup (`detailTool`, with the id in `detailIdArg`), one call per page. The answer is
- * the whole record and is read like a list record, so a page with no visibility field in it is DM-only (fail closed).
+ * the whole record and is read like a list record, so a page with no visibility field in it is GM-only (fail closed).
  */
 async function* mcpDetail(raw: any, ctx: ConnectorContext, ids: string[]): AsyncIterable<SyncItem> {
   const cfg = resolved(raw);
@@ -448,7 +448,7 @@ export const genericApi: Connector = {
     { key: 'typeField', label: 'Type field', type: 'text' },
     { key: 'updatedField', label: 'Updated-at field', type: 'text' },
     { key: 'urlField', label: 'Link-back field', type: 'text' },
-    { key: 'visibilityField', label: 'Visibility field', type: 'text', placeholder: 'is_private', help: 'Records are DM-only unless this field holds a shared value.' },
+    { key: 'visibilityField', label: 'Visibility field', type: 'text', placeholder: 'is_private', help: 'Records are GM-only unless this field holds a shared value.' },
     { key: 'sharedValues', label: 'Values that mean shared', type: 'text', placeholder: 'false, public, players' },
     { key: 'world', label: 'Value for {world}', type: 'text', help: 'If the list URL or the tool arguments contain {world}, this world\'s value goes there (a campaign or project id, for example).' },
     { key: 'params', label: 'Other placeholder values (JSON)', type: 'textarea', placeholder: '{"project": "42"}', help: 'Values for any other {name} in the URL or tool arguments.' },

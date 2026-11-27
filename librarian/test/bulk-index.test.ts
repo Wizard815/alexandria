@@ -151,7 +151,7 @@ test('TestBulk_BuildEndpointIndexesTheWholeWorldAsOneJob', async () => {
   assert.equal(embeddingCoverage(h.deps, h.world).progress.pending, 0, 'every page embedded');
   assert.equal(bibleCoverage(h.deps, h.world).progress.pending, 0, 'every page read into the story bible');
   assert.ok(stats.chatCalls >= 20);
-  // The DM-only endpoint.
+  // The GM-only endpoint.
   const player = await h.call('POST', `/api/worlds/${h.world}/search/build`, null, {});
   assert.ok(player.status >= 400);
 });
@@ -194,7 +194,7 @@ test('TestBulk_WrongKeyStopsThePassInsteadOfBackingOffEveryPage', async () => {
 
 test('TestBulk_IdenticalCopiesOfAPageAreReadOnce', async () => {
   const h = await boot('bulk-twins', { ALX_BIBLE_PARALLEL: '4' });
-  // Party pages: the party, broker and DM copies hold the same text.
+  // Party pages: the party, broker and GM copies hold the same text.
   await seed(h, 10);
   for (let i = 0; i < 10; i++) await h.put(`Open/Open ${i}`, `# Open ${i}\n\nOpen ${i} is a ferry landing where everyone may go, with tar barrels and gulls.\n`, 'party');
   reset();

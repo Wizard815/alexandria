@@ -3,7 +3,7 @@
 // the unsure ones and finds scene changes the rules cannot, and each action
 // then runs at once (with an undo), waits on a confirm card, or is dropped,
 // by the category's setting. Fail closed throughout: players only ever see
-// party-level content, DM asides only set off DM-side things, classified
+// party-level content, GM asides only set off GM-side things, classified
 // text never reaches a model, and nothing destructive runs from here.
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, ModelUnavailable, withPriority } from '../../core/ai.ts';
@@ -115,7 +115,7 @@ async function handleLines(d: Deps, worldId: string, ids: string[]): Promise<voi
   const stat = statsOf(d);
   for (const r of rows) {
     const line = lineOf(d, worldId, r);
-    // A room mic hears everybody and names no speaker: it counts as the DM's voice only if the DM said so (never for the wake word).
+    // A room mic hears everybody and names no speaker: it counts as the GM's voice only if the GM said so (never for the wake word).
     if (line.role === 'other' && !line.accountId && state.listen.room) line.role = 'dm';
     const sig = norm(line.text);
     if (W.seen.get(line.id) === sig) continue;
@@ -126,11 +126,11 @@ async function handleLines(d: Deps, worldId: string, ids: string[]): Promise<voi
     if (line.role === 'dm' && !state.listen.dm) continue;
     if (line.role === 'player' && !state.listen.players) continue;
     const t0 = performance.now();
-    // Wake word: the DM's own mic only. The rest of the line is a direct request.
+    // Wake word: the GM's own mic only. The rest of the line is a direct request.
     const cmd = line.role === 'dm' && line.dmMic ? wakeCommand(line.text, state.wakeWord) : null;
     if (cmd) { hideWake(d, worldId, r); await handleWake(d, worldId, line, cmd, sess.id, mode); continue; }
     if (mode !== 'active') continue;
-    think(d, worldId, { source: 'active', kind: 'heard', text: `${line.speaker || 'Table'}${line.aside ? ' (DM aside)' : ''}: “${line.text.slice(0, 160)}”` });
+    think(d, worldId, { source: 'active', kind: 'heard', text: `${line.speaker || 'Table'}${line.aside ? ' (GM aside)' : ''}: “${line.text.slice(0, 160)}”` });
     const cues = allCues(line, ctx);
     stat.rulesMs.push(performance.now() - t0);
     const cands = cues.map((c) => build(d, worldId, ctx, c, line.text)).filter((c): c is Candidate => !!c);
@@ -188,13 +188,13 @@ async function modelJson(d: Deps, worldId: string, system: string, user: string)
   const t0 = performance.now();
   try {
     st.modelCalls++;
-    // Active mode acts on what is said now: DM priority in the model queue.
+    // Active mode acts on what is said now: GM priority in the model queue.
     return await withPriority(2, () => chatJson(d, 'audit', [{ role: 'system', content: system }, { role: 'user', content: user }]));
   } catch (e) { if (e instanceof ModelUnavailable) return null; console.error('active: model call failed', (e as any)?.message ?? e); return null; }
   finally { st.modelMs.push(performance.now() - t0); void worldId; }
 }
 
-const recentText = (d: Deps, lines: ReturnType<typeof lineOf>[], upto: number) => lines.slice(Math.max(0, upto - 5), upto + 1).map((l) => `${l.speaker || '?'}${l.role === 'dm' ? ' (DM)' : ''}: ${l.text}`).join('\n');
+const recentText = (d: Deps, lines: ReturnType<typeof lineOf>[], upto: number) => lines.slice(Math.max(0, upto - 5), upto + 1).map((l) => `${l.speaker || '?'}${l.role === 'dm' ? ' (GM)' : ''}: ${l.text}`).join('\n');
 
 async function confirm(d: Deps, worldId: string, items: Item[]): Promise<void> {
   const unsure: { it: Item; c: Candidate }[] = [];
@@ -204,7 +204,7 @@ async function confirm(d: Deps, worldId: string, items: Item[]): Promise<void> {
   const ctxLines = items.map((x) => x.line);
   const j = await modelJson(d, worldId,
     'You check actions that a tabletop RPG assistant drafted from a transcript line, using simple rules. Say ok:true only when the speaker clearly means this to happen now, at the table. Say ok:false for a question, a hypothetical, a plan, something that already happened, a price or an offer, or something the players only discuss. Reply with JSON only: {"verdicts":[{"i":0,"ok":true}]}',
-    `Transcript (latest last):\n${ctxLines.slice(-8).map((l) => `${l.speaker || '?'}${l.role === 'dm' ? ' (DM)' : ''}: ${l.text}`).join('\n').slice(0, 2500)}\n\nProposed actions:\n${unsure.map((u, i) => `${i}. ${u.c.summary} (from: "${u.c.cue.slice(0, 100)}")`).join('\n')}`);
+    `Transcript (latest last):\n${ctxLines.slice(-8).map((l) => `${l.speaker || '?'}${l.role === 'dm' ? ' (GM)' : ''}: ${l.text}`).join('\n').slice(0, 2500)}\n\nProposed actions:\n${unsure.map((u, i) => `${i}. ${u.c.summary} (from: "${u.c.cue.slice(0, 100)}")`).join('\n')}`);
   const v: any[] = Array.isArray(j?.verdicts) ? j.verdicts : [];
   unsure.forEach((u, i) => {
     const x = v.find((y) => Number(y?.i) === i);
@@ -226,14 +226,14 @@ async function scan(d: Deps, worldId: string, items: Item[], ctx: CueCtx, W: Wst
   const snap = one<any>(d.db, 'SELECT music, ambience FROM sound_state WHERE world_id = ?', worldId);
   const cur = snap?.music ? parseJson<any>(snap.music, {}) : null;
   const layers = [...new Set(indexOf(d).ambience.map((a) => a.layer))].slice(0, 20);
-  const sys = `You are the stage hand of a tabletop RPG Dungeon Master. You read what the DM says and pick table actions ONLY when the DM clearly narrates or asks for them. Most lines need nothing: then return []. Never invent. Allowed actions (JSON objects):
+  const sys = `You are the stage hand of a tabletop RPG Game Master. You read what the GM says and pick table actions ONLY when the GM clearly narrates or asks for them. Most lines need nothing: then return []. Never invent. Allowed actions (JSON objects):
 {"line":N,"cat":"music","mood":"calm|tense|sneaky|combat"}  (ONLY when the party arrives somewhere new with a clearly different atmosphere, or the scene's mood clearly turns; never for a sound, a creature, a moment of suspense or a line inside a fight; not if the music already fits; current music mood: ${cur?.mood ?? cur?.name ?? 'none'})
 {"line":N,"cat":"ambience","layers":[${layers.map((l) => `"${l}"`).join(',')}]}  (ONLY when the party arrives at a place with a distinct sound, or the weather or time of day clearly changes; not for travelling, a sound or a creature)
-{"line":N,"cat":"sfx","name":"creak|thunder|roar|howl|crash|clash|bell|knock|splash|slam|explosion"}  (ONE distinct sound event the DM narrates as just happening: a door, a bell, thunder, a crash; not voices, shouting or the noise of a fight, and not the aftermath of a sound)
+{"line":N,"cat":"sfx","name":"creak|thunder|roar|howl|crash|clash|bell|knock|splash|slam|explosion"}  (ONE distinct sound event the GM narrates as just happening: a door, a bell, thunder, a crash; not voices, shouting or the noise of a fight, and not the aftermath of a sound)
 {"line":N,"cat":"item","name":"silver key","qty":1}  (the party finds or is given a portable item)
 {"line":N,"cat":"coins","gp":0,"sp":0,"cp":0}  (the party finds or is given coins)
 {"line":N,"cat":"clock","preset":"short-rest|long-rest|next-day"} or {"line":N,"cat":"clock","minutes":120}  (time passes or the party rests)
-{"line":N,"cat":"event","skill":"Perception","dc":13}  (the DM asks the players for a roll)
+{"line":N,"cat":"event","skill":"Perception","dc":13}  (the GM asks the players for a roll)
 Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
   // Labelled lines nearest these ones (embeddings job): how close cases were decided, shown before the lines.
   const shots = examplesOn(d) ? await similarLineExamples(d, batch.map((x) => x.line.text), 6) : null;
@@ -244,7 +244,7 @@ Reply JSON only: {"actions":[...]}. Lines are numbered from 0.`;
   for (const a of acts.slice(0, 6)) {
     const it = batch[Number(a?.line)];
     if (!it) continue;
-    // In a fight the rules and the DM's explicit words steer the sound; the scan does not guess.
+    // In a fight the rules and the GM's explicit words steer the sound; the scan does not guess.
     if (ctx.combat.active && ['music', 'ambience', 'sfx'].includes(String(a?.cat))) continue;
     const mk = (i: Intent, conf = 0.8): Scored => ({ ...i, confidence: conf }) as Scored;
     let intent: Scored | null = null;
@@ -273,8 +273,8 @@ export async function act(d: Deps, worldId: string, sessionId: string | null, st
   const note = (kind: Thought['kind'], text: string, logId?: string, undoable?: boolean) => { think(d, worldId, { source: src, kind, text, runId: line.id, logId, undoable }); };
   const block = (why: string) => { stat.blocked++; note('skip', `Not doing “${c.summary}”: ${why}`); return addLog(d, worldId, { ...base, status: 'blocked', result: why }); };
   if (hasRule(d, worldId, c.ruleKey)) { stat.blocked++; note('skip', `Not doing “${c.summary}”: you told me "Not this" for that cue before (Active page, rules).`); return null; }
-  // A DM aside is for the DM: only the DM's side (music, the tracker) may follow, and only on the DM's own say-so.
-  if (line.aside && !opts.explicit && !ASIDE_OK.has(c.category)) return block('Said in a DM-only aside: nothing the players see follows from it.');
+  // A GM aside is for the GM: only the GM's side (music, the tracker) may follow, and only on the GM's own say-so.
+  if (line.aside && !opts.explicit && !ASIDE_OK.has(c.category)) return block('Said in a GM-only aside: nothing the players see follows from it.');
   if (c.playerSource && c.category === 'items' && c.calls.some((x) => !['inventory_patch'].includes(x.tool))) return block('A player cannot add things.');
   const setting = state.cats[c.category];
   if (setting === 'off' && !opts.explicit) { stat.blocked++; note('skip', `Not doing “${c.summary}”: ${catName(c.category)} is set to Off.`); return null; }
@@ -342,7 +342,7 @@ export async function undoEntry(d: Deps, worldId: string, logId: string): Promis
   for (const c of u.calls) { const r = await callOne(d, worldId, c); if (!r.ok) { setLog(d, worldId, logId, { result: `Undo partly failed: ${r.text}`.slice(0, 300) }); break; } }
   return getLog(d, worldId, logId)!;
 }
-/** The DM says an automatic action was wrong: undo it where possible and never do that for that cue again. */
+/** The GM says an automatic action was wrong: undo it where possible and never do that for that cue again. */
 export async function markWrong(d: Deps, worldId: string, logId: string): Promise<LogRow> {
   const row = getLog(d, worldId, logId);
   if (!row) throw Object.assign(new Error('Not found'), { status: 404 });
@@ -353,7 +353,7 @@ export async function markWrong(d: Deps, worldId: string, logId: string): Promis
   return getLog(d, worldId, logId)!;
 }
 
-/** A spoken command to the assistant is for the DM only: take the line out of the players' transcript. */
+/** A spoken command to the assistant is for the GM only: take the line out of the players' transcript. */
 function hideWake(d: Deps, worldId: string, r: LineRow) {
   try { if (r.audience === 'players') engine(d).setAudience(r as any, 'dm', worldId); } catch (e) { console.error('active: could not hide a wake line', e); }
 }
@@ -369,7 +369,7 @@ async function handleWake(d: Deps, worldId: string, line: ReturnType<typeof line
   // A macro by name.
   const macro = await runMacroByName(d, worldId, cmd);
   if (macro) { log(macro.text, { tool: 'macro', status: macro.ok ? 'done' : 'failed', visible: 'players' }); return; }
-  // Rules, explicit: the DM asked, so it runs now.
+  // Rules, explicit: the GM asked, so it runs now.
   const ctx = loadCtx(d, worldId, Date.now() < ws(d, worldId).initiativeUntil);
   const cues = allCues({ ...line, role: 'dm' }, ctx, { explicit: true });
   const asked = allCues({ id: line.id, text: cmd, speaker: line.speaker, role: 'dm', accountId: line.accountId, aside: false }, ctx, { explicit: true });
@@ -383,7 +383,7 @@ async function handleWake(d: Deps, worldId: string, line: ReturnType<typeof line
   if (!a) return;
   const { runTask } = await import('./task.ts');
   const r = await withPriority(2, () => runTask(d, { worldId, accountId: a.accountId, token: a.token, port: portOf(d) }, { prompt: cmd, mode: 'propose', title: `Spoken: ${cmd.slice(0, 40)}` }));
-  // The reply reaches the DM's own screen (and is read aloud there if they chose that), never the table: it may hold DM-only text.
+  // The reply reaches the GM's own screen (and is read aloud there if they chose that), never the table: it may hold GM-only text.
   if (r.chatId && r.reply.trim()) d.hub.emit(worldId, 'agent', { kind: 'spoken', chatId: r.chatId, messageId: r.messageId, text: r.reply.slice(0, 4000), request: cmd.slice(0, 120), pending: r.pending }, only(a.accountId));
   log(`Asked the assistant: ${cmd.slice(0, 120)}${r.pending ? ` (${r.pending} proposal${r.pending === 1 ? '' : 's'} waiting in your chat)` : ''}`, { tool: 'agent', result: r.reply.slice(0, 600) });
 }

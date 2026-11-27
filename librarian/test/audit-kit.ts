@@ -1,4 +1,4 @@
-// Shared setup for the audit-*.test.ts files: one app, two worlds (each with a DM),
+// Shared setup for the audit-*.test.ts files: one app, two worlds (each with a GM),
 // players jess and tom and a guest in world A, a player in world B, and small helpers.
 import fs from 'node:fs';
 import os from 'node:os';

@@ -57,7 +57,7 @@ async function refused(label: string, run: () => Promise<unknown>) {
 
 test('TestSecurityGuard_EveryModelCallRefusesClassifiedText', async () => {
   const n = refusals().length;
-  const msgs = [{ role: 'system' as const, content: 'You help a DM.' }, { role: 'user' as const, content: `Please summarise: ${SECRET}.` }];
+  const msgs = [{ role: 'system' as const, content: 'You help a GM.' }, { role: 'user' as const, content: `Please summarise: ${SECRET}.` }];
   await refused('chat', () => chat(deps, 'chat', { messages: msgs }));
   await refused('chat (audit job)', () => chat(deps, 'audit', { messages: msgs }));
   await refused('chatStream', () => chatStream(deps, 'chat', { messages: msgs }, () => {}));
@@ -100,7 +100,7 @@ test('TestSecurityGuard_FindsTheTextHoweverItIsWritten', async () => {
 });
 
 test('TestSecurityGuard_AllowsEverythingThatIsNotClassified', async () => {
-  // DM-only text is for the DM's own agent: only classified text is blocked.
+  // GM-only text is for the GM's own agent: only classified text is blocked.
   const r = await chat(deps, 'chat', { messages: [{ role: 'user', content: `Context: ${DM_ONLY}. A long ordinary question about the harbour and its council of seven captains.` }] });
   assert.ok(r.content);
   assert.ok(await embed(deps, [DM_ONLY, 'The harbour is run by a council of seven captains who meet at dusk.']));
@@ -120,9 +120,9 @@ test('TestSecurityGuard_FollowsEveryChangeToAPage', async () => {
   L.save(S.W, { path: 'lore/chapel.md', title: 'Chapel', body: `# Chapel\nThe chapel is open to all pilgrims.\n\n> [!classified]\n> ${b}\n`, visibility: 'party' }, null);
   await refused('classified block', () => say(b));
   assert.ok(await say('The chapel is open to all pilgrims and the door is never locked at night.'));
-  // The DM lowers the level: the text may be sent.
+  // The GM lowers the level: the text may be sent.
   L.setLevel(S.W, 'secret/bell.md', 'dm', null);
-  assert.ok(await say(secret2), 'a DM-level page may be sent');
+  assert.ok(await say(secret2), 'a GM-level page may be sent');
   // And raises it again.
   L.setLevel(S.W, 'secret/bell.md', 'classified', null);
   await refused('classified again', () => say(secret2));
@@ -150,7 +150,7 @@ test('TestSecurityGuard_IsFast', async () => {
   const buildMs = performance.now() - t0;
   assert.ok(size > 2000, `${size} runs indexed`);
   assert.ok(buildMs < 3000, `index built in ${Math.round(buildMs)} ms`);
-  const typical = `You are the assistant of the Dungeon Master.\n${para(3, 0)}\n${para(7, 0)}\n${para(9, 0)}\nWho runs the harbour council and what do they want? `.repeat(2);
+  const typical = `You are the assistant of the Game Master.\n${para(3, 0)}\n${para(7, 0)}\n${para(9, 0)}\nWho runs the harbour council and what do they want? `.repeat(2);
   const big = Array.from({ length: 30 }, (_x, i) => para(i, 0)).join('\n');
   for (const [label, text, limit] of [['typical prompt', typical, 5], ['large prompt', big, 25]] as const) {
     for (let i = 0; i < 20; i++) screenOutgoing(deps, 'chat', [text]); // warm up
@@ -172,11 +172,11 @@ test('TestSecurityGuard_IsFast', async () => {
 test('TestSecurityGuard_AnswersToModelsAreCheckedToo', async () => {
   const W = `/api/worlds/${S.W}`;
   const asModel = { 'X-Alexandria-Caller': 'model' };
-  // The DM typed classified words into a sculpt value; the model call was refused but the history keeps what the DM wrote.
+  // The GM typed classified words into a sculpt value; the model call was refused but the history keeps what the GM wrote.
   await http.call('POST', `${W}/sculpt/run`, S.T.dm, { template: 'npc', values: { name: SECRET } });
   const app = await http.call('GET', `${W}/sculpt/history`, S.T.dm);
   assert.equal(app.status, 200);
-  assert.ok(app.text.includes('moonlit'), 'the DM sees their own history in the app');
+  assert.ok(app.text.includes('moonlit'), 'the GM sees their own history in the app');
   const model = await http.call('GET', `${W}/sculpt/history`, S.T.dm, undefined, asModel);
   assert.equal(model.status, 409);
   assert.ok(!model.text.includes('moonlit'), 'a model gets a refusal, not the text');

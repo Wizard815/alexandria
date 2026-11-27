@@ -1,4 +1,4 @@
-// Audit: no admin route (including /api/admin/gateway/*) answers a DM, a player or a guest.
+// Audit: no admin route (including /api/admin/gateway/*) answers a GM, a player or a guest.
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { recordMounts, listRoutes } from './security-kit.ts';

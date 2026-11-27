@@ -1,4 +1,4 @@
-// The floating transcript island: an overlay on every DM and player page.
+// The floating transcript island: an overlay on every GM and player page.
 // Word bubbles, newest at the bottom. Drag it, lock it to a corner, resize
 // it, change its opacity, colour and text size, or minimise it to a pill.
 // On phones it is a bottom drawer. Settings are per device (localStorage).
@@ -46,7 +46,7 @@ export default function TranscriptOverlay() {
   const [main] = useMainPrefs();
   // A guest has no transcript and no microphone: nothing here would load but 403s.
   if (info.role === 'guest') return null;
-  // The DM can keep the island off the main monitor when the transcript lives on the side screen.
+  // The GM can keep the island off the main monitor when the transcript lives on the side screen.
   const onSideScreen = main.hideTranscript && info.role === 'dm';
   return <><RecordingBadge /><ConsentPrompt />{!onSideScreen && <Island />}</>;
 }

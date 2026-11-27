@@ -18,7 +18,7 @@ export function privateHost(hostname: string): boolean {
 
 /**
  * Download one picture. Never sends the API token off the endpoint's own host; a picture on another host is fetched only when the mapped URL
- * is absolute (the DM accepted this endpoint, so its address list is theirs), without the token, never from a private address, and redirects
+ * is absolute (the GM accepted this endpoint, so its address list is theirs), without the token, never from a private address, and redirects
  * are followed only within the host they started on. Only PNG, JPEG, GIF and WebP (by content type AND by the file's own first bytes), at most
  * `maxBytes`. SVG and anything else is refused. Null: not stored.
  */
@@ -108,7 +108,7 @@ const httpUrl = (u: unknown): u is string => typeof u === 'string' && /^https?:\
 /**
  * The pictures a page shows by address, as records queued for the downloader (`later`), so they are stored here and served from here (and
  * kept for offline reading) instead of loaded from the source's servers: its banner or portrait (`picture`, the page's primary picture) and
- * every picture in its text (`inline`). A picture inside a secret block is the DM's even on a shared page; the rest follow the page. A map
+ * every picture in its text (`inline`). A picture inside a secret block is the GM's even on a shared page; the rest follow the page. A map
  * block's picture is left out (the connector stores maps itself). Nothing is downloaded here.
  */
 export function entryPictures(e: Entry): SyncRecord[] {

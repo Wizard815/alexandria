@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 // OpenAI-compatible endpoint (Argos, Ollama, a whisper server, Kokoro, or a
 // cloud provider) and tests can fake them with Deps.fetch.
 //
-//   chat   the one chat model (DM agent and the player harness, broker
+//   chat   the one chat model (GM agent and the player harness, broker
 //          answers, summaries)
 //   audit  the small model: question routing, spoiler checks
 //   audio  speech to text  (POST {base}/audio/transcriptions)
@@ -34,7 +34,7 @@ export type Job = 'chat' | 'audit' | 'audio' | 'voice' | 'extra' | 'rerank' | 'd
 export type TextJob = 'chat' | 'audit' | 'dm' | 'player' | 'bible' | 'helper';
 export const JOBS: Job[] = ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank'];
 /**
- * Parts of the chat job that may have a model of their own: the DM's assistant, what players ask, the story bible,
+ * Parts of the chat job that may have a model of their own: the GM's assistant, what players ask, the story bible,
  * and the players' quick helper (a small second model, features/playerhelp/quick.ts). Unset: the chat model
  * (the quick helper: the Players model first).
  */
@@ -110,7 +110,7 @@ export class ModelUnavailable extends Error {
 
 /**
  * The last line of defence: text about to go to a model repeats classified
- * content (a run of eight words the DM copy of a page has and no AI copy has).
+ * content (a run of eight words the GM copy of a page has and no AI copy has).
  * It is a ModelUnavailable so callers fall back the way they do without a
  * model, but the call is never made and an audit row is written.
  */
@@ -241,32 +241,32 @@ export function canFallBack(err: unknown): boolean {
 
 // ---- the queue in front of each model server ------------------------------------
 //
-// The DM, every player and the background passes (summary, rules checks, Minerva) can all ask at once. A local server
+// The GM, every player and the background passes (summary, rules checks, Minerva) can all ask at once. A local server
 // with one GPU answers a couple of requests at a time per model; the rest wait here instead of piling onto it, and the most
-// urgent go first: the live transcript, then the DM and Active mode, then players, then background work. A cloud
+// urgent go first: the live transcript, then the GM and Active mode, then players, then background work. A cloud
 // server takes more at once. The job option maxConcurrent sets the limit for that server.
 //
-// "DM first" (Admin → Models → GPU & queue) makes the DM's turn come at once even when players fill every slot:
-//   preempt      a DM call that has to wait stops the newest player or background call on that model. A call that has not
-//                written anything yet goes back to the front of its line and runs again after the DM; a player answer that
-//                was already being written ends with a note saying it was paused for the DM.
-//   reserve      slots per local model that only the DM may use (players and background share the rest; one is always left).
-//   holdPlayers  while a DM call runs or waits on any local model, players and background work wait before starting on any
-//                local model (the DM's model and the players' small helper usually share one GPU).
+// "GM first" (Admin → Models → GPU & queue) makes the GM's turn come at once even when players fill every slot:
+//   preempt      a GM call that has to wait stops the newest player or background call on that model. A call that has not
+//                written anything yet goes back to the front of its line and runs again after the GM; a player answer that
+//                was already being written ends with a note saying it was paused for the GM.
+//   reserve      slots per local model that only the GM may use (players and background share the rest; one is always left).
+//   holdPlayers  while a GM call runs or waits on any local model, players and background work wait before starting on any
+//                local model (the GM's model and the players' small helper usually share one GPU).
 const gateStore = new AsyncLocalStorage<{ p: number; onWait?: (ahead: number) => void }>();
 /**
- * Run `fn` with this priority for the model calls it makes: 3 live transcript, 2 DM, 1 player (default), 0 background.
+ * Run `fn` with this priority for the model calls it makes: 3 live transcript, 2 GM, 1 player (default), 0 background.
  * `onWait` hears when one of its calls has to queue, and how many are ahead (the assistant shows "waiting for the model").
  */
 export const withPriority = <T>(p: number, fn: () => Promise<T>, onWait?: (ahead: number) => void): Promise<T> => gateStore.run({ p, onWait }, fn);
 /** The priority the calls made from here run at. */
 export const currentPriority = (): number | undefined => gateStore.getStore()?.p;
 
-/** The DM's priority: this and above may preempt, use reserved slots, and hold players. */
+/** The GM's priority: this and above may preempt, use reserved slots, and hold players. */
 export const DM_PRIORITY = 2;
 export interface DmFirst { preempt: boolean; reserve: number; holdPlayers: boolean }
 export const DM_FIRST_DEFAULTS: DmFirst = { preempt: true, reserve: 0, holdPlayers: false };
-/** A stored or sent DM-first setting, with every field checked (anything odd keeps the default). */
+/** A stored or sent GM-first setting, with every field checked (anything odd keeps the default). */
 export function normalizeDmFirst(v: unknown, base: DmFirst = DM_FIRST_DEFAULTS): DmFirst {
   const o = v && typeof v === 'object' ? v as Record<string, unknown> : {};
   const r = Number(o.reserve);
@@ -280,17 +280,17 @@ let dmFirstOf: (d: Deps) => DmFirst = () => DM_FIRST_DEFAULTS;
 /** The models feature reads the saved setting; null goes back to the defaults. */
 export function setDmFirstResolver(f: ((d: Deps) => DmFirst) | null) { dmFirstOf = f ?? (() => DM_FIRST_DEFAULTS); }
 
-/** The call was stopped part way so the DM could go first (what was written so far is kept by the caller). */
+/** The call was stopped part way so the GM could go first (what was written so far is kept by the caller). */
 export class ModelPreempted extends ModelUnavailable {
-  constructor(job: Job) { super(job, 'Paused so the DM could go first'); this.name = 'ModelPreempted'; }
+  constructor(job: Job) { super(job, 'Paused so the GM could go first'); this.name = 'ModelPreempted'; }
 }
 
 /** A preempted call goes back in line at most this many times; after that it is left to finish. */
 const MAX_PREEMPTS = 3;
-const PREEMPT = Symbol('preempted for the DM');
+const PREEMPT = Symbol('preempted for the GM');
 interface Slot { p: number; seq: number; at: number; ctl: AbortController; preemptible: boolean; stopping: boolean; dm: boolean }
 interface Waiter { p: number; seq: number; started: boolean; go: (s: Slot) => void }
-/** DM calls running or waiting on local models (holdPlayers waits for this to be 0). */
+/** GM calls running or waiting on local models (holdPlayers waits for this to be 0). */
 let dmBusyLocal = 0;
 const both = (a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined => (a && b ? AbortSignal.any([a, b]) : a ?? b);
 
@@ -301,11 +301,11 @@ class Gate {
   max: number;
   local: boolean;
   policy: DmFirst = DM_FIRST_DEFAULTS;
-  /** Calls stopped for the DM since the server started (for the admin). */
+  /** Calls stopped for the GM since the server started (for the admin). */
   preempted = 0;
   constructor(max: number, local: boolean) { this.max = max; this.local = local; }
   get active() { return this.running.size; }
-  /** Slots kept for the DM on this model (local only; one is always left for everyone else). */
+  /** Slots kept for the GM on this model (local only; one is always left for everyone else). */
   get reserve() { return this.local ? Math.max(0, Math.min(this.policy.reserve, this.max - 1)) : 0; }
   private fits(p: number): boolean {
     if (this.running.size >= this.max) return false;
@@ -331,7 +331,7 @@ class Gate {
     if (s.dm && --dmBusyLocal === 0) pumpAll();
     this.pump();
   }
-  /** A DM call is waiting: stop one player or background call for each DM call that has no slot coming yet. */
+  /** A GM call is waiting: stop one player or background call for each GM call that has no slot coming yet. */
   private preemptFor() {
     if (!this.policy.preempt) return;
     const dmWaiting = this.queue.filter((w) => w.p >= DM_PRIORITY).length;
@@ -368,7 +368,7 @@ class Gate {
     });
   }
   /**
-   * Run `fn` when a slot is free. `fn` gets a signal that fires when the DM takes its slot. `canRestart` says whether
+   * Run `fn` when a slot is free. `fn` gets a signal that fires when the GM takes its slot. `canRestart` says whether
    * the call may run again from the start after that (a streamed answer that already showed text may not).
    */
   async run<T>(job: Job, p: number, fn: (signal: AbortSignal) => Promise<T>, o: { signal?: AbortSignal; onWait?: (ahead: number) => void; canRestart?: () => boolean } = {}): Promise<T> {
@@ -382,7 +382,7 @@ class Gate {
       } catch (err) {
         if (!s.stopping || o.signal?.aborted) throw err;
         if (o.canRestart && !o.canRestart()) throw new ModelPreempted(job);
-        // Not started yet: back in line, at the front of its own priority (same seq), behind the DM.
+        // Not started yet: back in line, at the front of its own priority (same seq), behind the GM.
       } finally { this.leave(s); }
     }
   }
@@ -411,8 +411,8 @@ const JOB_PRIORITY: Partial<Record<Job, number>> = { audio: 3, voice: 2 };
 
 /**
  * Run `fn` against the job's chain, through the queue of each provider's model. `fn` gets the caller's signal joined
- * with the queue's own (which fires when the DM takes the slot). `mayRetry` says whether the call may still start over
- * (on the fallback, or after the DM went first).
+ * with the queue's own (which fires when the GM takes the slot). `mayRetry` says whether the call may still start over
+ * (on the fallback, or after the GM went first).
  */
 async function viaChain<T>(d: Deps, job: Job, screen: () => void, fn: (c: JobConfig, signal: AbortSignal | undefined) => Promise<T>, o: { mayRetry?: () => boolean; signal?: AbortSignal } = {}): Promise<T> {
   const mayRetry = o.mayRetry ?? (() => true);

@@ -5,10 +5,10 @@
 //   - the Alexandria Mod script, installed in the Roll20 game (needs the
 //     game creator's Pro plan). It is the only thing that reads and changes
 //     the game: character HP, token status markers, rolls, handouts.
-//   - the bridge, a userscript in the DM's browser on the Roll20 tab. It
+//   - the bridge, a userscript in the GM's browser on the Roll20 tab. It
 //     talks to this server with a bridge key and to the Mod through chat
 //     (hidden "!alx-in" commands one way, GM whispers the other way).
-// Both are served by this feature (GET /files/...), so the DM installs them
+// Both are served by this feature (GET /files/...), so the GM installs them
 // from the Roll20 page in Alexandria.
 //
 // What moves: HP, max HP and temporary HP of linked player characters (both
@@ -138,7 +138,7 @@ function applyEvent(d: Deps, worldId: string, owner: string, s: WorldSettings, e
       if (!rolls.length) return '';
       const sess = currentSession(db, worldId);
       if (!sess) return '';
-      // The roller: the linked character's player, else a player with that display name, else the DM (named in the text).
+      // The roller: the linked character's player, else a player with that display name, else the GM (named in the text).
       let author = (typeof e.characterId === 'string' && linkOf(db, worldId, e.characterId)?.account_id) || null;
       const who = String(e.who ?? '').slice(0, 60);
       if (!author) {
@@ -189,8 +189,8 @@ function bridgeOf(db: DB, req: Request) {
   if (!token.startsWith(KEY_PREFIX)) throw new HttpError(401, 'Send the Roll20 bridge key');
   const b = one<any>(db, 'SELECT * FROM roll20_bridges WHERE key_hash = ?', sha256(token));
   if (!b) throw new HttpError(401, 'That Roll20 bridge key is not valid (made a new one?)');
-  // The key belongs to a DM; a DM who lost the world loses the bridge.
-  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", b.world_id, b.created_by)) throw new HttpError(403, 'The DM who made this key no longer runs the world');
+  // The key belongs to a GM; a GM who lost the world loses the bridge.
+  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", b.world_id, b.created_by)) throw new HttpError(403, 'The GM who made this key no longer runs the world');
   run(db, 'UPDATE roll20_bridges SET last_seen_at = ? WHERE world_id = ?', now(), b.world_id);
   return b;
 }
@@ -351,7 +351,7 @@ function worldRoutes(d: Deps) {
     res.status(202).json({ queued: true });
   });
 
-  // The two scripts the DM installs, as text.
+  // The two scripts the GM installs, as text.
   r.get('/files/:name', (req, res) => {
     const f = FILES[String(req.params.name)];
     if (!f) throw new HttpError(404, 'No such file');

@@ -1,7 +1,7 @@
-// House rules and the assistant: when a message to the DM's assistant or a player's helper is about a rule that is
+// House rules and the assistant: when a message to the GM's assistant or a player's helper is about a rule that is
 // on (its name, its counters, its record kinds, its prompt button, or the words its `assistant` part lists), the
-// harness adds a short note to the context: what the rule is, the rule's own guidance for that person (the DM's text
-// only to the DM, the player's only to players), the exact tool calls they can make with it, and the records and
+// harness adds a short note to the context: what the rule is, the rule's own guidance for that person (the GM's text
+// only to the GM, the player's only to players), the exact tool calls they can make with it, and the records and
 // counters they may see (a player: shared lists and their own). It also offers the house rule tools, plus any
 // feature tools the rule names (the Codex's study tools for a spell rule). Nothing here needs code in the rule.
 import type { DB } from '../../core/db.ts';
@@ -68,7 +68,7 @@ function ruleNote(db: DB, worldId: string, m: Installed, dm: boolean, accountId:
     if (dm && ra.do === 'create' && k.owned) parts.push('"player":"<name>"');
     if (ra.ask.length) parts.push(`"values":{${ra.ask.map((f) => `"${f}":<${fieldHint(k, f)}>`).join(',')}}`);
     if (ra.do === 'add' && ra.amount === 'ask') parts.push('"amount":<number, negative takes away>');
-    const by = ra.by === 'owner' ? (k.owned ? ' (on their own)' : '') : ra.by === 'dm' ? ' (DM)' : '';
+    const by = ra.by === 'owner' ? (k.owned ? ' (on their own)' : '') : ra.by === 'dm' ? ' (GM)' : '';
     calls.push(`${tool} {${parts.join(',')}}: ${ra.label}${by}${Object.keys(ra.where).length ? `, only while ${Object.entries(ra.where).map(([f, v]) => `${f} is ${v}`).join(' and ')}` : ''}`);
   }
   if (dm) for (const p of mod.system.prompts) { calls.push(`house_rule_prompt {"mod":"${mod.id}","prompt":"${p.id}"}: the ${p.button} button (every player is asked: ${p.choices.map((c) => c.label).join(' / ')})`); tools.add('house_rule_prompt'); }
@@ -94,7 +94,7 @@ function ruleNote(db: DB, worldId: string, m: Installed, dm: boolean, accountId:
   return { text: L.join('\n'), tools: [...tools] };
 }
 
-/** The notes and tools for a message, for the DM (`dm`) or a player (`accountId`). At most three rules, about 3,500 characters. */
+/** The notes and tools for a message, for the GM (`dm`) or a player (`accountId`). At most three rules, about 3,500 characters. */
 export function ruleHints(db: DB, worldId: string, text: string, dm: boolean, accountId: string): RuleHints {
   let on: Installed[] = [];
   try { on = enabledMods(db, worldId); } catch { return { tools: [], text: '', mods: [] }; }

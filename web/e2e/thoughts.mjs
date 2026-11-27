@@ -17,7 +17,7 @@ const out = tmpDir('thoughts');
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(out, 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tok = await login('dm', 'dungeon master 123');
+const tok = await login('dm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tok } })).json())[0].id;
 const api = async (m, p, b) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: b ? JSON.stringify(b) : undefined }); return r.json().catch(() => ({})); };
 const combatant = async (name) => ((await api('GET', '/live/combat')).combatants ?? []).find((c) => c.name === name);
@@ -27,7 +27,7 @@ const browser = await chromium.launch();
 try {
   await api('PATCH', '/settings', { agentAuto: false, agentAutoApprove: [] });
   await api('PUT', '/active', { mode: 'assistant' });
-  const { page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1400, height: 900 });
+  const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 });
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`console: ${m.text()}`); });
   await page.goto(`${W}/dm`);
@@ -106,7 +106,7 @@ try {
   await page.reload();
   await page.getByTestId('dock-thoughts').waitFor({ timeout: 15000 });
   await new Promise((r) => setTimeout(r, 1000));
-  check(!(await page.getByTestId('thoughts').count()), 'the window came back after the DM closed it');
+  check(!(await page.getByTestId('thoughts').count()), 'the window came back after the GM closed it');
   note('closed to the dock and stayed closed');
   await api('PUT', '/active', { mode: 'assistant' });
 } catch (e) {

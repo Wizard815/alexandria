@@ -1,6 +1,6 @@
 // Edits to the vault as data. A tool's write, a draft from the after-session
 // workflow and a player's journal entry are all an Op: it can be shown to the
-// DM as a diff, edited, approved (applied) or rejected (docs/MINERVA.md §7-§8).
+// GM as a diff, edited, approved (applied) or rejected (docs/MINERVA.md §7-§8).
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
 import { dmOnly } from '../../core/events.ts';
@@ -69,7 +69,7 @@ export function applyOp(d: Deps, worldId: string, op: Op, by: string | null): Ap
   }
 }
 
-/** What an op would change, for the DM: the text of the part it touches, before and after. */
+/** What an op would change, for the GM: the text of the part it touches, before and after. */
 export function previewOp(d: Deps, worldId: string, op: Op): { rel: string; where: string; before: string; after: string; level?: string; visibleToPlayers?: boolean } {
   switch (op.op) {
     case 'section': {
@@ -117,7 +117,7 @@ export function listDrafts(d: Deps, worldId: string, status: string | null = 'pe
   return all<any>(d.db, `SELECT * FROM minerva_drafts WHERE world_id = ? ${status ? 'AND status = ?' : ''} ORDER BY (kind LIKE 'suggest-%'), created_at, rowid LIMIT 500`, worldId, ...(status ? [status] : [])).map(draftOut);
 }
 
-/** The DM's decision. Approving applies the op; a failure is kept on the draft. */
+/** The GM's decision. Approving applies the op; a failure is kept on the draft. */
 export function decideDraft(d: Deps, worldId: string, did: string, decision: 'approve' | 'reject', who: string, edit?: { text?: string; body?: string }): Draft {
   const dr = getDraft(d, worldId, did);
   if (!dr) throw new HttpError(404, 'No such draft');

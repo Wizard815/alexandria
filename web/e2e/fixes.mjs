@@ -28,7 +28,7 @@ srv.stderr.on('data', (d) => process.stderr.write('[demo] ' + d));
 for (let i = 0; i < 150 && !out.includes('Alexandria demo is running'); i++) await new Promise((r) => setTimeout(r, 200));
 if (!out.includes('Alexandria demo is running')) { console.log(out); srv.kill(); console.log('demo did not start'); process.exit(1); }
 
-const PASS = { dm: 'dungeon master 123', jess: 'player pass 123', admin: 'library admin 123' };
+const PASS = { dm: 'game master 123', jess: 'player pass 123', admin: 'library admin 123' };
 const api = async (method, p, token, body) => {
   const r = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   const j = await r.json().catch(() => null);
@@ -54,16 +54,16 @@ try {
   const dmTok = (await api('POST', '/api/auth/login', null, { username: 'dm', password: PASS.dm })).body.token;
   const world = (await api('GET', '/api/me', dmTok)).body.worlds.find((w) => w.slug === 'saltreach').id;
 
-  // 1. The Recording badge shows for the DM and for a player once a session records (M1).
+  // 1. The Recording badge shows for the GM and for a player once a session records (M1).
   const rec = await api('POST', `/api/worlds/${world}/audio/sessions`, dmTok, { name: 'E2E session' });
   check(rec.status === 201, `could not start a recording: ${rec.status}`);
   const dm = await signIn('dm', { width: 1280, height: 800 });
   await dm.page.goto(`${W}/dm/library`);
-  check(await dm.page.locator('.au-badge').waitFor({ timeout: 8000 }).then(() => true, () => false), 'no Recording badge for the DM');
+  check(await dm.page.locator('.au-badge').waitFor({ timeout: 8000 }).then(() => true, () => false), 'no Recording badge for the GM');
   const jess = await signIn('jess', { width: 1280, height: 800 });
   check(await jess.page.locator('.au-badge').waitFor({ timeout: 8000 }).then(() => true, () => false), 'no Recording badge for a player');
   await shot(jess.page, 'recording-badge-player');
-  note('Recording badge shows for DM and player');
+  note('Recording badge shows for GM and player');
 
   // 2. The transcript panel is opaque by default (L2) and the Live page does not say captions are elsewhere (L1).
   await jess.page.getByRole('button', { name: /transcript|captions/i }).first().click({ timeout: 4000 }).catch(() => {});
@@ -72,7 +72,7 @@ try {
   await shot(jess.page, 'transcript-opaque');
   await jess.page.goto(`${W}/live`);
   await jess.page.locator('main').waitFor();
-  check(!(await jess.page.locator('body').innerText()).includes('Live captions show here when the DM turns on'), 'the Live page still has the old captions line');
+  check(!(await jess.page.locator('body').innerText()).includes('Live captions show here when the GM turns on'), 'the Live page still has the old captions line');
   await api('POST', `/api/worlds/${world}/audio/sessions/current/stop`, dmTok, {});
 
   // 3. Admin Keys & AI: the list loads and a key can be made (H2).
@@ -103,7 +103,7 @@ try {
   const withDesc = before.split('\n').filter((l) => /^- \[\w+\] \[\[.+\]\]: ./.test(l));
   note(`active threads with descriptions in the demo: ${withDesc.length}`);
 
-  // 5. Phone: the DM's party pack is a list of cards, not a cramped table (L12).
+  // 5. Phone: the GM's party pack is a list of cards, not a cramped table (L12).
   const ph = await signIn('dm', { width: 390, height: 844 }, true);
   await ph.page.goto(`${W}/dm/party`);
   await ph.page.locator('main').waitFor();

@@ -1,6 +1,6 @@
-// The players' screen: the endpoint builds the player view even for a DM
-// token (a DM-only card, page, person or foe never reaches it), media writes
-// are DM-only, hidden media never reaches players or the screen, YouTube
+// The players' screen: the endpoint builds the player view even for a GM
+// token (a GM-only card, page, person or foe never reaches it), media writes
+// are GM-only, hidden media never reaches players or the screen, YouTube
 // links are validated, library pictures are served only while players could
 // open them, and the slideshow clock.
 import { test, before, after } from 'node:test';
@@ -116,21 +116,21 @@ test('TestPlayerScreen_WritesAreDMOnly', async () => {
 test('TestPlayerScreen_DMOnlyCardsAndPagesNeverReachTheScreen', async () => {
   const S = `/api/worlds/${W}/stage`;
   const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
-  const open = await page('places/Harbour', 'party', '# Harbour\nGulls and rope.\n\n> [!secret] DM\n> The Sunken Crown is under pier nine.\n');
+  const open = await page('places/Harbour', 'party', '# Harbour\nGulls and rope.\n\n> [!secret] GM\n> The Sunken Crown is under pier nine.\n');
   const closed = await page('dm/Vault', 'dm', '# Vault\nSunken Crown vault plans.\n');
   const npc = (await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Hidden Duke', role: 'Villain', visibility: 'dm' })).id;
   const add = (b: Record<string, unknown>) => ok('POST', `${S}/cards`, T.dm, b);
-  // Staged for the DM only (never shown), shown to one player only, and shown to everyone.
+  // Staged for the GM only (never shown), shown to one player only, and shown to everyone.
   await add({ kind: 'text', title: 'STAGED-ONLY', text: 'staged-secret-1' });
   await add({ kind: 'text', title: 'ONE-PLAYER', text: 'whisper-secret-2', to: [ID.jess] });
   await add({ kind: 'place', ref: closed });
   await add({ kind: 'person', ref: npc });
   const shown = await add({ kind: 'text', title: 'For everyone', text: 'The bridge is out.', show: true });
   const place = await add({ kind: 'place', ref: open, show: true, spotlight: true });
-  // A DM-only page and person cannot even be shown (the stage refuses), so nothing leaks that way either.
+  // A GM-only page and person cannot even be shown (the stage refuses), so nothing leaks that way either.
   assert.equal((await call('POST', `${S}/cards`, T.dm, { kind: 'place', ref: closed, show: true })).status, 409);
   assert.equal((await call('POST', `${S}/cards`, T.dm, { kind: 'person', ref: npc, show: true })).status, 409);
-  // A foe in hiding and the DM-only numbers of a visible one.
+  // A foe in hiding and the GM-only numbers of a visible one.
   await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Goblin', initiative: 12, hp: 4, maxHp: 10, ac: 15 });
   await ok('POST', `/api/worlds/${W}/live/combatants`, T.dm, { name: 'Lurking Assassin', initiative: 18, hp: 30, maxHp: 30, hidden: true, ac: 17 });
   await ok('PUT', `/api/worlds/${W}/live/combat`, T.dm, { active: true });
@@ -139,8 +139,8 @@ test('TestPlayerScreen_DMOnlyCardsAndPagesNeverReachTheScreen', async () => {
     await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { monsterHealth: mode });
     const forDm = await screen(T.dm);
     const forPlayer = await screen(T.jess);
-    // The DM's token gets exactly what a player's gets.
-    assert.deepEqual(forDm.stage, forPlayer.stage, `DM token gets the player view (${mode})`);
+    // The GM's token gets exactly what a player's gets.
+    assert.deepEqual(forDm.stage, forPlayer.stage, `GM token gets the player view (${mode})`);
     for (const view of [forDm, forPlayer]) {
       const s = JSON.stringify(view);
       for (const bad of ['STAGED-ONLY', 'staged-secret-1', 'ONE-PLAYER', 'whisper-secret-2', 'Sunken Crown', 'Vault', 'Hidden Duke', 'Lurking', '"ac"', '"temp_hp"', 'concentration', '"hidden"', 'dm_note']) assert.ok(!s.includes(bad), `screen leaked ${bad} (${mode}): ${s.slice(0, 400)}`);
@@ -180,7 +180,7 @@ test('TestPlayerScreen_HiddenMediaIsNeverSent', async () => {
     assert.equal(s.media.current.id, b);
     assert.ok(!('items' in s.media), 'the queue itself is not sent, only the current item');
   }
-  // The DM still sees and can unhide it.
+  // The GM still sees and can unhide it.
   const dm = await dmMedia();
   assert.equal(dm.items.find((i: any) => i.id === a).hidden, true);
   // A hidden item cannot be focused.
@@ -195,7 +195,7 @@ test('TestPlayerScreen_LibraryPicturesNeedPartyLevelAndAreRecheckedOnFetch', asy
   const open = await upload('torch.png', { level: 'party', folder: 'Handouts', title: 'Torch' });
   const closed = await upload('vault-map.png', { level: 'dm', folder: 'Handouts', title: 'Vault map' });
   const secret = await upload('seal.png', { level: 'classified', folder: 'Handouts', title: 'Seal' });
-  // A classified file is refused (fail closed); a DM-only one is the DM's choice to show (see screenvideo.test.ts).
+  // A classified file is refused (fail closed); a GM-only one is the GM's choice to show (see screenvideo.test.ts).
   assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: secret.id })).status, 409);
   assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: closed.id })).status, 201);
   await wipe();
@@ -213,9 +213,9 @@ test('TestPlayerScreen_LibraryPicturesNeedPartyLevelAndAreRecheckedOnFetch', asy
   await ok('PATCH', `${SC()}/media/items/${m.items[0].id}`, T.dm, { hidden: false });
   assert.equal((await call('GET', cur.url)).status, 200);
   // The file stops being for players: the ticket stops working at once.
-  // (a DM-only file is still shown while it is the current item: that is the DM's choice) but classified never is.
+  // (a GM-only file is still shown while it is the current item: that is the GM's choice) but classified never is.
   await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'dm' });
-  assert.equal((await call('GET', cur.url)).status, 200, 'DM-level and current: still served');
+  assert.equal((await call('GET', cur.url)).status, 200, 'GM-level and current: still served');
   await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'classified' });
   assert.equal((await call('GET', cur.url)).status, 404, 'level changed to classified');
   await ok('PATCH', `/api/worlds/${W}/files/${open.id}`, T.dm, { level: 'party' });
@@ -252,12 +252,12 @@ test('TestPlayerScreen_FolderBecomesASlideshowAndSkipsUnsharedPictures', async (
   const src = await ok('GET', `${SC()}/media/sources`, T.dm);
   assert.deepEqual(src.folders.find((f: any) => f.folder === 'Maps/Coast'), { folder: 'Maps/Coast', images: 3, videos: 0, shared: 2, showable: 3 });
   const r = await ok('POST', `${SC()}/media/folder`, T.dm, { folder: 'Maps/Coast', intervalSec: 5 });
-  assert.equal(r.loaded, 3, 'a DM-only picture is loaded too: showing it is the DM\'s choice');
+  assert.equal(r.loaded, 3, 'a GM-only picture is loaded too: showing it is the GM\'s choice');
   assert.equal(r.skipped, 0);
   assert.equal(r.mode, 'slideshow');
   assert.equal(r.intervalSec, 5);
   assert.equal(r.items.length, 3);
-  assert.equal((await call('POST', `${SC()}/media/folder`, T.dm, { folder: 'Maps/Hidden' })).status, 200, 'a DM-only folder can be shown');
+  assert.equal((await call('POST', `${SC()}/media/folder`, T.dm, { folder: 'Maps/Hidden' })).status, 200, 'a GM-only folder can be shown');
   assert.equal((await call('POST', `${SC()}/media/folder`, T.dm, { folder: 'Nowhere' })).status, 404);
   assert.equal((await call('PUT', `${SC()}/media`, T.dm, { intervalSec: 1 })).status, 400);
   await wipe();

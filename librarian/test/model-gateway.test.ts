@@ -1,4 +1,4 @@
-// The /v1 model gateway: who may spend the DM's provider credit, and how much.
+// The /v1 model gateway: who may spend the GM's provider credit, and how much.
 // And: no route that reaches a model works without a sign-in.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -54,15 +54,15 @@ test('ModelGateway_PlayersAndGuestsAreRefusedTheDmAndAdminAreNot', async () => {
     for (const [m, p, b] of [['GET', '/v1/models'], ['POST', '/v1/chat/completions', chat], ['POST', '/v1/embeddings', { input: ['a'] }]] as [string, string, unknown?][]) {
       const r = await k.call(m, p, k.T[who], b);
       assert.equal(r.status, 403, `${who} ${m} ${p} -> ${r.status}`);
-      assert.match(r.body.error, /DM and the admin/);
+      assert.match(r.body.error, /GM and the admin/);
     }
   }
   assert.equal(upstream.length, 0, 'a refused caller never reaches the model');
-  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.dm, chat)).status, 200, 'the DM may');
+  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.dm, chat)).status, 200, 'the GM may');
   assert.equal((await k.call('POST', '/v1/embeddings', k.T.dm, { input: ['a'] })).status, 200);
   // The admin is not a member of the world, and may.
   assert.equal((await k.call('GET', '/v1/models', k.T.admin)).status, 200);
-  // Another world's DM is a DM too: the gateway is the server's, not a world's.
+  // Another world's GM is a GM too: the gateway is the server's, not a world's.
   assert.equal((await k.call('GET', '/v1/models', k.T.dm2)).status, 200);
 });
 

@@ -79,9 +79,9 @@ async function boot(withModel: boolean): Promise<Env> {
     ID[name] = j.account.id;
   }
   const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  const saltmarsh = await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
+  const saltmarsh = await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
   const velmira = await page('dm/Velmira', 'dm', `# Velmira\n${SECRET}.\n`);
-  // A session with one line for everyone and one DM-only aside.
+  // A session with one line for everyone and one GM-only aside.
   run(made.deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at) VALUES (?, ?, ?, ?)', 'as_1', W, 'Session 1', new Date().toISOString());
   run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_1', 'as_1', ?, 0, 1000, 'Narrator', ?, 'players', ?)`, W, OPEN_LINE, new Date().toISOString());
   run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_2', 'as_1', ?, 2000, 3000, 'Whisper', ?, 'dm', ?)`, W, DM_LINE, new Date().toISOString());
@@ -142,9 +142,9 @@ test('AgentTools_DmCoreIsAlwaysOfferedAndNeverTheMyTools', () => {
     const got = selectTools(text, dmNames, undefined, true);
     for (const n of DM_CORE_TOOLS) assert.ok(got.includes(n), `${text}: core tool ${n} missing from ${got.join(',')}`);
     assert.ok(got.length <= MAX_TOOLS && MAX_TOOLS >= 14 && MAX_TOOLS <= 16, `${text}: ${got.length}`);
-    assert.ok(!got.some((n) => n.startsWith('my_')), `${text}: a player tool was offered to the DM`);
+    assert.ok(!got.some((n) => n.startsWith('my_')), `${text}: a player tool was offered to the GM`);
   }
-  // A player gets the player tools, and never the DM's core.
+  // A player gets the player tools, and never the GM's core.
   const player = toolsFor(false).filter((t) => !t.write && !(t as any).dmOnly).map((t) => t.name);
   const p = selectTools('what are my goals and notes', player);
   assert.ok(p.includes('my_context') && !p.includes('more_tools') && !p.includes('save_page'));
@@ -409,7 +409,7 @@ test('AgentSound_AnUnknownLayerPlaysTheNearestOneAndNoOneOptedInIsSaid', async (
   assert.deepEqual(out.matched, [{ asked: 'thunderstorm', used: 'storm' }, { asked: 'rainfall', used: 'rain' }]);
   assert.deepEqual(out.missing, ['dragons']);
   assert.deepEqual(out.available.sort(), ['rain', 'storm']);
-  // Nobody has "Allow sound" on: the result says so (the agent tells the DM).
+  // Nobody has "Allow sound" on: the result says so (the agent tells the GM).
   assert.equal(out.playersHearing, 0);
   assert.match(out.note, /No player has "Allow sound" switched on/);
   const music = await e.ok('POST', api('/sound/music/mood'), e.T.dm, { mood: 'tense', target: 'players' });
@@ -444,7 +444,7 @@ test('AgentTemplates_CreateTemplateIsADraftTheDmApproves', async () => {
   await approve(a[0].id);
   const list = (await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.dm)).templates;
   assert.ok(list.some((t: any) => t.name === 'Harbour ritual'));
-  // A schema that would be refused is sent back to the model with the reason; the DM is never asked to approve it.
+  // A schema that would be refused is sent back to the model with the reason; the GM is never asked to approve it.
   e.model.queue.push(
     () => toolCall('create_template', { name: 'Broken', fields: [{ key: 'Bad Key', type: 'text' }], body: 'x {{dm}} y' }),
     (req) => { assert.match(req.messages.filter((m: any) => m.role === 'tool').at(-1).content, /^Not proposed: .*lowercase/); return say('Let me fix that.'); },
@@ -478,7 +478,7 @@ const route = (labels: any, answers?: boolean) => (body: any) => {
 };
 
 test('AgentBroker_AWhyQuestionWhoseSharedTextDoesNotAnswerItGoesToTheDm', async () => {
-  await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'places/Lighthouse', visibility: 'party', markdown: '# Saltmarsh Lighthouse\nThe Saltmarsh lighthouse has been dark for a month and boats keep to the harbour.\n\n> [!secret] DM\n> The keeper sold the lamp oil to smugglers.\n' });
+  await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'places/Lighthouse', visibility: 'party', markdown: '# Saltmarsh Lighthouse\nThe Saltmarsh lighthouse has been dark for a month and boats keep to the harbour.\n\n> [!secret] GM\n> The keeper sold the lamp oil to smugglers.\n' });
   // Audit model says: world question, fact, why; and then that the shared text does not answer it.
   e.audit.seen.length = 0;
   e.audit.handler = route({ scope: 'world', intent: 'fact', type: 'why', confidence: 0.9 }, false);
@@ -526,7 +526,7 @@ test('AgentBroker_AnAllowedRealWorldTopicIsAnsweredFromGeneralKnowledgeNeverFrom
   assert.ok(!/Velmira|smuggler|Saltmarsh|harbour council/i.test(sent), sent.slice(0, 400));
   const ask_ = await e.ok('POST', api('/broker/ask'), e.T.jess, { quoteId: q.quoteId });
   assert.equal(ask_.status, 'answered');
-  // No chat model answer (a failure): the old route, a question for the DM.
+  // No chat model answer (a failure): the old route, a question for the GM.
   e.model.queue.push(() => new Response('no', { status: 500 }));
   const fallback = await quote(e.T.jess, 'How thick were medieval castle walls?');
   assert.notEqual(fallback.kind, 'other');
@@ -583,13 +583,13 @@ test('AgentLeakGate_APublicFactIsNotAnEightWordLeakButASecretStillIs', async () 
 });
 
 test('AgentLeakGate_PersonaDenialsPassButAffirmationsAreHeld', () => {
-  for (const ok_ of ["I'm not Minerva.", 'I do not work for the DM, I trade in rumours.', "I don't have any DM notes.", 'There is no DM assistant here, friend.', "Nobody called Minerva has told me anything."]) assert.equal(personaGiveaway(ok_), null, ok_);
-  for (const bad of ["I'm Minerva, the keeper of records.", 'I work for the DM.', "Minerva told me you would ask.", "The DM's assistant says no.", 'There is no secret. I work for the dungeon master.', "I'm not sure. Minerva knows."]) assert.ok(personaGiveaway(bad), bad);
+  for (const ok_ of ["I'm not Minerva.", 'I do not work for the GM, I trade in rumours.', "I don't have any GM notes.", 'There is no GM assistant here, friend.', "Nobody called Minerva has told me anything."]) assert.equal(personaGiveaway(ok_), null, ok_);
+  for (const bad of ["I'm Minerva, the keeper of records.", 'I work for the GM.', "Minerva told me you would ask.", "The GM's assistant says no.", 'There is no secret. I work for the dungeon master.', "I'm not sure. Minerva knows."]) assert.ok(personaGiveaway(bad), bad);
   assert.equal(personaGiveaway('Not that I know of. I am Tideglass.', 'Tideglass') !== null, true, 'a renamed assistant named plainly is held');
   assert.equal(personaGiveaway('I am not Tideglass.', 'Tideglass'), null);
 });
 
-// ---- 10. Minerva: no DM analysis on a page the players can read --------------------------------------------------
+// ---- 10. Minerva: no GM analysis on a page the players can read --------------------------------------------------
 
 test('AgentMinerva_CodexAnalysisOnAPartyPageGoesInASecretBlockAndNoPlayerSeesIt', async () => {
   await e.ok('POST', api('/minerva/enable'), e.T.dm, {});
@@ -598,7 +598,7 @@ test('AgentMinerva_CodexAnalysisOnAPartyPageGoesInASecretBlockAndNoPlayerSeesIt'
   e.model.queue.push(() => toolCall('codex_upsert', { name: 'jess', kind: 'pc', section: 'notes', text: HOOK }), () => say('Proposed the hook on her page.'));
   const r = await ask(e, e.T.dm, 'Log the promise Jess made as a hook for her character');
   const a = acts(r.id)[0];
-  assert.match(a.summary, /DM-only block on a level party page/, a.summary);
+  assert.match(a.summary, /GM-only block on a level party page/, a.summary);
   assert.ok(!/Visible to players/.test(a.summary));
   await approve(a.id);
   const page = await e.ok('GET', api(`/minerva/page?rel=${encodeURIComponent('codex/characters/pc/jess.md')}`), e.T.dm);
@@ -610,7 +610,7 @@ test('AgentMinerva_CodexAnalysisOnAPartyPageGoesInASecretBlockAndNoPlayerSeesIt'
   }
   // Nor does the broker's gate treat it as public text: repeating it is blocked.
   assert.equal(leakChecker(e.deps.db, W)('Hook aimed at Jessamine: the dockhand will pay unless she keeps her promise, and Velmira hears of any broken oath.').blocked, true);
-  // Only when the DM says it is for the players does it go in the open, and the card says so in red words.
+  // Only when the GM says it is for the players does it go in the open, and the card says so in red words.
   e.model.queue.push(() => toolCall('codex_upsert', { name: 'jess', kind: 'pc', section: 'appearances', text: 'Helped the dockhand at the quay.', visible: true }), () => say('Proposed.'));
   const v = await ask(e, e.T.dm, 'Add to Jess\'s page that she helped the dockhand, for the players to read');
   const va = acts(v.id)[0];
@@ -621,7 +621,7 @@ test('AgentMinerva_CodexAnalysisOnAPartyPageGoesInASecretBlockAndNoPlayerSeesIt'
   const dr = (await e.ok('POST', api('/minerva/codex'), e.T.dm, { name: 'jess', section: 'notes', text: 'another note' }));
   assert.equal(dr.visibleToPlayers, false);
   assert.equal(dr.level, 'party');
-  // An NPC page the DM has not opened to the party stays plain DM text.
+  // An NPC page the GM has not opened to the party stays plain GM text.
   const npc = await e.ok('POST', api('/minerva/codex'), e.T.dm, { name: 'Marla Tuck', kind: 'npc', section: 'notes', text: 'Wants the keeper gone.' });
   assert.equal(npc.level, 'dm');
   assert.match((await e.ok('GET', api(`/minerva/page?rel=${encodeURIComponent(npc.rel)}`), e.T.dm)).body, /- Wants the keeper gone\./);
@@ -640,7 +640,7 @@ test('AgentLive_TheHarnessCarriesTheLastLinesOfARunningSessionAndNeverTheOtherSi
   const CLASSIFIED = 'the sunken bell opens only when three silver keys turn together at ebb tide';
   await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'dm/Sealed bell', visibility: 'classified', markdown: `# Sealed bell\n${CLASSIFIED}.\n` });
   addLine(e.ID.jess, 'jess', 'We should ask the harbourmaster about the lamp', 'players');
-  addLine(null, 'DM', 'Whisper: the harbourmaster is secretly the keeper brother', 'dm');
+  addLine(null, 'GM', 'Whisper: the harbourmaster is secretly the keeper brother', 'dm');
   addLine(e.ID.tom, 'tom', CLASSIFIED, 'players');
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Nothing yet.'), () => say('Nothing yet.'));
@@ -650,7 +650,7 @@ test('AgentLive_TheHarnessCarriesTheLastLinesOfARunningSessionAndNeverTheOtherSi
   const plCtx = JSON.stringify(e.model.seen[1].messages.at(-1));
   assert.match(dmCtx, /Live transcript/);
   assert.match(dmCtx, /ask the harbourmaster about the lamp/);
-  assert.match(dmCtx, /secretly the keeper brother/, 'the DM sees the DM-visible lines');
+  assert.match(dmCtx, /secretly the keeper brother/, 'the GM sees the GM-visible lines');
   assert.match(plCtx, /Live transcript/);
   assert.match(plCtx, /ask the harbourmaster about the lamp/);
   assert.ok(!/secretly the keeper brother|vault code/.test(plCtx), 'a player gets the players\' lines only');
@@ -682,7 +682,7 @@ test('AgentLive_SuggestionsLandInTheReviewQueueLowAndAreRateLimited', async () =
   const last = review.drafts.map((x: any) => x.kind.startsWith('suggest-'));
   assert.equal(last.indexOf(false) === -1 || last.lastIndexOf(false) < last.indexOf(true), true);
   assert.ok(!JSON.stringify(await e.ok('GET', api('/minerva/revelations'), e.T.dm)).includes('"accountId":"' + e.ID.jess + '","name":"jess","session"'), 'the clue was not marked by itself');
-  // The model saw DM-visible lines but never classified text or players' private notes.
+  // The model saw GM-visible lines but never classified text or players' private notes.
   assert.ok(e.audit.seen.length >= 1 && !JSON.stringify(e.audit.seen).includes('three silver keys'));
   // Rate limit: a new line right away does nothing; after two minutes (or 30 lines) it runs, and nothing is suggested twice.
   addLine(e.ID.tom, 'tom', 'Bram Oakes is hiding something', 'players');
@@ -692,20 +692,20 @@ test('AgentLive_SuggestionsLandInTheReviewQueueLowAndAreRateLimited', async () =
   assert.equal(later.drafted, 0, 'the same suggestions are not made twice');
   for (let i = 0; i < LIVE_LINES; i++) addLine(e.ID.tom, 'tom', `Another line about the weather number ${i}`, 'players');
   assert.equal((await suggestionPass(e.deps, W)).ran, true, 'thirty new lines run it at once');
-  // Nothing new: nothing to do. A forced run (the DM\'s button) with no new lines is also a no-op.
+  // Nothing new: nothing to do. A forced run (the GM\'s button) with no new lines is also a no-op.
   assert.equal((await suggestionPass(e.deps, W, { force: true })).ran, false);
   // A line stamped in the same millisecond as the last line read is still new (it was skipped as "No new lines" on a fast machine).
   const lastAt = (all<any>(e.deps.db, "SELECT MAX(updated_at) AS t FROM audio_lines WHERE session_id = 'as_1'")[0]).t as string;
   addLine(e.ID.tom, 'tom', 'Same millisecond line about Bram Oakes', 'players', lastAt);
   assert.deepEqual(await suggestionPass(e.deps, W, { force: true }).then((r) => [r.ran, r.lines]), [true, 1]);
   assert.equal((await suggestionPass(e.deps, W, { force: true })).ran, false, 'and read once only');
-  // The DM's button.
+  // The GM's button.
   addLine(e.ID.jess, 'jess', 'I will protect Brask the dockhand with my life', 'players');
   assert.equal((await e.ok('POST', api('/minerva/live/suggest'), e.T.dm, {})).ran, true);
   // A player cannot ask for it, and no suggestion shows in a player's view.
   assert.equal((await e.call('POST', api('/minerva/live/suggest'), e.T.jess, {})).status, 403);
   assert.ok(!/Bram Oakes|suggest-/.test(JSON.stringify(await e.ok('GET', api('/minerva/me'), e.T.jess))));
-  // A suggestion is applied only when the DM approves it.
+  // A suggestion is applied only when the GM approves it.
   const clue = sug.find((x: any) => x.kind === 'suggest-clue');
   await e.ok('POST', api(`/minerva/review/${clue.id}`), e.T.dm, { decision: 'approve' });
   assert.ok(JSON.stringify(await e.ok('GET', api('/minerva/revelations'), e.T.dm)).includes('jess'));
@@ -724,8 +724,8 @@ test('AgentReview_AfterSessionDraftsAppendNeverCoolAnActiveHookPromoteOnlyNamedP
   // Two hooks that are on: one came up this session, the other did not.
   await e.ok('PUT', api('/minerva/page'), e.T.dm, { rel: 'dm/hooks/The darkened lamp.md', body: '# The darkened lamp\nWhy was it put out?\n', heat: 'on' });
   await e.ok('PUT', api('/minerva/page'), e.T.dm, { rel: 'dm/hooks/The drowned bell.md', body: '# The drowned bell\nWho rings it?\n', heat: 'on' });
-  // An old NPC that is a promotion candidate (in an active hook) but was not in this session, and a status section the DM wrote.
-  await e.ok('PUT', api('/minerva/page'), e.T.dm, { rel: 'dm/state/Campaign Status.md', body: '# Campaign Status\n\n## What changed last session\n- The DM wrote this and it stays.\n\n## Next session\n- Visit the quay.\n' });
+  // An old NPC that is a promotion candidate (in an active hook) but was not in this session, and a status section the GM wrote.
+  await e.ok('PUT', api('/minerva/page'), e.T.dm, { rel: 'dm/state/Campaign Status.md', body: '# Campaign Status\n\n## What changed last session\n- The GM wrote this and it stays.\n\n## Next session\n- Visit the quay.\n' });
   const from = new Date(Date.now() - 3_600_000).toISOString();
   const draft = await e.ok('POST', api('/sessionlog/drafts'), e.T.dm, { from, to: new Date().toISOString(), title: 'The dark lamp' });
   await e.ok('PUT', api(`/sessionlog/drafts/${draft.id}`), e.T.dm, { markdown: '## Recap\n- The party spoke of the lamp, who darkened it and why.\n\n## Key moments\n- The keeper admitted it.\n\n## People met\n- Nell Harrow: a net mender\n- Captain Brask: the harbour captain\n\n## Open threads\n- Who paid the keeper?\n' });
@@ -739,7 +739,7 @@ test('AgentReview_AfterSessionDraftsAppendNeverCoolAnActiveHookPromoteOnlyNamedP
   const status = mine.filter((x: any) => x.kind === 'status' && x.op.op === 'section');
   assert.ok(status.length >= 1 && status.every((x: any) => x.op.mode === 'append'), JSON.stringify(status.map((x: any) => x.op)));
   const st = status.find((x: any) => /what changed/i.test(x.title));
-  assert.match(st.preview.after, /The DM wrote this and it stays\./);
+  assert.match(st.preview.after, /The GM wrote this and it stays\./);
   assert.match(st.preview.after, /The keeper admitted it/);
   // The hook that came up is raised and never lowered; the one that did not cools a step.
   const heat = (n: string) => mine.find((x: any) => x.kind === 'heat' && x.title.includes(n));

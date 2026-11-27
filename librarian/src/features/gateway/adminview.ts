@@ -1,7 +1,7 @@
 // The admin's own reads: searching across worlds, and what Alexandria's MCP server offers and to whom.
 //
 // Search is the same ranked page search players and scribes use, read as the admin: the party copy of each world,
-// unless the admin is that world's DM (an admin is not a DM by being an admin). Nothing here returns a key.
+// unless the admin is that world's GM (an admin is not a GM by being an admin). Nothing here returns a key.
 import type { Deps } from '../../app.ts';
 import { all, one } from '../../core/db.ts';
 import { HttpError, str } from '../../core/util.ts';

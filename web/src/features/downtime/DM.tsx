@@ -1,4 +1,4 @@
-// The DM's side of DownTime: the Downtime button (on the Table, the home page
+// The GM's side of DownTime: the Downtime button (on the Table, the home page
 // and the Downtime page), every player's tasks with time added or taken away,
 // pause, stop, edit, approve and Give reward, assigning an activity, the log,
 // and the activity list (also the DownTime tab of the House rules page).
@@ -73,7 +73,7 @@ function ForPlayer({ player, onClose }: { player: string; onClose: () => void })
   return <PickModal o={o.data} player={player} onClose={onClose} onDone={onClose} />;
 }
 
-/** On the DM's home and Table: the button, and what waits for the DM. */
+/** On the GM's home and Table: the button, and what waits for the GM. */
 export function DowntimeCard() {
   const { info } = useWorld();
   const o = useDowntime();
@@ -87,7 +87,7 @@ export function DowntimeCard() {
   );
 }
 
-/** The DM's Downtime page. */
+/** The GM's Downtime page. */
 export function DMDowntime() {
   const { info } = useWorld();
   const [tab, setTab] = useState<'party' | 'log' | 'activities'>('party');
@@ -116,7 +116,7 @@ function Party() {
   const [assign, setAssign] = useState(false);
   const players = members.filter((m) => m.role === 'player');
   const run = (fn: () => Promise<unknown>, msg: string) => act.run(async () => { await fn(); toast(msg); });
-  const time = (t: Task, days: number) => run(() => w.call('POST', `/downtime/tasks/${t.id}/time`, { days, note: days > 0 ? 'Time added by the DM' : 'Time lost' }), `${t.name}: ${days > 0 ? '+' : ''}${days} day`);
+  const time = (t: Task, days: number) => run(() => w.call('POST', `/downtime/tasks/${t.id}/time`, { days, note: days > 0 ? 'Time added by the GM' : 'Time lost' }), `${t.name}: ${days > 0 ? '+' : ''}${days} day`);
   return (
     <section className="card stack">
       <div className="card-head">

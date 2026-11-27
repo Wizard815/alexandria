@@ -48,7 +48,7 @@ before(async () => {
   W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Owlhold', dmAccountId: dmId })).id;
   const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jessamine' })).token;
-  // Two imported maps: the town (its page shared with the players) and the lair (DM only).
+  // Two imported maps: the town (its page shared with the players) and the lair (GM only).
   run(deps.db, "INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s1', ?, 'push', 'LK', '{}', 'party')", W);
   const at = new Date().toISOString();
   deps.library.saveEntry(W, 's1', null, { externalId: 'town', title: 'Town', type: 'map', blocks: [], visibility: 'party', updatedAt: at }, null);
@@ -85,7 +85,7 @@ test('TestOwlbear_MaskToStrokes: a bitmask becomes one undoable stroke that read
   assert.equal(readMask(Buffer.alloc(10).toString('base64')), null);
 });
 
-test('TestOwlbear_Keys: only the DM makes a key; other keys and sessions are refused', async () => {
+test('TestOwlbear_Keys: only the GM makes a key; other keys and sessions are refused', async () => {
   assert.equal((await call('POST', `/api/worlds/${W}/owlbear/key`, T.jess)).status, 403);
   assert.equal((await call('GET', `/api/worlds/${W}/owlbear`, T.jess)).status, 403);
   const st0 = await ok('GET', `/api/worlds/${W}/owlbear`, T.dm);
@@ -96,17 +96,17 @@ test('TestOwlbear_Keys: only the DM makes a key; other keys and sessions are ref
   KEY = (await ok('POST', `/api/worlds/${W}/owlbear/key`, T.dm)).key;
   assert.equal((await call('GET', '/api/owlbear/state', first)).status, 401, 'a replaced key stops working');
   assert.equal((await call('GET', '/api/owlbear/state', 'alx_obr_nope')).status, 401);
-  assert.equal((await call('GET', '/api/owlbear/state', T.dm)).status, 401, 'a DM session is not a link key');
+  assert.equal((await call('GET', '/api/owlbear/state', T.dm)).status, 401, 'a GM session is not a link key');
   assert.equal((await call('GET', '/api/owlbear/state')).status, 401);
 });
 
 test('TestOwlbear_Pictures: only what players may see goes to Owlbear; the table screen is followed', async () => {
   const h = await ok('GET', '/api/owlbear/hello?room=r1&player=Wiz', KEY);
   assert.equal(h.world.name, 'Owlhold');
-  assert.deepEqual(h.pictures.map((p: any) => p.value), ['imp:town1'], 'the DM-only lair is not offered');
+  assert.deepEqual(h.pictures.map((p: any) => p.value), ['imp:town1'], 'the GM-only lair is not offered');
   assert.equal(h.link.follow, true);
   assert.equal(h.target.pic, null);
-  // The DM puts the lair on the table screen: Owlbear shows nothing and says why.
+  // The GM puts the lair on the table screen: Owlbear shows nothing and says why.
   await ok('PUT', `/api/worlds/${W}/fog/table`, T.dm, { mapId: 'world', pic: 'imp:lair1' });
   let st = await ok('GET', '/api/owlbear/state', KEY);
   assert.equal(st.target.pic, null);
@@ -117,14 +117,14 @@ test('TestOwlbear_Pictures: only what players may see goes to Owlbear; the table
   st = await ok('GET', '/api/owlbear/state', KEY);
   assert.equal(st.target.pic, 'imp:town1');
   assert.match(st.target.url, /^\/api\/owlbear\/pic\/[^/]+\/imp%3Atown1$/);
-  // The picture: served with CORS for Owlbear, no sign-in; never a DM-only one, never with a wrong secret.
+  // The picture: served with CORS for Owlbear, no sign-in; never a GM-only one, never with a wrong secret.
   const pic = await fetch(base + st.target.url);
   assert.equal(pic.status, 200);
   assert.equal(pic.headers.get('access-control-allow-origin'), '*');
   assert.deepEqual(Buffer.from(await pic.arrayBuffer()), PNG);
   assert.equal((await fetch(base + st.target.url.replace('imp%3Atown1', 'imp%3Alair1'))).status, 404);
   assert.equal((await fetch(base + st.target.url.replace(/pic\/[^/]+/, 'pic/wrong'))).status, 404);
-  // The DM page sees the extension as connected, with the room's GM.
+  // The GM page sees the extension as connected, with the room's GM.
   const dmSt = await ok('GET', `/api/worlds/${W}/owlbear`, T.dm);
   assert.equal(dmSt.online, true);
   assert.equal(dmSt.player, 'Wiz');

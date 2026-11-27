@@ -85,7 +85,7 @@ test('TestAdminAuth_TableSessionsAndAdminKeys', async () => {
     assert.equal(r.status, 403);
     assert.match(r.body.error, /admin\/login/);
     assert.equal((await h.call('GET', '/api/admin-auth/me', h.tableAdmin)).status, 403);
-    // A DM table session is not an admin either way.
+    // A GM table session is not an admin either way.
     assert.equal((await h.call('GET', '/api/admin/accounts', h.dm)).status, 403);
     // The admin's table session still opens the admin's own worlds (membership permitting), unchanged.
     assert.equal((await h.call('GET', '/api/me', h.tableAdmin)).status, 200);

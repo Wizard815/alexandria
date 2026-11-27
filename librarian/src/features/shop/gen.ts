@@ -10,7 +10,7 @@
 //   party level 1-4 uncommon | 5-10 rare | 11-16 very rare | 17-20 legendary
 // Items with no price (artifacts, "rarity varies") are never stocked.
 //
-// `guide` (optional) is text that steers a shop: a DM's template or a few
+// `guide` (optional) is text that steers a shop: a GM's template or a few
 // instructions. Offline, its words weigh the draw like a theme, and plain
 // directives are read: "12 items", "markup 20%", "discount 10%", "no magic",
 // "max rarity rare". With a model it is also given to the model as the brief.
@@ -215,7 +215,7 @@ export async function generateShop(d: Deps, worldId: string, opts: ShopOpts = {}
     if (rank === 0) qty = big && (it.type === 'gear' || it.type === 'food' || it.type === 'ammunition') && chance(r, 0.4) ? null : it.type === 'ammunition' ? int(r, 2, 6) : int(r, 1, big ? 10 : 5);
     else qty = rank === 1 ? int(r, 1, 4) : rank === 2 ? int(r, 1, 2) : 1;
     const priceCp = Math.max(0, Math.round((it.cost_cp! * (100 + markupPct)) / 100));
-    // A fence keeps its best pieces under the counter: hidden from players until the DM shows them.
+    // A fence keeps its best pieces under the counter: hidden from players until the GM shows them.
     const hidden = kind === 'fence' && rank >= 2 && chance(r, 0.6);
     return { itemId: it.id, name: it.name, type: it.type, rarity: it.rarity, costCp: it.cost_cp, priceCp, qty, hidden };
   });
@@ -255,7 +255,7 @@ async function enrich(d: Deps, draft: ShopDraft, guide?: string): Promise<ShopDr
   const fields = { description: draft.description, look: draft.keeper.look ?? '', voice: draft.keeper.voice ?? '', personality: draft.keeper.personality ?? '' };
   try {
     const out = await chatJson<Record<string, unknown>>(d, 'chat', [
-      { role: 'system', content: `You help a D&D dungeon master. Rewrite the given fields of a generated ${draft.kindLabel.toLowerCase()} and its keeper so they are vivid, specific and consistent, one or two sentences each. Do not invent prices, items or named people.${guide?.trim() ? ` Follow the DM's guide where it fits:\n${guide.trim().slice(0, 1500)}` : ''} Reply with JSON only, using exactly the keys given.` },
+      { role: 'system', content: `You help the Game Master of a 5e tabletop role-playing game. Rewrite the given fields of a generated ${draft.kindLabel.toLowerCase()} and its keeper so they are vivid, specific and consistent, one or two sentences each. Do not invent prices, items or named people.${guide?.trim() ? ` Follow the GM's guide where it fits:\n${guide.trim().slice(0, 1500)}` : ''} Reply with JSON only, using exactly the keys given.` },
       { role: 'user', content: JSON.stringify({ shop: draft.name, keeper: `${draft.keeper.name}, ${draft.keeper.race} ${draft.keeper.role}`, theme: draft.theme, fields }) },
     ]);
     if (!out || typeof out !== 'object') return null;

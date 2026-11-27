@@ -1,4 +1,4 @@
-// Change requests: players suggest edits, new pages or ask questions; the DM
+// Change requests: players suggest edits, new pages or ask questions; the GM
 // accepts (optionally applying the change to the library) or turns them down.
 import { Router } from 'express';
 import type { Deps } from '../app.ts';
@@ -43,7 +43,7 @@ export default function requestRoutes(d: Deps) {
     res.status(201).json(row);
   });
 
-  // DM decides. body: { decision: 'accepted'|'rejected', reply?, apply?: { mode: 'append'|'replace'|'create', path?, visibility? } }
+  // GM decides. body: { decision: 'accepted'|'rejected', reply?, apply?: { mode: 'append'|'replace'|'create', path?, visibility? } }
   r.post('/:id/decide', requireDM, (req, res) => {
     const c = ctx(res);
     const row = one<any>(db, 'SELECT * FROM requests WHERE id = ? AND world_id = ?', String(req.params.id), c.world.id);

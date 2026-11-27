@@ -1,16 +1,16 @@
 // The information broker: an in-world NPC who sells what the party could
-// learn, at prices and waits the DM sets. Everything is decided on the
+// learn, at prices and waits the GM sets. Everything is decided on the
 // server: the tier comes from the best-matching shared pages in the player's
 // own library (the party index only), the player never sends a price, coin
 // comes off atomically, and the answer is built only from that player's
 // player copies. It is held back until the wait is over (real time, or the
 // world clock, features/clock). Questions the library can't answer, or that are
-// really about DM secrets (core/brokerClassify.ts), go to the DM to price or
+// really about GM secrets (core/brokerClassify.ts), go to the GM to price or
 // refuse; to the player both look the same, so asking never reveals that a
 // secret exists. The broker never invents text: it sells player-copy lines,
-// notes the DM wrote to be sold, or an answer the DM writes.
+// notes the GM wrote to be sold, or an answer the GM writes.
 //
-// The DM can also send special offers ("knowledge of X for 50 gp") to one
+// The GM can also send special offers ("knowledge of X for 50 gp") to one
 // player or the party. They wait on the broker page until paid, declined, or
 // until the end of the Nth game session (or a real-time deadline).
 import { Router, type Response } from 'express';
@@ -40,7 +40,7 @@ interface Config {
   persona: { name: string; title: string; description: string; greeting: string; voice: string; portrait: string };
   tiers: Tier[];
   lengths: { id: string; name: string; multiplier: number }[];
-  /** What happens to questions the broker can't answer: the DM prices them, or the broker turns them away. */
+  /** What happens to questions the broker can't answer: the GM prices them, or the broker turns them away. */
   unknown: 'dm' | 'refuse';
 }
 
@@ -53,13 +53,13 @@ export const DEFAULT_BROKER: Config = {
     { id: 'common', name: 'Common knowledge', description: 'What the party saw or was told: sessions, the road, people you met.', knowledge: 'common', costCp: 0, wait: { amount: 0, unit: 'minutes', clock: 'real' }, delivery: 'auto' },
     { id: 'local', name: 'Local lore', description: 'Towns, places, rumors and the people who run them.', knowledge: 'local', costCp: 50, wait: { amount: 1, unit: 'hours', clock: 'game' }, delivery: 'auto' },
     { id: 'deep', name: 'Deep lore', description: 'The Hearts, the Marked, old history.', knowledge: 'deep', costCp: 200, wait: { amount: 1, unit: 'days', clock: 'game' }, delivery: 'review' },
-    { id: 'secret', name: 'Guarded secrets', description: 'Not in your library. The broker asks around; the DM names the price or says no.', knowledge: 'secret', costCp: null, wait: null, delivery: 'review' },
+    { id: 'secret', name: 'Guarded secrets', description: 'Not in your library. The broker asks around; the GM names the price or says no.', knowledge: 'secret', costCp: null, wait: null, delivery: 'review' },
   ],
   lengths: [{ id: 'short', name: 'Short answer', multiplier: 1 }, { id: 'full', name: 'Full answer', multiplier: 2 }],
   unknown: 'dm',
 };
 
-/** Guarded secrets are always the DM's, whatever was saved. */
+/** Guarded secrets are always the GM's, whatever was saved. */
 const DELIVERY_DEFAULT: Record<string, Delivery> = { common: 'auto', local: 'auto', deep: 'review', secret: 'review' };
 const deliveryOf = (knowledge: string, v: unknown): Delivery => (knowledge === 'secret' ? 'review' : v === 'auto' || v === 'review' ? v : DELIVERY_DEFAULT[knowledge] ?? 'review');
 
@@ -124,9 +124,9 @@ export default function brokerRoutes(d: Deps) {
   const gameLabel = (worldId: string, minutes: number) => formatDate(getCalendar(db, worldId).definition, minutes);
 
   /**
-   * Waits that are over become answers, unless the tier is "DM reviews" (those
+   * Waits that are over become answers, unless the tier is "GM reviews" (those
    * wait for approval). Answers a model or the rules built are checked once more
-   * for DM-only text first; a hit holds the answer for the DM.
+   * for GM-only text first; a hit holds the answer for the GM.
    */
   function settle(worldId: string) {
     const minutes = worldNow(worldId).minutes;
@@ -164,7 +164,7 @@ export default function brokerRoutes(d: Deps) {
       const payRow = q.ledger_id ? one<any>(db, 'SELECT by_id FROM ledger WHERE id = ?', q.ledger_id) : null;
       out.paid_by = payRow?.by_id ?? null; out.paid_by_name = payRow?.by_id ? nm[payRow.by_id] ?? null : null; out.paid_from = q.ledger_id ? (q.payer === 'party' ? 'party' : 'self') : null;
       out.needs_review = !!q.needs_review && q.status === 'waiting';
-      // DM only: how the question was judged, and the DM-side lines that matched.
+      // GM only: how the question was judged, and the GM-side lines that matched.
       const c: (Classification & { routing?: Labels }) | null = q.classification ? JSON.parse(q.classification) : null;
       out.classification = ctx(res).viewer.audience === 'ai' ? null : c ? { type: c.type, verdict: c.verdict, reason: c.reason, entities: c.entities, knowledge: c.knowledge, multiplier: c.multiplier, dmEvidence: c.dmEvidence, routing: c.routing ?? null } : { type: questionType(q.question), verdict: null, reason: 'Asked before questions were classified.', entities: [], knowledge: null, multiplier: 1, dmEvidence: [], routing: null };
     }
@@ -187,7 +187,7 @@ export default function brokerRoutes(d: Deps) {
     const w = ctx(res).world.id;
     const { cfg } = loadConfig(db, w);
     const c = worldNow(w);
-    // Players get the same config; spoiler tags and routing rules stay on DM-only routes.
+    // Players get the same config; spoiler tags and routing rules stay on GM-only routes.
     res.json({ ...cfg, payer: settings(res).brokerPayer, partyPay: settings(res).partyPurse && settings(res).brokerPartyPay !== false, clock: { minutes: c.minutes, label: c.label }, site: siteOf(res), topics: topicsOf(res) });
   });
   r.put('/config', requireDM, (req, res) => {
@@ -223,7 +223,7 @@ export default function brokerRoutes(d: Deps) {
     res.json({ minutes: c.minutes, label: c.label });
   });
 
-  // DM only: free-text spoiler topics. A question that names one always goes to the DM.
+  // GM only: free-text spoiler topics. A question that names one always goes to the GM.
   r.get('/spoilers', requireDM, (_req, res) => {
     const row = one<any>(db, 'SELECT spoiler_topics FROM broker_config WHERE world_id = ?', ctx(res).world.id);
     res.json({ topics: JSON.parse(row?.spoiler_topics || '[]') });
@@ -245,7 +245,7 @@ export default function brokerRoutes(d: Deps) {
     const { cfg } = loadConfig(db, w);
     const len = cfg.lengths.find((l) => l.id === length) ?? cfg.lengths[0];
     const asker = me(res);
-    // Always a player's view: the DM asking gets what a player would get.
+    // Always a player's view: the GM asking gets what a player would get.
     const viewer: Viewer = isDM(res) ? { accountId: asker, role: 'player' } : ctx(res).viewer;
     const labels = await routeQuestion(d, w, question, topicsOf(res), visibleItems(d, w, asker).map((i) => i.name));
     const p = cfg.persona.name;
@@ -258,13 +258,13 @@ export default function brokerRoutes(d: Deps) {
     const confident = labels.confidence >= LOW_CONFIDENCE;
     const shape = { quoteId: qid, length: len.id, expires_in: QUOTE_MS / 1000 };
 
-    // Outside the world and the DM's allowed topics: an in-character refusal, free.
+    // Outside the world and the GM's allowed topics: an in-character refusal, free.
     if (labels.scope === 'off-topic' && confident) {
       keep({ kind: 'offtopic', tier: 'other', cost: 0, wait: null, found: null, refused: true, classification: stub('Off topic: refused in character, nothing charged.') });
       return { ...shape, tier: 'other', tier_name: 'Other', cost_cp: 0, wait: null, wait_text: 'no answer', secret: false, refused: true, line: OFF_TOPIC_LINE(p), kind: 'offtopic', delivery: 'auto' };
     }
 
-    // Spoiler-seeking, meta-gaming or unsure: the DM decides (Guarded secrets).
+    // Spoiler-seeking, meta-gaming or unsure: the GM decides (Guarded secrets).
     const guarded = labels.intent !== 'fact' || !confident;
 
     // "Other": rules and items. Free, answered at once, never a price tier.
@@ -289,7 +289,7 @@ export default function brokerRoutes(d: Deps) {
 
     const c = classify(db, d.library, w, question, len.id, viewer);
     let found = !guarded && c.verdict === 'shared' ? c.player : null;
-    // A "why" or "how" question needs a shared text that really says why or how; one that only mentions the subject goes to the DM like any secret.
+    // A "why" or "how" question needs a shared text that really says why or how; one that only mentions the subject goes to the GM like any secret.
     let unanswered = false;
     if (found && needsAnswerCheck(question, labels.type) && !(await answersQuestion(d, question, found.answer))) { found = null; unanswered = true; }
     const tier = found ? cfg.tiers.find((t) => t.knowledge === c.knowledge) ?? cfg.tiers.find((t) => t.knowledge === 'local')! : cfg.tiers.find((t) => t.knowledge === 'secret')!;
@@ -297,7 +297,7 @@ export default function brokerRoutes(d: Deps) {
     const refused = secret && cfg.unknown === 'refuse';
     const cost = secret ? null : Math.round(tier.costCp! * len.multiplier * c.multiplier);
     const reason = guarded ? `Goes to you: ${labels.intent !== 'fact' ? labels.intent : 'the audit labels are low-confidence'}. ${c.reason}` : unanswered ? 'Goes to you: what players can read does not answer this why or how question.' : c.reason;
-    // An answer that uses broker-level lines waits for the DM unless the world says brokerLevelDelivery: auto.
+    // An answer that uses broker-level lines waits for the GM unless the world says brokerLevelDelivery: auto.
     const brokerLevel = !!found?.brokerLevel && !secret;
     const delivery: Delivery = brokerLevel && featureSetting(settings(res), 'brokerLevelDelivery') !== 'auto' ? 'review' : tier.delivery;
     keep({ kind: secret ? 'secret' : 'priced', tier: tier.id, cost, wait: secret ? null : tier.wait, found, refused, delivery, brokerLevel, classification: { ...c, reason, routing: labels } });
@@ -306,7 +306,7 @@ export default function brokerRoutes(d: Deps) {
       : secret
         ? `${p} frowns. "That's not something I know. I'll have to ask around, and that costs whatever it costs."`
         : cost === 0 ? `${p} shrugs. "Everyone knows that. No charge."` : `${p} considers it. "${tier.name}. ${money(cost!)}, and give me ${waitText(tier.wait)}."`;
-    return { ...shape, tier: tier.id, tier_name: tier.name, cost_cp: cost, wait: secret ? null : tier.wait, wait_text: refused ? 'no answer' : secret ? 'the DM decides' : waitText(tier.wait), secret, refused, line, kind: secret ? 'secret' : 'priced', delivery: secret ? 'review' : delivery };
+    return { ...shape, tier: tier.id, tier_name: tier.name, cost_cp: cost, wait: secret ? null : tier.wait, wait_text: refused ? 'no answer' : secret ? 'the GM decides' : waitText(tier.wait), secret, refused, line, kind: secret ? 'secret' : 'priced', delivery: secret ? 'review' : delivery };
   }
   // GET works with read-only keys (MCP); it never charges.
   // Secret, spoiler and unknown questions get the same reply, so a quote never reveals that a secret exists.
@@ -316,7 +316,7 @@ export default function brokerRoutes(d: Deps) {
   /**
    * Take payment for something the broker sells, from the payer the player chose: their own coin ('self') or the party
    * pouch ('party'). The choice is made after the price is known and checked here, never trusted: the pouch must be on
-   * (partyPurse) and the DM must allow it (brokerPartyPay). Without a choice the old world setting (brokerPayer) says
+   * (partyPurse) and the GM must allow it (brokerPartyPay). Without a choice the old world setting (brokerPayer) says
    * who pays. Always run inside a transaction: the balance is read and spent in the same step, so two people paying at
    * once, or a pouch that changed since the price was shown, can never overspend. A party payment is logged on the
    * pouch with who paid, so the whole party sees it. The party log never names what was bought: every pouch payment
@@ -330,13 +330,13 @@ export default function brokerRoutes(d: Deps) {
     if (choice === undefined || choice === null || choice === '') from = fallback === 'party' || (fallback === 'setting' && s.brokerPayer === 'party') ? (partyOk ? 'party' : 'self') : 'self';
     else if (choice === 'party') {
       if (!s.partyPurse) throw new HttpError(400, 'The party pouch is off in this world, so it cannot pay the broker');
-      if (s.brokerPartyPay === false) throw new HttpError(403, 'Your DM has turned off paying the broker from the party pouch. Pay from your own coin.');
+      if (s.brokerPartyPay === false) throw new HttpError(403, 'Your GM has turned off paying the broker from the party pouch. Pay from your own coin.');
       from = 'party';
     } else if (choice === 'self' || choice === 'me') from = 'self';
     else throw new HttpError(400, 'from must be "self" (your own coin) or "party" (the party pouch)');
     const payer = from === 'party' ? 'party' : asker;
     if (!cost) return { payer, ledgerId: null, from, note: '' };
-    // Coin already promised to debits waiting for the DM is not available again.
+    // Coin already promised to debits waiting for the GM is not available again.
     const bal = spendable(db, w, payer);
     if (bal < cost) throw new HttpError(402, `Not enough coin: this costs ${money(cost)} and ${payer === 'party' ? 'the party pouch has' : 'you have'} ${money(Math.max(0, bal))}${payer === 'party' ? '. Someone may have spent from it; pick again.' : ''}`);
     const who = names(db, w)[asker] ?? 'Someone';
@@ -358,9 +358,9 @@ export default function brokerRoutes(d: Deps) {
     const s = settings(res);
     const partyAllowed = s.partyPurse && s.brokerPartyPay !== false;
     res.json({
-      // available: what the purse can spend now, less coin promised to debits still waiting for the DM.
+      // available: what the purse can spend now, less coin promised to debits still waiting for the GM.
       self: { cp: balance(db, w, me(res)), available: spendable(db, w, me(res)) },
-      party: { cp: s.partyPurse ? balance(db, w, 'party') : null, available: s.partyPurse ? spendable(db, w, 'party') : null, allowed: partyAllowed, reason: !s.partyPurse ? 'The party pouch is off in this world.' : s.brokerPartyPay === false ? 'Your DM has turned off paying the broker from the party pouch.' : null },
+      party: { cp: s.partyPurse ? balance(db, w, 'party') : null, available: s.partyPurse ? spendable(db, w, 'party') : null, allowed: partyAllowed, reason: !s.partyPurse ? 'The party pouch is off in this world.' : s.brokerPartyPay === false ? 'Your GM has turned off paying the broker from the party pouch.' : null },
       default: partyAllowed && s.brokerPayer === 'party' ? 'party' : 'self',
     });
   });
@@ -383,21 +383,21 @@ export default function brokerRoutes(d: Deps) {
     // Classified text lives on its page only: the stored evidence names the page and says so, never repeats the text.
     const cls = JSON.stringify({ ...q.classification, dmEvidence: (q.classification?.dmEvidence ?? []).map((e: any) => (e.level === 'classified' ? { ...e, text: '(classified: open the page to read it)' } : e)) });
     if (q.refused) {
-      // Turned away. The DM still sees what was asked (and could send an offer).
+      // Turned away. The GM still sees what was asked (and could send an offer).
       run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at, classification) VALUES (?, ?, ?, ?, ?, ?, 'noted', ?, ?)`, rid, w, me(res), q.question, q.length, q.tier, now(), cls);
       audit(db, w, me(res), 'broker.ask', q.kind === 'offtopic' ? 'off topic' : 'turned away');
       d.hub.emit(w, 'broker', { id: rid, status: 'noted' }, dmAnd());
       return res.status(200).json({ id: rid, status: 'noted', question: q.question, line: q.kind === 'offtopic' ? 'That’s not something I deal in.' : 'The broker has nothing for you on that.' });
     }
     if (q.kind === 'other') {
-      // Free and at once. The answer was checked for DM-only text when it was built.
+      // Free and at once. The answer was checked for GM-only text when it was built.
       run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, cost_cp, status, wait_clock, ready_at, answer, sources, created_at, delivered_at, classification) VALUES (?, ?, ?, ?, ?, 'other', 0, 'answered', 'real', ?, ?, ?, ?, ?, ?)`,
         rid, w, me(res), q.question, q.length, now(), q.found.answer, JSON.stringify(q.found.sources), now(), now(), cls);
       audit(db, w, me(res), 'broker.ask', 'other (free)');
     } else if (q.cost === null) {
       run(db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at, classification) VALUES (?, ?, ?, ?, ?, ?, 'pricing', ?, ?)`, rid, w, me(res), q.question, q.length, q.tier, now(), cls);
-      audit(db, w, me(res), 'broker.ask', `${q.tier} ${q.cost ?? 'priced by DM'}`);
-      // The DM queue of escalated questions (features/sourcekeys) shows it too, with what the DM side holds.
+      audit(db, w, me(res), 'broker.ask', `${q.tier} ${q.cost ?? 'priced by GM'}`);
+      // The GM queue of escalated questions (features/sourcekeys) shows it too, with what the GM side holds.
       escalateFromBroker(d, { worldId: w, accountId: me(res), question: q.question, brokerRequestId: rid, reason: String(q.classification?.reason ?? ''), evidence: JSON.parse(cls).dmEvidence ?? [], routing: q.classification?.routing ?? null });
     } else {
       let paid: { payer: string; ledgerId: string | null; note: string } | null = null;
@@ -447,9 +447,9 @@ export default function brokerRoutes(d: Deps) {
     res.json(view(res, row, names(db, w)));
   };
 
-  // ---- DM tuning: try a question, notes the broker may sell, per-page rules ----
+  // ---- GM tuning: try a question, notes the broker may sell, per-page rules ----
 
-  // What a question would be judged as, without anyone paying. DM only.
+  // What a question would be judged as, without anyone paying. GM only.
   r.post('/classify', requireDM, async (req, res) => {
     on(res);
     const w = ctx(res).world.id;
@@ -458,7 +458,7 @@ export default function brokerRoutes(d: Deps) {
     const { cfg } = loadConfig(db, w);
     const tier = c.verdict === 'shared' ? cfg.tiers.find((t) => t.knowledge === c.knowledge) ?? null : cfg.tiers.find((t) => t.knowledge === 'secret') ?? null;
     const routing = await routeQuestion(d, w, question, topicsOf(res), visibleItems(d, w, me(res)).map((i) => i.name));
-    // A model asking (spoofed marker or not) gets no DM-side text.
+    // A model asking (spoofed marker or not) gets no GM-side text.
     const blind = ctx(res).viewer.audience === 'ai';
     res.json({ ...c, ...(blind ? { dmEvidence: [], reason: 'Hidden from models.' } : {}), routing, tier: tier?.id ?? null, tier_name: tier?.name ?? null, cost_cp: c.verdict === 'shared' && tier?.costCp !== null && tier ? Math.round(tier.costCp! * c.multiplier) : null });
   });
@@ -516,7 +516,7 @@ export default function brokerRoutes(d: Deps) {
     res.json({ ok: true });
   });
 
-  // ---- Special offers the DM sends ----
+  // ---- Special offers the GM sends ----
 
   /** When an offer runs out: the end of the Nth session after it was made, else its fallback time. */
   function offerExpiry(o: any): string {
@@ -658,7 +658,7 @@ export default function brokerRoutes(d: Deps) {
     res.status(201).json(noteOut(one(db, 'SELECT * FROM broker_notes WHERE id = ?', nid)));
   });
 
-  // DM prices a guarded secret (and writes the answer); the player then accepts or declines.
+  // GM prices a guarded secret (and writes the answer); the player then accepts or declines.
   r.post('/:id/price', requireDM, (req, res) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));
@@ -724,7 +724,7 @@ export default function brokerRoutes(d: Deps) {
     audit(db, w, me(res), 'broker.refund', q.id);
     back(res, q.id, w);
   });
-  // Approve (a "DM reviews" answer) or deliver early: either way the DM decides, so it goes out now.
+  // Approve (a "GM reviews" answer) or deliver early: either way the GM decides, so it goes out now.
   const deliver = (req: any, res: Response) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));
@@ -735,7 +735,7 @@ export default function brokerRoutes(d: Deps) {
   };
   r.post('/:id/deliver', requireDM, deliver);
   r.post('/:id/approve', requireDM, deliver);
-  // DM edits the prepared answer before it is revealed (or after).
+  // GM edits the prepared answer before it is revealed (or after).
   r.patch('/:id', requireDM, (req, res) => {
     const w = ctx(res).world.id;
     const q = reqFor(res, String(req.params.id));

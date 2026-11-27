@@ -5,7 +5,7 @@ export interface Line {
   attunement: boolean; source: string; attribution: string; priceCp: number | null; qty: number | null; unlimited: boolean;
   // A player's own: the price before their reputation and deal, and the deal's percent.
   listPriceCp?: number | null; dealPct?: number;
-  // DM only
+  // GM only
   itemId?: string; priceOverrideCp?: number | null; costCp?: number | null; baseQty?: number | null; hidden?: boolean; dmNote?: string; dmNotes?: string;
 }
 export interface Shop {
@@ -13,9 +13,9 @@ export interface Shop {
   keeper: Keeper | null; location: { id: string; title: string } | null; stock: Line[]; stockCount?: number; sellPct?: number | null;
   town?: { id?: string; name: string; description?: string; prices: string; pricePct?: number } | null; haggles?: boolean;
   you?: { standing: string; repPct: number; deals: Deal[] };
-  // DM only
+  // GM only
   townId?: string | null; goldCp?: number | null; barterPct?: number;
-  // DM only
+  // GM only
   locationPageId?: string | null; markupPct?: number; haggle?: string; dmNotes?: string; restock?: { rule: 'manual' | 'days'; days: number; at: string | null };
 }
 export interface Deal { id: string; stockId: string | null; line: string | null; pct: number; source: string; status: string; expiresMin: number | null; at: string; accountId?: string; name?: string; askedPct?: number | null; note?: string }

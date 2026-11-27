@@ -1,4 +1,4 @@
-// DM page: Shops. Every shop with its status (hidden, closed, open: changed
+// GM page: Shops. Every shop with its status (hidden, closed, open: changed
 // live), its keeper card, its stock with prices and quantities, the shop
 // generator, purchases and sales waiting for approval, and the shop settings.
 // "Show on players' TV" sends the stock as a stage card. Towns set a price
@@ -68,7 +68,7 @@ function ShopEditor({ id, cfg, onGone }: { id: string; cfg: ShopConfig; onGone: 
   const { toast, toastNode } = useToast();
   const [form, setForm] = useState<Shop | null>(null);
   const [dirty, setDirty] = useState(false);
-  // Live changes refresh the form, unless the DM is in the middle of editing it.
+  // Live changes refresh the form, unless the GM is in the middle of editing it.
   useEffect(() => { if (shop.data) setForm((f) => (f && f.id === shop.data!.id && dirty ? f : shop.data)); }, [shop.data]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!shop.data || !form) return <section className="card"><ErrorBox error={shop.error} />{!shop.error && <Loading />}</section>;
   const s = shop.data;
@@ -111,8 +111,8 @@ function ShopEditor({ id, cfg, onGone }: { id: string; cfg: ShopConfig; onGone: 
         </div>
         <Field label="Description (players see it)"><textarea rows={2} maxLength={2000} value={form.description} onChange={(e) => upd({ description: e.target.value })} /></Field>
         <Field label="Location" help="A library page; players see it only if they can open that page."><PagePicker value={form.locationPageId ?? null} onChange={(v) => upd({ locationPageId: v })} /></Field>
-        <Field label="Haggle note (DM only)"><input value={form.haggle ?? ''} maxLength={1000} onChange={(e) => upd({ haggle: e.target.value })} /></Field>
-        <Field label="DM notes (DM only)"><textarea rows={2} maxLength={4000} value={form.dmNotes ?? ''} onChange={(e) => upd({ dmNotes: e.target.value })} /></Field>
+        <Field label="Haggle note (GM only)"><input value={form.haggle ?? ''} maxLength={1000} onChange={(e) => upd({ haggle: e.target.value })} /></Field>
+        <Field label="GM notes (GM only)"><textarea rows={2} maxLength={4000} value={form.dmNotes ?? ''} onChange={(e) => upd({ dmNotes: e.target.value })} /></Field>
         <h3 style={{ margin: 0 }}>Shopkeeper</h3>
         <div className="shop-grid">
           <Field label="Name"><input value={form.keeper?.name ?? ''} maxLength={120} onChange={(e) => updK({ name: e.target.value })} /></Field>
@@ -124,11 +124,11 @@ function ShopEditor({ id, cfg, onGone }: { id: string; cfg: ShopConfig; onGone: 
           <Field label="Voice"><input value={form.keeper?.voice ?? ''} maxLength={600} onChange={(e) => updK({ voice: e.target.value })} /></Field>
           <Field label="Personality"><input value={form.keeper?.personality ?? ''} maxLength={600} onChange={(e) => updK({ personality: e.target.value })} /></Field>
         </div>
-        <Field label="Secret (DM only)"><textarea rows={2} value={form.keeper?.secret ?? ''} maxLength={2000} onChange={(e) => updK({ secret: e.target.value })} /></Field>
+        <Field label="Secret (GM only)"><textarea rows={2} value={form.keeper?.secret ?? ''} maxLength={2000} onChange={(e) => updK({ secret: e.target.value })} /></Field>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="btn primary" disabled={act.busy || !dirty} onClick={() => void save()}>Save</button>
           <button type="button" className="btn" disabled={act.busy} onClick={() => void run(async () => { await w.call('POST', '/shop/keeper', { shopId: s.id, kind: s.kind }); setDirty(false); }, 'A new shopkeeper')}>New keeper</button>
-          <button type="button" className="btn" disabled={act.busy || !s.keeper?.name} onClick={() => void run(() => w.call('POST', `${path}/keeper-page`), 'Saved as a DM-only NPC page')}>{s.keeper?.pageId ? 'Update NPC page' : 'Save keeper as NPC page'}</button>
+          <button type="button" className="btn" disabled={act.busy || !s.keeper?.name} onClick={() => void run(() => w.call('POST', `${path}/keeper-page`), 'Saved as a GM-only NPC page')}>{s.keeper?.pageId ? 'Update NPC page' : 'Save keeper as NPC page'}</button>
           {s.keeper?.pageId && <Link className="btn ghost" to={`/w/${info.slug}/dm/library?page=${encodeURIComponent(s.keeper.pageId)}`}>Open NPC page</Link>}
         </div>
         <ErrorBox error={act.error} />
@@ -252,9 +252,9 @@ function Generate({ cfg, onSaved }: { cfg: ShopConfig; onSaved: (id: string) => 
             <strong>{draft.keeper.name}, {draft.keeper.role}, {draft.keeper.race}</strong>
             <span className="small">{draft.keeper.look}</span>
             <span className="small muted">{draft.keeper.voice} {draft.keeper.personality}</span>
-            <span className="tiny" style={{ color: 'var(--danger-text)' }}>Secret (DM only): {draft.keeper.secret}</span>
+            <span className="tiny" style={{ color: 'var(--danger-text)' }}>Secret (GM only): {draft.keeper.secret}</span>
           </div>
-          <span className="small">Haggle (DM only): {draft.haggle}</span>
+          <span className="small">Haggle (GM only): {draft.haggle}</span>
           {draft.notes.map((n) => <span key={n} className="small" style={{ color: 'var(--danger-text)' }}>{n}</span>)}
           <div className="shop-scroll"><table className="shop-table"><thead><tr><th>Item</th><th>Price</th><th>Qty</th></tr></thead><tbody>
             {draft.stock.map((l) => <tr key={l.itemId} className={l.hidden ? 'hid' : ''}><td>{l.name}<div className="tiny muted">{[rarityLabel(l.rarity), l.type, l.hidden ? 'under the counter (hidden)' : ''].filter(Boolean).join(' · ')}</div></td><td>{l.priceCp === null ? '—' : coins(l.priceCp, info.settings.coins)}</td><td>{l.qty ?? '∞'}</td></tr>)}
@@ -283,7 +283,7 @@ function Orders({ list, reload }: { list: Order[] | null; reload: () => Promise<
       <ErrorBox error={act.error} />
       <section className="card stack">
         <h2>Waiting for you</h2>
-        {!pending.length ? <Empty>Nothing waiting. Turn on "DM approves shop purchases" in Settings to check purchases first.</Empty> : pending.map((o) => (
+        {!pending.length ? <Empty>Nothing waiting. Turn on "GM approves shop purchases" in Settings to check purchases first.</Empty> : pending.map((o) => (
           <div key={o.id} className="row between" style={{ flexWrap: 'wrap', gap: 8 }} data-testid="shop-order">
             <span className="small"><strong>{o.byName}</strong> {o.kind === 'buy' ? 'buys' : 'sells'} {o.itemName}{o.qty > 1 ? ` ×${o.qty}` : ''} {o.kind === 'buy' ? 'from' : 'to'} {o.shopName} for {coins(o.totalCp, info.settings.coins)}{o.kind === 'buy' ? ` (${o.from === 'party' ? 'party pouch' : 'own coin'}, to ${o.to === 'party' ? 'the party stash' : 'their pack'})` : ''}</span>
             <span className="row" style={{ gap: 6 }}>
@@ -311,7 +311,7 @@ function Settings({ cfg, reload }: { cfg: ShopConfig; reload: () => Promise<void
   return (
     <section className="card stack">
       <ErrorBox error={act.error} />
-      <div className="row between"><span><strong>DM approves shop purchases</strong><br /><span className="small muted">A purchase waits for you; the coin is held and the stock kept aside.</span></span><Switch checked={cfg.approval} label="DM approves shop purchases" onChange={(v) => void set({ shopApproval: v })} /></div>
+      <div className="row between"><span><strong>GM approves shop purchases</strong><br /><span className="small muted">A purchase waits for you; the coin is held and the stock kept aside.</span></span><Switch checked={cfg.approval} label="GM approves shop purchases" onChange={(v) => void set({ shopApproval: v })} /></div>
       <div className="row between"><span><strong>The party pouch can pay shops</strong><br /><span className="small muted">Needs the party pouch on. The log shows only "Shop purchase (paid by …)".</span></span><Switch checked={cfg.partyPay} label="The party pouch can pay shops" onChange={(v) => void set({ shopPartyPay: v })} /></div>
       <div className="row between"><span><strong>Players can sell to shops</strong><br /><span className="small muted">A sale is a request you approve (and may re-price).</span></span><Switch checked={cfg.sellBack} label="Players can sell to shops" onChange={(v) => void set({ shopSellBack: v })} /></div>
       <div className="row between"><span><strong>Players can haggle</strong><br /><span className="small muted">A player asks a keeper for a percentage off one thing; the keeper's haggle percent and the player's reputation decide it.</span></span><Switch checked={cfg.haggle !== false} label="Players can haggle" onChange={(v) => void set({ shopHaggle: v })} /></div>
@@ -379,7 +379,7 @@ function KeeperMemory({ shop }: { shop: Shop }) {
       <span className="small muted">Reputation runs from -100 to 100 and moves prices by up to {m.repEffect}% each way. Buying raises it; failed haggles lower it.</span>
       <div className="shop-scroll">
         <table className="shop-table">
-          <thead><tr><th>Player</th><th>Reputation</th><th className="wide">Spent</th><th className="wide">Sold</th><th className="wide">Haggles</th><th>DM note</th></tr></thead>
+          <thead><tr><th>Player</th><th>Reputation</th><th className="wide">Spent</th><th className="wide">Sold</th><th className="wide">Haggles</th><th>GM note</th></tr></thead>
           <tbody>
             {m.players.map((p) => (
               <tr key={p.accountId} data-testid="memory-row">
@@ -388,7 +388,7 @@ function KeeperMemory({ shop }: { shop: Shop }) {
                 <td className="wide small">{money(p.spentCp)}{p.purchases ? ` (${p.purchases})` : ''}</td>
                 <td className="wide small">{money(p.soldCp)}</td>
                 <td className="wide small">{p.hagglesWon} won, {p.hagglesLost} lost</td>
-                <td><input type="text" maxLength={1000} aria-label={`DM note on ${p.name}`} defaultValue={p.note} key={`n-${p.accountId}-${p.note}`} onBlur={(e) => { if (e.target.value !== p.note) void setRep(p.accountId, { note: e.target.value }); }} /></td>
+                <td><input type="text" maxLength={1000} aria-label={`GM note on ${p.name}`} defaultValue={p.note} key={`n-${p.accountId}-${p.note}`} onBlur={(e) => { if (e.target.value !== p.note) void setRep(p.accountId, { note: e.target.value }); }} /></td>
               </tr>
             ))}
           </tbody>
@@ -445,7 +445,7 @@ function Towns({ cfg }: { cfg: ShopConfig }) {
             <Field label="Price level %" help="+25 inflated, -10 cheap"><input type="number" min={-90} max={500} defaultValue={t.pricePct} key={`p${t.pricePct}`} onBlur={(e) => { const v = Math.round(Number(e.target.value) || 0); if (v !== t.pricePct) void patch(t, { pricePct: v }); }} /></Field>
           </div>
           <Field label="What players read about its market"><input defaultValue={t.description} key={`d${t.description}`} maxLength={2000} onBlur={(e) => { if (e.target.value !== t.description) void patch(t, { description: e.target.value }); }} /></Field>
-          <Field label="DM notes (DM only)"><input defaultValue={t.dmNotes} key={`m${t.dmNotes}`} maxLength={4000} onBlur={(e) => { if (e.target.value !== t.dmNotes) void patch(t, { dmNotes: e.target.value }); }} /></Field>
+          <Field label="GM notes (GM only)"><input defaultValue={t.dmNotes} key={`m${t.dmNotes}`} maxLength={4000} onBlur={(e) => { if (e.target.value !== t.dmNotes) void patch(t, { dmNotes: e.target.value }); }} /></Field>
           <span className="small muted">{t.shops.length ? `Shops: ${t.shops.map((x) => x.name).join(', ')}` : 'No shops yet: pick this town on a shop, or generate one here.'}</span>
           <div className="row"><button type="button" className="btn ghost small" disabled={act.busy} onClick={() => { if (confirm(`Delete ${t.name}? Its shops stay, at their own prices.`)) void act.run(async () => { await w.call('DELETE', `/shop/towns/${t.id}`); await list.reload(); }); }}>Delete town</button></div>
         </section>

@@ -2,9 +2,9 @@
 
 Play a casual online session on an [Owlbear Rodeo](https://www.owlbear.rodeo) table with this world's map pictures and fog of war. Alexandria serves the extension itself, so there is nothing else to host or install.
 
-## Set up (DM)
+## Set up (GM)
 
-1. **DM → Setup → Owlbear Rodeo.** Copy the extension address, `https://<your Alexandria>/owlbear/manifest.json`.
+1. **GM → Setup → Owlbear Rodeo.** Copy the extension address, `https://<your Alexandria>/owlbear/manifest.json`.
 2. **In Owlbear Rodeo:** your profile → Extensions → *Add Custom Extension*, paste the address, then turn **Alexandria** on for your room.
 3. **Make a link key** on the Alexandria page and paste it into the Alexandria button in the room (top-left tools). The key stays in that browser only. It opens nothing but this link: it cannot read pages, sheets or chat.
 4. Invite players to the room as usual. They need no key. Their Alexandria button shows which world the table plays in, with a link to open it for their sheet and the party chat.
@@ -20,7 +20,7 @@ Play a casual online session on an [Owlbear Rodeo](https://www.owlbear.rodeo) ta
 
 ## What players can and cannot get
 
-- Only **map pictures the players may already see** are offered (the table screen's rule: the picture's page is shared with them). A DM-only picture on the table screen shows nothing in Owlbear, and the page says why. Unsharing a page takes its picture off Owlbear at once.
+- Only **map pictures the players may already see** are offered (the table screen's rule: the picture's page is shared with them). A GM-only picture on the table screen shows nothing in Owlbear, and the page says why. Unsharing a page takes its picture off Owlbear at once.
 - Like any virtual table, Owlbear draws fog **in each player's browser** over the whole picture. Someone who digs into their browser could see the picture under the fog. Alexandria's own map marks are not sent to Owlbear at all.
 - The link key never goes into the Owlbear room (players can read room data). The pictures are served at `/api/owlbear/pic/<picture secret>/…`; making a new key changes the secret, so old addresses stop working.
 
@@ -33,6 +33,6 @@ Play a casual online session on an [Owlbear Rodeo](https://www.owlbear.rodeo) ta
 
 ## For developers
 
-- Server: `librarian/src/features/owlbear/` (`/api/owlbear/*` with the `alx_obr_` key; DM routes at `/api/worlds/:w/owlbear`; MCP tools `owlbear_status`, `owlbear_link`).
+- Server: `librarian/src/features/owlbear/` (`/api/owlbear/*` with the `alx_obr_` key; GM routes at `/api/worlds/:w/owlbear`; MCP tools `owlbear_status`, `owlbear_link`).
 - Extension: `web/owlbear/*.html` and `web/src/owlbear/` (Owlbear SDK 3), built with the web app and served at `/owlbear/`. The background page runs the GM's sync; the popover is the button's panel. A Web Lock keeps one sync per browser.
 - Tests: `librarian/test/owlbear.test.ts`, `web/e2e/owlbear.mjs` (`OBR_SHOTS=dir` saves screenshots).

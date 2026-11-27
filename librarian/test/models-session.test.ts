@@ -256,7 +256,7 @@ test('ModelsConfig_SnippetKeepsTheJobModelsResident', () => {
   const s = argosSnippets(['qwen3-30b-a3b', 'qwen3-4b', 'whisper-large-v3-turbo', 'qwen3-4b'], { 'qwen3-30b-a3b': 24 });
   // group router
   assert.match(s.group, /use: group/);
-  assert.match(s.group, /\n {8}dnd:\n/);
+  assert.match(s.group, /\n {8}alexandria:\n/);
   assert.match(s.group, /persistent: true/);
   assert.match(s.group, /swap: false/);
   assert.match(s.group, /exclusive: false/);

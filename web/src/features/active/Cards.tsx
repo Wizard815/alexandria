@@ -1,5 +1,5 @@
 // Confirm cards (an "ask" action waiting for a tap) and the undo toast for what
-// ran by itself. Used on the desktop (an overlay) and the DM phone.
+// ran by itself. Used on the desktop (an overlay) and the GM phone.
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';

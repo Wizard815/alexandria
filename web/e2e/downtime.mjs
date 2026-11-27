@@ -1,7 +1,7 @@
-// End-to-end test of DownTime: the DM turns the house rule on, gives Tomas a
+// End-to-end test of DownTime: the GM turns the house rule on, gives Tomas a
 // legendary task with a surprise reward, presses Downtime for 3 days; Jess
 // gets the popup on her phone, asks the helper for suggestions, picks research
-// and a daily vigil, and sends; the DM sees her answer, picks for Anselm,
+// and a daily vigil, and sends; the GM sees her answer, picks for Anselm,
 // adds a day to Tomas, closes the round, finishes and rewards a task, and
 // reads the log; Jess sees her tasks on her sheet and joins the party's group
 // stronghold from her Downtime page. Screenshots go to SHOTS.
@@ -21,7 +21,7 @@ const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursiv
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('downtime'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'dungeon master 123');
+const dmLogin = await login('dm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
   const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: body ? JSON.stringify(body) : undefined });
@@ -50,17 +50,17 @@ async function signIn(user, pass, opts) {
 }
 
 try {
-  // 1. The DM turns DownTime on (House rules) and gives Tomas a legendary stronghold with a surprise reward.
+  // 1. The GM turns DownTime on (House rules) and gives Tomas a legendary stronghold with a surprise reward.
   await api(dmLogin.token, 'PUT', '/mods/downtime/enabled', { on: true });
   await api(dmLogin.token, 'POST', '/downtime/tasks', { player: 'Tomas', activityId: 'pre-stronghold', reward: { text: 'A keep on the cliffs and a lordship', hidden: true }, dmNote: 'The cliffs hide a smugglers cave' });
-  const { page: dm } = await signIn('dm', 'dungeon master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
+  const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
   await dm.goto(`${W}/dm/house-rules`);
   await dm.getByRole('tab', { name: 'DownTime activities' }).click();
   await dm.getByText('Legendary vigil').waitFor({ timeout: 8000 });
   await shot(dm, '1-house-rules-activities');
   note('dm: DownTime on, its activities tab on the House rules page');
 
-  // 2. The DM presses Downtime for 3 days on the Downtime page.
+  // 2. The GM presses Downtime for 3 days on the Downtime page.
   await dm.goto(`${W}/dm/downtime`);
   await dm.getByLabel('Days of downtime').fill('3');
   await dm.getByLabel('Note').fill('Resting in Saltmarsh');
@@ -88,10 +88,10 @@ try {
   const mine = await api((await login('jess', 'player pass 123')).token, 'GET', '/downtime/tasks');
   check(mine.tasks.find((t) => t.name === 'Research lore')?.doneMin === 2 * 8 * 60, `research got its days: ${JSON.stringify(mine.tasks.map((t) => [t.name, t.doneMin]))}`);
   check(mine.tasks.find((t) => t.name === 'Legendary vigil')?.doneMin === 3 * 60, 'the vigil got 3 days of 1 hour');
-  check(!JSON.stringify(mine).includes('smugglers') && !JSON.stringify(mine).includes('lordship'), 'Jess sees nothing of the DM\'s');
+  check(!JSON.stringify(mine).includes('smugglers') && !JSON.stringify(mine).includes('lordship'), 'Jess sees nothing of the GM\'s');
   note('player: popup, suggestions, picked research and the daily vigil');
 
-  // 4. The DM sees Jess's answer, picks for Anselm, adds a day to Tomas, closes the round.
+  // 4. The GM sees Jess's answer, picks for Anselm, adds a day to Tomas, closes the round.
   await dm.getByText(/Research lore \(\d+d\)/).waitFor({ timeout: 8000 });
   await shot(dm, '4-dm-round-answers');
   const anselm = dm.locator('[data-testid=downtime-button] .row.between', { hasText: 'Anselm' });
@@ -139,7 +139,7 @@ try {
   await grp.getByRole('button', { name: 'Leave' }).waitFor({ timeout: 8000 });
   const jt = await api((await login('jess', 'player pass 123')).token, 'GET', '/downtime/tasks?scope=group');
   check(jt.tasks.some((t) => t.name === 'Build a stronghold' && t.members.length === 2), `Jess joined Tomas on the stronghold: ${JSON.stringify(jt.tasks.map((t) => [t.name, t.members.length]))}`);
-  check(!JSON.stringify(jt).includes('smugglers') && !JSON.stringify(jt).includes('lordship'), 'the group task still hides the DM\'s note and surprise reward');
+  check(!JSON.stringify(jt).includes('smugglers') && !JSON.stringify(jt).includes('lordship'), 'the group task still hides the GM\'s note and surprise reward');
   await grp.scrollIntoViewIfNeeded();
   await shot(pl, '8-player-group-tasks');
   note('player: personal and group tasks apart, joined the party stronghold');

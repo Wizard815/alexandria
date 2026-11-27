@@ -1,5 +1,5 @@
 // Connect an AI app (Claude, Cursor, Claude Code...) to the librarian's MCP
-// endpoint. Players get read-only keys. The DM can also make a write key.
+// endpoint. Players get read-only keys. The GM can also make a write key.
 // In Library admin (no world), admins make admin keys for the admin API.
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -25,7 +25,7 @@ export default function ConnectAI() {
       const r = (await client.request('POST', '/api/admin/keys', { label: label || 'Admin key' })) as any;
       setAdminKey(r.key);
     } else {
-      const r = (await client.request('POST', '/api/keys', { scope: 'scribe', label: label || (access === 'write' ? 'DM AI (write)' : 'AI (read-only)'), worldId: w.id, access })) as any;
+      const r = (await client.request('POST', '/api/keys', { scope: 'scribe', label: label || (access === 'write' ? 'GM AI (write)' : 'AI (read-only)'), worldId: w.id, access })) as any;
       setMade(r.mcp);
     }
     setLabel('');
@@ -43,7 +43,7 @@ export default function ConnectAI() {
         title={w ? 'Connect AI' : 'Keys & AI'}
         lead={w
           ? isDM
-            ? 'Give an AI app access to this world through MCP. A read key only looks things up; a write key can also change things as the DM.'
+            ? 'Give an AI app access to this world through MCP. A read key only looks things up; a write key can also change things as the GM.'
             : 'Give an AI app access to this world through MCP. Your key is read-only: it sees only what you can see and cannot change anything. One was made for you when you joined; make another for each app.'
           : 'Admin keys work with the admin API (accounts, worlds, sources). For a world’s AI connection, open the world and use “Connect an AI”.'}
       />
@@ -53,7 +53,7 @@ export default function ConnectAI() {
           {w ? (
             <>
               <button type="button" className="btn primary" disabled={a.busy} onClick={() => make('read')}>Make a read-only key</button>
-              {isDM && <button type="button" className="btn danger" disabled={a.busy} onClick={() => make('write')}>Make a DM write key</button>}
+              {isDM && <button type="button" className="btn danger" disabled={a.busy} onClick={() => make('write')}>Make a GM write key</button>}
             </>
           ) : (
             <button type="button" className="btn primary" disabled={a.busy} onClick={() => make('write')}>Make an admin key</button>

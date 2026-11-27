@@ -24,19 +24,19 @@ test('Audit_Events: a player removed from the world stops receiving its live eve
   assert.ok(!tap.text.includes('ZQXAFTER'), `a removed player still got events: ${tap.text.slice(-300)}`);
 });
 
-test('Audit_Events: a DM who is demoted stops receiving DM-only events', async () => {
+test('Audit_Events: a GM who is demoted stops receiving GM-only events', async () => {
   const dm2 = k.T.dm2;
   const tap = new EventTap(k.base + k.w2('/events'), dm2);
   await settle();
   await k.ok('PUT', `/api/admin/worlds/${k.W2}/members/${k.ID.dm2}`, k.T.admin, { role: 'player' });
   const dmId = k.ID.dm2;
   void dmId;
-  // wendy is a player of world 2; make the world's DM someone else so DM-only events exist.
+  // wendy is a player of world 2; make the world's GM someone else so GM-only events exist.
   await k.ok('PUT', `/api/admin/worlds/${k.W2}/members/${k.ID.dm}`, k.T.admin, { role: 'dm' });
   await k.ok('POST', k.w2('/clock/events'), k.T.dm, { title: 'ZQXDMONLYEVENT', start: 10, visibility: 'dm' });
   await settle();
   await tap.close();
-  assert.ok(!tap.text.includes('ZQXDMONLYEVENT'), `a demoted DM still got a DM-only event: ${tap.text.slice(-300)}`);
+  assert.ok(!tap.text.includes('ZQXDMONLYEVENT'), `a demoted GM still got a GM-only event: ${tap.text.slice(-300)}`);
 });
 
 test('Audit_Events: a signed-out session and a revoked key stop receiving events', async () => {

@@ -1,4 +1,4 @@
-// Fog of war: off by default, DM-only writes, state round-trips (and compacts), and marks under fog never reach a player or
+// Fog of war: off by default, GM-only writes, state round-trips (and compacts), and marks under fog never reach a player or
 // the table screen's ?view=players. Also the table display (which map picture the table screen shows).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -109,19 +109,19 @@ test('TestFog_MarksUnderFogNeverReachPlayers', async () => {
   const open = (await ok('POST', api('/map/world/marks'), T.dm, { kind: 'pin', x: 25, y: 50, label: 'Open pin', visibility: 'party' })).id;
   const hidden = (await ok('POST', api('/map/world/marks'), T.dm, { kind: 'pin', x: 80, y: 20, label: 'Fogged pin', visibility: 'party' })).id;
   const route = (await ok('POST', api('/map/world/marks'), T.dm, { kind: 'route', points: [{ x: 25, y: 50 }, { x: 90, y: 90 }], visibility: 'party' })).id;
-  const dmOnly = (await ok('POST', api('/map/world/marks'), T.dm, { kind: 'pin', x: 80, y: 20, label: 'DM secret', visibility: 'dm' })).id;
+  const dmOnly = (await ok('POST', api('/map/world/marks'), T.dm, { kind: 'pin', x: 80, y: 20, label: 'GM secret', visibility: 'dm' })).id;
   const mine = (await ok('POST', api('/map/world/marks'), T.jess, { kind: 'pin', x: 85, y: 25, label: 'Jess in fog', visibility: 'me' })).id;
 
   const ids = async (tok: string, q = '') => (await ok('GET', api(`/map/world/marks${q}`), tok)).map((m: any) => m.id);
   const dmAll = await ids(T.dm);
-  for (const m of [open, hidden, route, dmOnly]) assert.ok(dmAll.includes(m), 'the DM sees every mark it may');
+  for (const m of [open, hidden, route, dmOnly]) assert.ok(dmAll.includes(m), 'the GM sees every mark it may');
   for (const [who, tok, q] of [['player', T.jess, ''], ['table (view=players)', T.dm, '?view=players']] as const) {
     const got = await ids(tok, q);
     assert.ok(got.includes(open), `${who} sees the pin in the open`);
     for (const [name, m] of [['fogged pin', hidden], ['route into fog', route]] as const) assert.ok(!got.includes(m), `${who} never gets the ${name}`);
   }
   const text = JSON.stringify(await ok('GET', api('/map/world/marks?view=players'), T.dm)) + JSON.stringify(await ok('GET', api('/map/world/marks'), T.jess));
-  assert.ok(!text.includes('Fogged pin') && !text.includes('DM secret') && !text.includes('Jess in fog'), 'no label of a fogged mark appears');
+  assert.ok(!text.includes('Fogged pin') && !text.includes('GM secret') && !text.includes('Jess in fog'), 'no label of a fogged mark appears');
   assert.ok(!(await ids(T.jess)).includes(mine), 'even a player\'s own mark under fog is not served back');
 
   // Uncovering the area brings the mark back; covering again takes it away.

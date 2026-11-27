@@ -3,9 +3,9 @@
 //
 // - The longest phrase wins, case-insensitively, on whole words only.
 // - An index (phrase -> entry) is built per world and per kind of viewer
-//   (DM, or everyone else) and reused until a module or a page changes.
+//   (GM, or everyone else) and reused until a module or a page changes.
 // - Players only ever match pages that have a player copy (visibility
-//   'party' and a computed player_body). A DM-only page's title or aliases
+//   'party' and a computed player_body). A GM-only page's title or aliases
 //   never enter the player index, so they cannot be highlighted or learned.
 import { type DB, all, one } from '../../core/db.ts';
 import { parseJson } from '../../core/util.ts';

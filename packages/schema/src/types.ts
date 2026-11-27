@@ -1,4 +1,4 @@
-// Shared data schemas for Alexandria D&D World App
+// Shared data schemas for Alexandria TTRPG World App
 
 // Base types
 export interface Id {
@@ -118,7 +118,7 @@ export interface Transcript extends Id {
   type: 'text' | 'audio' | 'video';
 }
 
-// DM Notes
+// GM Notes
 export interface DmNote extends Id {
   worldId: string;
   nodeId?: string;

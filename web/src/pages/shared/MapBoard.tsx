@@ -1,6 +1,6 @@
-// The map, for players and the DM: pins, sticky notes, routes with arrows,
+// The map, for players and the GM: pins, sticky notes, routes with arrows,
 // numbered stops and icons, drawn over an optional map image.
-// Players' tools follow World settings; the DM can hide or erase any mark.
+// Players' tools follow World settings; the GM can hide or erase any mark.
 // Coordinates are 0–100 on both axes, so marks stay put at any size.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -66,7 +66,7 @@ export default function MapBoard() {
   const bg = chosenOption?.url ?? (/^(https?:|\/)/.test(choice) ? choice : '');
   const setChoice = (v: string) => setBgs({ ...bgs, [mapId]: v });
   const marks = useLoad(() => w.marks(mapId) as Promise<Mark[]>, [w, mapId], ['map-mark', 'map-mark-removed', 'fog']);
-  // Fog belongs to the map picture. Everyone reads it; the DM edits it (and sees it as a tint).
+  // Fog belongs to the map picture. Everyone reads it; the GM edits it (and sees it as a tint).
   const picKey = chosenOption?.value ?? 'none';
   const fog = useFog(mapId, picKey);
   const table = useTableDisplay();
@@ -199,7 +199,7 @@ export default function MapBoard() {
       <div className="row" role="toolbar" aria-label="Map tools" style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--side)', border: '1px solid var(--line)' }}>
         {TOOLS.filter(([k]) => k !== 'fog' || isDM).map(([k, glyph, label]) => (
           <button key={k} type="button" className={`btn small${tool === k ? ' on' : ''}`} aria-pressed={tool === k} disabled={!allowed[k]}
-            title={allowed[k] ? HINT[k] : 'Turned off by the DM in World settings'} onClick={() => setTool(k)}>
+            title={allowed[k] ? HINT[k] : 'Turned off by the GM in World settings'} onClick={() => setTool(k)}>
             <span aria-hidden="true">{glyph}</span> {label}
           </button>
         ))}
@@ -214,7 +214,7 @@ export default function MapBoard() {
         <span className="row" style={{ marginLeft: 'auto', gap: 6 }}>
           <span className="small muted">New marks:</span>
           <select className="input" style={{ width: 'auto', minHeight: 30 }} value={vis} onChange={(e) => setVis(e.target.value as any)} aria-label="Who sees new marks">
-            <option value="party">Party</option><option value="me">Only me</option>{isDM && <option value="dm">DM only</option>}
+            <option value="party">Party</option><option value="me">Only me</option>{isDM && <option value="dm">GM only</option>}
           </select>
         </span>
       </div>
@@ -256,7 +256,7 @@ export default function MapBoard() {
 
           {spin && (
             <section className="card gold" aria-label="Place">
-              <div className="card-head"><h3>{spin.name}</h3>{spin.dm && <span className="chip red">DM only</span>}</div>
+              <div className="card-head"><h3>{spin.name}</h3>{spin.dm && <span className="chip red">GM only</span>}</div>
               <div className="row">
                 {spin.pageId && <Link className="btn small primary" to={`/w/${info.slug}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(spin.pageId)}`}>Open its page</Link>}
                 <button type="button" className="btn small" onClick={() => { setTool('ruler'); setTimeout(() => setRuler([{ x: spin.x, y: spin.y }]), 0); }}>Measure from here</button>
@@ -288,7 +288,7 @@ export default function MapBoard() {
 
           <section className="card" aria-labelledby="layers-h">
             <h3 id="layers-h">Layers</h3>
-            {([['party', 'Party marks'], ['mine', 'Only-me marks'], ...(isDM ? [['dm', 'DM marks'], ['hidden', 'Marks hidden from players']] : [])] as [keyof typeof layers, string][]).map(([k, l]) => (
+            {([['party', 'Party marks'], ['mine', 'Only-me marks'], ...(isDM ? [['dm', 'GM marks'], ['hidden', 'Marks hidden from players']] : [])] as [keyof typeof layers, string][]).map(([k, l]) => (
               <label key={k} className="row small" style={{ gap: 8 }}><input type="checkbox" checked={layers[k]} onChange={(e) => setLayers({ ...layers, [k]: e.target.checked })} /> {l}</label>
             ))}
           </section>
@@ -325,7 +325,7 @@ export default function MapBoard() {
   );
 }
 
-/** Distance so far, and (DM) how big the map is: the whole width, or worked out from a distance you know. */
+/** Distance so far, and (GM) how big the map is: the whole width, or worked out from a distance you know. */
 function RulerPanel({ points, aspect, scale, canSet, onSet, onClear }: { points: Pt[]; aspect: number; scale: Scale | null; canSet: boolean; onSet: (width: number, unit: string) => void; onClear: () => void }) {
   const [known, setKnown] = useState('');
   const [unit, setUnit] = useState(scale?.unit ?? 'miles');

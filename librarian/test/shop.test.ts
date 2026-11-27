@@ -1,5 +1,5 @@
 // The Shop: the item database (SRD seed, imports and dedupe), the shop generator, buying (own coin or the party
-// pouch, overdraw, two buyers racing for the last one, DM approval), selling back, and what players never see.
+// pouch, overdraw, two buyers racing for the last one, GM approval), selling back, and what players never see.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -244,7 +244,7 @@ test('TestShop_PartyPouchPaysAndTheLogStaysNeutral', async () => {
   // The party log a player reads never names the item.
   const log = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.jess);
   assert.ok(!JSON.stringify(log).includes('Lantern'));
-  // The DM's own note on the item never reaches the inventory.
+  // The GM's own note on the item never reaches the inventory.
   assert.equal(one<any>(deps.db, `SELECT dm_note FROM items WHERE world_id = ? AND owner = 'party' AND name = 'Lantern of Whispers'`, W).dm_note, '');
   // The pouch can be switched off for shops.
   await set({ shopPartyPay: false });
@@ -358,10 +358,10 @@ test('TestShop_PlayersNeverSeeHiddenShopsLinesOrDMNotes', async () => {
     assert.equal((await call('POST', `${P()}/shops/${closed.id}/buy`, T[who], { stockId: closed.stock[0].id })).status, 409);
     // A hidden line cannot be bought by id.
     assert.equal((await call('POST', `${P()}/shops/${open.id}/buy`, T[who], { stockId: lineOf(open, 'Moonpetal Tea').id })).status, 404);
-    // No DM write for players.
+    // No GM write for players.
     assert.equal((await call('POST', `${P()}/shops/${open.id}/status`, T[who], { status: 'hidden' })).status, 403);
   }
-  // The DM sees it all.
+  // The GM sees it all.
   const dm = await ok('GET', `${P()}/shops/${open.id}`, T.dm);
   assert.equal(dm.keeper.secret, 'SHOPSECRET_KEEPER fences for the smugglers');
   assert.ok(lineOf(dm, 'Moonpetal Tea').hidden);
@@ -462,13 +462,13 @@ test('TestShop_ReputationAndDealsAreRememberedPerPlayer', async () => {
   const shop = await makeShop('Memory Lane', [{ item: 'Rope', qty: 20 }, { item: 'Torch', qty: null, price: 1000 }]);
   const torch = lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Torch');
   assert.equal(torch.priceCp, 1000);
-  // The DM makes Jess a friend of the keeper: 10% off everything (rep 100, effect 10).
+  // The GM makes Jess a friend of the keeper: 10% off everything (rep 100, effect 10).
   await ok('PUT', `${P()}/shops/${shop.id}/memory/${ID.jess}`, T.dm, { rep: 100, note: 'Saved his daughter' });
   const jv = await ok('GET', `${P()}/shops/${shop.id}`, T.jess);
   assert.equal(lineOf(jv, 'Torch').priceCp, 900);
   assert.equal(lineOf(jv, 'Torch').listPriceCp, 1000);
   assert.equal(jv.you.standing, 'Trusted friend');
-  assert.doesNotMatch(JSON.stringify(jv), /Saved his daughter/, 'the DM note on reputation stays DM-only');
+  assert.doesNotMatch(JSON.stringify(jv), /Saved his daughter/, 'the GM note on reputation stays GM-only');
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.tom), 'Torch').priceCp, 1000, 'Tom is a stranger');
   // A deal for Tom on the torch, used up by his next purchase.
   await ok('POST', `${P()}/shops/${shop.id}/deals`, T.dm, { accountId: ID.tom, stockId: torch.id, pct: 25, note: 'Bribe' });
@@ -556,7 +556,7 @@ test('TestShop_PresentSendsTheShopToChosenPlayersOnly', async () => {
     return orig(w, type, data, aud);
   };
   try {
-    // Hidden: refused unless the DM opens it with the same call.
+    // Hidden: refused unless the GM opens it with the same call.
     assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: [ID.jess] })).status, 409);
     const r = await ok('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: [ID.jess], open: true, message: 'Fine wares, friend!' });
     assert.deepEqual([r.sentTo, r.opened, r.shop.status], [[ID.jess], true, 'open']);

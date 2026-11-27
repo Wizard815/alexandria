@@ -229,7 +229,7 @@ function Editor({ d, set, saving, onSave, onCancel, world }: { d: Draft; set: (d
               <label className="row small" style={{ gap: 6 }}>Volume <input type="range" min={0} max={1} step={0.05} value={d.vol === '' ? 0.7 : Number(d.vol)} onChange={(e) => up({ vol: e.target.value })} aria-label="Volume" /> {d.vol === '' ? 'as is' : Math.round(Number(d.vol) * 100) + '%'}</label>
               {d.vol !== '' && <button type="button" className="btn small ghost" onClick={() => up({ vol: '' })}>Leave volume as set</button>}
               <select aria-label="Who hears it" value={d.target} onChange={(e) => up({ target: e.target.value as Draft['target'] })}>
-                <option value="table">The table (DM's device)</option><option value="players">Players' devices</option><option value="both">Both</option>
+                <option value="table">The table (GM's device)</option><option value="players">Players' devices</option><option value="both">Both</option>
               </select>
               <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={d.stopOthers} onChange={(e) => up({ stopOthers: e.target.checked })} /> stop whatever else is playing</label>
             </div>

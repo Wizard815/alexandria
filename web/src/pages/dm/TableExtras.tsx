@@ -1,5 +1,5 @@
-// More blocks for the DM's Table (pages/dm/Table.tsx): quick events, dice, notes, quick links, the last recap, people,
-// sound, the stage, NPC names and what is coming up. Each one is small; the DM arranges, hides or brings them back.
+// More blocks for the GM's Table (pages/dm/Table.tsx): quick events, dice, notes, quick links, the last recap, people,
+// sound, the stage, NPC names and what is coming up. Each one is small; the GM arranges, hides or brings them back.
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
@@ -81,7 +81,7 @@ export function QuickEventsBlock() {
   );
 }
 
-// ---- Dice: the DM's own rolls, never shown to players ----
+// ---- Dice: the GM's own rolls, never shown to players ----
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 interface Roll { expr: string; rolls: number[]; mod: number; total: number; at: number }
@@ -134,7 +134,7 @@ export function NotesBlock() {
   );
 }
 
-// ---- Quick links: any DM page, picked by the DM ----
+// ---- Quick links: any GM page, picked by the GM ----
 
 const DEFAULT_LINKS = ['templates', 'generators', 'people', 'rules', 'sound', 'stage', 'sessionlog', 'minerva'];
 
@@ -372,7 +372,7 @@ export function ComingUpBlock() {
         <ul className="tb-list">
           {events.slice(0, 8).map((e, i) => (
             <li key={`${e.id}-${i}`}>
-              <b>{e.title}</b> <span className="tiny muted">{ahead(e)} · {e.occursLabel ?? e.startLabel}{e.visibility === 'dm' ? ' · DM only' : ''}</span>
+              <b>{e.title}</b> <span className="tiny muted">{ahead(e)} · {e.occursLabel ?? e.startLabel}{e.visibility === 'dm' ? ' · GM only' : ''}</span>
             </li>
           ))}
         </ul>

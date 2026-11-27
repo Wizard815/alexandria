@@ -9,8 +9,8 @@ test('TestPolicy_VisibilityRules', () => {
   const p = { accountId: 'p', role: 'player' as const };
   assert.equal(canSee(p, 'party'), true);
   assert.equal(canSee(p, 'dm'), false);
-  assert.equal(canSee(p, 'dm', 'p'), true, 'owner sees their own DM-shared item');
-  assert.equal(canSee(dm, 'me', 'p'), false, '"only me" hides it from the DM too');
+  assert.equal(canSee(p, 'dm', 'p'), true, 'owner sees their own GM-shared item');
+  assert.equal(canSee(dm, 'me', 'p'), false, '"only me" hides it from the GM too');
   assert.equal(canSee(p, 'weird-value'), false, 'unknown visibility fails closed');
   assert.equal(canSee(p, undefined as any), false);
 });
@@ -21,7 +21,7 @@ test('TestPolicy_UnclosedDmMarkerHidesTheRest', () => {
 });
 
 test('TestPolicy_HeadingsInsideCodeAreNotSections', () => {
-  const out = redactMarkdown('Intro\n```\n# Secrets\n```\nAfter the code.\n\n## Notes (DM)\nhidden\n# Next\nshown');
+  const out = redactMarkdown('Intro\n```\n# Secrets\n```\nAfter the code.\n\n## Notes (GM)\nhidden\n# Next\nshown');
   assert.ok(out.includes('After the code') && out.includes('shown') && !out.includes('hidden'));
 });
 
@@ -55,6 +55,6 @@ test('TestPolicy_HealthWordsAndSettings', () => {
 });
 
 test('TestPolicy_SecretHintsFlagProseSecrets', () => {
-  assert.deepEqual(secretHints('Publicly known: a port.\nThe secret: smugglers.\n**DM note:** x\nfine'), ['line 2', 'line 3']);
+  assert.deepEqual(secretHints('Publicly known: a port.\nThe secret: smugglers.\n**GM note:** x\nfine'), ['line 2', 'line 3']);
   assert.deepEqual(secretHints('A secretive town. Dominic is a gem merchant.'), []);
 });

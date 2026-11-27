@@ -5,11 +5,11 @@ which is now built: the Library, the broker, approvals, giving, offline mode.
 Each section says what to build, how, and what "done" means.
 
 **Rules that apply to everything below:**
-- **Players never see DM-only content.**
+- **Players never see GM-only content.**
   - Every new feature that can show text to players runs the leak check: no
-    DM-only line may appear in anything a player receives.
+    GM-only line may appear in anything a player receives.
   - Every feature gets a test that proves it.
-  - When unsure, it stays DM-only.
+  - When unsure, it stays GM-only.
 - **The gateway owns the data.** Pages, audio, transcripts, uploads, settings
   and logs live in the Alexandria gateway's storage, and the backup covers
   all of it.
@@ -26,7 +26,7 @@ The schedule, milestones and checklists are in [TODO.md](TODO.md):
 - M1 phone redesign and sign-in
 - M2 world clock and broker
 - M3 item cards, modules and intake
-- M4 DM agent
+- M4 GM agent
 - M5 desktop app and audio
 - M6 transcript island
 - M7 session log
@@ -42,10 +42,10 @@ The schedule, milestones and checklists are in [TODO.md](TODO.md):
 | 2 | Separate gateway admin sign-in (§13) | Small |
 | 2 | Item cards linked to library pages (§2) | Small, high value at the table |
 | 3 | Intake capabilities: relations, timelines, maps, calendars, push API (§9) | Later features read from it |
-| 4 | DM agent with MCP tools, statblocks, combat (§6) | Needed by §7 and §8 |
+| 4 | GM agent with MCP tools, statblocks, combat (§6) | Needed by §7 and §8 |
 | 5 | Audio capture, live transcript, storage (§3) | Biggest piece; needs the gateway services |
 | 6 | Floating transcript island and game modules (§4) | Uses §3 |
-| 7 | Session log: summary, DM review, publish (§8) | Uses §3 and §6 |
+| 7 | Session log: summary, GM review, publish (§8) | Uses §3 and §6 |
 | 8 | Soundboard, music board, Spotify (§5) | Independent; can run in parallel with 5–7 |
 | 9 | Text to speech with presets (§7) | Small once §3's audio output exists |
 | 5–9 | Desktop and phone apps (§12) | Starts with §3: multi-mic and hold keys need the desktop app |
@@ -55,19 +55,19 @@ The schedule, milestones and checklists are in [TODO.md](TODO.md):
 ## 1. Information broker: finishing touches
 
 ### 1.1 Auto-delivery per tier
-Today every answer waits until its in-game time is up and the DM can step in.
+Today every answer waits until its in-game time is up and the GM can step in.
 Add a delivery mode per tier in **World settings → Broker**:
 
 | Tier | Modes | Default |
 |---|---|---|
-| Common knowledge | Auto / DM reviews | Auto |
-| Local lore | Auto / DM reviews | Auto |
-| Deep lore | Auto / DM reviews | DM reviews |
-| Guarded secrets | **Always DM**; cannot be changed | DM |
+| Common knowledge | Auto / GM reviews | Auto |
+| Local lore | Auto / GM reviews | Auto |
+| Deep lore | Auto / GM reviews | GM reviews |
+| Guarded secrets | **Always GM**; cannot be changed | GM |
 
-- **Auto:** the answer is delivered when its wait is over, with no DM step.
-  The DM still sees it in Questions and can correct or refund it afterwards.
-- **DM reviews:** it waits in Questions until the DM approves, edits or refuses.
+- **Auto:** the answer is delivered when its wait is over, with no GM step.
+  The GM still sees it in Questions and can correct or refund it afterwards.
+- **GM reviews:** it waits in Questions until the GM approves, edits or refuses.
 - **"Auto for all tiers"** sets every tier except Guarded secrets to Auto.
 - **Done:** tests for both modes; a guarded question is never auto-delivered,
   whatever the settings.
@@ -75,7 +75,7 @@ Add a delivery mode per tier in **World settings → Broker**:
 ### 1.2 Lock the broker to the world
 The broker answers only questions about **the world**. It treats as in scope:
 - the world's places, people, history, factions, items and events
-- the real-world culture and history the world is built on, which the DM lists
+- the real-world culture and history the world is built on, which the GM lists
   in settings, for example "Feudal Japan: history, folklore, customs"
 
 Anything else (homework, other games, real-world news) gets an in-character
@@ -84,7 +84,7 @@ refusal ("That's not something I deal in.") and costs nothing.
 ### 1.3 "Other": free questions
 A category for questions that are about the game rather than the world:
 - **Rules:** "How does grappling work?" Answered from the game module (§4.3),
-  such as the D&D 5e SRD, never from memory.
+  such as the 5e SRD, never from memory.
 - **Items:** "What does my lantern do?" Answered from the item's own card and
   its linked library page (§2), for items the player can see.
 
@@ -92,7 +92,7 @@ These are free and delivered at once. If there is no rules source for a rules
 question, it says so; it does not guess.
 
 "Other" is not a price tier. It doesn't appear in the players' price list or
-in the DM's tier settings.
+in the GM's tier settings.
 
 ### 1.4 Link to the world's site
 - **World settings → Broker:** an optional "World site" link and label, e.g.
@@ -105,16 +105,16 @@ in the DM's tier settings.
 The goal is that "Who is the BBEG?" never gets an answer. Layers, from the
 strongest:
 
-1. **The answering model never sees DM content.**
-   - Player answers are built only from player copies and DM-written broker
+1. **The answering model never sees GM content.**
+   - Player answers are built only from player copies and GM-written broker
      notes.
    - A model can't leak what it was never given. This is the real protection,
      and it already holds.
 2. **The rule-based check that exists today** compares the question with the
-   DM copy.
-   - It flags questions whose best match is DM-only text, a DM-only page, or a
+   GM copy.
+   - It flags questions whose best match is GM-only text, a GM-only page, or a
      "never sell" page.
-   - Flagged questions go to the DM.
+   - Flagged questions go to the GM.
 3. **New: the audit model** (the small model in §10) labels each question
    with:
    - `scope`: world / real-world-allowed / rules / item / off-topic
@@ -125,28 +125,28 @@ strongest:
    - its confidence
 
    The model only routes:
-   - spoiler-seeking or meta-gaming questions go to Guarded secrets (the DM
+   - spoiler-seeking or meta-gaming questions go to Guarded secrets (the GM
      decides)
    - off-topic questions are refused
-   - when it isn't sure, the question goes to the DM
+   - when it isn't sure, the question goes to the GM
 
-   It never decides to reveal anything, and it has no access to DM text.
-4. **DM spoiler tags.**
-   - The DM marks pages or topics as spoilers, e.g. the villain's page, or
+   It never decides to reveal anything, and it has no access to GM text.
+4. **GM spoiler tags.**
+   - The GM marks pages or topics as spoilers, e.g. the villain's page, or
      "the Heart's true owner".
    - Questions that name them are always Guarded, whatever the model says.
 5. **A final output check.** Before any answer is delivered, it is compared
-   with all DM-only text. Any overlap blocks it and sends it to the DM. This
+   with all GM-only text. Any overlap blocks it and sends it to the GM. This
    leak check exists today; it stays on every path.
 
 **Why this way:** a model told "don't reveal secrets" while holding the
-secrets can be talked into revealing them. Keeping DM text out of its input
+secrets can be talked into revealing them. Keeping GM text out of its input
 means there's nothing to talk it out of. The small model is cheap and fast,
-and it only chooses between "answer", "ask the DM" and "refuse".
+and it only chooses between "answer", "ask the GM" and "refuse".
 
 **Done:** a test set of at least 40 questions, including villain, twist,
-stats and off-topic questions, where no player-facing output contains DM-only
-text and every spoiler question goes to the DM.
+stats and off-topic questions, where no player-facing output contains GM-only
+text and every spoiler question goes to the GM.
 
 ---
 
@@ -160,9 +160,9 @@ text and every spoiler question goes to the DM.
   - from the linked page: its sidebar facts and opening section, with
     "Open page"
 - **Players see only the player copy.**
-  - If the linked page is DM-only, players see the item's own notes and
+  - If the linked page is GM-only, players see the item's own notes and
     nothing from the page.
-  - The DM sees everything, with secrets marked.
+  - The GM sees everything, with secrets marked.
 - **Opening it:**
   - **Mouse:** hover over the item for 3 seconds and the card pops out next
     to it. The pointer can move into the card, and the card scrolls when it
@@ -175,7 +175,7 @@ text and every spoiler question goes to the DM.
   text. Nothing is copied into the item.
 - **Done:**
   - works on the inventory, party, approvals and broker screens
-  - a test that a link to a DM-only page shows no page text to players
+  - a test that a link to a GM-only page shows no page text to players
 
 ---
 
@@ -183,18 +183,18 @@ text and every spoiler question goes to the DM.
 
 ### 3.1 Microphones and speakers
 
-**The DM's computer can use any number of mics and speakers at once.**
+**The GM's computer can use any number of mics and speakers at once.**
 
 **Mics:**
-- **Audio setup** lists every input device on the DM's computer. The DM
-  turns on as many as they want and names each one, e.g. "Table", "DM
+- **Audio setup** lists every input device on the GM's computer. The GM
+  turns on as many as they want and names each one, e.g. "Table", "GM
   headset", "Player laptop corner".
 - Each mic has its own mode:
 
   | Mode | What it does |
   |---|---|
   | Always on | Records the whole session (e.g. the table mic) |
-  | Hold to talk | Records only while its key or button is held (e.g. a headset used for DM-only lines or NPC voices) |
+  | Hold to talk | Records only while its key or button is held (e.g. a headset used for GM-only lines or NPC voices) |
   | Hold to mute | Records all the time except while held (a cough button) |
   | Off | Not used this session |
 
@@ -202,10 +202,10 @@ text and every spoiler question goes to the DM.
   be a keyboard key, a mouse button, a foot pedal (which shows up as a key)
   or a button on screen.
 - **Each mic has a "Players' transcript" switch.** On, its speech appears in
-  the transcript everyone sees. Off, it appears only in the DM's
-  transcript. Every mic always goes to the DM's transcript.
-  - Example: the table mic is on, and a headset for DM-only lines is off.
-- **Each mic can be marked "DM aside"** (§3.2), which works like switching
+  the transcript everyone sees. Off, it appears only in the GM's
+  transcript. Every mic always goes to the GM's transcript.
+  - Example: the table mic is on, and a headset for GM-only lines is off.
+- **Each mic can be marked "GM aside"** (§3.2), which works like switching
   its "Players' transcript" off and also covers every other mic while it is
   in use (§3.3a).
 - **Every mic is its own track.** That tells the transcript who is speaking
@@ -214,11 +214,11 @@ text and every spoiler question goes to the DM.
   modes. A player's mic always records as that player.
 
 **Speakers:**
-- **Audio setup** lists every output device. The DM groups them into
+- **Audio setup** lists every output device. The GM groups them into
   **speaker groups**, e.g.:
   - "Table": the living-room speaker and the soundbar, both playing the same
     sound
-  - "DM ears": the DM's headphones only
+  - "GM ears": the GM's headphones only
 - **Each sound source picks a group:** music (§5), soundboard pads (§5.1),
   read-aloud (§7) and previews.
 - A group plays the same audio on all its devices at once. Each device keeps
@@ -227,7 +227,7 @@ text and every spoiler question goes to the DM.
 - **Remote players** can be a target too: the sound is streamed to their
   app.
 
-**Settings are saved per computer**, so the DM's setup comes back next
+**Settings are saved per computer**, so the GM's setup comes back next
 session. A missing device (unplugged) is shown greyed out, not forgotten.
 
 **How it connects:**
@@ -245,12 +245,12 @@ session. A missing device (unplugged) is shown greyed out, not forgotten.
   time. Without consent, their mic is never captured.
 - **A clear "Recording" indicator** shows on every screen while a session
   records.
-- **DM aside:** a hold-to-talk key that keeps a stretch of DM speech out of
-  the players' transcript, for spoken secrets. It works on any DM mic. A mic
+- **GM aside:** a hold-to-talk key that keeps a stretch of GM speech out of
+  the players' transcript, for spoken secrets. It works on any GM mic. A mic
   can also be marked "always aside" (§3.1).
-  - Aside segments are DM-only, like a secret block.
-  - The session summary (§8) treats them as DM-only.
-- **Retention:** the DM sets how long raw audio is kept (e.g. 30 days).
+  - Aside segments are GM-only, like a secret block.
+  - The session summary (§8) treats them as GM-only.
+- **Retention:** the GM sets how long raw audio is kept (e.g. 30 days).
   Transcripts are kept until deleted.
 - Recording laws differ by place. The consent step exists so everyone at the
   table agrees.
@@ -268,7 +268,7 @@ session. A missing device (unplugged) is shown greyed out, not forgotten.
   game module are sent as hints, so "Velmira" and "Saltmarsh" come out right.
 
 ### 3.3a One transcript from many mics
-At a table, several mics hear the same words: the table mic, the DM's
+At a table, several mics hear the same words: the table mic, the GM's
 headset and a player's phone. The transcript shows each spoken line once, in
 its best version.
 
@@ -288,26 +288,26 @@ its best version.
    version comes in.
 
 **One transcript, two views.** There is one transcript store. Each line is
-marked "players" or "DM only" from the mic's switch (§3.1) and the aside
+marked "players" or "GM only" from the mic's switch (§3.1) and the aside
 rules below.
-- The DM's view shows every line, with DM-only ones marked.
+- The GM's view shows every line, with GM-only ones marked.
 - The players' view shows only lines marked "players".
 
 This keeps one timeline, one merge and one session summary source. It also
-means the DM can later mark a line as DM-only, and it disappears from
+means the GM can later mark a line as GM-only, and it disappears from
 players' view right away.
 
-**Asides cover every mic.** While the DM aside key is held, or while a
-DM-only mic is live in hold-to-talk mode, everything every
-mic hears in that time is DM-only. The table mic and players' phones also
-hear what the DM says into the headset, so this works on time, not on which
+**Asides cover every mic.** While the GM aside key is held, or while a
+GM-only mic is live in hold-to-talk mode, everything every
+mic hears in that time is GM-only. The table mic and players' phones also
+hear what the GM says into the headset, so this works on time, not on which
 mic was used. It fails closed: a line that overlaps an aside even partly is
-DM-only.
+GM-only.
 
 **Done:**
 - A test with three mics recording the same speech shows each line once.
 - The word-level merge beats the best single mic on a test recording.
-- A line spoken during an aside is DM-only on every mic.
+- A line spoken during an aside is GM-only on every mic.
 
 ### 3.4 Storage
 - **Audio** is stored as files under `ALX_DATA_DIR/audio/<world>/<session>/`.
@@ -319,7 +319,7 @@ DM-only.
     `uploads/`
   - `deploy/backup.sh` keeps the archives
 - **Done:**
-  - two-tab test: DM and player mics produce one transcript with the right
+  - two-tab test: GM and player mics produce one transcript with the right
     speakers
   - aside segments never reach a player
   - backup and restore round-trip
@@ -329,7 +329,7 @@ DM-only.
 ## 4. Floating transcript island
 
 ### 4.1 The island
-- **A small floating window that follows every page,** for the DM and the
+- **A small floating window that follows every page,** for the GM and the
   players. It shows the live transcript as word bubbles, newest at the
   bottom, with the speaker's name or colour.
 - **Its controls are per person and remembered on that device:**
@@ -339,7 +339,7 @@ DM-only.
   - bubble colour and text size
   - minimise it to a pill showing the last line
 - **Players see the live transcript too** (decided). It's the same merged
-  transcript (§3.3a) without asides, about 5 seconds behind. The DM sees
+  transcript (§3.3a) without asides, about 5 seconds behind. The GM sees
   everything, with asides marked.
 
 ### 4.2 Highlighted key words
@@ -347,22 +347,22 @@ Words from the game module and the world are highlighted in the bubbles:
 - spells, conditions, monsters and rules terms
 - library page titles
 
-Hovering over a highlighted word, for the DM **and players**, shows the
+Hovering over a highlighted word, for the GM **and players**, shows the
 same card as §2 for library pages, or the module's entry for a rules term.
 It follows the same rules: players see only player copies, so a word that
-matches only a DM-only page isn't highlighted for them at all.
+matches only a GM-only page isn't highlighted for them at all.
 
 ### 4.3 Game modules (rules)
-- **Two come with Alexandria, and the DM picks one per world:**
-  - **D&D 2024**, from SRD 5.2. This is the default for new worlds.
-  - **D&D 5e (2014)**, from SRD 5.1.
+- **Two come with Alexandria, and the GM picks one per world:**
+  - **5e 2024**, from SRD 5.2. This is the default for new worlds.
+  - **5e (2014)**, from SRD 5.1.
 
   Both are published under CC-BY-4.0, and the credit line is shown in the
   app.
 - **A module is a package:**
   - a glossary: term, kind and short text
   - optional rules sections for the broker's "Other" answers (§1.3)
-  - optional monsters and a statblock format for the DM agent (§6)
+  - optional monsters and a statblock format for the GM agent (§6)
 - **Importing more is simple:** World settings → Game module → **Import**, then
   any of:
   - a `.zip` or a folder of Markdown files, one term per file, with frontmatter
@@ -373,12 +373,12 @@ matches only a DM-only page isn't highlighted for them at all.
 
   Imports show a preview (counts per kind and a few samples) before
   they're saved.
-- **More than one module can be on at once,** e.g. D&D 2024 plus a homebrew
-  pack. Where terms clash, the DM's order decides which wins.
+- **More than one module can be on at once,** e.g. 5e 2024 plus a homebrew
+  pack. Where terms clash, the GM's order decides which wins.
 
 ---
 
-## 5. Soundboard and music board (DM)
+## 5. Soundboard and music board (GM)
 
 ### 5.1 Soundboard
 - A grid of effect pads: door creak, thunder, sword clash. Each pad has its
@@ -402,12 +402,12 @@ music/
 **The mood map:**
 - **A square with four corners:** Combat, Tense, Sneaky and Calm.
   - Each track has a spot on it.
-  - The DM drags a marker. The board plays the nearest tracks from the
+  - The GM drags a marker. The board plays the nearest tracks from the
     chosen area and crossfades when the marker moves to a new region.
 - **A track's spot comes from one of:**
   - its folder name (e.g. `combat/` sits in the Combat corner)
   - a `moods.yaml` next to the files
-  - the DM dragging tracks onto the map
+  - the GM dragging tracks onto the map
 - **Area chips** (village, dungeon, demon…) narrow which tracks it picks.
 - **A simple picker** (folders, then tracks, then play) sits next to the
   map, for when you just want a song.
@@ -430,25 +430,25 @@ Background sound that loops under the music:
   like `music/`. Loops are trimmed to join without a gap.
 
 ### 5.3 On players' devices (players choose)
-- The DM can send music and sound effects to players' devices, streamed
+- The GM can send music and sound effects to players' devices, streamed
   through the gateway.
 - **Each player decides, per device, with three separate switches:**
-  - **Play the DM's music**
-  - **Play the DM's ambience** (§5.2a)
-  - **Play the DM's sound effects**
+  - **Play the GM's music**
+  - **Play the GM's ambience** (§5.2a)
+  - **Play the GM's sound effects**
 - All three start **off**. Each has its own volume. A player can turn either off
   at any time, even mid-session.
-- The DM sees who has each one on, so they know who hears what.
+- The GM sees who has each one on, so they know who hears what.
 - At the table, players usually leave both off and hear the room speakers.
 - Spotify music is never sent to players (§5.4).
 
 ### 5.4 Spotify (simple)
-- The DM connects a Spotify account in settings, using Spotify's own sign-in.
-- The DM maps **events to playlists**, e.g. Combat → "Boss Fights" and
+- The GM connects a Spotify account in settings, using Spotify's own sign-in.
+- The GM maps **events to playlists**, e.g. Combat → "Boss Fights" and
   Tavern → "Folk".
-- Picking an event plays a matching playlist on the DM's Spotify device.
+- Picking an event plays a matching playlist on the GM's Spotify device.
 - **Limits:**
-  - It needs Spotify Premium, and only plays on the DM's own Spotify devices.
+  - It needs Spotify Premium, and only plays on the GM's own Spotify devices.
   - Spotify doesn't allow streaming its music to players.
   - So remote players hear only local-file music.
 
@@ -459,13 +459,13 @@ Background sound that loops under the music:
 
 ---
 
-## 6. DM agent (LLM)
+## 6. GM agent (LLM)
 
-A chat panel for the DM, available on every DM page, connected to everything
-the DM can see and do.
+A chat panel for the GM, available on every GM page, connected to everything
+the GM can see and do.
 
 ### 6.1 What it can use
-- **Alexandria's MCP tools with the DM's write key:** library, people,
+- **Alexandria's MCP tools with the GM's write key:** library, people,
   calendar, inventory, coin, quick events, broker, approvals. Add new tools
   for:
   - combat: read initiative, turn, HP, effects; add a combatant with a
@@ -489,24 +489,24 @@ the DM can see and do.
   - "Add to combat" puts the creature in initiative with its HP and AC.
 - **Reads combat:** whose turn it is, HP, effects and concentration, and
   suggests monster actions.
-- **Drafts and revises the session summary** with the DM (§8).
+- **Drafts and revises the session summary** with the GM (§8).
 
 ### 6.3 Safety
-- Any action that changes something shows what it will do, and the DM
-  confirms it. A DM setting can auto-approve read-only actions.
+- Any action that changes something shows what it will do, and the GM
+  confirms it. A GM setting can auto-approve read-only actions.
 - Every tool call is in the world's audit log.
-- **One chat model for everyone** (§10). The DM and the players talk to the
+- **One chat model for everyone** (§10). The GM and the players talk to the
   same model in different harnesses:
 
-  | | DM harness | Player harness |
+  | | GM harness | Player harness |
   |---|---|---|
-  | Context | Everything: DM copies, transcript with asides, combat | Player copies, broker notes, the player's own items and notes |
+  | Context | Everything: GM copies, transcript with asides, combat | Player copies, broker notes, the player's own items and notes |
   | Tools | All MCP tools, including writes (confirmed) | Read tools only, scoped to that player's key |
   | Output | As is | Leak check before it is shown |
   | Broker | Prices and answers anything | Goes through the audit model and the price tiers first |
 
   The harness decides what the model is given and what it may do. The
-  player harness never puts DM text into the model's input, so the same
+  player harness never puts GM text into the model's input, so the same
   model can't leak it.
 
 **Done:**
@@ -518,7 +518,7 @@ the DM can see and do.
 
 ## 7. Text to speech
 
-- **Highlight text anywhere in the DM's view, right-click and choose Speak.**
+- **Highlight text anywhere in the GM's view, right-click and choose Speak.**
   This works on library pages, the agent's replies and the transcript.
 - **A small menu picks a preset:** narrator, old man, villain…
 - **Presets live in World settings → Voice:**
@@ -528,28 +528,28 @@ the DM can see and do.
 - **Speech is made by Kokoro** (open model, runs as a small container with an
   OpenAI-compatible `/v1/audio/speech` endpoint), or any compatible TTS
   endpoint.
-- **What it reads:** only the highlighted text. If it contains DM-only text
-  and is sent to players' devices, the DM is asked to confirm first.
+- **What it reads:** only the highlighted text. If it contains GM-only text
+  and is sent to players' devices, the GM is asked to confirm first.
 
 ---
 
 ## 8. Session log
 
-- **A Session log page for players and the DM,** one entry per session.
+- **A Session log page for players and the GM,** one entry per session.
 - **After a session the agent drafts a summary** from:
   - the transcript (without asides)
   - combat results, loot and coin changes
   - broker purchases and quick events
-- **The DM reviews the draft before anyone else sees it.** The DM can:
+- **The GM reviews the draft before anyone else sees it.** The GM can:
   - edit it by hand
   - ask the agent to change it ("Add that they found the map", "Remove the
     part about the door")
   - mix both
 - **Approve publishes it to players.**
-  - Before publishing, the leak check compares it with DM-only text and with
+  - Before publishing, the leak check compares it with GM-only text and with
     asides, and shows any overlap.
-  - Versions are kept. The DM can un-publish or revise later.
-- **Players see only approved summaries.** The DM sees drafts too.
+  - Versions are kept. The GM can un-publish or revise later.
+- **Players see only approved summaries.** The GM sees drafts too.
 
 **Done:**
 - a draft is created from a recorded test session
@@ -570,8 +570,8 @@ Alexandria takes whatever a source offers and uses only that.
   - `modules` (glossaries, rules)
 - **Features read from the capabilities:**
   - The **Relations** page shows relations from any source that has them
-    (Kanka does; LegendKeeper doesn't), plus ones the DM adds by hand.
-  - If no source has timelines, the timeline view shows only the DM's own
+    (Kanka does; LegendKeeper doesn't), plus ones the GM adds by hand.
+  - If no source has timelines, the timeline view shows only the GM's own
     events.
   - A missing capability never causes an error. The feature shows what it
     has.
@@ -582,7 +582,7 @@ Alexandria takes whatever a source offers and uses only that.
   - the visibility rules for each, written fail-closed
 
 ### 9.2 Push intake API
-For tools that can't be polled, a DM or admin creates a **source key**, and
+For tools that can't be polled, a GM or admin creates a **source key**, and
 the tool pushes entries to `POST /api/intake/<source>/entries`.
 - Entries use the same entry format as connectors (`docs/CONNECTORS.md`).
 - They go through the same leak guard.
@@ -602,7 +602,7 @@ Five model jobs. Each is served locally and reached through the gateway's
 
 | Job | Used for | Size class | Example (pick current versions when building) | Approx. VRAM |
 |---|---|---|---|---|
-| **Chat** | DM agent, player Ask, broker answers, session summaries | 27–32B, 4–6 bit | Qwen3 32B, Gemma 3 27B, or a 30B mixture-of-experts model for speed | 20–26 GB + context |
+| **Chat** | GM agent, player Ask, broker answers, session summaries | 27–32B, 4–6 bit | Qwen3 32B, Gemma 3 27B, or a 30B mixture-of-experts model for speed | 20–26 GB + context |
 | **Audit** | Broker routing and spoiler checks (§1.5), "is this in scope", second opinion on summaries | 3–4B | Qwen3 4B, Gemma 3 4B | 3–5 GB |
 | **Audio** | Speech to text (§3.3) | Whisper large-v3 class | faster-whisper or whisper.cpp with large-v3-turbo | 3–6 GB |
 | **Voice** | Text to speech (§7) | Small | Kokoro-82M | under 1 GB |
@@ -622,7 +622,7 @@ context (long transcripts need it) and for a larger model or quant later.
 **Admin → Models** maps each job to an endpoint and model name. If a job has
 no model:
 - with no audit model, questions use the rule-based check only and anything
-  unsure goes to the DM
+  unsure goes to the GM
 - with no audio model, there is no transcript
 
 ## 11. Settings this adds
@@ -656,8 +656,8 @@ Not going to app stores: everything is installed directly (sideloaded).
 
 | Platform | App | Notes |
 |---|---|---|
-| Linux, Windows, macOS | **Desktop app** (Tauri) | DM and players. Needed for many mics and speakers, global hold keys and offline use |
-| Android | **Phone app**, installed from an APK | Players, and the DM away from the table |
+| Linux, Windows, macOS | **Desktop app** (Tauri) | GM and players. Needed for many mics and speakers, global hold keys and offline use |
+| Android | **Phone app**, installed from an APK | Players, and the GM away from the table |
 | iOS | **Phone app**, sideloaded | See below |
 | Any browser | The web app | Works everywhere with no install. Fewer audio features. |
 
@@ -678,7 +678,7 @@ Not going to app stores: everything is installed directly (sideloaded).
 
 | Client | Assistant | Pop-out | Always on top | Global shortcut | Push-to-talk |
 |---|---|---|---|---|---|
-| Browser | Side panel (Ctrl+K), Ask tab on the DM phone | A browser popup window | OS-dependent, not controlled | Only while the tab is focused | The mic button beside Send (records, then the world's speech model transcribes) |
+| Browser | Side panel (Ctrl+K), Ask tab on the GM phone | A browser popup window | OS-dependent, not controlled | Only while the tab is focused | The mic button beside Send (records, then the world's speech model transcribes) |
 | Installed web app (PWA, from the manifest; Android, iOS, desktop Chrome/Edge) | Same, full screen, opens offline | Same as the browser; on phones the Ask tab is the pop-out | No | No | Same mic button |
 | Desktop app (`desktop/`) | Main window plus a separate Assistant window | Yes, own window, remembers the world | Menu toggle, remembered | Ctrl/Cmd+Shift+Space shows or hides it from any program | Same mic button; global hold-to-talk keys and multi-mic capture are still planned (§3.1) |
 
@@ -724,8 +724,8 @@ extra access to it.
 The gateway serves the web app, so anyone can use Alexandria in a browser
 with no install.
 
-- **Table sign-in** (`/login`) is for DMs and players.
-  - After sign-in you land in your world, as DM or player depending on your
+- **Table sign-in** (`/login`) is for GMs and players.
+  - After sign-in you land in your world, as GM or player depending on your
     role there.
   - The desktop and phone apps show the same sign-in, with a field for the
     gateway's address.
@@ -736,40 +736,40 @@ with no install.
   - Admin sign-in can require a second factor (an authenticator app), and
     can be limited to the home network (a list of allowed IP ranges).
 - **Today** the admin is a flag on a normal account. That stays possible
-  for small setups, where one person is both the DM and the admin.
-- **Done:** an admin signed in at `/admin/login` can't open a world as DM,
-  and a DM signed in at `/login` can't open the admin pages.
+  for small setups, where one person is both the GM and the admin.
+- **Done:** an admin signed in at `/admin/login` can't open a world as GM,
+  and a GM signed in at `/login` can't open the admin pages.
 
 ## 14. World date and calendar
 
 **One world clock per world:**
 - The current date and time in the world's own calendar.
 - The calendar comes from the world's source when it has one (Kanka and
-  LegendKeeper calendars), or from the DM: month names, days, weeks and
+  LegendKeeper calendars), or from the GM: month names, days, weeks and
   moons.
 - The broker's game clock moves onto it.
 
 **Shown everywhere:**
-- The **world date** is in the top bar of every DM and player screen, e.g.
+- The **world date** is in the top bar of every GM and player screen, e.g.
   "3rd of Frostmoot, 1492 · evening".
 - **Each home page** shows:
   - today's date and today's events
   - upcoming events
 - **Each person sets how far ahead "upcoming" looks:** 3, 7 or 30 world
   days.
-- **Players see only events the DM shared.**
+- **Players see only events the GM shared.**
 
 **Moving the date:**
-- **DM buttons:**
+- **GM buttons:**
   - **Long rest:** +8 hours, or to the next morning (a setting)
   - **Short rest:** +1 hour
   - **Next day:** to the next morning
   - **Set date**, for anything else
 - **From the session summary (§8):**
-  - When the DM approves a summary, the agent proposes the date change it
+  - When the GM approves a summary, the agent proposes the date change it
     found, e.g. "Traveled 3 days to Saltmarsh, then a long rest: move to the
     7th, morning".
-  - The DM accepts or edits that change in the same review. Nothing moves on
+  - The GM accepts or edits that change in the same review. Nothing moves on
     its own.
   - Travel goes into the session log as a short entry: from, to, days and
     route.
@@ -793,7 +793,7 @@ screen, big touch targets, and a lot less on each screen.
 - **Panels are cards with one thing each.** Details open as bottom sheets,
   not new pages.
 
-**DM phone: an assistant to the DM's desktop, not a second desktop.**
+**GM phone: an assistant to the GM's desktop, not a second desktop.**
 - **Quick views:** initiative and whose turn it is, HP and conditions with
   tap to adjust, the transcript, and the agent chat.
 - **A remote for the desktop:** soundboard pads, music mood and ambience
@@ -819,11 +819,11 @@ screen, big touch targets, and a lot less on each screen.
 - Nothing is placed across the Fold's hinge; when half-folded, the hinge
   splits the two panes.
 - **Testing:** a Playwright run at each shape, using the cover and inner
-  screen sizes measured on the DM's own Z Fold, plus a normal phone and a
+  screen sizes measured on the GM's own Z Fold, plus a normal phone and a
   4:3 tablet. It checks that nothing scrolls sideways and nothing is cut
   off.
 
-**Done:** every player screen and the DM assistant pass at all four shapes,
+**Done:** every player screen and the GM assistant pass at all four shapes,
 and the redesign is reviewed on the real Z Fold before it ships.
 
 ## 16. Where things run: web, app, gateway
@@ -832,7 +832,7 @@ and the redesign is reviewed on the real Z Fold before it ships.
 broker, chats, the stage, the session log, inventory and the world date. It
 doesn't need hardware features. Browser recording stays only as a fallback.
 
-**The installed app** (Tauri; Linux, Windows and macOS for the DM, plus
+**The installed app** (Tauri; Linux, Windows and macOS for the GM, plus
 phones) handles hardware on the machine it runs on:
 - several mics and speakers, hold-to-talk keys, speaker groups (§3.1)
 - multiple monitors: pop the stage, combat or the transcript out to a
@@ -847,7 +847,7 @@ and the installed app both use them, and so can any device on the network:
 - **mics and speakers plugged into the gateway machine itself**, e.g. a
   table mic or a speaker in the room. They work with no app running: a small
   audio helper on the gateway records and plays through them. In Docker this
-  needs the sound device passed into the container. A mic on the DM's own PC
+  needs the sound device passed into the container. A mic on the GM's own PC
   still needs the installed app.
 
 ### 16.1 Actions and macros
@@ -860,7 +860,7 @@ and the installed app both use them, and so can any device on the network:
   - send a quick event, speak a voice preset
   - roll dice, quick-gen gold
 - **The gateway keeps the list of actions,** each with optional arguments.
-  The DM builds **macros** from them: a sequence such as "Combat starts":
+  The GM builds **macros** from them: a sequence such as "Combat starts":
   red lights, combat music, show the combat card.
 - **Triggers:**
   - **Installed app:** global hotkeys.
@@ -874,7 +874,7 @@ and the installed app both use them, and so can any device on the network:
     can send a web request runs it with no app installed. The URL can be
     revoked and only runs that one macro.
   - **MIDI pads (later):** through the installed app.
-- **Safety:** macros run with the DM's rights and are audited. Players can
+- **Safety:** macros run with the GM's rights and are audited. Players can
   have macros too, limited to what they may do.
 
 ### 16.2 Lights
@@ -907,9 +907,9 @@ Builds on step 1 (connections, sources, audience per source).
   before saving it: the Kanka campaign id matches, the LegendKeeper project
   matches, or the generic API's world parameter matches. A key for another
   world is refused.
-- **The DM imports any number of keys** into a world and sets permissions
+- **The GM imports any number of keys** into a world and sets permissions
   on each:
-  - who may use it: one player, several, or the DM only
+  - who may use it: one player, several, or the GM only
   - what it may be used for: library view, agent lookups, broker
   - its trust level (17.2)
 - **Storage:** keys are secrets, stored server-side, never shown again, and
@@ -928,41 +928,41 @@ found when it tested the key:
   - The usual safety still applies on top: secret, broker and classified
     markers stay hidden.
 - **Blanket key** (sees everything, e.g. most API keys):
-  - The key is treated as DM-level. Nothing it returns is shown to the
+  - The key is treated as GM-level. Nothing it returns is shown to the
     player directly.
-- **Unsure:** the gateway treats the key as a blanket key until the DM
+- **Unsure:** the gateway treats the key as a blanket key until the GM
   confirms otherwise. It fails closed.
 
 ### 17.3 Escalation instead of leaks
 When a player's question can only be answered from content their own view
-doesn't have (DM-only, broker or classified, or anything that came through
+doesn't have (GM-only, broker or classified, or anything that came through
 a blanket key):
 - The question is **escalated**, never answered directly. Depending on the
   world's settings it becomes:
-  - **a DM-only question:** the DM answers, rewrites or refuses it
-  - **a high-level broker deal:** priced by the DM, with a wait measured in
-    game time or sessions (e.g. 2 sessions), and delivered only after the DM
+  - **a GM-only question:** the GM answers, rewrites or refuses it
+  - **a high-level broker deal:** priced by the GM, with a wait measured in
+    game time or sessions (e.g. 2 sessions), and delivered only after the GM
     approves
-- The player only sees "the broker will look into it" (or the DM's
+- The player only sees "the broker will look into it" (or the GM's
   answer). No text from the hidden source reaches them before approval.
 - The audit model (§10) decides "answerable from your view" vs "needs
   escalation". When it's unsure, it escalates.
 
 ### 17.4 The agent
 - **A player's agent uses only that player's keys** for live lookups (their
-  own key, or one the DM assigned to them), never the DM's.
+  own key, or one the GM assigned to them), never the GM's.
 - **Blanket-key results** go to the escalation path above, not into the
   player's answer.
-- **The DM agent** may use any key the DM allows it.
+- **The GM agent** may use any key the GM allows it.
 - **Testing:** the leak crawler gets new markers for per-key content and
   blanket-key content.
 
-## 18. Minerva: the DM's agent and her campaign memory
+## 18. Minerva: the GM's agent and her campaign memory
 
-The agent is **Minerva**. She works for the DM; players only ever meet her as the
+The agent is **Minerva**. She works for the GM; players only ever meet her as the
 information broker. Her memory is an LLMWIKI for the campaign stored under `Minerva/` in the
 library: a single living Campaign Status doc, revelation lists, session prep, hooks and hidden
-lore for the DM; arcs with one-page summaries over the session logs; one codex page per
+lore for the GM; arcs with one-page summaries over the session logs; one codex page per
 entity that accretes over the campaign (linked to its source page, never a copy); and one
 root per player (profile, goals, journal, knowledge, bonds). The full spec, levels, rules,
 tools and session workflow are in [docs/MINERVA.md](docs/MINERVA.md). The `dnd` branch of
@@ -973,16 +973,16 @@ LLM-will-remember-this is the same layout as an Obsidian vault.
 1. **Live transcript for players:** yes, with key-word cards. It's built from
    all mics, merged into the best version of each line, about 5 seconds
    behind (§3.3a, §4).
-2. **DM music and sound on players' devices:** yes, if each player allows
+2. **GM music and sound on players' devices:** yes, if each player allows
    it, with separate switches for music and sound effects (§5.3).
-3. **Rules:** D&D 2024 (SRD 5.2) by default and D&D 5e 2014 (SRD 5.1) also
+3. **Rules:** 5e 2024 (SRD 5.2) by default and 5e 2014 (SRD 5.1) also
    built in; more can be imported from a zip, a folder, JSON, git or an API
    (§4.3).
 4. **Models:** all local by default (§10). Any model job can point at a
    cloud endpoint instead, because they all go through `/v1`.
-5. **Transcript:** one transcript with two views (DM and players). Each mic
+5. **Transcript:** one transcript with two views (GM and players). Each mic
    has a "Players' transcript" switch (§3.1, §3.3a).
-6. **The DM phone app** is an assistant to the desktop (§15).
+6. **The GM phone app** is an assistant to the desktop (§15).
 7. **The web app is for viewing.** Hardware (mics, speakers, monitors,
    hotkeys and macros) belongs to the installed app. Shared devices
    (lights, gateway mics and speakers, macro trigger URLs) are hosted by the

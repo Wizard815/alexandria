@@ -1,5 +1,5 @@
 // Recording in the browser. This lives outside React so it keeps running as
-// the DM or a player moves between pages; the transcript island (an overlay
+// the GM or a player moves between pages; the transcript island (an overlay
 // on every page) keeps it attached to the signed-in world.
 //
 // Each mic sends a chunk every 5 seconds. A chunk is its own MediaRecorder (so
@@ -283,7 +283,7 @@ class Engine {
   saveMics(list: MicSetting[]) { safe(() => localStorage.setItem(this.key(), JSON.stringify(list)), undefined); this.asideKey = this.loadAsideKey(); }
   loadAsideKey(): string { return safe(() => localStorage.getItem(`alx.audio.asideKey.${this.cfg?.worldId}`) ?? '', ''); }
   saveAsideKey(k: string) { safe(() => localStorage.setItem(`alx.audio.asideKey.${this.cfg?.worldId}`, k), undefined); this.asideKey = k; }
-  /** One id per computer, so a DM's mics keep their names across sessions. */
+  /** One id per computer, so a GM's mics keep their names across sessions. */
   computerId(): string {
     return safe(() => { let v = localStorage.getItem('alx.audio.computer'); if (!v) { v = Math.random().toString(36).slice(2, 10); localStorage.setItem('alx.audio.computer', v); } return v; }, 'tab');
   }
@@ -359,7 +359,7 @@ class Engine {
     clearInterval(this.sttTimer);
     this.sttUnsub?.();
     if (mode !== 'server') {
-      // Every few seconds, and at once when the state changes, so the DM sees each mic's speed and a failure is taken over by the server straight away.
+      // Every few seconds, and at once when the state changes, so the GM sees each mic's speed and a failure is taken over by the server straight away.
       this.sttUnsub = deviceStt.subscribe(() => { const v = deviceStt.view; if (v.state !== this.sttLast) { this.sttLast = v.state; this.reportStt(); } });
       this.sttTimer = setInterval(() => this.reportStt(), 5000);
     }

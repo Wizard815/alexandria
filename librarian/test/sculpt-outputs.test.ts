@@ -24,7 +24,7 @@ test('Sculpt outputs: an encounter runs into initiative and saves a page, each o
   const first = r.values.monsters.split('\n')[0].match(/(\d+)× (.+?) \(/);
   assert.ok(combat.combatants.some((c: any) => c.name.startsWith(first![2])), JSON.stringify(combat.combatants.map((c: any) => c.name)));
   assert.ok(combat.combatants.every((c: any) => c.hp > 0 && c.ac > 0));
-  // A failing output does not lose the others: nothing to send in a DM template.
+  // A failing output does not lose the others: nothing to send in a GM template.
   const mixed = await bare.ok('POST', `${bare.S}/outputs`, bare.T.dm, { templateId: t.id, values: r.values, outputs: { page: true, send: true } });
   assert.ok(mixed.done.page && mixed.errors.send);
   // A template with no outputs ticked is refused, and the legacy combat route accepts a list template too.
@@ -50,16 +50,16 @@ test('Sculpt outputs: run can do several things at once: page, stage and send fo
   assert.ok(sent.done.send.threadId);
 });
 
-test('Sculpt outputs: nothing DM-only reaches the stage, players or the broker', async () => {
+test('Sculpt outputs: nothing GM-only reaches the stage, players or the broker', async () => {
   const letter = await named(env, 'Letter or handout');
   const cardsBefore = JSON.stringify(await env.ok('GET', `/api/worlds/${env.W}/stage`, env.T.dm));
   const leaky = { sender: 'Marta Voss', letter: `${DM_SECRET} and so it goes tonight.` };
   const out = await env.ok('POST', `${env.S}/outputs`, env.T.dm, { templateId: letter.id, values: leaky, outputs: { stage: true, send: true, broker: true } });
-  for (const k of ['stage', 'send', 'broker']) assert.match(out.errors[k], /DM-only|Blocked/, k);
+  for (const k of ['stage', 'send', 'broker']) assert.match(out.errors[k], /GM-only|Blocked/, k);
   assert.deepEqual(out.done, {});
   assert.equal(JSON.stringify(await env.ok('GET', `/api/worlds/${env.W}/stage`, env.T.dm)), cardsBefore, 'no card was made');
   assert.equal((await env.ok('GET', `/api/worlds/${env.W}/broker/notes`, env.T.dm)).length, 0);
-  // A DM template: its DM-only fields never go out, and its public text is checked too.
+  // A GM template: its GM-only fields never go out, and its public text is checked too.
   const npc = await named(env, 'NPC for quick RP');
   const values = { name: 'Old Pell', race: 'human', role: 'ferryman', look: 'Stooped, grey-bearded and always smelling of tar.', knows: 'The ferry runs at dawn and dusk.', secret: 'Pell once sank a boat of smugglers for the queen of the harbour.' };
   const ok = await env.ok('POST', `${env.S}/outputs`, env.T.dm, { templateId: npc.id, values, outputs: { stage: true, broker: true } });
@@ -70,7 +70,7 @@ test('Sculpt outputs: nothing DM-only reaches the stage, players or the broker',
   const notes = await env.ok('GET', `/api/worlds/${env.W}/broker/notes`, env.T.dm);
   assert.equal(notes.length, 1);
   assert.ok(!notes[0].text.includes('sank a boat') && notes[0].text.includes('ferry runs at dawn'));
-  // A "knows" line that repeats a DM-only page is stopped, even though the field is not marked DM-only.
+  // A "knows" line that repeats a GM-only page is stopped, even though the field is not marked GM-only.
   const bad = await env.ok('POST', `${env.S}/outputs`, env.T.dm, { templateId: npc.id, values: { ...values, knows: `${DM_SECRET} said the whispers.` }, outputs: { stage: true, broker: true } });
   assert.ok(bad.errors.stage && bad.errors.broker);
   assert.ok(!JSON.stringify(await env.ok('GET', `/api/worlds/${env.W}/stage`, env.T.jess)).includes('Velmira'));
@@ -83,7 +83,7 @@ test('Sculpt outputs: a page shared with the party is leak checked, and saved pa
   assert.equal(r.status, 409);
   const clean = { ...values, knows: 'Fresh mint grows by the old well and nowhere else in town.' };
   await env.ok('POST', `${env.S}/outputs`, env.T.dm, { templateId: npc.id, values: clean, outputs: { page: true } });
-  // The page is saved (DM-only) with the same public text; showing it on the stage afterwards still works.
+  // The page is saved (GM-only) with the same public text; showing it on the stage afterwards still works.
   const later = await env.ok('POST', `${env.S}/outputs`, env.T.dm, { templateId: npc.id, values: clean, outputs: { stage: true } });
   assert.deepEqual(later.errors, {});
 });
@@ -107,7 +107,7 @@ test('Sculpt integration: the library page, location and level context, and the 
   const room = await named(bare, 'Dungeon room');
   const r = await bare.ok('POST', `${bare.S}/run`, bare.T.dm, { templateId: room.id, values: {}, context: { page: 'Saltmarsh', partyLevel: 9 } });
   assert.match(r.values.occupants, /CR/);
-  const scene = await named(bare, 'Scene, DM perspective');
+  const scene = await named(bare, 'Scene, GM perspective');
   const s = await bare.ok('POST', `${bare.S}/run`, bare.T.dm, { templateId: scene.id, values: {}, context: { page: 'Saltmarsh' } });
   assert.equal(s.values.location, 'Saltmarsh', 'the page fills the first blank page field');
   assert.equal((await bare.call('POST', `${bare.S}/run`, bare.T.dm, { templateId: scene.id, values: {}, context: { page: 'No such page' } })).status, 404);

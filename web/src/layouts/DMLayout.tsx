@@ -74,7 +74,7 @@ function AccountMenu({ connected }: { connected: boolean }) {
       </button>
       {open && (
         <div className="dmx-pop dmx-menu" role="menu">
-          <span className="tiny faint">{me?.account.display_name} · Dungeon Master · {connected ? 'live' : 'reconnecting…'}</span>
+          <span className="tiny faint">{me?.account.display_name} · Game Master · {connected ? 'live' : 'reconnecting…'}</span>
           <Link role="menuitem" to="/">Your worlds</Link>
           {me?.account.is_admin && <Link role="menuitem" to="/admin">Library admin</Link>}
           <button type="button" role="menuitem" data-testid="ws-toggle" onClick={() => { setWorkspaceHidden(!workspaceHidden()); setOpen(false); }}>{workspaceHidden() ? 'Show workspaces' : 'Hide workspaces'}</button>

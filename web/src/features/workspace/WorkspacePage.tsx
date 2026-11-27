@@ -1,4 +1,4 @@
-// /w/:world/dm/ws: the DM's workspace. The main area is split into 1 to 4 panes, each showing any DM page. The state (layout,
+// /w/:world/dm/ws: the GM's workspace. The main area is split into 1 to 4 panes, each showing any GM page. The state (layout,
 // pages, sizes, focused and maximised pane) lives in the URL, so a reload or a bookmark brings it back; the last one is also
 // remembered per world, and layouts can be named and saved (lib/workspace.ts). One world event stream serves every pane: they
 // are all inside the one WorldProvider.
@@ -106,7 +106,7 @@ export default function WorkspacePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [ws, commit]);
 
-  if (!isDM) return <div className="page"><p className="muted">The workspace is for the DM.</p></div>;
+  if (!isDM) return <div className="page"><p className="muted">The workspace is for the GM.</p></div>;
 
   const sizes = live ?? ws.s;
   const z = phone ? ws.f : ws.z;

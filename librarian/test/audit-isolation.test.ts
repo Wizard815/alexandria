@@ -1,4 +1,4 @@
-// Audit: world isolation. Every route of world A is called, as A's DM, as an A player and with an A DM write key,
+// Audit: world isolation. Every route of world A is called, as A's GM, as an A player and with an A GM write key,
 // with every kind of id that belongs to world B (path parameters and body fields). World B must not change and
 // nothing of B's may come back. (docs/SECURITY.md: "a person in one world gets nothing from another".)
 import { test, after } from 'node:test';

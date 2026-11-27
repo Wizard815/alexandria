@@ -78,7 +78,7 @@ export const BUILTINS: TemplateDef[] = [
   },
   {
     key: 'shop', name: 'Shop or store', perspective: 'dm', category: 'Places', outputs: { page: true },
-    description: 'A shop with an owner, a price level and stock with prices. Haggling notes stay DM-only.',
+    description: 'A shop with an owner, a price level and stock with prices. Haggling notes stay GM-only.',
     fields: [
       { key: 'name', label: 'Shop name', type: 'text', required: true },
       { key: 'kind', label: 'Kind', type: 'select', options: ['smith', 'alchemist', 'general', 'magic'] },
@@ -92,8 +92,8 @@ export const BUILTINS: TemplateDef[] = [
     target: { kind: 'shop', path: 'Shops/{{name}}', visibility: 'dm', listField: 'inventory' },
   },
   {
-    key: 'scene-dm', name: 'Scene, DM perspective', perspective: 'dm', category: 'Story', outputs: { page: true },
-    description: 'Full DM notes for a scene, including what is really going on.',
+    key: 'scene-dm', name: 'Scene, GM perspective', perspective: 'dm', category: 'Story', outputs: { page: true },
+    description: 'Full GM notes for a scene, including what is really going on.',
     fields: [
       { key: 'title', label: 'Scene title', type: 'text', required: true },
       { key: 'location', label: 'Location', type: 'page', hint: 'A library page' },

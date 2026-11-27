@@ -1,4 +1,4 @@
-// Active mode (docs/MINERVA.md, docs/AGENTS.md). Everything here is the DM's:
+// Active mode (docs/MINERVA.md, docs/AGENTS.md). Everything here is the GM's:
 // players never see these routes, the log, the cards or the word Minerva.
 //
 //   GET  /active                     mode now, settings, presets, waiting cards

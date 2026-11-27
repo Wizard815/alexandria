@@ -4,7 +4,7 @@
 // feature needs to say who it is), the model, how long it took and, when the server told, the tokens. The admin page "Model activity"
 // reads it (GET /api/admin/models/activity): who has been calling, and how often in the last hour.
 //
-// model_access: accounts and keys that may use /v1 besides the DM and the admin, with optional daily limits of their own.
+// model_access: accounts and keys that may use /v1 besides the GM and the admin, with optional daily limits of their own.
 import type { DB } from './db.ts';
 import { all, one, run } from './db.ts';
 import { now } from './util.ts';
@@ -118,7 +118,7 @@ export interface Allowance { allowed: boolean; why: string; dailyRequests: numbe
 
 const num = (v: string | undefined, d: number) => (Number.isFinite(Number(v)) && v !== undefined && v !== '' ? Number(v) : d);
 
-/** Is this caller allowed through /v1, and with which limits? The admin and a DM (signed in, not by a scribe key) by default; anyone else only when listed. */
+/** Is this caller allowed through /v1, and with which limits? The admin and a GM (signed in, not by a scribe key) by default; anyone else only when listed. */
 export function allowanceOf(db: DB, s: Subject, env: Record<string, string | undefined>): Allowance {
   const staffLimits = { dailyRequests: num(env.ALX_V1_DAILY_REQUESTS_DM, 5000), dailyTokens: num(env.ALX_V1_DAILY_TOKENS_DM, 2_000_000), ratePerMinute: num(env.ALX_V1_RATE_PER_MIN_DM, 120) };
   const guestLimits = { dailyRequests: num(env.ALX_V1_DAILY_REQUESTS, 200), dailyTokens: num(env.ALX_V1_DAILY_TOKENS, 100_000), ratePerMinute: num(env.ALX_V1_RATE_PER_MIN, 20) };
@@ -127,11 +127,11 @@ export function allowanceOf(db: DB, s: Subject, env: Record<string, string | und
   const acct = listed('account', s.accountId);
   const row = key ?? acct;
   const withRow = (base: typeof guestLimits) => ({ dailyRequests: row?.daily_requests ?? base.dailyRequests, dailyTokens: row?.daily_tokens ?? base.dailyTokens, ratePerMinute: base.ratePerMinute });
-  // A key that is not the admin's own session is listed by itself: a leaked scribe key must not be able to spend the model credit just because its owner is the DM.
+  // A key that is not the admin's own session is listed by itself: a leaked scribe key must not be able to spend the model credit just because its owner is the GM.
   if (s.viaScribeKey) return key ? { allowed: true, why: 'key listed', ...withRow(guestLimits) } : { allowed: false, why: 'scribe keys do not reach the model gateway unless listed', ...guestLimits };
   if (s.isAdmin || s.isDm) return { allowed: true, why: s.isAdmin ? 'admin' : 'dm', ...withRow(staffLimits) };
   if (row) return { allowed: true, why: 'listed', ...withRow(guestLimits) };
-  return { allowed: false, why: 'only the DM and the admin use the model gateway', ...guestLimits };
+  return { allowed: false, why: 'only the GM and the admin use the model gateway', ...guestLimits };
 }
 
 const startOfDayUtc = () => { const s = new Date(); s.setUTCHours(0, 0, 0, 0); return s; };

@@ -1,5 +1,5 @@
-// Ask the DM: my questions and suggestions, plus ones the party shared,
-// with the DM's answers.
+// Ask the GM: my questions and suggestions, plus ones the party shared,
+// with the GM's answers.
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
@@ -21,7 +21,7 @@ export default function PlayerAskDM() {
 
   return (
     <div className="page">
-      <PageHead title="Ask the DM" lead="Questions, suggested changes and new pages. Choose whether only the DM or the whole party can see each one.">
+      <PageHead title="Ask the GM" lead="Questions, suggested changes and new pages. Choose whether only the GM or the whole party can see each one.">
         <button type="button" className="btn" onClick={() => setAsk('new')}>Suggest a page</button>
         <button type="button" className="btn primary" onClick={() => setAsk('question')}>Ask a question</button>
       </PageHead>
@@ -43,7 +43,7 @@ export default function PlayerAskDM() {
               <p className="read" style={{ whiteSpace: 'pre-line', fontSize: 16 }}>{r.body}</p>
               {r.reply && (
                 <div style={{ padding: '8px 12px', borderLeft: '2px solid var(--accent)', background: 'var(--panel-2)', borderRadius: '0 6px 6px 0' }}>
-                  <span className="tiny faint">DM{r.decided_at ? ` · ${when(r.decided_at)}` : ''}</span>
+                  <span className="tiny faint">GM{r.decided_at ? ` · ${when(r.decided_at)}` : ''}</span>
                   <p className="read" style={{ whiteSpace: 'pre-line', fontSize: 16 }}>{r.reply}</p>
                 </div>
               )}
@@ -51,7 +51,7 @@ export default function PlayerAskDM() {
           ))}
         </div>
       ) : <Empty>{tab === 'mine' ? 'You have not asked anything yet.' : 'Nothing shared by the party yet.'}</Empty>}
-      {ask && <AskModal kind={ask} page={null} onClose={() => setAsk(null)} onSent={() => { setAsk(null); void reqs.reload(); toast('Sent to the DM'); }} />}
+      {ask && <AskModal kind={ask} page={null} onClose={() => setAsk(null)} onSent={() => { setAsk(null); void reqs.reload(); toast('Sent to the GM'); }} />}
       {toastNode}
     </div>
   );

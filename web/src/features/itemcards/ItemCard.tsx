@@ -61,12 +61,12 @@ export function ItemCard({ itemId, onClose }: { itemId: string; onClose?: () => 
         {onClose && <button type="button" className="btn small ghost" onClick={onClose} aria-label="Close card">✕</button>}
       </div>
       {it.note && <p className="small" style={{ margin: 0 }}>{it.note}</p>}
-      {it.dmNote && <p className="small" style={{ margin: 0 }}><span className="chip">DM note</span> {it.dmNote}</p>}
+      {it.dmNote && <p className="small" style={{ margin: 0 }}><span className="chip">GM note</span> {it.dmNote}</p>}
       {pg ? (
         <section aria-label={`About ${pg.title}`} className="stack tight" style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
           <div className="row between" style={{ alignItems: 'baseline', gap: 8 }}>
             <h3 style={{ margin: 0, fontSize: 16 }}><Icon icon={pg.icon} size={14} /> {pg.title}</h3>
-            {pg.visibility === 'dm' && <span className="chip">DM only page</span>}
+            {pg.visibility === 'dm' && <span className="chip">GM only page</span>}
           </div>
           {pg.facts.length > 0 && <Facts groups={pg.facts} ctx={ctx} />}
           <div className="lib-page">{pg.excerpt.length ? <Blocks blocks={pg.excerpt} ctx={ctx} /> : null}</div>

@@ -1,5 +1,5 @@
 // The live session board: staging vs shown, per-player cards, player copies
-// only (no DM notes or secret blocks), the combat card following the players'
+// only (no GM notes or secret blocks), the combat card following the players'
 // combat view, buying through approvals, picture checks, filtered live events.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -62,11 +62,11 @@ before(async () => {
     ID[name] = j.account.id;
   }
   const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
-  P.town = await page('places/Westmarch', 'party', `# Westmarch\nA harbour town under grey skies.\n\n> [!secret] DM\n> The Ashgrove cult runs the docks.\n\n## Docks\nBusy at dawn.\n`);
+  P.town = await page('places/Westmarch', 'party', `# Westmarch\nA harbour town under grey skies.\n\n> [!secret] GM\n> The Ashgrove cult runs the docks.\n\n## Docks\nBusy at dawn.\n`);
   P.hidden = await page('dm/Lair', 'dm', `# Lair\nThe Ashgrove cult meets here.\n`);
-  P.shop = await page('shops/Mordo', 'party', `# Mordo's Sundries\nRope, lamps and odd things.\n\n- Rope (50 ft) - 1 gp\n- Lantern - 5 gp\n- Mystery box - priceless\n\n> [!secret] DM\n> Mordane the owner will haggle down to half.\n`);
-  P.npcPage = await page('people/Brenna', 'party', `# Brenna\nA brisk innkeeper.\n\n> [!secret] DM\n> Brenna is cursed by the lich Mordane.\n`);
-  // A person with a player-facing page, a party quote and a DM-only quote.
+  P.shop = await page('shops/Mordo', 'party', `# Mordo's Sundries\nRope, lamps and odd things.\n\n- Rope (50 ft) - 1 gp\n- Lantern - 5 gp\n- Mystery box - priceless\n\n> [!secret] GM\n> Mordane the owner will haggle down to half.\n`);
+  P.npcPage = await page('people/Brenna', 'party', `# Brenna\nA brisk innkeeper.\n\n> [!secret] GM\n> Brenna is cursed by the lich Mordane.\n`);
+  // A person with a player-facing page, a party quote and a GM-only quote.
   P.npc = (await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Brenna', role: 'Innkeeper', attitude: 'friendly', pageId: P.npcPage, visibility: 'party' })).id;
   await ok('POST', `/api/worlds/${W}/people/${P.npc}/quotes`, T.dm, { text: 'Mind the stairs.', visibility: 'party' });
   await ok('POST', `/api/worlds/${W}/people/${P.npc}/quotes`, T.dm, { text: 'Buried truth: the cult pays me.', visibility: 'dm' });
@@ -126,7 +126,7 @@ test('TestStage_PageAndPersonCardsNeverIncludeDMNotesOrSecretBlocks', async () =
   const sc = b.cards.find((c: any) => c.id === shop.id);
   assert.deepEqual(sc.data.items.map((i: any) => [i.name, i.priceCp]), [['Rope (50 ft)', 100], ['Lantern', 500], ['Mystery box - priceless', null]]);
   assert.ok(b.cards.find((c: any) => c.id === place.id).data.page.title === 'Westmarch');
-  // A DM-supplied preview is not trusted: extra fields are ignored.
+  // A GM-supplied preview is not trusted: extra fields are ignored.
   const sneaky = await add({ kind: 'place', ref: P.town, show: true, preview: 'Ashgrove cult', text: 'Mordane', caption: 'x' });
   noSecrets('sneaky place', await stage(T.jess));
   for (const x of [place, shop, person, sneaky]) await ok('DELETE', `${S()}/cards/${x.id}`, T.dm);
@@ -136,11 +136,11 @@ test('TestStage_DMOnlyPagesAndPeopleCannotBeShownAndFailClosedLater', async () =
   assert.equal((await call('POST', `${S()}/cards`, T.dm, { kind: 'place', ref: P.hidden, show: true })).status, 409);
   assert.equal((await call('POST', `${S()}/cards`, T.dm, { kind: 'person', ref: P.secretNpc, show: true })).status, 409);
   assert.deepEqual(ids(await stage(T.dm)), [], 'a failed show leaves no card behind');
-  // Staging is fine; the DM sees it is unavailable to players.
+  // Staging is fine; the GM sees it is unavailable to players.
   const staged = await add({ kind: 'place', ref: P.hidden });
   assert.equal(staged.unavailable, true);
   await ok('DELETE', `${S()}/cards/${staged.id}`, T.dm);
-  // A shown page that is later made DM-only drops off the players' board.
+  // A shown page that is later made GM-only drops off the players' board.
   const c = await add({ kind: 'place', ref: P.town, show: true });
   assert.deepEqual(ids(await stage(T.jess)), [c.id]);
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Westmarch', visibility: 'dm', markdown: '# Westmarch\nNow secret.\n' });
@@ -168,7 +168,7 @@ test('TestStage_CombatCardFollowsThePlayersCombatView', async () => {
     else assert.ok(gob.health, 'monster health follows the setting');
     assert.equal(card.data.view.combatants.find((x: any) => x.is_pc).health, null);
   }
-  // The DM's card is the full tracker.
+  // The GM's card is the full tracker.
   const dmCard = (await stage(T.dm)).cards.find((x: any) => x.id === c.id);
   assert.ok(JSON.stringify(dmCard).includes('Ambusher'));
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { monsterHealth: 'words' });
@@ -185,7 +185,7 @@ test('TestStage_BuyGoesThroughApprovals', async () => {
   const r = await ok('POST', `${S()}/cards/${shop.id}/buy`, T.jess, { item: 'lantern', qty: 2, priceCp: 1 });
   assert.equal(r.pending, true);
   assert.equal(r.totalCp, 1000);
-  assert.equal((await coin()).cp, 1000, 'coin has not moved until the DM approves');
+  assert.equal((await coin()).cp, 1000, 'coin has not moved until the GM approves');
   const inv = await ok('GET', `/api/worlds/${W}/inventory`, T.jess);
   const it = inv.items.find((x: any) => x.name === 'Lantern');
   assert.equal(it.status, 'pending');
@@ -200,7 +200,7 @@ test('TestStage_BuyGoesThroughApprovals', async () => {
   assert.equal((await coin()).cp, 0);
   assert.equal((await ok('GET', `/api/worlds/${W}/inventory`, T.jess)).items.find((x: any) => x.name === 'Lantern').qty, 2);
 
-  // No price, unknown item, the DM, a card tom cannot see, and an unshown shop.
+  // No price, unknown item, the GM, a card tom cannot see, and an unshown shop.
   await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 500 });
   assert.equal((await call('POST', `${S()}/cards/${shop.id}/buy`, T.jess, { item: 'Mystery box - priceless' })).status, 400);
   assert.equal((await call('POST', `${S()}/cards/${shop.id}/buy`, T.jess, { item: 'Sword' })).status, 404);
@@ -233,7 +233,7 @@ test('TestStage_ImageUploadChecksAndPlayersCannotFetchUnshownImages', async () =
   assert.equal(via.status, 201);
 
   const c = await add({ kind: 'image', ref: img, caption: 'The old map' });
-  // Staged: players cannot fetch it directly, and the DM's own ticket works.
+  // Staged: players cannot fetch it directly, and the GM's own ticket works.
   assert.equal((await call('GET', `${S()}/images/${img}`, T.jess)).status, 404);
   const dmUrl = (await stage(T.dm)).cards.find((x: any) => x.id === c.id).data.url as string;
   assert.ok(dmUrl.startsWith('/api/media/stage/'));

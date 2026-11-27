@@ -20,10 +20,10 @@ const GROUPS: [string, string, Row[]][] = [
     T('trackWeight', 'Track item weight', 'Off: no weight column or carried total on inventories.'),
     C('coins', 'Coin types', 'Which coins the pouch shows.', [['gsc', 'Gold · silver · copper'], ['all', 'All five (pp gp ep sp cp)'], ['gold', 'Gold only']]),
     T('partyPurse', 'Shared party pouch', 'A group pouch beside each player’s own coin.'),
-    T('dmEditsInventory', 'DM can edit player inventories', 'Every change is logged and the player sees it.'),
+    T('dmEditsInventory', 'GM can edit player inventories', 'Every change is logged and the player sees it.'),
   ]],
   ['approvals', 'Approvals & broker', [
-    T('playerChangesNeedApproval', 'Player coin and item changes need your approval', 'On: what players add, spend, edit or remove waits in Approvals and shows as “Waiting for the DM”. Broker payments are never held.'),
+    T('playerChangesNeedApproval', 'Player coin and item changes need your approval', 'On: what players add, spend, edit or remove waits in Approvals and shows as “Waiting for the GM”. Broker payments are never held.'),
     T('dmChangeReason', 'Ask me why when I change a player’s things', 'Your reason shows to the owner, who can confirm or dispute it.'),
     T('playerTransfers', 'Players can give coin and items freely', 'On: players hand each other coin and items, and move things in and out of the party stash, without asking. You see every give in Party & inventory.'),
     T('brokerEnabled', 'Information broker', 'Players can buy what their characters could learn, at prices you set on the broker page.'),
@@ -47,8 +47,8 @@ const GROUPS: [string, string, Row[]][] = [
     T('captions', 'Live captions for players', 'Players see the transcript in Live.'),
   ]],
   ['rules', 'Rules & look', [
-    C('rules', 'Rules system', 'Used for terms in recaps and recalls.', [['dnd55', 'D&D 5.5'], ['dnd5', 'D&D 5e'], ['lancer', 'Lancer'], ['pokemon', 'Pokémon'], ['other', 'Other']]),
-    C('requestDefault', 'New requests default to', 'Players can change it on each request.', [['dm', 'Only the DM'], ['party', 'Party can see']]),
+    C('rules', 'Rules system', 'Used for terms in recaps and recalls.', [['dnd55', '5e (2024)'], ['dnd5', '5e (2014)'], ['lancer', 'Lancer'], ['pokemon', 'Pokémon'], ['other', 'Other']]),
+    C('requestDefault', 'New requests default to', 'Players can change it on each request.', [['dm', 'Only the GM'], ['party', 'Party can see']]),
     T('themeEffects', 'Allow theme effects', 'Embers, mist and other effects on players’ screens.'),
   ]],
 ];
@@ -57,7 +57,7 @@ export default function DMSettings() {
   const { info } = useWorld();
   return (
     <div className="page">
-      <PageHead title="Settings" lead={`These apply to ${info.name} only. Nothing here exposes DM-only content.`} />
+      <PageHead title="Settings" lead={`These apply to ${info.name} only. Nothing here exposes GM-only content.`} />
       <SettingsForm />
     </div>
   );

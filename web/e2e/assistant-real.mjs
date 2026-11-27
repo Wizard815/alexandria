@@ -1,4 +1,4 @@
-// A short run of the DM assistant against a REAL chat model (OpenRouter), over the API: ask for changes, see the
+// A short run of the GM assistant against a REAL chat model (OpenRouter), over the API: ask for changes, see the
 // approval cards, approve them back to back and time it, then switch Auto on and ask again. No browser.
 // Skipped unless ASSISTANT_REAL=1 and OpenRouter answers (it spends a few cents). Run from web/:
 //   NODE_USE_ENV_PROXY=1 ASSISTANT_REAL=1 node e2e/assistant-real.mjs
@@ -21,7 +21,7 @@ try {
   const prov = (await j('POST', '/api/admin/models/providers', admin, { name: 'OpenRouter', kind: 'openai-compatible', baseUrl: OR, apiKey: KEY, location: 'cloud' })).x;
   const pid = prov.provider?.id ?? prov.id;
   await j('PUT', '/api/admin/models', admin, { jobs: { chat: { providerId: pid, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } } } });
-  const tok = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'dungeon master 123' })).x.token;
+  const tok = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'game master 123' })).x.token;
   const WID = (await j('GET', '/api/worlds', tok)).x[0].id;
   const P = `/api/worlds/${WID}`;
   const chat = (await j('POST', `${P}/agent/chats`, tok, {})).x;

@@ -1,6 +1,6 @@
-// Ask: the DM's assistant on a phone. This is the real chat (agent/Chat.tsx) in its phone layout, so streaming,
+// Ask: the GM's assistant on a phone. This is the real chat (agent/Chat.tsx) in its phone layout, so streaming,
 // past chats, dictation, read-aloud and approval cards are the desktop's own. This file adds what is particular to the
-// table: the session-so-far card, the combatant picked on Now, and the DM's own one-tap prompts.
+// table: the session-so-far card, the combatant picked on Now, and the GM's own one-tap prompts.
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { Markdown } from '../../ui/index.tsx';
@@ -36,7 +36,7 @@ export default function AskTab({ focus, turn, setFocus }: { focus: { id: string;
     // Read at send time: HP and conditions change by the minute in a fight.
     get: async () => {
       const x: Combatant | undefined = (await w.combat())?.combatants?.find((c: Combatant) => c.id === focus.id);
-      return x ? `The DM has this combatant open on their phone (the fight as it is now): ${combatantLine(x)}` : undefined;
+      return x ? `The GM has this combatant open on their phone (the fight as it is now): ${combatantLine(x)}` : undefined;
     },
   };
 
@@ -49,7 +49,7 @@ export default function AskTab({ focus, turn, setFocus }: { focus: { id: string;
   );
 }
 
-/** The summary of the session so far (the DM's own, with everything they can read), folded away until wanted. */
+/** The summary of the session so far (the GM's own, with everything they can read), folded away until wanted. */
 function SoFar() {
   const { w } = useWorld();
   const [open, setOpen] = useState(() => lsGet('alx.dmphone.sofar') === '1');

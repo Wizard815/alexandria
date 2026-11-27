@@ -341,7 +341,7 @@ function lkWrite(backend: (cfg: Record<string, any>, ctx: ConnectorContext) => L
         banner: null,
         properties: lkGroups(r.properties),
         blocks,
-        // The workspace applies the page's level itself; until then it is DM-only.
+        // The workspace applies the page's level itself; until then it is GM-only.
         visibility: 'dm',
         updatedAt: doc.updatedAt ?? r.updatedAt ?? null,
       } as Entry;

@@ -1,6 +1,6 @@
 // Downtime's data: the world's activities (the shipped ones merged with the
 // world's own), each character's tasks with their progress, downtime rounds
-// (the DM's Downtime button) with each player's pick, and a log of every
+// (the GM's Downtime button) with each player's pick, and a log of every
 // change with the real time and the in-world date it happened.
 import type { DB } from '../../core/db.ts';
 import { all, one, run, tx as begin } from '../../core/db.ts';
@@ -21,7 +21,7 @@ export const SCHEMA = `
     id TEXT NOT NULL,
     json TEXT NOT NULL,
     source TEXT NOT NULL,            -- premade (a changed copy of a shipped one) | dm | player
-    status TEXT NOT NULL DEFAULT 'ok', -- ok | proposed (a player's, waiting for the DM) | hidden
+    status TEXT NOT NULL DEFAULT 'ok', -- ok | proposed (a player's, waiting for the GM) | hidden
     created_by TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -157,7 +157,7 @@ export function saveActivity(db: DB, worldId: string, raw: any, by: string, sour
   return activity(db, worldId, aid);
 }
 
-/** The DM changes an activity. A shipped one gets a world copy (its id stays). */
+/** The GM changes an activity. A shipped one gets a world copy (its id stays). */
 export function updateActivity(db: DB, worldId: string, aid: string, patch: any): ActivityRow {
   const cur = activity(db, worldId, aid);
   const { source, status, createdBy, changed, ...base } = cur;
@@ -286,7 +286,7 @@ export interface Progress { row: any; finished: boolean; logId: string }
 
 /**
  * Add (or take away, minutes < 0) work on a task. Logged; a task that reaches its time is done (unless it is still a
- * proposal waiting for the DM), and its link's onComplete runs.
+ * proposal waiting for the GM), and its link's onComplete runs.
  */
 export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: string, minutes: number, e: { kind: 'work' | 'time'; by: string | null; roundId?: string | null; note?: string; worker?: string }): Progress {
   const { db } = d;
@@ -298,7 +298,7 @@ export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: stri
     const done = Math.max(0, r.done_min + Math.round(minutes));
     const delta = done - r.done_min;
     run(db, 'UPDATE downtime_tasks SET done_min = ?, updated_at = ? WHERE id = ?', done, now(), tid);
-    // On a group task the log row names the character who did the work (the party when the DM changes the time).
+    // On a group task the log row names the character who did the work (the party when the GM changes the time).
     const who = e.worker ?? r.account_id;
     const logId = writeLog(db, worldId, { accountId: who, taskId: tid, taskName: r.name, kind: e.kind, minutes: delta, roundId: e.roundId, by: e.by, note: e.note });
     let finished = false;
@@ -340,7 +340,7 @@ export function setStatus(d: { db: DB; hub: EventHub }, worldId: string, tid: st
     if (r.status === status) return r;
     if (r.status === 'removed') throw new HttpError(409, 'That task was removed');
     if (r.status === 'done' && status !== 'removed') throw new HttpError(409, `${r.name} is already finished`);
-    if (r.status === 'proposed' && status === 'active') throw new HttpError(409, 'The DM has not approved this activity yet');
+    if (r.status === 'proposed' && status === 'active') throw new HttpError(409, 'The GM has not approved this activity yet');
     run(db, 'UPDATE downtime_tasks SET status = ?, updated_at = ? WHERE id = ?', status, now(), tid);
     const kind = status === 'removed' ? 'remove' : status === 'paused' ? 'pause' : 'resume';
     writeLog(db, worldId, { accountId: r.account_id, taskId: tid, taskName: r.name, kind, by, note: note || (status === 'removed' ? `Stopped with ${span(r.done_min, r.per_day_min / 60)} done` : '') });
@@ -349,7 +349,7 @@ export function setStatus(d: { db: DB; hub: EventHub }, worldId: string, tid: st
   });
 }
 
-/** The DM edits a task: name, tier, length (in days), hours a day, reward, private note. Approves a proposal. */
+/** The GM edits a task: name, tier, length (in days), hours a day, reward, private note. Approves a proposal. */
 export function editTask(d: { db: DB; hub: EventHub }, worldId: string, tid: string, b: any, by: string): any {
   const { db } = d;
   return tx(db, () => {
@@ -384,7 +384,7 @@ export function editTask(d: { db: DB; hub: EventHub }, worldId: string, tid: str
   });
 }
 
-// ---- rounds: the DM's Downtime button ----------------------------------------------------------------------------------
+// ---- rounds: the GM's Downtime button ----------------------------------------------------------------------------------
 
 export interface DayPick { taskId: string; days: number }
 export const openRound = (db: DB, worldId: string) => one<any>(db, "SELECT * FROM downtime_rounds WHERE world_id = ? AND status = 'open' ORDER BY created_at DESC LIMIT 1", worldId);
@@ -429,7 +429,7 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
       seen.add(p.taskId);
       const r = taskRow(db, worldId, p.taskId);
       if (!r || (r.account_id !== aid && !isGroup(r))) throw new HttpError(404, 'Task not found');
-      if (isGroup(r) && r.status === 'paused') throw new HttpError(409, `The DM paused ${r.name}`);
+      if (isGroup(r) && r.status === 'paused') throw new HttpError(409, `The GM paused ${r.name}`);
       if (!['active', 'proposed', 'paused'].includes(r.status)) throw new HttpError(409, `${r.name} is ${r.status}`);
       if (!Number.isInteger(p.days) || p.days < 1 || p.days > round.days) throw new HttpError(400, `days must be from 1 to ${round.days}`);
       used += p.days * r.per_day_min;

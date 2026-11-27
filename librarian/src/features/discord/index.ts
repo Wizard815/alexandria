@@ -1,13 +1,13 @@
-// A Discord bot for a world (docs/DISCORD.md). The DM sets it up on DM →
+// A Discord bot for a world (docs/DISCORD.md). The GM sets it up on GM →
 // Setup → Discord; players link their Discord account with a one-time code
 // from Settings & account → Discord, then use /roll, /ask and /recap.
 //
-//   GET    /discord             DM: settings (the token is never sent back), bot status, invite link, linked players
-//   PUT    /discord             DM: change settings
-//   GET    /discord/channels    DM: the server's text channels, to pick from
-//   POST   /discord/test        DM: a test post in the recap and roll channels
-//   POST   /discord/recap/:id   DM: post a published recap (again)
-//   DELETE /discord/links/:aid  DM: unlink a player
+//   GET    /discord             GM: settings (the token is never sent back), bot status, invite link, linked players
+//   PUT    /discord             GM: change settings
+//   GET    /discord/channels    GM: the server's text channels, to pick from
+//   POST   /discord/test        GM: a test post in the recap and roll channels
+//   POST   /discord/recap/:id   GM: post a published recap (again)
+//   DELETE /discord/links/:aid  GM: unlink a player
 //   GET    /discord/me          is a bot set up, and am I linked
 //   POST   /discord/me/code     a one-time code to type as /link in Discord
 //   DELETE /discord/me          unlink myself
@@ -134,7 +134,7 @@ const feature: Feature = {
     r.post('/me/code', requirePlayerOrDM, (_req, res) => {
       const w = W(res);
       const c = configOf(d.db, w);
-      if (!c?.enabled || !c.token || !c.guildId) throw new HttpError(409, 'The DM has not set up a Discord bot for this world');
+      if (!c?.enabled || !c.token || !c.guildId) throw new HttpError(409, 'The GM has not set up a Discord bot for this world');
       const k = newCode(d.db, w, me(res));
       res.json({ ...k, minutes: CODE_MINUTES, command: `/link code:${k.code}` });
     });

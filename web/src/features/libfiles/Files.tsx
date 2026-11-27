@@ -93,7 +93,7 @@ export function UploadForm({ pageId, max, videoMax, onDone, onCancel }: { pageId
   );
 }
 
-/** What the DM can do to one file; players get no controls. */
+/** What the GM can do to one file; players get no controls. */
 function FileTools({ f, canUpload, reload }: { f: LibFile; canUpload: boolean; reload: () => void }) {
   const { w } = useWorld();
   const act = useAction();
@@ -177,7 +177,7 @@ export function PageFiles({ pageId }: { pageId: string }) {
   );
 }
 
-/** The Files tab: every file the viewer may see, searchable, and (for a DM) a way to add a file as a new page. */
+/** The Files tab: every file the viewer may see, searchable, and (for a GM) a way to add a file as a new page. */
 export function FilesTab({ onOpen }: { onOpen: (pageId: string) => void }) {
   const files = useFiles();
   const so = useSharing().data;

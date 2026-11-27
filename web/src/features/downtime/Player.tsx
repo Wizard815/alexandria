@@ -1,4 +1,4 @@
-// The player's side of DownTime: the popup when the DM presses Downtime (pick
+// The player's side of DownTime: the popup when the GM presses Downtime (pick
 // what to spend the days on, skip, or make a new activity), the Downtime page
 // (my tasks, start one, my log) and the sheet module.
 import { useEffect, useMemo, useState } from 'react';
@@ -37,7 +37,7 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
   const { w, me } = useWorld();
   const act = useAction();
   const r = o.round!;
-  // My own tasks, and the party's group tasks (working on one joins it). The DM paused a group task: nobody works it.
+  // My own tasks, and the party's group tasks (working on one joins it). The GM paused a group task: nobody works it.
   const mine = o.tasks.filter((t) => isOpen(t) && (t.scope === 'group' ? t.status !== 'paused' : !player || t.accountId === player));
   const split = splitScope(mine);
   const prev = r.mine?.picks ?? [];
@@ -90,7 +90,7 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
                       <input type="checkbox" checked={!!on} onChange={() => toggle({ key: t.id, taskId: t.id, days: Math.min(r.days, t.daysLeft || 1), label: t.name, perDay: t.perDayMin / 60 })} />
                       <strong>{t.name}</strong> <TierChip tier={t.tier} label={t.tierLabel} />
                       {t.scope === 'group' && <GroupChip />}
-                      {t.status === 'proposed' && <span className="tiny muted">waiting for the DM</span>}
+                      {t.status === 'proposed' && <span className="tiny muted">waiting for the GM</span>}
                     </span>
                     <span className="tiny muted">{t.leftLabel} left{t.perDayMin / 60 < o.dayHours ? ` · ${t.perDayMin / 60}h a day` : ''}</span>
                   </label>
@@ -193,7 +193,7 @@ function NewActivity({ onAdd, playerNew }: { onAdd: (a: NewAct, perDay: number) 
         <button type="button" className="btn primary" disabled={!name.trim()} onClick={() => onAdd({ name: name.trim(), summary: summary.trim(), ...(group ? { group: true } : {}) }, dec?.hoursPerDay ?? 8)}>Add to my pick</button>
       </div>
       <ErrorBox error={act.error} />
-      <span className="tiny muted">{playerNew === 'approve' ? 'The DM sets its tier and reward; the time you spend still counts.' : 'It starts right away.'}</span>
+      <span className="tiny muted">{playerNew === 'approve' ? 'The GM sets its tier and reward; the time you spend still counts.' : 'It starts right away.'}</span>
     </div>
   );
 }
@@ -206,14 +206,14 @@ export function TaskLine({ t, children }: { t: Task; children?: React.ReactNode 
         <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <strong>{t.name}</strong> <TierChip tier={t.tier} label={t.tierLabel} />
           {t.scope === 'group' && <GroupChip />}
-          {t.status !== 'active' && <span className="tiny muted">{t.status === 'proposed' ? 'waiting for the DM' : t.status}</span>}
+          {t.status !== 'active' && <span className="tiny muted">{t.status === 'proposed' ? 'waiting for the GM' : t.status}</span>}
           {t.player && t.scope !== 'group' && <span className="tiny faint">{t.player}</span>}
         </span>
         <span className="tiny muted">{t.status === 'done' ? `done in ${t.doneLabel}` : `${t.doneLabel} of ${t.needLabel}`}</span>
       </div>
       <Progress t={t} />
       {t.scope === 'group' && <span className="tiny muted" data-testid="downtime-members">{t.contributions.length ? t.contributions.map((c) => `${c.name || 'someone'} ${c.label}`).join(' · ') : t.memberNames?.length ? `${t.memberNames.join(', ')} joined` : 'Nobody on it yet'}</span>}
-      <span className="tiny muted">{rewardText(t.reward) ? `Reward: ${rewardText(t.reward)}${t.rewardGivenAt ? ' (given)' : t.rewardWaiting ? ' (waiting for the DM)' : ''}` : ''}</span>
+      <span className="tiny muted">{rewardText(t.reward) ? `Reward: ${rewardText(t.reward)}${t.rewardGivenAt ? ' (given)' : t.rewardWaiting ? ' (waiting for the GM)' : ''}` : ''}</span>
       {children}
     </div>
   );
@@ -262,7 +262,7 @@ export function PlayerDowntime() {
       <ErrorBox error={act.error ?? tasks.error} />
       <section className="card" data-testid="downtime-personal">
         <div className="card-head"><h2>My tasks</h2><label className="small"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Finished and stopped too</label></div>
-        {!tasks.data ? <Loading /> : !split.personal.length ? <p className="small muted">Nothing yet. Start an activity, or wait for the DM's Downtime.</p> : split.personal.map((t) => (
+        {!tasks.data ? <Loading /> : !split.personal.length ? <p className="small muted">Nothing yet. Start an activity, or wait for the GM's Downtime.</p> : split.personal.map((t) => (
           <TaskLine key={t.id} t={t}>
             {['active', 'paused'].includes(t.status) && (
               <span className="row" style={{ gap: 6 }}>

@@ -1,4 +1,4 @@
-// Scenes: one button sets the whole room. CRUD is DM-only; activation applies each set part (TV, sound, lights, table map and
+// Scenes: one button sets the whole room. CRUD is GM-only; activation applies each set part (TV, sound, lights, table map and
 // fog) and reports per part; a failing part does not stop the others; unset parts are left alone; undo puts back what the
 // parts that worked changed, and says what it cannot; capture saves the room as it is; and the agent tool.
 import { test, before, after } from 'node:test';
@@ -71,7 +71,7 @@ test('TestScenes_CrudIsDMOnly', async () => {
   for (const [m, p, b] of [
     ['GET', '/scenes', undefined], ['POST', '/scenes', { name: 'x' }], ['PUT', `/scenes/${made.id}`, { name: 'y' }], ['DELETE', `/scenes/${made.id}`, undefined],
     ['PUT', '/scenes/order', { ids: [made.id] }], ['POST', `/scenes/${made.id}/activate`, {}], ['POST', '/scenes/undo', {}], ['POST', '/scenes/capture', { name: 'z' }], ['GET', '/scenes/last', undefined],
-  ] as const) assert.equal((await call(m, api(p), T.jess, b)).status, 403, `${m} ${p} is DM-only`);
+  ] as const) assert.equal((await call(m, api(p), T.jess, b)).status, 403, `${m} ${p} is GM-only`);
   assert.equal((await call('GET', api('/scenes'))).status, 401);
   const second = await dm('POST', '/scenes', { name: 'Boss fight' });
   await dm('PUT', '/scenes/order', { ids: [second.id, made.id] });
@@ -142,9 +142,9 @@ test('TestScenes_ActivateAppliesEveryPartAndUndoPutsItBack', async () => {
   // Players' screen shows it, and every screen got live events.
   assert.equal((await ok('GET', api('/screen/players'), T.jess)).media.current.id, a);
   const types = new Set(events.events.map((e) => e.type));
-  for (const t of ['screen', 'sound', 'table-display', 'fog', 'scenes']) assert.ok(types.has(t), `the DM's screens got a ${t} event: ${[...types]}`);
+  for (const t of ['screen', 'sound', 'table-display', 'fog', 'scenes']) assert.ok(types.has(t), `the GM's screens got a ${t} event: ${[...types]}`);
   assert.ok(pev.events.some((e) => e.type === 'screen') && pev.events.some((e) => e.type === 'table-display'), 'players\' screens got theirs');
-  assert.ok(!pev.events.some((e) => e.type === 'scenes'), 'the scenes event is DM-only');
+  assert.ok(!pev.events.some((e) => e.type === 'scenes'), 'the scenes event is GM-only');
   assert.equal((await dm('GET', '/scenes')).last.name, 'Cosy inn');
 
   // Undo: everything back as it was; what cannot be put back is said.

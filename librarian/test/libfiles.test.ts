@@ -108,7 +108,7 @@ test('TestLibFiles_UploadValidationAndSizeCap', async () => {
     assert.equal(all(e.deps.db, 'SELECT * FROM libfiles_files').length, 0);
     const good = await e.up(e.T.dm, q, PNG());
     assert.equal(good.status, 201);
-    assert.equal(good.body.level, 'dm', 'no level means DM-only');
+    assert.equal(good.body.level, 'dm', 'no level means GM-only');
     assert.equal(good.body.mime, 'image/png');
   } finally { e.close(); }
 });
@@ -140,12 +140,12 @@ test('TestLibFiles_LevelsDecideWhoSeesAFile', async () => {
     const fBroker = await up(party, 'broker', 'b.png');
     const fClass = await up(party, 'classified', 'c.png');
     const fOnSecret = await up(secret, 'party', 'onsecret.png');
-    // The DM sees everything with its level.
+    // The GM sees everything with its level.
     const dmList = await listFor(e, e.T.dm, party.id);
     assert.deepEqual(dmList.map((f) => f.level).sort(), ['broker', 'classified', 'dm', 'party']);
     // A player: only the party-level file of a shared page.
     assert.deepEqual((await listFor(e, e.T.jess, party.id)).map((f) => f.name), ['p.png']);
-    assert.equal((await e.call('GET', `/api/worlds/${e.W}/files?page=${secret.id}`, e.T.jess)).status, 404, 'a DM-only page is not found');
+    assert.equal((await e.call('GET', `/api/worlds/${e.W}/files?page=${secret.id}`, e.T.jess)).status, 404, 'a GM-only page is not found');
     const all1 = (await e.ok('GET', `/api/worlds/${e.W}/files`, e.T.jess)).files as any[];
     assert.deepEqual(all1.map((f) => f.name), ['p.png']);
     for (const f of [fDm, fBroker, fClass, fOnSecret]) {
@@ -153,17 +153,17 @@ test('TestLibFiles_LevelsDecideWhoSeesAFile', async () => {
       const t = await e.bytes(`/api/media/libfile/${mintTicket({ w: e.W, k: 'libfile', f: f.id, a: e.ID.jess })}`);
       assert.equal(t.status, 404, `a ticket made for jess does not open ${f.name}`);
     }
-    // A model asking for the DM's view never sees a classified file.
+    // A model asking for the GM's view never sees a classified file.
     const asModel = await fetch(`${e.base}/api/worlds/${e.W}/files?page=${party.id}`, { headers: { Authorization: `Bearer ${e.T.dm}`, 'X-Alexandria-Caller': 'model' } });
     const names = ((await asModel.json()) as any).files.map((f: any) => f.name).sort();
     assert.deepEqual(names, ['b.png', 'dm.png', 'p.png']);
     assert.equal((await fetch(`${e.base}/api/worlds/${e.W}/files/${fClass.id}`, { headers: { Authorization: `Bearer ${e.T.dm}`, 'X-Alexandria-Caller': 'model' } })).status, 404);
-    // Lowering the page to DM-only takes the party file away at once, even on a ticket already handed out.
+    // Lowering the page to GM-only takes the party file away at once, even on a ticket already handed out.
     const ticket = (await listFor(e, e.T.jess, party.id))[0].url as string;
     assert.equal((await e.bytes(ticket)).status, 200);
     await e.ok('PUT', `/api/worlds/${e.W}/library/pages/${party.id}/level`, e.T.dm, { level: 'dm' });
     assert.equal((await e.bytes(ticket)).status, 404, 'checked again on every fetch');
-    // Making the file DM-only does the same.
+    // Making the file GM-only does the same.
     await e.ok('PUT', `/api/worlds/${e.W}/library/pages/${party.id}/level`, e.T.dm, { level: 'party' });
     assert.equal((await e.bytes(ticket)).status, 200);
     await e.ok('PATCH', `/api/worlds/${e.W}/files/${fParty.id}`, e.T.dm, { level: 'dm' });
@@ -268,7 +268,7 @@ test('TestLibFiles_KankaWriteBackSendsAnEntityAssetAndNeverClassified', async ()
   try {
     const pg = await page(e, 'Characters/Aldric.md', 'party');
     const src = addSource(e, 'kanka-api', { apiUrl: KANKA, campaignId: '77', token: 'kanka_token_0123456789abcdef' }, pg.id, 'kanka:555');
-    // The option exists for a party or DM file, not for a classified one.
+    // The option exists for a party or GM file, not for a classified one.
     assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${pg.id}&level=dm`, e.T.dm)).target.app, 'Kanka');
     assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${pg.id}&level=classified`, e.T.dm)).target, null);
     assert.equal((await e.call('GET', `/api/worlds/${e.W}/files/targets?page=${pg.id}`, e.T.jess)).status, 403);
@@ -287,7 +287,7 @@ test('TestLibFiles_KankaWriteBackSendsAnEntityAssetAndNeverClassified', async ()
     assert.equal(calls[0].form.file, undefined);
     assert.equal(calls[0].form.name, 'aldric.png');
 
-    // A DM-only file goes up as admin-only.
+    // A GM-only file goes up as admin-only.
     await e.up(e.T.dm, `page=${pg.id}&name=notes.pdf&level=dm&send=${src}`, PDF());
     assert.equal(calls[1].form.visibility_id, '2');
 
@@ -395,7 +395,7 @@ test('TestLibFiles_AdminWhoIsNotTheDmSeesOnlyThePartyCopyAndCannotUpload', async
     await e.up(e.T.dm, `page=${open.id}&name=d.png&level=dm`, PNG('dmbytes'));
     await e.up(e.T.dm, `page=${secret.id}&name=s.png&level=party`, PNG('onsecretbytes'));
     const A = `/api/admin/library/worlds/${e.W}`;
-    // The admin is not the DM here: world routes refuse, the admin library answers with the party copy.
+    // The admin is not the GM here: world routes refuse, the admin library answers with the party copy.
     assert.equal((await e.call('GET', `/api/worlds/${e.W}/library/pages`, e.T.admin)).status, 404);
     const worlds = await e.ok('GET', '/api/admin/library/worlds', e.T.admin);
     assert.deepEqual(worlds.map((w: any) => [w.name, w.view, w.role]), [['Filesland', 'party', null]]);
@@ -422,7 +422,7 @@ test('TestLibFiles_AdminWhoIsNotTheDmSeesOnlyThePartyCopyAndCannotUpload', async
     assert.equal((await e.call('GET', `${A}/library/pages`, e.T.jess)).status, 403);
     assert.equal((await e.call('GET', `${A}/library/pages`)).status, 401);
 
-    // An admin who is the world's DM gets the DM view and can upload.
+    // An admin who is the world's GM gets the GM view and can upload.
     await e.ok('PUT', `/api/admin/worlds/${e.W}/members/${one<any>(e.deps.db, 'SELECT id FROM accounts WHERE username = ?', 'wizard').id}`, e.T.admin, { role: 'dm' });
     const dmView = await e.ok('GET', `${A}/library/pages`, e.T.admin);
     assert.equal(dmView.length, 2);

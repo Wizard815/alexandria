@@ -16,7 +16,7 @@
   "rules": [
     {
       "term": "Massive damage (house rule)",
-      "text": "When a creature takes damage from one source equal to or greater than **half its hit point maximum**, it makes a **DC 15 Constitution save**. On a failure the DM rolls d10: 1 drop to 0 HP; 2-4 drop to 0 HP but stable; 5-10 stunned until the end of its next turn."
+      "text": "When a creature takes damage from one source equal to or greater than **half its hit point maximum**, it makes a **DC 15 Constitution save**. On a failure the GM rolls d10: 1 drop to 0 HP; 2-4 drop to 0 HP but stable; 5-10 stunned until the end of its next turn."
     }
   ],
   "assistant": {
@@ -26,6 +26,6 @@
       "big hit"
     ],
     "dm": "Massive damage is on: when one hit deals at least half a creature's HP maximum, call for a DC 15 Constitution save. On a fail roll d10: 1 drops to 0 HP, 2-4 drops to 0 HP but stable, 5-10 stunned until the end of its next turn.",
-    "player": "At this table a single hit of half your HP maximum or more means a DC 15 Constitution save, or the DM rolls a d10 for a bad result (stunned, or dropped to 0)."
+    "player": "At this table a single hit of half your HP maximum or more means a DC 15 Constitution save, or the GM rolls a d10 for a bad result (stunned, or dropped to 0)."
   }
 }

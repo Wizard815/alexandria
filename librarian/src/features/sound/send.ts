@@ -28,7 +28,7 @@ export function wants(d: Deps, worldId: string, accountId: string, channel: Soun
 }
 
 /**
- * The DM's screen gets every event (it decides by `target` whether to play
+ * The GM's screen gets every event (it decides by `target` whether to play
  * it at the table). A player gets it only when the target includes players
  * and one of their devices has that channel's switch on.
  */

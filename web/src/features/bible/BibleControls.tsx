@@ -1,4 +1,4 @@
-// DM: what the story bible is doing now, how far it is, start, pause and check it.
+// GM: what the story bible is doing now, how far it is, start, pause and check it.
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -10,8 +10,8 @@ interface Status { chat: boolean; building?: boolean; configured: boolean; model
   log: { at: string; pageId: string; title: string; scope: string; ok: boolean; facts: number; ms: number }[]; scopes: Record<string, Scope>; progress?: Progress }
 interface Finding { kind: string; pageId: string; title: string; scope: string; note: string }
 interface Audit { facts: number; counts: Record<string, number>; findings: Finding[] }
-const READERS: [string, string][] = [['party', 'Players'], ['broker', 'Broker'], ['dm', 'DM']];
-const WHO: Record<string, string> = { party: 'players', broker: 'broker', dm: 'DM', lifted: 'shared with some' };
+const READERS: [string, string][] = [['party', 'Players'], ['broker', 'Broker'], ['dm', 'GM']];
+const WHO: Record<string, string> = { party: 'players', broker: 'broker', dm: 'GM', lifted: 'shared with some' };
 const KINDS: Record<string, string> = { failed: 'Could not be read', empty: 'Read, but nothing found', unsupported: 'Names something the page does not' };
 
 export function BibleControls({ left, onChanged }: { left: string; onChanged: () => void }) {

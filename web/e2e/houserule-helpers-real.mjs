@@ -1,6 +1,6 @@
 // House rules with REAL models (OpenRouter): a downtime rule is on, a player's table helper (the small player model)
-// is asked what to do for downtime, and the DM's assistant is told a day passes. The helper must suggest real
-// activities from the rule's list; the DM's assistant must propose opening the rule's Downtime prompt. No browser.
+// is asked what to do for downtime, and the GM's assistant is told a day passes. The helper must suggest real
+// activities from the rule's list; the GM's assistant must propose opening the rule's Downtime prompt. No browser.
 // Skipped unless ASSISTANT_REAL=1 (it spends a fraction of a cent). Run from web/:
 //   NODE_USE_ENV_PROXY=1 ASSISTANT_REAL=1 node e2e/houserule-helpers-real.mjs
 import fs from 'node:fs';
@@ -33,7 +33,7 @@ try {
     chat: { providerId: pid, model: DM_MODEL, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } },
     player: { providerId: pid, model: PLAYER_MODEL, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } },
   } });
-  const dm = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'dungeon master 123' })).x.token;
+  const dm = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'game master 123' })).x.token;
   const jess = (await j('POST', '/api/auth/login', null, { username: 'jess', password: 'player pass 123' })).x.token;
   const WID = (await j('GET', '/api/worlds', dm)).x[0].id;
   const P = `/api/worlds/${WID}`;
@@ -50,16 +50,16 @@ try {
   const reply = String(hc.messages?.at(-1)?.text ?? '');
   console.log(`helper (${PLAYER_MODEL}), ${Math.round((Date.now() - t0) / 1000)} s:\n  ${reply.replace(/\n/g, '\n  ').slice(0, 900)}`);
   if (!/work a trade|carouse/i.test(reply)) problems.push('the helper did not suggest an activity from the rule');
-  if (/open the Downtime day prompt|house_rule_prompt/i.test(reply)) problems.push("the helper repeated the DM's guidance");
+  if (/open the Downtime day prompt|house_rule_prompt/i.test(reply)) problems.push("the helper repeated the GM's guidance");
 
-  // The DM's assistant.
+  // The GM's assistant.
   const c = (await j('POST', `${P}/agent/chats`, dm, {})).x;
   t0 = Date.now();
   const dc = await wait(P, dm, c.id, 'A day passes between adventures. Run downtime for the party.');
   const cards = (dc.actions ?? []).filter((a) => a.status === 'pending' || a.status === 'done');
-  console.log(`DM assistant (${DM_MODEL}), ${Math.round((Date.now() - t0) / 1000)} s: ${cards.map((a) => `${a.tool} ${a.status} (${a.summary})`).join(' | ') || 'no cards'}\n  ${String(dc.messages?.at(-1)?.text ?? '').slice(0, 400)}`);
+  console.log(`GM assistant (${DM_MODEL}), ${Math.round((Date.now() - t0) / 1000)} s: ${cards.map((a) => `${a.tool} ${a.status} (${a.summary})`).join(' | ') || 'no cards'}\n  ${String(dc.messages?.at(-1)?.text ?? '').slice(0, 400)}`);
   const card = cards.find((a) => a.tool === 'house_rule_prompt');
-  if (!card) problems.push('the DM assistant did not propose the Downtime prompt');
+  if (!card) problems.push('the GM assistant did not propose the Downtime prompt');
   else if (card.status === 'pending') {
     const r = await j('POST', `${P}/agent/actions/${card.id}`, dm, { decision: 'approve' });
     if (r.x.status !== 'done') problems.push(`approving the prompt ended ${r.x.status}`);
@@ -68,7 +68,7 @@ try {
     if (!(open.rounds ?? open.prompts ?? []).length) problems.push('no open prompt for the player after approval');
   }
 
-  // The table rules that ship in mods/: a rules-only one reaches the helper, a data one reaches the DM.
+  // The table rules that ship in mods/: a rules-only one reaches the helper, a data one reaches the GM.
   for (const id of ['potion-bonus-action', 'lingering-injuries']) await j('PUT', `${P}/mods/${id}/enabled`, dm, { on: true, cascade: true });
   const h2 = (await j('POST', `${P}/agent/chats`, jess, { mode: 'helper' })).x;
   const pc = await wait(P, jess, h2.id, 'Can I drink a healing potion and still attack this turn?');
@@ -78,8 +78,8 @@ try {
   const c2 = (await j('POST', `${P}/agent/chats`, dm, {})).x;
   const ic = await wait(P, dm, c2.id, 'Jessamine just took a critical hit to the chest. Give her a lingering injury that fits.');
   const inj = (ic.actions ?? []).find((a) => a.tool === 'house_rule_record_act');
-  console.log(`DM on injuries: ${inj ? `${inj.status} (${inj.summary})` : 'no card'} / ${String(ic.messages?.at(-1)?.text ?? '').slice(0, 200)}`);
-  if (!inj) problems.push('the DM assistant did not propose an injury');
+  console.log(`GM on injuries: ${inj ? `${inj.status} (${inj.summary})` : 'no card'} / ${String(ic.messages?.at(-1)?.text ?? '').slice(0, 200)}`);
+  if (!inj) problems.push('the GM assistant did not propose an injury');
   else if (inj.status === 'pending') {
     const r = await j('POST', `${P}/agent/actions/${inj.id}`, dm, { decision: 'approve' });
     const mine = (await j('GET', `${P}/mods/lingering-injuries/records?kind=injury`, jess)).x.records?.injury ?? [];

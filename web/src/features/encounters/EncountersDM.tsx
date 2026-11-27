@@ -1,4 +1,4 @@
-// DM page: Encounters. Send an NPC to one player, several or the party (a
+// GM page: Encounters. Send an NPC to one player, several or the party (a
 // quick line with answers, a saved encounter or a built-in starter), watch
 // each talk live, speak as the NPC, end a talk; build and save encounters
 // with branching answers, gifts, a shop and small games; and the settings
@@ -178,7 +178,7 @@ function Watch({ e, cfg }: { e: Encounter; cfg: EncounterConfig }) {
       </div>
       {e.templateName && <span className="tiny faint">{e.templateName}{e.paidCp ? ` · paid out ${coins(e.paidCp, cfg.coins)}` : ''}</span>}
       <div className="enc-log">
-        {e.log.map((l, i) => <div key={i} className={`enc-line ${l.who}`}>{(l.who === 'npc' || l.who === 'dm') && <span className="enc-who">{l.who === 'dm' ? `${e.npc.name} (you)` : e.npc.name}</span>}{l.who === 'you' && <span className="enc-who">{e.player}</span>}{l.who === 'secret' && <span className="enc-who">DM note</span>}<span>{l.text}</span></div>)}
+        {e.log.map((l, i) => <div key={i} className={`enc-line ${l.who}`}>{(l.who === 'npc' || l.who === 'dm') && <span className="enc-who">{l.who === 'dm' ? `${e.npc.name} (you)` : e.npc.name}</span>}{l.who === 'you' && <span className="enc-who">{e.player}</span>}{l.who === 'secret' && <span className="enc-who">GM note</span>}<span>{l.text}</span></div>)}
       </div>
       {open && (
         <>
@@ -210,7 +210,7 @@ type Pick = { t: Template; random?: boolean; draft?: boolean };
 
 /**
  * Pick where the party is and who it happens to, then pick an event: from the list, a random one (favourites, your
- * own, the built-ins, or any), or a new one the assistant drafts. Every event opens in a preview first, where the DM
+ * own, the built-ins, or any), or a new one the assistant drafts. Every event opens in a preview first, where the GM
  * sends it, tweaks it, or tries another. Stars keep favourites at the top.
  */
 function StoryEvents({ data, cfg, shops, reload }: { data: { templates: Template[]; starters: Template[]; places: PlaceOpt[] }; cfg: EncounterConfig; shops: ShopLite[]; reload: () => Promise<void> }) {
@@ -358,7 +358,7 @@ function Generate({ place, placeLabel, onClose, onDraft }: { place: string; plac
   );
 }
 
-const fxText = (fx: Effect, money: (cp: number) => string): string => fx.kind === 'gold' ? `gets ${money(fx.cp)}` : fx.kind === 'pay' ? `pays ${money(fx.cp)}` : fx.kind === 'lose' ? `loses ${money(fx.cp)}` : fx.kind === 'item' ? `gets ${fx.qty > 1 ? `${fx.qty} × ` : ''}${fx.name}` : fx.kind === 'dmnote' ? `DM note: ${fx.text}` : 'opens a shop';
+const fxText = (fx: Effect, money: (cp: number) => string): string => fx.kind === 'gold' ? `gets ${money(fx.cp)}` : fx.kind === 'pay' ? `pays ${money(fx.cp)}` : fx.kind === 'lose' ? `loses ${money(fx.cp)}` : fx.kind === 'item' ? `gets ${fx.qty > 1 ? `${fx.qty} × ` : ''}${fx.name}` : fx.kind === 'dmnote' ? `GM note: ${fx.text}` : 'opens a shop';
 
 /** The event before it goes out: every step, answer, check and timer. Send, tweak (edit and save), or try another. */
 function StoryPreview({ pick, shops, places, label, who, busy, error, fav, onStar, onSend, onClose, onAnother, onSaved }: {
@@ -458,7 +458,7 @@ function Library({ data, shops, reload }: { data: { templates: Template[]; start
   );
 }
 
-/** Describe an encounter and the world's chat model drafts the steps; the DM edits and saves it. */
+/** Describe an encounter and the world's chat model drafts the steps; the GM edits and saves it. */
 function DraftBox({ onDraft, kind = 'npc', places = [] }: { onDraft: (t: Template) => void; kind?: EncounterKind; places?: PlaceOpt[] }) {
   const { w } = useWorld();
   const act = useAction();
@@ -646,7 +646,7 @@ function Editor({ start, shops, places = [], onSaved, onGone }: { start: Templat
                     <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'shop', shopId: '' }])}>+ Shop</button>
                     <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'pay', cp: 10 }])}>+ They pay</button>
                     <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'lose', cp: 10 }])}>+ They lose</button>
-                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'dmnote', text: '' }])}>+ DM note</button>
+                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'dmnote', text: '' }])}>+ GM note</button>
                   </div>
                 )}
               </div>

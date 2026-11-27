@@ -1,4 +1,4 @@
-// "Sculpt from this page" / "New card from template": pick a template, and it opens in a side sheet. DM only.
+// "Sculpt from this page" / "New card from template": pick a template, and it opens in a side sheet. GM only.
 import { useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import SculptSheet from './SculptSheet.tsx';

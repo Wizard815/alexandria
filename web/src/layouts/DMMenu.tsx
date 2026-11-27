@@ -1,4 +1,4 @@
-// The DM's navigation: five areas on a rail that never moves, and every page of the area you are in as a strip of tabs above the page.
+// The GM's navigation: five areas on a rail that never moves, and every page of the area you are in as a strip of tabs above the page.
 // Nothing folds away. Up to eight starred pages show on the strip wherever you are. Names, icons and descriptions come from lib/dmnames.ts;
 // the search box (features/search) lists every page too.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -73,7 +73,7 @@ export function DMRail({ base, badges }: { base: string; badges: Record<string, 
   const [last, setLast] = useState<Record<string, string>>(() => read(LAST_KEY, {}));
   useEffect(() => { if (last[entry.group] !== entry.to) { const next = { ...last, [entry.group]: entry.to }; setLast(next); write(LAST_KEY, next); } }, [entry]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <nav className="dmx-rail" aria-label="DM">
+    <nav className="dmx-rail" aria-label="GM">
       {DM_GROUPS.map((g) => {
         const list = entries.filter((e) => e.group === g.id);
         if (!list.length) return null;

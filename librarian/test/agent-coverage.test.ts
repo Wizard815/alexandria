@@ -1,14 +1,14 @@
 // Can the agent use all of Alexandria? Every MCP tool is driven through the real
-// DM agent harness by a scripted fake chat model (an in-test fake fetch that
+// GM agent harness by a scripted fake chat model (an in-test fake fetch that
 // answers the agent's request with a tool_call for the named tool), and every
 // read tool through the player harness. The tools are listed at run time
 // (toolsFor), so a tool added later is covered without touching this file;
 // its arguments come from its schema unless ARGS has a better set.
 //
-//   DM harness     read tools run; write tools become pending actions that run
-//                  when the DM approves them (or at once when auto-approved).
+//   GM harness     read tools run; write tools become pending actions that run
+//                  when the GM approves them (or at once when auto-approved).
 //   Player harness no write tool is offered, and a call to one is refused.
-//   Both           no classified text, and for players no DM-only text, is ever
+//   Both           no classified text, and for players no GM-only text, is ever
 //                  in a request a model receives.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +23,7 @@ import { offerableTools, selectTools } from '../src/features/agent/intent.ts';
 import { startFakeModels } from '../scripts/fake-models.ts';
 import { toneWav } from './soundTone.ts';
 
-// Secrets, one unique marker each. DM-only text may reach the DM's agent; it must never reach a player's.
+// Secrets, one unique marker each. GM-only text may reach the GM's agent; it must never reach a player's.
 const DM_PAGE = 'DMSECRET_PAGE the smuggler queen keeps her treasury beneath the lighthouse cellar';
 const DM_CALLOUT = 'DMSECRET_CALLOUT the harbour council secretly answers to the queen of smugglers';
 const DM_ITEM_NOTE = 'DMSECRET_ITEMNOTE this lantern is cursed by the drowned king';
@@ -46,7 +46,7 @@ const model = {
   offered: [] as string[][],
 };
 
-const AGENT_SYSTEM = /^You are (Minerva, the assistant of the Dungeon Master|.+, the information broker)/;
+const AGENT_SYSTEM = /^You are (Minerva, the assistant of the Game Master|.+, the information broker)/;
 const reply = (message: any) => new Response(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
 const fakes = await startFakeModels(0);
@@ -65,7 +65,7 @@ const fakeFetch = (async (url: any, init?: any) => {
     const body = init?.body && typeof init.body === 'string' ? JSON.parse(init.body) : null;
     const sys = body?.messages?.[0]?.role === 'system' ? String(body.messages[0].content) : '';
     const agent = u.endsWith('/chat/completions') && AGENT_SYSTEM.test(sys);
-    model.seen.push({ who: agent ? (sys.includes('Dungeon Master') ? 'dm' : 'player') : 'other', body: init?.body ?? '' });
+    model.seen.push({ who: agent ? (sys.includes('Game Master') ? 'dm' : 'player') : 'other', body: init?.body ?? '' });
     if (agent) {
       const last = body.messages[body.messages.length - 1];
       if (last.role === 'tool') { model.lastResult = String(last.content); return reply({ role: 'assistant', content: 'Done.' }); }
@@ -129,7 +129,7 @@ for (const name of ['jess', 'tom', 'ana']) {
 const dm = (m: string, u: string, b?: unknown) => ok(m, w(u), T.dm, b);
 const as = (who: string) => (m: string, u: string, b?: unknown) => ok(m, w(u), T[who], b);
 
-ID.saltmarsh = (await dm('PUT', '/library/pages', { path: 'places/Saltmarsh', visibility: 'party', markdown: `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> ${DM_CALLOUT}\n` })).id;
+ID.saltmarsh = (await dm('PUT', '/library/pages', { path: 'places/Saltmarsh', visibility: 'party', markdown: `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> ${DM_CALLOUT}\n` })).id;
 ID.dmpage = (await dm('PUT', '/library/pages', { path: 'dm/Queen', visibility: 'dm', markdown: `# Queen\n${DM_PAGE}.\n` })).id;
 await dm('PUT', '/library/pages', { path: 'classified/Vault', visibility: 'classified', markdown: `# Vault\nThe harbour vault: the ${CLASSIFIED}.\n` });
 ID.item = (await dm('POST', '/inventory', { owner: ID.jess, name: 'Brass lantern', qty: 1, note: 'Hums near water', dmNote: DM_ITEM_NOTE, reason: 'Found in the lighthouse' })).id;
@@ -146,7 +146,7 @@ await dm('POST', '/voice/presets', { name: 'Narrator', voice: 'af_heart', speed:
 await dm('PUT', '/worldlore/config', { kind: 'library', root: 'WorldLore', defaultLevel: 'party' });
 await dm('PATCH', '/settings', { agentAutoApprove: [], sheetRerolls: true });
 await dm('POST', '/minerva/enable', {});
-// Three players asked the broker; the requests are set to the states the DM's tools act on.
+// Three players asked the broker; the requests are set to the states the GM's tools act on.
 for (const [who, q] of [['jess', 'Who rules Saltmarsh?'], ['tom', 'How much is the ferry?'], ['ana', 'Where is the lighthouse?']] as const) {
   const quote = await as(who)('POST', '/broker/quote', { question: q });
   await as(who)('POST', '/broker/ask', { quoteId: quote.quoteId });
@@ -155,7 +155,7 @@ const brokerIds = all<any>(deps.db, 'SELECT id FROM broker_requests WHERE world_
 assert.ok(brokerIds.length >= 3, 'three broker requests were made');
 run(deps.db, `UPDATE broker_requests SET status = 'waiting' WHERE id = ?`, brokerIds[1]);
 run(deps.db, `UPDATE broker_requests SET status = 'pricing' WHERE id = ?`, brokerIds[2]);
-// A player's coin request waits for the DM.
+// A player's coin request waits for the GM.
 await as('jess')('POST', '/live/ledger', { owner: 'me', amountCp: -50, note: 'A round of drinks' });
 
 // ---- driving a tool through a harness ---------------------------------------
@@ -198,7 +198,7 @@ const combatant = (n: string) => once(`cb-${n}`, async () => (await dm('POST', '
 const draft = () => once('draft', async () => (await dm('POST', '/sessionlog/drafts', { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), title: 'Session 1: Coverage' })).id as string);
 const encounter = (n: string) => once(`enc-${n}`, async () => (await dm('POST', '/encounters', { accountIds: [ID.tom], npcName: `Stranger ${n}`, line: 'Hello there.' }))[0].id as string);
 const quickEvent = (n: string) => once(`qe-${n}`, async () => (await dm('POST', '/quick-events', { kind: 'recall', title: `Recall ${n}`, prompt: 'What do you remember?', timerS: 60 })).id as string);
-const lorePage = (n: string) => once(`lore-${n}`, async () => (await dm('POST', '/worldlore/pages', { path: `Test/${n}`, title: n, markdown: `# ${n}\nA page for the test.\n`, level: 'party', by: 'the DM' })).id as string);
+const lorePage = (n: string) => once(`lore-${n}`, async () => (await dm('POST', '/worldlore/pages', { path: `Test/${n}`, title: n, markdown: `# ${n}\nA page for the test.\n`, level: 'party', by: 'the GM' })).id as string);
 const card = () => once('card', async () => (await dm('POST', '/stage/cards', { kind: 'text', title: 'Shown card', text: 'On the stage.', show: true })).id as string);
 const mark = (n: string) => once(`mark-${n}`, async () => (await dm('POST', '/map/world/marks', { kind: 'pin', x: 20, y: 30, label: n })).id as string);
 const scene = () => once('scene', async () => (await dm('POST', '/scenes', { name: 'Coverage scene', parts: { table: { mapId: 'world', pic: 'none' }, sound: { stopOthers: true } } })).name as string);
@@ -374,7 +374,7 @@ const ARGS: Record<string, Maker> = {
     if (held < 1) await dm('POST', '/mods/inspiration-rerolls/act', { action: 'grant', player: ID.jess, resource: 'personal', note: 'coverage' });
     return { mod: 'inspiration-rerolls', action: 'use-personal', atTable: true, note: 'coverage' };
   },
-  // A small data system for the record tools: shared notes the DM keeps, a task each player owns, a prompt.
+  // A small data system for the record tools: shared notes the GM keeps, a task each player owns, a prompt.
   house_rule_records: async () => ({ mod: await coverageSystem() }),
   house_rule_record_act: async () => ({ mod: await coverageSystem(), action: 'note', values: { text: 'The tide turns at dusk' }, note: 'coverage' }),
   house_rule_prompt: async () => ({ mod: await coverageSystem(), prompt: 'day' }),
@@ -438,7 +438,7 @@ test('Coverage: every tool can be offered to the model by some message', () => {
   }
 });
 
-test('Coverage: the DM harness runs every DM tool (writes wait for approval, then run)', async () => {
+test('Coverage: the GM harness runs every GM tool (writes wait for approval, then run)', async () => {
   const tools = ordered(toolsFor(true));
   assert.ok(tools.length > 80, `found ${tools.length} tools`);
   const report: string[] = [];
@@ -456,10 +456,10 @@ test('Coverage: the DM harness runs every DM tool (writes wait for approval, the
         continue;
       }
       // A write is proposed, and has not run.
-      assert.match(run1.result, /^Proposed to the DM as action act_/, `${tool.name} was not proposed: ${run1.result.slice(0, 200)}`);
+      assert.match(run1.result, /^Proposed to the GM as action act_/, `${tool.name} was not proposed: ${run1.result.slice(0, 200)}`);
       const act = run1.actions.find((a: any) => a.tool === tool.name);
       assert.ok(act && act.status === 'pending', `${tool.name}: a pending action`);
-      // The DM approves it, and it runs.
+      // The GM approves it, and it runs.
       const done = await call('POST', `${AGENT}/actions/${act.id}`, T.dm, { decision: 'approve' });
       assert.equal(done.status, 200, `${tool.name} failed on approval: ${JSON.stringify(done.body).slice(0, 300)}`);
       assert.equal(done.body.status, 'done', `${tool.name}: ${JSON.stringify(done.body).slice(0, 300)}`);
@@ -468,7 +468,7 @@ test('Coverage: the DM harness runs every DM tool (writes wait for approval, the
       failures.push(`${tool.name}: ${String(e.message).split('\n')[0]}`);
     }
   }
-  console.log(`DM harness: ${report.length}/${tools.length} tools ran`);
+  console.log(`GM harness: ${report.length}/${tools.length} tools ran`);
   assert.deepEqual(failures, [], `tools that did not run:\n${failures.join('\n')}`);
 });
 
@@ -489,9 +489,9 @@ test('Coverage: a tool set to auto-approve runs without waiting', async () => {
 });
 
 test('Coverage: the player harness offers and runs read tools only', async () => {
-  // DM-only lookups are never offered to a player's model (they would only get 403).
+  // GM-only lookups are never offered to a player's model (they would only get 403).
   const dmOnly = toolsFor(false).filter((t) => !t.write && t.dmOnly);
-  assert.ok(dmOnly.length >= 10, 'the DM-only lookups are flagged');
+  assert.ok(dmOnly.length >= 10, 'the GM-only lookups are flagged');
   for (const t of dmOnly) {
     const r = await drive('jess', t.name, await argsFor(t));
     assert.match(r.result, /Unknown tool/, `${t.name} is hidden from players`);
@@ -500,7 +500,7 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
   const readTools = toolsFor(false).filter((t) => !t.write && !t.dmOnly);
   const writeTools = toolsFor(true).filter((t) => t.write);
   assert.ok(readTools.length >= 30 && writeTools.length >= 30);
-  // toolsFor(false) is already read only: no write tool, and no DM's playerOnly mix-up either.
+  // toolsFor(false) is already read only: no write tool, and no GM's playerOnly mix-up either.
   assert.deepEqual(toolsFor(false).filter((t) => t.write), []);
   const actionsBefore = all<any>(deps.db, 'SELECT id FROM agent_actions WHERE world_id = ?', W).length;
   const denied: string[] = [];
@@ -512,7 +512,7 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
       for (const t of run1.offered) assert.ok(!writeTools.some((x) => x.name === t), `${tool.name}: the player model was offered the write tool ${t}`);
       assert.ok(run1.result, `${tool.name}: no result`);
       results.push(run1.result);
-      // A DM's lookup may be refused for a player (the route is the DM's), but it never fails any other way.
+      // A GM's lookup may be refused for a player (the route is the GM's), but it never fails any other way.
       if (/^Error (401|403|404)/.test(run1.result)) denied.push(tool.name);
       else assert.ok(!FAILED.test(run1.result), `${tool.name} did not run: ${run1.result.slice(0, 200)}`);
     } catch (e: any) {
@@ -520,13 +520,13 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
     }
   }
   assert.deepEqual(failures, [], `player tools that did not run:\n${failures.join('\n')}`);
-  console.log(`Player harness: ${readTools.length - denied.length} ran, ${denied.length} are the DM's and were refused (${denied.join(', ')})`);
+  console.log(`Player harness: ${readTools.length - denied.length} ran, ${denied.length} are the GM's and were refused (${denied.join(', ')})`);
   // The ones a player is meant to have are not among the refused.
   for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory', 'house_rule_spend', 'house_rule_records', 'house_rule_my_record']) assert.ok(!denied.includes(n), `${n} works for a player`);
   // The spend really happened: Jess's personal reroll is used and logged as hers.
   const spent = (await dm('GET', '/mods/log')).log.find((l: any) => l.action === 'use-personal' && l.accountId === ID.jess);
   assert.ok(spent && spent.after === spent.before - 1, 'house_rule_spend spent a personal reroll for the player');
-  // What the tools returned to a player holds nothing of the DM's.
+  // What the tools returned to a player holds nothing of the GM's.
   for (const marker of DM_ONLY) assert.ok(!results.some((r) => r.includes(marker)), `a tool result for a player held ${marker}`);
 
   // Every write tool is refused when a player's model asks for it, and changes nothing.
@@ -552,15 +552,15 @@ test('Coverage: a player key over MCP lists and runs read tools only', async () 
   }
 });
 
-test('Coverage: no classified text, and no DM-only text for a player, reaches any model', () => {
+test('Coverage: no classified text, and no GM-only text for a player, reaches any model', () => {
   assert.ok(model.seen.length > 200, `${model.seen.length} model requests were seen`);
   const players = model.seen.filter((s) => s.who === 'player');
   const dms = model.seen.filter((s) => s.who === 'dm');
-  assert.ok(players.length > 40 && dms.length > 80, `${players.length} player and ${dms.length} DM agent requests`);
+  assert.ok(players.length > 40 && dms.length > 80, `${players.length} player and ${dms.length} GM agent requests`);
   for (const s of model.seen) assert.ok(!s.body.includes(CLASSIFIED) && !s.body.includes('sunken bell'), `a ${s.who} request carried classified text`);
   for (const s of players) for (const m of DM_ONLY) assert.ok(!s.body.includes(m), `a player's request carried ${m}`);
-  // The DM's own agent does get the DM copies (this is what the check above is not allowed to confuse).
-  assert.ok(dms.some((s) => DM_ONLY.some((m) => s.body.includes(m))), 'the DM agent saw DM-only text');
+  // The GM's own agent does get the GM copies (this is what the check above is not allowed to confuse).
+  assert.ok(dms.some((s) => DM_ONLY.some((m) => s.body.includes(m))), 'the GM agent saw GM-only text');
   // Calls were audited.
   assert.ok(one<any>(deps.db, `SELECT COUNT(*) AS n FROM audit WHERE world_id = ? AND action = 'agent.action'`, W)!.n >= 30);
 });

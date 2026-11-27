@@ -94,7 +94,7 @@ async function step(label: string, fn: () => Promise<unknown>) {
   try { await fn(); console.log(`  ✓ ${label}`); } catch (e: any) { console.log(`  ✗ ${label}: ${String(e.message).slice(0, 200)}`); }
 }
 
-const PASS = { admin: 'library admin 123', dm: 'dungeon master 123', player: 'player pass 123' };
+const PASS = { admin: 'library admin 123', dm: 'game master 123', player: 'player pass 123' };
 console.log('Seeding the demo world…');
 await call('POST', '/api/setup', undefined, { username: 'admin', password: PASS.admin });
 // The gateway admin signs in separately from the table (/admin/login).
@@ -108,7 +108,7 @@ await step('Argos provider and Discover assign the model jobs', async () => {
   await call('PUT', '/api/admin/models', admin, { jobs });
   console.log(`    jobs set: ${Object.keys(jobs).join(', ')}`);
 });
-const dmAcc = await call('POST', '/api/admin/accounts', admin, { username: 'dm', password: PASS.dm, displayName: 'The DM' });
+const dmAcc = await call('POST', '/api/admin/accounts', admin, { username: 'dm', password: PASS.dm, displayName: 'The GM' });
 const dm = (await call('POST', '/api/auth/login', undefined, { username: 'dm', password: PASS.dm })).token as string;
 const world = await call('POST', '/api/admin/worlds', admin, { name: 'Saltreach', dmAccountId: dmAcc.account.id });
 const W = `/api/worlds/${world.slug}`;
@@ -121,7 +121,7 @@ for (const [user, character] of [['jess', 'Jessamine'], ['tom', 'Tomas'], ['ana'
 }
 const { jess, tom, ana } = players;
 
-// Library: shared pages with DM secrets inside, and DM-only pages.
+// Library: shared pages with GM secrets inside, and GM-only pages.
 const page = async (p: string, visibility: 'party' | 'dm', markdown: string) => (await call('PUT', `${W}/library/pages`, dm, { path: p, visibility, markdown })).id as string;
 const ids: Record<string, string> = {};
 let audioSession = '';
@@ -137,7 +137,7 @@ A fishing town on the Azure coast, ruled by a harbour council of seven captains.
 ## The harbour
 Fishing boats leave before dawn. The [[Greywater Ferry]] crosses to the far bank twice a day.
 
-> [!secret] DM
+> [!secret] GM
 > The harbour council secretly answers to [[Velmira]], the smuggler queen. Three of the seven captains are on her payroll.
 `);
   ids.ferry = await page('Places/Greywater Ferry', 'party', `---
@@ -158,7 +158,7 @@ knowledge: deep
 # Lantern of the Deep
 A brass lantern that hums near water. When lit underwater, it burns blue and does not go out.
 
-> [!secret] DM
+> [!secret] GM
 > It was made by the Drowned King to find his lost crown. Whoever carries it is slowly drawn toward the sea.
 `);
   ids.velmira = await page('People/Velmira', 'dm', `# Velmira
@@ -191,7 +191,7 @@ await step('world clock and events', async () => {
   await call('POST', `${W}/clock/advance`, dm, { preset: 'long-rest', reason: 'Rested at the Salty Dog inn' });
 });
 
-// Broker: a normal question, a question about a secret, and a DM offer.
+// Broker: a normal question, a question about a secret, and a GM offer.
 await step('information broker', async () => {
   for (const [who, q] of [[jess, 'Who rules Saltmarsh?'], [tom, 'Who does the harbour council secretly answer to?'], [ana, 'How much is the Greywater Ferry?']] as const) {
     const quote = await call('POST', `${W}/broker/quote`, who.token, { question: q });
@@ -201,11 +201,11 @@ await step('information broker', async () => {
   await call('POST', `${W}/broker/offers`, dm, { title: 'The dark lighthouse', teaser: 'I know why the light went out. Interested?', info: 'Someone paid the keeper to let it go dark. The coin was council silver.', priceCp: 1500, targets: 'party', fallbackHours: 72 });
 });
 
-// Audio: consent, mics, a recording with overlapping mics and a DM aside.
+// Audio: consent, mics, a recording with overlapping mics and a GM aside.
 await step('recording and live transcript', async () => {
   for (const p of [jess, tom, ana]) await call('POST', `${W}/audio/consent`, p.token, { agree: true });
   const table = await call('POST', `${W}/audio/mics`, dm, { deviceId: 'demo-table', label: 'Table', mode: 'always', playersTranscript: true });
-  const headset = await call('POST', `${W}/audio/mics`, dm, { deviceId: 'demo-headset', label: 'DM headset', mode: 'hold-to-talk', playersTranscript: false, aside: true });
+  const headset = await call('POST', `${W}/audio/mics`, dm, { deviceId: 'demo-headset', label: 'GM headset', mode: 'hold-to-talk', playersTranscript: false, aside: true });
   const tomMic = await call('POST', `${W}/audio/mics`, tom.token, { deviceId: 'demo-tom-phone', label: "Tomas's phone", mode: 'always' });
   const sess = await call('POST', `${W}/audio/sessions`, dm, { name: 'Session 21' });
   const sid = sess.id ?? sess.session?.id;
@@ -232,7 +232,7 @@ await step('recording and live transcript', async () => {
   await up(table, dm, 0, 0, 5000, 0.4, 'We should ask the harbour council about the lighthouse.');
   await up(tomMic, tom.token, 0, 0, 5000, 0.9, 'We should ask the harbour council about the lighthouse.');
   await up(table, dm, 1, 5000, 10000, 0.6, 'The ferry costs two silver. The lantern hums near water.');
-  // A DM aside on the headset: the table mic hears it too, but it stays DM-only.
+  // A GM aside on the headset: the table mic hears it too, but it stays GM-only.
   await call('POST', `${W}/audio/sessions/${sid}/holds`, dm, { micId: headset.id ?? headset.mic?.id, kind: 'aside', start: 10000, end: 15000 });
   await up(headset, dm, 0, 10000, 15000, 0.9, 'Remember Velmira owns three of the captains.');
   await up(table, dm, 2, 10000, 15000, 0.3, 'Remember Velmira owns three of the captains.');
@@ -263,7 +263,7 @@ await step('session log: draft, date, publish', async () => {
   const did = d.id ?? d.draft?.id;
   await call('POST', `${W}/sessionlog/drafts/${did}/date`, dm, { accept: true, minutes: 2 * 1440, reason: 'Two days on the coast road' }).catch(() => null);
   await call('POST', `${W}/sessionlog/drafts/${did}/publish`, dm, {});
-  // A second draft stays unpublished, so the DM sees a review in progress.
+  // A second draft stays unpublished, so the GM sees a review in progress.
   await call('POST', `${W}/sessionlog/drafts`, dm, { audioSessionId: audioSession, title: 'Session 22 (draft)' });
 });
 await step('Minerva: status, hooks, codex, a mystery, journals and goals', async () => {
@@ -316,13 +316,13 @@ The party is in Saltmarsh, two days after the coast road. The lighthouse has bee
   await put(`players/${jess.id}/bonds.md`, '# Bonds\n\n- Old Hennet, who taught me to swim\n- Mara Quill, the ferrywoman\n');
   await put(`players/${tom.id}/journal/session-21.md`, '# Session 21\n\n## Notes\n- The sword hummed again on the quay. Goblins, or something worse.\n');
   await put(`players/${jess.id}/shared.md`, '# Shared with the party\n\n## Shared\n- Jessamine grew up on this coast and knows the lighthouse keeper.\n');
-  // A player's own write waits for the DM.
+  // A player's own write waits for the GM.
   await call('POST', `${M}/me/journal`, jess.token, { text: 'Ask Mara Quill who she ferried at night during the dark weeks.' });
   await call('POST', `${M}/me/share`, tom.token, { text: 'My sword hums when goblins are near.' });
   // The published session was filed in the background: wait for its review to be drafted.
   for (let i = 0; i < 100; i++) { const r = await call('GET', `${M}/review`, dm); if (r.drafts.some((d: any) => d.review.startsWith('session-'))) break; await new Promise((r) => setTimeout(r, 100)); }
 });
-await step('DM agent chat', async () => {
+await step('GM agent chat', async () => {
   const c = await call('POST', `${W}/agent/chats`, dm, { title: 'Prep' });
   await call('POST', `${W}/agent/chats/${c.id ?? c.chat?.id}/messages`, dm, { text: 'Summarise Saltmarsh for me.' });
 });
@@ -340,7 +340,7 @@ The council clerk keeps a ledger of every cargo that crosses the quay.
 > Ask the clerk after dark: three cargoes a month are never written down. A captain can be paid to remember.
 
 > [!classified] Classified
-> Velmira's own ships are the unlisted cargoes. Not even the Information broker may say so until the DM decides.
+> Velmira's own ships are the unlisted cargoes. Not even the Information broker may say so until the GM decides.
 `);
   ids.broker = await page('Places/Dockside Rumours', 'broker', `# Dockside Rumours
 Sailors on the quay talk about a ship that never docks and a blue light under the bay. The broker knows who to ask, and for how many silver.
@@ -381,8 +381,8 @@ await step('a trade offer between players', async () => {
 
 await step('WorldLore workspace (library) and a broker-level page', async () => {
   await call('PUT', `${W}/worldlore/config`, dm, { kind: 'library', root: 'WorldLore', defaultLevel: 'broker' });
-  await call('POST', `${W}/worldlore/pages`, dm, { path: 'Saltmarsh/The Lantern Hall', title: 'The Lantern Hall', markdown: '# The Lantern Hall\nWhere the harbour council meets each new moon. Rumour says the cellar connects to the smugglers\' tunnels.\n', level: 'broker', by: 'the DM' });
-  await call('POST', `${W}/worldlore/pages`, dm, { path: 'Saltmarsh/Council secrets', title: 'Council secrets', markdown: '# Council secrets\nWho owes Velmira what. DM only.\n', level: 'dm', by: 'the DM' });
+  await call('POST', `${W}/worldlore/pages`, dm, { path: 'Saltmarsh/The Lantern Hall', title: 'The Lantern Hall', markdown: '# The Lantern Hall\nWhere the harbour council meets each new moon. Rumour says the cellar connects to the smugglers\' tunnels.\n', level: 'broker', by: 'the GM' });
+  await call('POST', `${W}/worldlore/pages`, dm, { path: 'Saltmarsh/Council secrets', title: 'Council secrets', markdown: '# Council secrets\nWho owes Velmira what. GM only.\n', level: 'dm', by: 'the GM' });
 });
 
 await step('Sculpting history', async () => {
@@ -394,7 +394,7 @@ console.log(`
 Alexandria demo is running: ${base}
 
   Gateway admin   ${base}/admin/login   admin / ${PASS.admin}
-  Dungeon Master  ${base}/login         dm / ${PASS.dm}
+  Game Master  ${base}/login         dm / ${PASS.dm}
   Players         ${base}/login         jess, tom, ana / ${PASS.player}
 
 Fake models: ${m} as one Argos provider (chat, audit, audio, voice, embeddings, rerank)

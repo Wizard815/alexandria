@@ -1,7 +1,7 @@
-// The DM's Table: the splash page for a session, the world and the DM. A band across the top says what is true right now
+// The GM's Table: the splash page for a session, the world and the GM. A band across the top says what is true right now
 // (the world's date and time, the session, who is at the table); the wide column is the play itself (the fight, the map,
-// scenes); the side column is what is waiting on the DM; the world row at the bottom is shops, coin and the library.
-// It is a dashboard the DM arranges: Arrange lets each block be dragged (or moved with buttons) to another place or zone,
+// scenes); the side column is what is waiting on the GM; the world row at the bottom is shops, coin and the library.
+// It is a dashboard the GM arranges: Arrange lets each block be dragged (or moved with buttons) to another place or zone,
 // made wide, hidden, or brought back from the list of hidden blocks. Features add blocks through the registry (dmTable).
 // The arrangement is kept on this device.
 import * as F from '../../features/registry.ts';

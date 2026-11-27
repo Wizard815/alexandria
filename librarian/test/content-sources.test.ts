@@ -155,7 +155,7 @@ test('Sources: Open5e records become the same shapes as SRD terms', () => {
   assert.deepEqual([(s.data as any).damageTypes, (s.data as any).saves, (s.data as any).duration], [['Psychic'], ['Wisdom'], 'Instantaneous']);
 });
 
-test('Sources: the DM sees the Open5e books; players do not', async () => {
+test('Sources: the GM sees the Open5e books; players do not', async () => {
   const r = await ok('GET', `${M()}/sources?open5e=${encodeURIComponent(O5.base)}`, T.dm);
   assert.deepEqual(r.open5e.documents.map((d: any) => d.key), ['srd-2024', 'tob', 'deepm', 'vom'], '2024 books first');
   assert.equal(r.open5e.documents[1].license, 'OGL-1.0a');
@@ -173,7 +173,7 @@ test('Sources: Open5e books import as one module; spells go to the Codex and ite
   assert.match(pre.module.attribution, /Tome of Beasts by Kobold Press, used under the OPEN GAME LICENSE Version 1\.0a/);
   assert.deepEqual(pre.counts, { spell: 2, monster: 1, item: 2, other: 1 }, 'the stray record from another book is dropped');
   assert.ok(pre.warnings.some((w: string) => /no book "nope"/.test(w)));
-  // Paging followed the next link on the base the DM chose, not Open5e's own host.
+  // Paging followed the next link on the base the GM chose, not Open5e's own host.
   assert.ok(hits.some((h) => h.includes('/v2/magicitems/') && h.includes('page=2')));
   const before = hits.length;
   const saved = await ok('POST', `${M()}/import`, T.dm, { ...req, feed: { spells: true, items: true } });
@@ -182,7 +182,7 @@ test('Sources: Open5e books import as one module; spells go to the Codex and ite
   assert.equal(saved.fed.items.added, 2);
   assert.ok(saved.modules.some((m: any) => m.id === 'open5e-tob-deepm-vom'), 'the module is on');
 
-  // The monster card: whole for the DM, without the numbers for a player.
+  // The monster card: whole for the GM, without the numbers for a player.
   const hit = (await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.dm)).terms[0];
   const dmCard = await ok('GET', `${M()}/terms/${encodeURIComponent(hit.id)}`, T.dm);
   assert.equal(dmCard.data.cr, 12);
@@ -284,7 +284,7 @@ test('Sources: the server content library pulls a book once and every world can 
   assert.ok(!(await ok('GET', `${M()}/`, T.dm)).available.some((m: any) => m.id === 'open5e-tob'));
 });
 
-test('Sources: a DM browses a module and leaves single entries out of the world', async () => {
+test('Sources: a GM browses a module and leaves single entries out of the world', async () => {
   const req = { type: 'open5e', ...O5, documents: ['deepm', 'vom'] };
   await ok('POST', `${M()}/import`, T.dm, req);
   const id = 'open5e-deepm-vom';
@@ -294,7 +294,7 @@ test('Sources: a DM browses a module and leaves single entries out of the world'
   const amulet = b.terms.find((t: any) => t.term === 'Amulet of the Void');
   const one = await ok('GET', `${M()}/browse/${id}/${encodeURIComponent(ward.id)}`, T.dm);
   assert.match(one.text, /faint ward/);
-  assert.equal((await call('GET', `${M()}/browse/${id}`, T.jess)).status, 403, 'DMs only');
+  assert.equal((await call('GET', `${M()}/browse/${id}`, T.jess)).status, 403, 'GMs only');
   assert.equal((await call('PUT', `${M()}/left-out`, T.jess, { module: id, terms: [ward.id], out: true })).status, 403);
   assert.equal((await call('PUT', `${M()}/left-out`, T.dm, { module: 'nope', terms: [ward.id], out: true })).status, 404);
 
@@ -305,7 +305,7 @@ test('Sources: a DM browses a module and leaves single entries out of the world'
   assert.ok((await ok('GET', `${M()}/terms?q=abhorrent`, T.dm)).terms.length > 0, 'the rest stay');
   const only = await ok('GET', `${M()}/browse/${id}?left=1`, T.dm);
   assert.deepEqual(only.terms.map((t: any) => [t.term, t.leftOut]).sort(), [['Amulet of the Void', true], ['Quick Ward', true]]);
-  // Feeding skips them: the Codex and the shop do not get what the DM left out.
+  // Feeding skips them: the Codex and the shop do not get what the GM left out.
   const fed = await ok('POST', `${M()}/feed`, T.dm, { id });
   assert.equal(fed.fed.spells.added + fed.fed.spells.replaced + fed.fed.spells.skipped, 1);
   const it = fed.fed.items;

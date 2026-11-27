@@ -1,15 +1,15 @@
 // Escalation instead of leaks (PLAN §17.3). When a player's question needs
-// content their own view does not have (DM-only, broker or classified text, or
+// content their own view does not have (GM-only, broker or classified text, or
 // anything that came through a blanket or unsure key), it is not answered. It
 // becomes, by the world setting `escalation`:
 //
-//   dm-question  a DM-only question in the DM queue; the DM answers or refuses.
-//   broker-deal  a high-level broker request the DM prices (the wait is a
+//   dm-question  a GM-only question in the GM queue; the GM answers or refuses.
+//   broker-deal  a high-level broker request the GM prices (the wait is a
 //                number of sessions, `escalationSessions`); delivered only
-//                after the DM approves it and the player pays.
+//                after the GM approves it and the player pays.
 //
 // The player only ever sees "The broker will look into it", and later the
-// DM's own answer. What the hidden source said (`hidden`) is for the DM alone
+// GM's own answer. What the hidden source said (`hidden`) is for the GM alone
 // and is never sent to the player or to any model.
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
@@ -25,12 +25,12 @@ export const LOOKING = 'The broker will look into it.';
 export type Mode = 'dm-question' | 'broker-deal';
 
 export interface HiddenItem { title: string; source: string; text: string }
-/** For the DM only. */
+/** For the GM only. */
 export interface Hidden { reason: string; via?: string; items?: HiddenItem[]; routing?: Labels | null }
 
 export const worldSettings = (d: Deps, worldId: string): WorldSettings => ({ ...DEFAULT_SETTINGS, ...parseJson(one<any>(d.db, 'SELECT settings FROM worlds WHERE id = ?', worldId)?.settings, {}) });
 
-/** The mode this world uses. A world with the broker closed has no deals to make: it asks the DM. */
+/** The mode this world uses. A world with the broker closed has no deals to make: it asks the GM. */
 export function modeFor(s: WorldSettings): Mode {
   const m = featureSetting<string>(s, 'escalation') === 'dm-question' ? 'dm-question' : 'broker-deal';
   return m === 'broker-deal' && !s.brokerEnabled ? 'dm-question' : m;
@@ -45,7 +45,7 @@ export interface EscRow {
 }
 
 /**
- * Put a question in the DM's hands. The same question from the same person,
+ * Put a question in the GM's hands. The same question from the same person,
  * while one is still open, is the same escalation. Returns the row, and the
  * broker request made for it in broker-deal mode.
  */
@@ -57,7 +57,7 @@ export function escalate(d: Deps, a: { worldId: string; accountId: string; quest
   let brokerId: string | null = a.brokerRequestId ?? null;
   if (!brokerId && mode === 'broker-deal') {
     brokerId = id('brk_');
-    const cls = { type: 'other', verdict: null, reason: 'Escalated: the answer needs content beyond the asker\'s own view. The hidden context is in the DM queue.', entities: [], knowledge: 'secret', multiplier: 1, player: null, dmEvidence: [], routing: a.hidden.routing ?? null };
+    const cls = { type: 'other', verdict: null, reason: 'Escalated: the answer needs content beyond the asker\'s own view. The hidden context is in the GM queue.', entities: [], knowledge: 'secret', multiplier: 1, player: null, dmEvidence: [], routing: a.hidden.routing ?? null };
     run(d.db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at, classification) VALUES (?, ?, ?, ?, 'short', 'secret', 'pricing', ?, ?)`, brokerId, a.worldId, a.accountId, q, now(), JSON.stringify(cls));
     d.hub.emit(a.worldId, 'broker', { id: brokerId, status: 'pricing' }, dmAnd(a.accountId));
   }
@@ -65,12 +65,12 @@ export function escalate(d: Deps, a: { worldId: string; accountId: string; quest
   run(d.db, `INSERT INTO sourcekeys_escalations (id, world_id, account_id, question, origin, mode, status, hidden, broker_request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
     eid, a.worldId, a.accountId, q, a.origin, mode, JSON.stringify(a.hidden), brokerId, now());
   run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', a.worldId, a.accountId, 'sourcekeys.escalate', `${eid} ${a.origin} ${mode}`, now());
-  // The event names no text: the DM's screen reloads its queue.
+  // The event names no text: the GM's screen reloads its queue.
   d.hub.emit(a.worldId, 'sourcekeys', { kind: 'escalation', id: eid }, dmOnly);
   return one<EscRow>(d.db, 'SELECT * FROM sourcekeys_escalations WHERE id = ?', eid)!;
 }
 
-/** Add what a hidden lookup found to an escalation's DM-only context. */
+/** Add what a hidden lookup found to an escalation's GM-only context. */
 export function addHidden(d: Deps, eid: string, more: HiddenItem[], via?: string) {
   const e = one<EscRow>(d.db, 'SELECT * FROM sourcekeys_escalations WHERE id = ?', eid);
   if (!e) return;
@@ -81,26 +81,26 @@ export function addHidden(d: Deps, eid: string, more: HiddenItem[], via?: string
 }
 
 /**
- * What the world's keys the DM allowed for the broker find for this question:
- * titles and a short DM-side excerpt, for the DM queue. Best effort and DM
+ * What the world's keys the GM allowed for the broker find for this question:
+ * titles and a short GM-side excerpt, for the GM queue. Best effort and GM
  * only; classified pages show their title and not their text.
  */
 export async function gatherContext(d: Deps, worldId: string, accountId: string, question: string): Promise<HiddenItem[]> {
   const out: HiddenItem[] = [];
   for (const k of worldKeys(d.db, worldId)) {
-    // Only keys the DM owns, with the broker use. A player's own key is never used to answer for someone else.
+    // Only keys the GM owns, with the broker use. A player's own key is never used to answer for someone else.
     if (k.revoked || !k.verified || !usesOf(k).includes('broker') || !one(d.db, `SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'`, worldId, k.owner_id)) continue;
     const src = one<SourceRow>(d.db, 'SELECT * FROM sources WHERE id = ?', k.source_id);
     if (!src) continue;
     try {
       auditUse(d.db, k, accountId, 'broker', `question by ${accountId}`);
       for (const hit of await searchLive(d, src, k.secret, question, 5)) out.push(excerpt(d, worldId, src, hit.externalId, hit.title));
-    } catch { /* the source is down: the DM sees nothing from it */ }
+    } catch { /* the source is down: the GM sees nothing from it */ }
   }
   return out.slice(0, 12);
 }
 
-/** A DM-side excerpt of a stored page (never classified text). */
+/** A GM-side excerpt of a stored page (never classified text). */
 export function excerpt(d: Deps, worldId: string, src: { id: string; name: string }, externalId: string, title: string): HiddenItem {
   const pg = one<any>(d.db, 'SELECT title, visibility, body FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', worldId, src.id, externalId);
   const text = !pg ? '(not in the library yet: sync the source)' : pg.visibility === 'classified' ? '(classified: open the page to read it)' : String(pg.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 400);
@@ -112,7 +112,7 @@ export function excerpt(d: Deps, worldId: string, src: { id: string; name: strin
 interface Broker { status: string; answer: string | null; cost_cp: number | null }
 const brokerOf = (d: Deps, e: EscRow): Broker | undefined => (e.broker_request_id ? one<Broker>(d.db, 'SELECT status, answer, cost_cp FROM broker_requests WHERE id = ?', e.broker_request_id) : undefined);
 
-/** Where the escalation stands now: the broker's own row decides while there is one (the DM may use the Broker page too). */
+/** Where the escalation stands now: the broker's own row decides while there is one (the GM may use the Broker page too). */
 export function effectiveStatus(d: Deps, e: EscRow): 'open' | 'offered' | 'waiting' | 'answered' | 'refused' | 'declined' {
   const b = brokerOf(d, e);
   if (b && ['open'].includes(e.status)) {
@@ -126,7 +126,7 @@ export function effectiveStatus(d: Deps, e: EscRow): 'open' | 'offered' | 'waiti
   return e.status === 'answered' ? 'answered' : e.status === 'refused' ? 'refused' : e.status === 'declined' ? 'declined' : 'open';
 }
 
-/** What the asker sees: the question, a status, a plain line, and the answer only once the DM has given it. Never the hidden context. */
+/** What the asker sees: the question, a status, a plain line, and the answer only once the GM has given it. Never the hidden context. */
 export function playerView(d: Deps, e: EscRow) {
   const status = effectiveStatus(d, e);
   const b = brokerOf(d, e);
@@ -142,7 +142,7 @@ export function dmView(d: Deps, e: EscRow, names: Record<string, string>) {
   return { ...playerView(d, e), askerId: e.account_id, askerName: names[e.account_id] ?? 'Someone', origin: e.origin, hidden: parseJson<Hidden>(e.hidden, { reason: '' }), sessions: e.sessions, resolvedAt: e.resolved_at };
 }
 
-// ---- what the DM does ----------------------------------------------------------------
+// ---- what the GM does ----------------------------------------------------------------
 
 const open = (d: Deps, worldId: string, eid: string): EscRow => {
   const e = one<EscRow>(d.db, 'SELECT * FROM sourcekeys_escalations WHERE id = ? AND world_id = ?', eid, worldId);
@@ -151,7 +151,7 @@ const open = (d: Deps, worldId: string, eid: string): EscRow => {
   return e;
 };
 
-/** The DM's own answer, free. It is the DM's words: what they typed is what the player gets. */
+/** The GM's own answer, free. It is the GM's words: what they typed is what the player gets. */
 export function answer(d: Deps, worldId: string, eid: string, text: string, by: string): EscRow {
   const e = open(d, worldId, eid);
   run(d.db, `UPDATE sourcekeys_escalations SET status = 'answered', answer = ?, resolved_at = ?, resolved_by = ? WHERE id = ?`, text, now(), by, e.id);
@@ -170,7 +170,7 @@ export function minutesForSessions(d: Deps, worldId: string, sessions: number): 
   } catch { return null; }
 }
 
-/** The DM prices a deal: a cost, the sessions to wait, and the answer that is delivered when it is paid and the wait is over. */
+/** The GM prices a deal: a cost, the sessions to wait, and the answer that is delivered when it is paid and the wait is over. */
 export function price(d: Deps, worldId: string, eid: string, a: { costCp: number; sessions: number; answer: string; note?: string }, by: string): EscRow {
   const e = open(d, worldId, eid);
   if (!e.broker_request_id) throw new HttpError(409, 'This question was not made a broker deal in this world. Answer it instead.');

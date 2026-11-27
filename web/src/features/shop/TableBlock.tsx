@@ -1,4 +1,4 @@
-// Shops on the DM's Table: which are open, one tap to open or close one, and purchases waiting for the DM's yes.
+// Shops on the GM's Table: which are open, one tap to open or close one, and purchases waiting for the GM's yes.
 import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, useAction } from '../../ui/index.tsx';

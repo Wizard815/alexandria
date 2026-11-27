@@ -1,7 +1,7 @@
 // NPC encounters: an NPC walks up to one player and a short talk plays out
-// in that player's app. The DM sends one by hand (a quick line with answers,
+// in that player's app. The GM sends one by hand (a quick line with answers,
 // a saved encounter or a built-in starter) and can answer live; with the
-// world setting encounterWander on, a player the DM is not busy with can go
+// world setting encounterWander on, a player the GM is not busy with can go
 // looking for one themselves. Options can give a little gold or a simple
 // item, open a shop, or start a small game (coin toss, shell game, dice
 // duel, skill check) played on the server. See docs/ENCOUNTERS.md.
@@ -10,7 +10,7 @@
 // the NPC's current line and the option labels. Where an option leads, the
 // DC, and the other nodes never leave the server. Coin paid out by one
 // encounter stops at encounterRewardCapCp, so a loop ("Again!") cannot farm
-// gold. Every change is a live `encounter` event {id} to the DM and that
+// gold. Every change is a live `encounter` event {id} to the GM and that
 // player; clients refetch.
 import { Router, type Response } from 'express';
 import type { Feature, McpTool } from '../types.ts';
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS encounter_templates (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS encounter_templates_world ON encounter_templates (world_id, name);
--- The DM's starred encounters and events: a saved one's id or a built-in one's (builtin:...).
+-- The GM's starred encounters and events: a saved one's id or a built-in one's (builtin:...).
 CREATE TABLE IF NOT EXISTS encounter_favs (
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   template_id TEXT NOT NULL,
@@ -89,7 +89,7 @@ interface Row {
   step_seen_at?: string | null;
 }
 interface TemplateRow { id: string; world_id: string; name: string; npc_name: string; npc_blurb: string; script: string; wander: number; kind: EncounterKind; places: string; created_at: string; updated_at: string }
-/** One line of the talk. who: npc (the NPC speaks), you (the player's answer), game (a result), gain (coin or an item), loss (a lost stake), dm (the DM spoke live), note (anything else), secret (a DM-only note: never sent to the player). */
+/** One line of the talk. who: npc (the NPC speaks), you (the player's answer), game (a result), gain (coin or an item), loss (a lost stake), dm (the GM spoke live), note (anything else), secret (a GM-only note: never sent to the player). */
 interface Line { who: 'npc' | 'you' | 'game' | 'gain' | 'loss' | 'dm' | 'note' | 'secret'; text: string; at: string }
 
 const MAX_LOG = 120;
@@ -112,7 +112,7 @@ const nodeOf = (sc: Script, nid: string): Node => sc.nodes.find((n) => n.id === 
 
 /**
  * Which shop an option's "open a shop" means. The hook for the shop system:
- * a named shop, else the one the DM picked when sending, else any open shop
+ * a named shop, else the one the GM picked when sending, else any open shop
  * players can see. Only a shop a player could open on the Shop page counts.
  */
 export function resolveShop(db: DB, worldId: string, effectShop: string, sentShop: string | null): { id: string; name: string } | null {
@@ -136,7 +136,7 @@ function routes(d: Deps) {
 
   // ---- live events ----
   const changed = (e: Pick<Row, 'id' | 'world_id' | 'account_id'>) => d.hub.emit(e.world_id, 'encounter', { id: e.id }, dmAnd(e.account_id));
-  /** A finished talk goes into Minerva's notes for the session in progress (DM only), when Minerva is on. Never breaks the talk. */
+  /** A finished talk goes into Minerva's notes for the session in progress (GM only), when Minerva is on. Never breaks the talk. */
   const remember = (e: Row, log: Line[]) => {
     try {
       if (!minervaState(db, e.world_id).enabled) return;
@@ -159,7 +159,7 @@ function routes(d: Deps) {
     const log = parseJson<Line[]>(e.log, []);
     const base = {
       id: e.id, kind: kindOf(e.kind), npc: { name: e.npc_name, blurb: e.npc_blurb }, status: e.status, source: e.source, createdAt: e.created_at, updatedAt: e.updated_at,
-      // A DM note ("kept the stranger's purse") never reaches the player.
+      // A GM note ("kept the stranger's purse") never reaches the player.
       log: dm ? log : log.filter((l) => l.who !== 'secret'),
       text: e.status === 'open' ? n.text : null,
       options: e.status === 'open' ? (n.game ? n.options : n.options.length ? n.options : [{ label: 'Farewell' }]).map((o) => ({ label: o.label })) : [],
@@ -178,7 +178,7 @@ function routes(d: Deps) {
     if (!n.timer) return e;
     const at = now();
     run(db, 'UPDATE encounters SET step_seen_at = ? WHERE id = ? AND step_seen_at IS NULL', at, e.id);
-    changed(e); // the DM's watch shows the countdown
+    changed(e); // the GM's watch shows the countdown
     return { ...e, step_seen_at: at };
   };
   const load = (res: Response, eid: string): Row => {
@@ -274,7 +274,7 @@ function routes(d: Deps) {
     res.json(view(isDM(res) ? e : seen(e), isDM(res), names(db, e.world_id)));
   });
 
-  // DM sends. { accountIds: [...] | 'party', and one of: templateId; script (+ npcName, npcBlurb); line + answers (+ npcName) }. addToPeople: put the NPC on the party's People list. shopId: the shop "open a shop" options without their own shop open.
+  // GM sends. { accountIds: [...] | 'party', and one of: templateId; script (+ npcName, npcBlurb); line + answers (+ npcName) }. addToPeople: put the NPC on the party's People list. shopId: the shop "open a shop" options without their own shop open.
   r.post('/', requireDM, (req, res) => {
     const w = W(res);
     const b = req.body ?? {};
@@ -327,9 +327,9 @@ function routes(d: Deps) {
   // A player wanders off looking for something to do: a random encounter from the world's wander pool.
   r.post('/wander', (_req, res) => {
     const w = W(res);
-    if (isDM(res)) throw new HttpError(400, 'Wandering is for players; send the DM an encounter instead');
+    if (isDM(res)) throw new HttpError(400, 'Wandering is for players; send the GM an encounter instead');
     const c = cfg(res);
-    if (!c.wander) throw new HttpError(403, 'Your DM has not turned on wandering');
+    if (!c.wander) throw new HttpError(403, 'Your GM has not turned on wandering');
     if (one(db, `SELECT 1 FROM encounters WHERE world_id = ? AND account_id = ? AND status = 'open'`, w, me(res))) throw new HttpError(409, 'Finish the talk you are in first');
     const wait = nextWander(w, me(res), c.wanderMinutes);
     if (wait) throw new HttpError(429, `Nothing stirs yet. Try again after ${new Date(wait).toISOString().slice(11, 16)} UTC`);
@@ -496,7 +496,7 @@ function routes(d: Deps) {
     reply(res, e);
   });
 
-  // The DM speaks as the NPC, live: { text, answers? }. The player's next answer ends the talk unless the DM speaks again.
+  // The GM speaks as the NPC, live: { text, answers? }. The player's next answer ends the talk unless the GM speaks again.
   r.post('/:eid/say', requireDM, (req, res) => {
     const e = load(res, String(req.params.eid));
     if (e.status !== 'open') throw new HttpError(409, 'This talk is over');
@@ -516,14 +516,14 @@ function routes(d: Deps) {
   r.post('/:eid/end', requireDM, (req, res) => {
     const e = load(res, String(req.params.eid));
     if (e.status === 'open') {
-      const log = [...parseJson<Line[]>(e.log, []), { who: 'note', text: e.kind === 'event' ? 'The DM moves the story on.' : `${e.npc_name} takes their leave.`, at: now() } as Line];
+      const log = [...parseJson<Line[]>(e.log, []), { who: 'note', text: e.kind === 'event' ? 'The GM moves the story on.' : `${e.npc_name} takes their leave.`, at: now() } as Line];
       run(db, `UPDATE encounters SET status = 'cancelled', log = ?, updated_at = ? WHERE id = ?`, JSON.stringify(log), now(), e.id);
       changed(e);
     }
     reply(res, e);
   });
 
-  // ---- templates (DM only) ----
+  // ---- templates (GM only) ----
   const tview = (t: TemplateRow) => ({ id: t.id, kind: kindOf(t.kind), places: cleanPlaces(parseJson(t.places, [])), name: t.name, npcName: t.npc_name, npcBlurb: t.npc_blurb, script: parseScript(parseJson(t.script, {})), wander: !!t.wander, builtin: false, updatedAt: t.updated_at });
   const tbody = (b: any) => {
     const kind = kindOf(b?.kind);
@@ -538,8 +538,8 @@ function routes(d: Deps) {
     const place = typeof q.place === 'string' ? cleanPlaces([q.place])[0] ?? null : null;
     return (t: { kind: EncounterKind; places: string[] }) => (!kind || t.kind === kind) && (!place || t.places.includes(place));
   };
-  // Draft an encounter from a description with the chat model; the DM edits and saves it like any other.
-  // { prompt, kind?: 'npc' | 'event', places?, guide?: a quick event DM template's id (its words steer the draft) }.
+  // Draft an encounter from a description with the chat model; the GM edits and saves it like any other.
+  // { prompt, kind?: 'npc' | 'event', places?, guide?: a quick event GM template's id (its words steer the draft) }.
   r.post('/templates/draft', requireDM, async (req, res) => {
     const prompt = str(req.body?.prompt, 'prompt', { max: 3000 }).trim();
     if (!prompt) throw new HttpError(400, 'Describe the encounter first');
@@ -605,29 +605,29 @@ function routes(d: Deps) {
 const S = (description: string) => ({ type: 'string', description });
 const enc = encodeURIComponent;
 const tools: McpTool[] = [
-  { name: 'list_encounters', dmOnly: true, description: 'DM: recent NPC encounters with players (open ones first to act on): the NPC, the player, the talk so far and where it stands.', props: { status: { type: 'string', enum: ['open', 'all'] } }, call: (a) => ({ method: 'GET', path: `/encounters${a.status === 'open' ? '?status=open' : ''}` }) },
+  { name: 'list_encounters', dmOnly: true, description: 'GM: recent NPC encounters with players (open ones first to act on): the NPC, the player, the talk so far and where it stands.', props: { status: { type: 'string', enum: ['open', 'all'] } }, call: (a) => ({ method: 'GET', path: `/encounters${a.status === 'open' ? '?status=open' : ''}` }) },
   {
     name: 'list_encounter_templates', dmOnly: true,
-    description: `DM: saved NPC encounters and quick events, and the built-in starters (NPCs: coin toss, shell game, arm-wrestling, dice duel, lost child, peddler; quick events: pickpocket, undervalued gem, lost purse, rope bridge, shrine ...), with ids for send_encounter. kind npc or event; place one of ${PLACES.join(', ')}.`,
+    description: `GM: saved NPC encounters and quick events, and the built-in starters (NPCs: coin toss, shell game, arm-wrestling, dice duel, lost child, peddler; quick events: pickpocket, undervalued gem, lost purse, rope bridge, shrine ...), with ids for send_encounter. kind npc or event; place one of ${PLACES.join(', ')}.`,
     props: { kind: { type: 'string', enum: [...KINDS] }, place: { type: 'string', enum: [...PLACES] } },
     call: (a) => { const q = new URLSearchParams(); if (a?.kind) q.set('kind', String(a.kind)); if (a?.place) q.set('place', String(a.place)); const s = q.toString(); return { method: 'GET', path: `/encounters/templates/all${s ? `?${s}` : ''}` }; },
   },
   {
     name: 'send_encounter', write: true,
-    description: "DM: have an NPC walk up to one or more players in their app, or a quick event happen to them. Either templateId (from list_encounter_templates), or place alone for a random quick event that fits it (town, road, woods, cave, dungeon ...), or npcName + line + answers for a quick one (kind 'event' for something that happens rather than someone talking). accountIds: player account ids, or 'party'. shopId: the shop a 'show me your wares' option opens.",
-    props: { accountIds: { description: "Player account ids, or 'party'" }, templateId: S('Template or starter id'), place: { type: 'string', enum: [...PLACES], description: 'A random quick event for this place' }, from: { type: 'string', enum: ['fav', 'mine', 'builtin', 'any'], description: "With place (or alone): pick the random event from the DM's starred ones (fav), their saved ones (mine), the built-ins, or any" }, kind: { type: 'string', enum: [...KINDS] }, npcName: S('NPC name'), npcBlurb: S('What they look like'), line: S('What the NPC says (quick encounter)'), answers: { type: 'array', items: { type: 'string' }, description: 'Answers the player can pick (quick encounter)' }, shopId: S('Shop id'), addToPeople: { type: 'boolean', description: "Also put the NPC on the party's People list" } },
+    description: "GM: have an NPC walk up to one or more players in their app, or a quick event happen to them. Either templateId (from list_encounter_templates), or place alone for a random quick event that fits it (town, road, woods, cave, dungeon ...), or npcName + line + answers for a quick one (kind 'event' for something that happens rather than someone talking). accountIds: player account ids, or 'party'. shopId: the shop a 'show me your wares' option opens.",
+    props: { accountIds: { description: "Player account ids, or 'party'" }, templateId: S('Template or starter id'), place: { type: 'string', enum: [...PLACES], description: 'A random quick event for this place' }, from: { type: 'string', enum: ['fav', 'mine', 'builtin', 'any'], description: "With place (or alone): pick the random event from the GM's starred ones (fav), their saved ones (mine), the built-ins, or any" }, kind: { type: 'string', enum: [...KINDS] }, npcName: S('NPC name'), npcBlurb: S('What they look like'), line: S('What the NPC says (quick encounter)'), answers: { type: 'array', items: { type: 'string' }, description: 'Answers the player can pick (quick encounter)' }, shopId: S('Shop id'), addToPeople: { type: 'boolean', description: "Also put the NPC on the party's People list" } },
     required: ['accountIds'],
     call: (a) => ({ method: 'POST', path: '/encounters', body: { accountIds: a.accountIds, templateId: a.templateId, place: a.place, from: a.from, kind: a.kind, npcName: a.npcName, npcBlurb: a.npcBlurb, line: a.line, answers: a.answers, shopId: a.shopId, addToPeople: a.addToPeople } }),
   },
   {
     name: 'save_encounter_template', write: true,
-    description: `DM: save a new NPC encounter or quick event for later (it does not send it). kind 'event' for a quick event: something that happens to a player (a thief, a find, a hazard), with places it fits (${PLACES.join(', ')}). script: {start, nodes: [{id, text, options: [{label, next: node id or null to end, effects: [{kind: gold|pay|lose, cp} | {kind: item, name, qty, note} | {kind: dmnote, text} | {kind: shop, shopId}]}], game: null or {kind: check, skill, dc, dcMax (optional: the DC is picked from dc..dcMax when the player rolls), stakeCp, winCp, win, lose}, timer (optional, only for urgent moments): {secs: 10-60, fallback: the option index picked when time runs out, or -1 to fail the check}}]}. Keep coin small (1 to 100 copper).`,
+    description: `GM: save a new NPC encounter or quick event for later (it does not send it). kind 'event' for a quick event: something that happens to a player (a thief, a find, a hazard), with places it fits (${PLACES.join(', ')}). script: {start, nodes: [{id, text, options: [{label, next: node id or null to end, effects: [{kind: gold|pay|lose, cp} | {kind: item, name, qty, note} | {kind: dmnote, text} | {kind: shop, shopId}]}], game: null or {kind: check, skill, dc, dcMax (optional: the DC is picked from dc..dcMax when the player rolls), stakeCp, winCp, win, lose}, timer (optional, only for urgent moments): {secs: 10-60, fallback: the option index picked when time runs out, or -1 to fail the check}}]}. Keep coin small (1 to 100 copper).`,
     props: { kind: { type: 'string', enum: [...KINDS] }, name: S('Short title'), npcName: S('Who or what it is about'), npcBlurb: S('One line: how it looks'), places: { type: 'array', items: { type: 'string', enum: [...PLACES] } }, script: { type: 'object', description: 'The steps (see the description)' }, wander: { type: 'boolean', description: 'Wandering players can meet it' } },
     required: ['name', 'script'],
     call: (a) => ({ method: 'POST', path: '/encounters/templates/all', body: { kind: a.kind, name: a.name, npcName: a.npcName, npcBlurb: a.npcBlurb, places: a.places, script: a.script, wander: a.wander } }),
   },
-  { name: 'encounter_say', write: true, description: 'DM: speak as the NPC in an open encounter, with new answers for the player.', props: { id: S('Encounter id'), text: S('What the NPC says'), answers: { type: 'array', items: { type: 'string' } } }, required: ['id', 'text'], call: (a) => ({ method: 'POST', path: `/encounters/${enc(a.id)}/say`, body: { text: a.text, answers: a.answers } }) },
-  { name: 'end_encounter', write: true, description: 'DM: end an open NPC encounter.', props: { id: S('Encounter id') }, required: ['id'], call: (a) => ({ method: 'POST', path: `/encounters/${enc(a.id)}/end`, body: {} }) },
+  { name: 'encounter_say', write: true, description: 'GM: speak as the NPC in an open encounter, with new answers for the player.', props: { id: S('Encounter id'), text: S('What the NPC says'), answers: { type: 'array', items: { type: 'string' } } }, required: ['id', 'text'], call: (a) => ({ method: 'POST', path: `/encounters/${enc(a.id)}/say`, body: { text: a.text, answers: a.answers } }) },
+  { name: 'end_encounter', write: true, description: 'GM: end an open NPC encounter.', props: { id: S('Encounter id') }, required: ['id'], call: (a) => ({ method: 'POST', path: `/encounters/${enc(a.id)}/end`, body: {} }) },
 ];
 
 const feature: Feature = {

@@ -1,6 +1,6 @@
 // World context for a sculpt, resolved once per request without a model:
 // the clock's date and season, the party, the current location, page excerpts,
-// and the DM-only word runs the leak check compares against.
+// and the GM-only word runs the leak check compares against.
 import { createHash } from 'node:crypto';
 import type { Deps } from '../../app.ts';
 import { all, one } from '../../core/db.ts';
@@ -16,7 +16,7 @@ const AI: Viewer = { accountId: 'sculpt-dm-view', role: 'dm', audience: 'ai' };
 export const bodyHash = (body: string) => createHash('sha256').update(body).digest('hex').slice(0, 32);
 const excerpt = (s: string, n: number) => s.replace(/^#+\s.*$/gm, ' ').replace(/> \[!\w+\][^\n]*/g, ' ').replace(/[*_`>#]/g, '').replace(/\s+/g, ' ').trim().slice(0, n);
 
-/** The text of `> [!secret]` blocks in a page body: what stays DM-only on a page Sculpting saved. */
+/** The text of `> [!secret]` blocks in a page body: what stays GM-only on a page Sculpting saved. */
 export function secretText(md: string): string {
   const out: string[] = [];
   let on = false;
@@ -40,7 +40,7 @@ export interface RenderCtx {
   page(ref: string): { title: string; excerpt: string; id: string } | null;
   /** Can a player open this page? */
   playerCanSee(ref: string): boolean;
-  /** DM-only word runs. Pages Sculpting saved count only for their secret blocks. */
+  /** GM-only word runs. Pages Sculpting saved count only for their secret blocks. */
   dmGrams(): Set<string>;
 }
 
@@ -114,7 +114,7 @@ export function makeCtx(d: Deps, worldId: string, player: boolean, overrides: Ov
       const id = pageId(ref);
       if (id) {
         try {
-          // Players get the player copy; a DM template the AI copy, which has no classified text.
+          // Players get the player copy; a GM template the AI copy, which has no classified text.
           const pg: any = d.library.get(worldId, id, player ? PLAYER : AI);
           out = { id, title: String(pg.title), excerpt: excerpt(String(pg.body ?? ''), 600) };
         } catch { out = null; }
@@ -141,7 +141,7 @@ export function makeCtx(d: Deps, worldId: string, player: boolean, overrides: Ov
   return c;
 }
 
-/** The first run of DM-only words this text repeats, if any. */
+/** The first run of GM-only words this text repeats, if any. */
 export function firstLeak(rc: RenderCtx, text: string): string | null {
   const dm = rc.dmGrams();
   if (!dm.size) return null;

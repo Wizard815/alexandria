@@ -1,6 +1,6 @@
-// The chat panel: Table and Party tabs (the DM only gets Table), messages
+// The chat panel: Table and Party tabs (the GM only gets Table), messages
 // with replies, reactions, @mentions, /roll and page links, a compose box,
-// and for the DM Start / End session. Ended sessions are read-only history.
+// and for the GM Start / End session. Ended sessions are read-only history.
 import { useEffect, useRef, useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { Tabs, ErrorBox, useAction } from '../../ui/index.tsx';
@@ -68,7 +68,7 @@ export function ChatPanel({ tall = false, onRead }: { tall?: boolean; onRead?: (
         {isDM && (c?.session ? <button type="button" className="btn small" disabled={act.busy} onClick={end}>End session</button> : <button type="button" className="btn small primary" disabled={act.busy} onClick={start}>Start session</button>)}
       </div>
       <div className="tiny muted">
-        {channel === 'party' ? 'Party chat: only players can read this. The DM cannot.' : 'Table chat: everyone, the DM too.'}
+        {channel === 'party' ? 'Party chat: only players can read this. The GM cannot.' : 'Table chat: everyone, the GM too.'}
         {viewing && <> · {viewing.title}{!open && ' (ended, read-only)'}</>}
       </div>
       {past.length > 0 && (
@@ -80,7 +80,7 @@ export function ChatPanel({ tall = false, onRead }: { tall?: boolean; onRead?: (
       <ErrorBox error={msgs.error ?? act.error} />
       {!isDM && <TradeOffers />}
       <div className="sc-log" ref={logRef} role="log" aria-live="polite" aria-label={`${channel} chat`}>
-        {!viewing && <p className="muted small">{isDM ? 'No session running. Press Start session to open the chats.' : 'No session yet. It starts when the DM starts one or everyone checks in on Live.'}</p>}
+        {!viewing && <p className="muted small">{isDM ? 'No session running. Press Start session to open the chats.' : 'No session yet. It starts when the GM starts one or everyone checks in on Live.'}</p>}
         {viewing && !list.length && <p className="muted small">Nothing yet. Try <code>/roll 2d6+3</code> or <code>@name</code>.</p>}
         {list.map((m) => {
           const mine = m.authorId === me;
@@ -89,7 +89,7 @@ export function ChatPanel({ tall = false, onRead }: { tall?: boolean; onRead?: (
             <div key={m.id} className={`sc-msg${mine ? ' mine' : ''}${m.mentionsMe ? ' ping' : ''}${m.deleted || m.hidden ? ' gone' : ''}`}>
               <div className="sc-meta"><strong>{nameOf(m.authorId)}</strong><span>{timeShort(m.at)}</span>{m.editedAt && <span>edited</span>}{m.hidden && <span className="chip red">hidden{isDM ? ' from players' : ''}</span>}</div>
               {m.replyTo && <div className="sc-reply">↩ {nameOf(m.replyTo.authorId)}: {m.replyTo.snippet || '…'}</div>}
-              {m.deleted ? <span>(deleted)</span> : m.hidden && !isDM ? <span>(hidden by the DM)</span> : m.roll ? (
+              {m.deleted ? <span>(deleted)</span> : m.hidden && !isDM ? <span>(hidden by the GM)</span> : m.roll ? (
                 <div className="sc-roll">🎲 {nameOf(m.authorId)} rolled <strong>{m.roll.total}</strong> <span className="muted small">({m.roll.expr}{m.roll.note ? `, ${m.roll.note}` : ''}: {m.roll.terms.filter((t) => t.dice.length).map((t) => `[${t.dice.join(', ')}]`).join(' ')})</span></div>
               ) : <div><Body text={m.body} slug={info.slug} /></div>}
               {!m.deleted && (

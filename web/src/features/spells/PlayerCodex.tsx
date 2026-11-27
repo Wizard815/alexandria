@@ -36,7 +36,7 @@ export function RecipeCard({ r, children }: { r: RecipeView; children?: ReactNod
       {r.status === 'locked' && (r.missing ?? []).length > 0 && (
         <ul className="spl-miss" aria-label={`Still needed for ${r.result.name}`}>{r.missing!.map((m, i) => <li key={i}>{missingText(m)}</li>)}</ul>
       )}
-      {r.dmNotes ? <div className="tiny note"><strong>DM notes.</strong> {r.dmNotes}</div> : null}
+      {r.dmNotes ? <div className="tiny note"><strong>GM notes.</strong> {r.dmNotes}</div> : null}
       {children}
     </div>
   );
@@ -60,7 +60,7 @@ export default function PlayerCodex() {
 
   const learn = (r: RecipeView) => act.run(async () => {
     const out: any = await w.call('POST', '/spells/learn', { recipeId: r.id });
-    toast(out.status === 'approved' ? `You learned ${r.result.name}` : `Asked the DM to learn ${r.result.name}`);
+    toast(out.status === 'approved' ? `You learned ${r.result.name}` : `Asked the GM to learn ${r.result.name}`);
     await codex.reload();
   });
   const cancel = (lid: string) => act.run(async () => { await w.call('POST', `/spells/learn/${lid}/cancel`); await codex.reload(); });
@@ -73,7 +73,7 @@ export default function PlayerCodex() {
   const tabs: [Tab, string][] = [['mine', `My spells (${learned.length})`], ...(crafting.on ? [['learn', `Learn${ready.length ? ` (${ready.length} ready)` : ''}`] as [Tab, string]] : []), ['all', 'All spells']];
   return (
     <div className="page wide">
-      <PageHead title="Codex" lead={`Spells in ${info.name}: the ones you know, ${crafting.on ? 'what you can learn by combining them, ' : ''}and the ones the DM has opened to the table.`} />
+      <PageHead title="Codex" lead={`Spells in ${info.name}: the ones you know, ${crafting.on ? 'what you can learn by combining them, ' : ''}and the ones the GM has opened to the table.`} />
       <ErrorBox error={codex.error ?? act.error} />
       {codex.loading && !codex.data ? <Loading /> : (
         <>
@@ -90,7 +90,7 @@ export default function PlayerCodex() {
           <Tabs label="Codex" value={tab} onChange={setTab} items={tabs} />
           {tab === 'mine' && (
             <section className="stack">
-              {learned.length === 0 ? <Empty>You know no spells yet. The DM adds the ones your character starts with.</Empty> : (
+              {learned.length === 0 ? <Empty>You know no spells yet. The GM adds the ones your character starts with.</Empty> : (
                 <div className="grid">
                   {learned.map((s) => (
                     <div key={s.id} className="card stack tight">
@@ -112,7 +112,7 @@ export default function PlayerCodex() {
               {ready.length === 0 ? <p className="muted">Nothing yet: see what each spell below still needs.</p> : ready.map((r) => (
                 <RecipeCard key={r.id} r={r}>
                   {r.pending ? (
-                    <div className="row between"><span className="tiny">Waiting for the DM.</span><button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void cancel(r.pending!)}>Take back</button></div>
+                    <div className="row between"><span className="tiny">Waiting for the GM.</span><button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void cancel(r.pending!)}>Take back</button></div>
                   ) : <button type="button" className="btn primary" disabled={act.busy} onClick={() => void learn(r)}>{crafting.approval === 'auto' ? 'Learn' : 'Ask to learn'} {r.result.name}</button>}
                 </RecipeCard>
               ))}

@@ -1,4 +1,4 @@
-// Real-life session calendar for a world. The DM sets days and times;
+// Real-life session calendar for a world. The GM sets days and times;
 // everyone can RSVP, talk about a day, or ask to reschedule. Calendar apps
 // subscribe to an iCalendar feed that carries only title, time and place.
 import { Router, type Request, type Response } from 'express';
@@ -103,7 +103,7 @@ export default function calendarRoutes(d: Deps) {
     res.status(201).json(x);
   });
 
-  // DM answers a reschedule ask. accept + moveTo moves the session.
+  // GM answers a reschedule ask. accept + moveTo moves the session.
   r.post('/:sid/reschedule/:rid', requireDM, (req, res) => {
     on(res);
     const s = session(res, String(req.params.sid));

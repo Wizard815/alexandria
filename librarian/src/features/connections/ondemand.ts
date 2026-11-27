@@ -2,7 +2,7 @@
 // source the moment someone opens it, the agent reads it, or a search finds
 // it, and only then served. Called from the page route, the search route and
 // the agent's context builder. Never throws: when the source cannot be
-// reached the page is served as it is (the index line), still DM-only.
+// reached the page is served as it is (the index line), still GM-only.
 import type { Deps } from '../../app.ts';
 import { one } from '../../core/db.ts';
 import type { Viewer } from '../../core/policy.ts';
@@ -13,8 +13,8 @@ const syncDeps = (d: Deps) => ({ db: d.db, library: d.library, dataDir: d.dataDi
 
 /**
  * A page is being opened or read by `viewer`. Reads it from its source first when it is not held in full, but only when the viewer could
- * be served the result: the DM always, anyone else only when the library would show them the page as it is now (a player copy exists,
- * the level allows it, a per-account lift or a share applies). A page that is DM-only (index-only pages with no visibility are) spends
+ * be served the result: the GM always, anyone else only when the library would show them the page as it is now (a player copy exists,
+ * the level allows it, a per-account lift or a share applies). A page that is GM-only (index-only pages with no visibility are) spends
  * no call for a player. Fail closed: any doubt is a refusal, and the page route answers 404 as before.
  */
 export async function readOnOpen(d: Deps, worldId: string, pageRef: string, viewer: Viewer): Promise<'ready' | 'fetched' | 'unavailable'> {
@@ -24,7 +24,7 @@ export async function readOnOpen(d: Deps, worldId: string, pageRef: string, view
   } catch { return 'unavailable'; }
 }
 
-/** The first hits of a search (a DM's, or the agent's): read the ones held at index depth, up to `max`, so the answer is built from the page. Returns how many were read. */
+/** The first hits of a search (a GM's, or the agent's): read the ones held at index depth, up to `max`, so the answer is built from the page. Returns how many were read. */
 export async function readSearchHits(d: Deps, worldId: string, hits: { id: string }[], max = 3): Promise<number> {
   try {
     ensureTierSchema(d.db);

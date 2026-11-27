@@ -1,8 +1,8 @@
-// DM approvals. Players can't change coin or items directly: their changes
-// wait here. The DM's own changes to someone else's items show up for the
+// GM approvals. Players can't change coin or items directly: their changes
+// wait here. The GM's own changes to someone else's items show up for the
 // owner as alerts they can confirm or dispute; a dispute comes back here.
 //
-// DM:      GET /approvals            pending coin, pending items, disputes, open alerts
+// GM:      GET /approvals            pending coin, pending items, disputes, open alerts
 //          POST /approvals/:id       {action: approve | edit | reject | revert, ...}
 // Player:  GET /approvals/mine       my pending changes and the alerts on my (and party) items
 //          POST /approvals/:id/ack   "Looks right"
@@ -48,7 +48,7 @@ export default function approvalsRoutes(d: Deps) {
       disputes: ch.filter((x) => x.status === 'disputed'),
       alerts: ch.filter((x) => x.status === 'alert'),
       recent: all<any>(db, `SELECT * FROM item_changes WHERE world_id = ? AND status IN ('approved', 'rejected', 'reverted', 'ok') ORDER BY COALESCE(decided_at, at) DESC LIMIT 30`, w).map((x) => parse(x, true)),
-      // Free gives between players: nothing to approve, shown so the DM knows.
+      // Free gives between players: nothing to approve, shown so the GM knows.
       transfers: all<any>(db, 'SELECT * FROM transfers WHERE world_id = ? ORDER BY at DESC LIMIT 30', w).map((t) => ({ ...t, seen: !!t.seen })),
       counts: {
         coin: one<any>(db, `SELECT COUNT(*) AS n FROM ledger WHERE world_id = ? AND status = 'pending' AND ${NOT_SHOP}`, w)!.n,

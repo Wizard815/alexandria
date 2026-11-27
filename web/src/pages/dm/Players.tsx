@@ -44,7 +44,7 @@ function OwnerCard({ o, owner, card, title, sub, presence, reload }: { o: Overvi
   const [name, setName] = useState('');
   const [qty, setQty] = useState('1');
   const [why, setWhy] = useState('');
-  // Quiet: the DM's item changes here don't alert the owner (a secret for the story). Off by default.
+  // Quiet: the GM's item changes here don't alert the owner (a secret for the story). Off by default.
   const [quiet, setQuiet] = useState(false);
   const isParty = owner === 'party';
   const locked = !isParty && !o.dmEdits;
@@ -108,7 +108,7 @@ function OwnerCard({ o, owner, card, title, sub, presence, reload }: { o: Overvi
         {card.items.map((it) => (
           <li key={it.id} className={it.status === 'pending' ? 'pending' : ''}>
             <ItemImage image={it.image} name={it.name} size={28} />
-            <span className="grow pl-item-name" title={it.note || undefined}>{it.name}{it.status === 'pending' && <span className="tiny faint"> (waiting)</span>}{it.dm_note && <span className="tiny" style={{ color: 'var(--danger-text)' }}> · DM: {it.dm_note}</span>}</span>
+            <span className="grow pl-item-name" title={it.note || undefined}>{it.name}{it.status === 'pending' && <span className="tiny faint"> (waiting)</span>}{it.dm_note && <span className="tiny" style={{ color: 'var(--danger-text)' }}> · GM: {it.dm_note}</span>}</span>
             <span className="pl-qty">× {it.qty}</span>
             {!locked && it.status !== 'pending' && <span className="row pl-itbtn">
               <button type="button" className="btn small ghost" aria-label={`One less ${it.name}`} disabled={act.busy} onClick={() => void take(it)}>−</button>
@@ -129,7 +129,7 @@ function OwnerCard({ o, owner, card, title, sub, presence, reload }: { o: Overvi
         </form>
       ) : <div className="row"><button type="button" className="btn small" onClick={() => setAdding(true)}>＋ Give item</button></div>)}
       {!locked && <QuietToggle on={quiet} set={setQuiet} party={isParty} />}
-      {locked && <span className="tiny faint">DM edits to packs are off in Settings.</span>}
+      {locked && <span className="tiny faint">GM edits to packs are off in Settings.</span>}
     </section>
   );
 }

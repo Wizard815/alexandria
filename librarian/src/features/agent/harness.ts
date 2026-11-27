@@ -1,15 +1,15 @@
 // The two harnesses over one chat model (PLAN §6.3). The harness decides
 // what the model is given and what it may do:
 //
-//   DM harness      DM copies and DM transcript lines; every MCP tool; a
-//                   write tool becomes a pending action the DM confirms.
+//   GM harness      GM copies and GM transcript lines; every MCP tool; a
+//                   write tool becomes a pending action the GM confirms.
 //   Player harness  player copies and the players' transcript only; read
 //                   tools only; the reply passes the leak check, one
 //                   sentence at a time while it streams.
 //
 // Tools run against the librarian's own world API over loopback HTTP with
 // the caller's own token (as routes/mcpServer.ts does), so the normal
-// visibility rules apply and the player harness never holds a DM token.
+// visibility rules apply and the player harness never holds a GM token.
 //
 // Speed: the static system prompt goes first (so a server can cache it); the
 // per-message context (library matches, the page on screen, combat, the
@@ -87,7 +87,7 @@ const audit = (d: Deps, worldId: string, accountId: string | null, action: strin
 export async function harnessTools(harness: 'dm' | 'player'): Promise<McpTool[]> {
   // Loaded when first used: mcpServer imports the feature registry, which loads this feature.
   const m = await import('../../routes/mcpServer.ts');
-  // Players are never offered DM-only lookups (they would only get 403).
+  // Players are never offered GM-only lookups (they would only get 403).
   const tools = m.toolsFor(harness === 'dm').filter((t: { dmOnly?: boolean }) => harness === 'dm' || !t.dmOnly);
   return harness === 'dm' ? tools : tools.filter((t) => !t.write);
 }
@@ -95,7 +95,7 @@ export async function harnessTools(harness: 'dm' | 'player'): Promise<McpTool[]>
 const SOUND_TOOLS = new Set(['play_music', 'play_ambience', 'play_sfx', 'list_sound_library', 'get_sound_now']);
 const asChatTool = (t: McpTool): ChatTool => ({ type: 'function', function: { name: t.name, description: t.description, parameters: { type: 'object', properties: t.props, required: t.required ?? [] } } });
 
-/** What a call will do, in words, for the DM to confirm. */
+/** What a call will do, in words, for the GM to confirm. */
 export function describeCall(tool: string, a: any): string {
   const n = (v: unknown) => (v === undefined || v === null ? '' : String(v));
   switch (tool) {
@@ -119,7 +119,7 @@ export function describeCall(tool: string, a: any): string {
     case 'set_conditions': return `Set conditions on combatant ${n(a.combatant)} to: ${Array.isArray(a.conditions) && a.conditions.length ? a.conditions.map((e: any) => (typeof e === 'string' ? e : `${n(e?.name)}${e?.rounds ? ` (${e.rounds} rounds)` : ''}${e?.untilEndOf ? ` (until end of ${n(e.untilEndOf)}'s turn)` : ''}${e?.untilStartOf ? ` (until start of ${n(e.untilStartOf)}'s turn)` : ''}`)).join(', ') : 'none'}`;
     case 'next_turn': return 'Advance combat to the next turn';
     case 'make_statblock': return `Make a statblock from ${a.moduleTermId ? `module monster ${a.moduleTermId}` : a.pageId ? `page ${a.pageId}` : `"${n(a.prompt).slice(0, 80)}"`}${a.addToCombat ? ' and add it to combat' : ''}`;
-    case 'save_page': return `Save library page ${n(a.path)}${a.visibility === 'party' ? ' (shared with the party)' : ' (DM only)'}`;
+    case 'save_page': return `Save library page ${n(a.path)}${a.visibility === 'party' ? ' (shared with the party)' : ' (GM only)'}`;
     case 'create_template': return `Create sculpting template "${n(a.name)}" (${Array.isArray(a.fields) ? a.fields.length : 0} fields, ${n(a.perspective ?? 'dm')} perspective)`;
     case 'add_person': return `Add ${n(a.name)} to People`;
     case 'add_item': return `Give ${n(a.qty ?? 1)} x ${n(a.name)} to ${n(a.owner)}`;
@@ -144,7 +144,7 @@ export function describeCall(tool: string, a: any): string {
 }
 
 /**
- * Text of the pages this player may read only through their own key, a DM grant or a share (their player copy): it is theirs, so the leak check must not count it as DM-only.
+ * Text of the pages this player may read only through their own key, a GM grant or a share (their player copy): it is theirs, so the leak check must not count it as GM-only.
  * Only this player's pages: nothing of anyone else's key.
  */
 function liftedTexts(d: Deps, c: Caller): string[] {
@@ -220,9 +220,9 @@ export function citationsFrom(tool: string, text: string): Citation[] {
 export interface Persona { agentName?: string; brokerName?: string; brokerTitle?: string }
 
 /**
- * The DM's side is Minerva (or whatever the DM named her). The player's side is
+ * The GM's side is Minerva (or whatever the GM named her). The player's side is
  * the world's information broker: it has the broker's own name and voice and is
- * never told Minerva exists, and never says it works for the DM.
+ * never told Minerva exists, and never says it works for the GM.
  */
 /** What this turn's tools returned, as one text (for telling quoted data from the model's own claims). */
 const toolText = (messages: { role: string; content?: unknown }[]) => messages.filter((m) => m.role === 'tool').map((m) => String(m.content ?? '')).join('\n');
@@ -301,26 +301,26 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, 
   const mode = skills === true ? 'full' : skills === false ? 'off' : skills;
   const L: string[] = dm && mode === 'lite'
     ? [
-      `You are ${persona.agentName || 'Minerva'}, the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
+      `You are ${persona.agentName || 'Minerva'}, the assistant of the Game Master of the tabletop campaign "${c.worldName}". You talk only to the GM and may use everything they can see, including GM-only notes and secrets.`,
       'Your character: wise, concise and proactive about long-term threads; you keep the campaign\'s memory.',
       'How to work:',
       '- The message starts with a context block: library matches, the page on screen, combat, the date. Use it first; most questions need no tool.',
-      '- When the DM asks you to DO something, call the tool that does exactly that, right away: the write tools only propose, the DM approves. Do not look things up first unless you need an id, and do not ask what you could just do. When a look-up found the one thing meant, go on and call the write tool in the same turn: never stop to ask "shall I?", the DM approves the proposal anyway. Say what you proposed, never that it is done; say it only after a write tool call this turn.',
-      '- A DM statement that sets something up is an instruction too: "the broker may sell this fact: ...", "Marrow is an ally now", "the party found 30 gold". Make that change with its tool; do not offer to.',
-      '- Pick the specific tool for the job (update_person, add_recall, add_quote, set_conditions, start_game_session, play_music ...). Use codex_upsert only to record long-term notes about someone the DM asks you to record.',
-      '- When the DM asks a question about people, places or what is going on, use who_is or context_for and the library. Facts about this world come only from the context, the transcript and tools: never invent names, places, numbers or events; say what is unknown.',
+      '- When the GM asks you to DO something, call the tool that does exactly that, right away: the write tools only propose, the GM approves. Do not look things up first unless you need an id, and do not ask what you could just do. When a look-up found the one thing meant, go on and call the write tool in the same turn: never stop to ask "shall I?", the GM approves the proposal anyway. Say what you proposed, never that it is done; say it only after a write tool call this turn.',
+      '- A GM statement that sets something up is an instruction too: "the broker may sell this fact: ...", "Marrow is an ally now", "the party found 30 gold". Make that change with its tool; do not offer to.',
+      '- Pick the specific tool for the job (update_person, add_recall, add_quote, set_conditions, start_game_session, play_music ...). Use codex_upsert only to record long-term notes about someone the GM asks you to record.',
+      '- When the GM asks a question about people, places or what is going on, use who_is or context_for and the library. Facts about this world come only from the context, the transcript and tools: never invent names, places, numbers or events; say what is unknown.',
       '- Cite pages inline as [Page title]. Answer rules questions with lookup_rule, never from memory.',
-      '- If you think you have no tool for what the DM asks, call more_tools with a few words about it first.',
+      '- If you think you have no tool for what the GM asks, call more_tools with a few words about it first.',
       '- Be brief. Lead with the answer; short paragraphs or bullets in Markdown; no preamble.',
     ]
     : dm && mode === 'off'
     ? [
-      `You are ${persona.agentName || 'Minerva'}, the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
+      `You are ${persona.agentName || 'Minerva'}, the assistant of the Game Master of the tabletop campaign "${c.worldName}". You talk only to the GM and may use everything they can see, including GM-only notes and secrets.`,
       'Be brief. Lead with the answer.',
     ]
     : dm
     ? [
-      `You are ${persona.agentName || 'Minerva'}, the assistant of the Dungeon Master of the tabletop campaign "${c.worldName}". You talk only to the DM and may use everything they can see, including DM-only notes and secrets.`,
+      `You are ${persona.agentName || 'Minerva'}, the assistant of the Game Master of the tabletop campaign "${c.worldName}". You talk only to the GM and may use everything they can see, including GM-only notes and secrets.`,
       'Your character: wise, concise and proactive about long-term threads. Notice what is going cold, what a player is after, and what is due to pay off, and say so in a line. You keep the campaign\'s memory (context_for, who_is, codex_upsert, status_update, revelation_mark, goal_update).',
       'How to work:',
       '- The message starts with a context block: library matches, the page on screen, combat, the date. Use it first; most questions need no tool.',
@@ -329,10 +329,10 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, 
       '- Facts about this world come only from that context, the transcript and tools. Never invent names, places, numbers or events. If it is not there, say what is unknown, and offer to look further or to propose something as a clearly marked suggestion.',
       '- Cite what you used inline as [Page title] with the exact title. Quote the transcript as (speaker, session).',
       '- Prefer a tool to a guess: search_library, read_page, search_transcript, get_combat. Answer rules questions with lookup_rule, never from memory.',
-      '- Anything that changes the world is only proposed; the DM approves it. Say what you proposed. Never say it is done. Only say you proposed something after a write tool call this turn; if you made none, say what you would do and offer to.',
-      '- If you think you have no tool for what the DM asks, call more_tools with a few words about it first. Never say "I have no tool" without calling more_tools. Creatures and NPCs come from generate (kind npc); sound from play_music / play_ambience; combat from the combat tools (set_initiative, remove_combatant, set_combat).',
-      '- When the DM asks you to make, roll, generate or sculpt a boss, monster, NPC, shop, map, names, loot or coins, call the generator (generate, generate_map, generate_names, generate_items, generate_coins, generate_shop for a shop, sculpt) first, even if the campaign already has ideas; you may mention those after.',
-      '- When the request has enough to act on, call the write tool right away (the DM confirms it). Fill small gaps yourself (a teaser, a title, a price in the DM\'s words) instead of asking or refusing. Do not say you lack a tool for something a tool you were given does.',
+      '- Anything that changes the world is only proposed; the GM approves it. Say what you proposed. Never say it is done. Only say you proposed something after a write tool call this turn; if you made none, say what you would do and offer to.',
+      '- If you think you have no tool for what the GM asks, call more_tools with a few words about it first. Never say "I have no tool" without calling more_tools. Creatures and NPCs come from generate (kind npc); sound from play_music / play_ambience; combat from the combat tools (set_initiative, remove_combatant, set_combat).',
+      '- When the GM asks you to make, roll, generate or sculpt a boss, monster, NPC, shop, map, names, loot or coins, call the generator (generate, generate_map, generate_names, generate_items, generate_coins, generate_shop for a shop, sculpt) first, even if the campaign already has ideas; you may mention those after.',
+      '- When the request has enough to act on, call the write tool right away (the GM confirms it). Fill small gaps yourself (a teaser, a title, a price in the GM\'s words) instead of asking or refusing. Do not say you lack a tool for something a tool you were given does.',
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble, no repeating the question.',
     ]
     : c.mode === 'helper' ? [
@@ -340,19 +340,19 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, 
       'You help with their own character (who they are, their items and coin, their goals and journal), the rules (spells, conditions, actions: use lookup_rule, never from memory), and what the party has seen and learned (tonight\'s summary, the transcript the players heard, the library pages shared with the party).',
       'How to work:',
       '- The message starts with a context block: who you are helping, their items, tonight so far, library matches. Use it first; most questions need no tool.',
-      '- You know only what this player knows. Never guess at secrets, hidden plots, monster stats the players have not seen, or what the DM has planned; say that is up to the DM.',
-      '- You cannot change anything. For their own journal and goals use my_memory_log and my_goal_update (the DM looks them over); for anything else, say what to ask the DM.',
+      '- You know only what this player knows. Never guess at secrets, hidden plots, monster stats the players have not seen, or what the GM has planned; say that is up to the GM.',
+      '- You cannot change anything. For their own journal and goals use my_memory_log and my_goal_update (the GM looks them over); for anything else, say what to ask the GM.',
       '- Rules answers: name the rule, give the short version, then what it means for them right now. Cite pages as [Page title].',
       '- Be brief. Lead with the answer; short bullets in Markdown; no preamble.',
     ] : [
       `You are ${persona.brokerName || 'The Broker'}${persona.brokerTitle ? `, ${persona.brokerTitle}` : ''}, the information broker of the tabletop campaign "${c.worldName}". You talk to one player at a time, in the broker's own voice. You know only what this player knows: the library pages shared with the party, what the players heard, and this player's own notes, goals and clues.`,
       'How to work:',
       '- The message starts with a context block: library matches, the page on screen, what this player knows. Use it first; most questions need no tool.',
-      '- Facts come only from that context and tools. If the answer is not in what you can see, say you do not know. Never guess at secrets, hidden plots or what the DM has planned, and never invent names, places or events.',
-      '- You are the broker and nothing else. Never say or hint that you work for the DM, that you are an assistant, or that you have any other name or any records beyond what is in front of you.',
+      '- Facts come only from that context and tools. If the answer is not in what you can see, say you do not know. Never guess at secrets, hidden plots or what the GM has planned, and never invent names, places or events.',
+      '- You are the broker and nothing else. Never say or hint that you work for the GM, that you are an assistant, or that you have any other name or any records beyond what is in front of you.',
       '- Cite what you used inline as [Page title] with the exact title.',
       '- Prefer a tool to a guess: search_library, read_page, search_transcript.',
-      '- You can only add to this player\'s own journal and goals (my_memory_log, my_goal_update); the DM looks them over. For anything else, say the DM has to do it.',
+      '- You can only add to this player\'s own journal and goals (my_memory_log, my_goal_update); the GM looks them over. For anything else, say the GM has to do it.',
       '- Be brief. Lead with the answer, then the detail. Short paragraphs or bullets in Markdown; no preamble.',
     ];
   if (summary) L.push(`\nEarlier in this chat (summary): ${summary}`);
@@ -361,10 +361,10 @@ export function systemPrompt(c: Pick<Caller, 'harness' | 'worldName' | 'mode'>, 
 
 // ---- context ------------------------------------------------------------------
 
-/** Everything the agent is given from the library is the AI copy: a DM's viewer becomes the model's, which never sees classified content. */
+/** Everything the agent is given from the library is the AI copy: a GM's viewer becomes the model's, which never sees classified content. */
 const forModel = (v: Viewer): Viewer => (v.role === 'dm' ? { ...v, audience: 'ai' } : v);
 
-const lineText = (l: { speaker: string; text: string; audience?: string }) => `${l.speaker}${l.audience === 'dm' ? ' (DM only)' : ''}: ${l.text}`;
+const lineText = (l: { speaker: string; text: string; audience?: string }) => `${l.speaker}${l.audience === 'dm' ? ' (GM only)' : ''}: ${l.text}`;
 
 function recentTranscript(d: Deps, worldId: string, includeDm: boolean, limit = 30): string {
   const s = listSessions(d.db, worldId)[0];
@@ -477,7 +477,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   const mods = worldModules(d.db, c.worldId).enabled.map((m) => m.name).join(', ');
   if (mods) L.push(`Game modules: ${mods}.`);
   if (dm) { const src = sourceSummary(d, c.worldId); if (src) L.push(src); }
-  // The campaign status first (DM), or what this player knows (the broker): the retrieval order of the memory vault.
+  // The campaign status first (GM), or what this player knows (the broker): the retrieval order of the memory vault.
   if (dm && opts.status) { const brief = WANTS_PREP.test(text) ? minervaPrep(d, c.worldId) || minervaBrief(d, c.worldId) : minervaBrief(d, c.worldId); if (brief) L.push(brief); }
   else { const mine = brokerContext(d, c.worldId, c.accountId, text); if (mine) L.push(mine); }
   const cb = dm ? compactCombat(combat) : '';
@@ -490,18 +490,18 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
     });
     L.push(`Library matches for this message (page id in parentheses; cite by [title]):\n${hits.map((h, i) => `- [${h.title}] (${h.id}): ${h.snippet}${top[i] && i < 2 ? `\n  Starts: ${top[i]}` : ''}`).join('\n')}`);
   } else L.push('Library matches for this message: none.');
-  // While a session is recording the last lines ride along (the DM's: everything DM-visible; a player's: the players' transcript only), so "did we just find a clue?" can be answered.
+  // While a session is recording the last lines ride along (the GM's: everything GM-visible; a player's: the players' transcript only), so "did we just find a clue?" can be answered.
   // The table helper knows whose helper it is.
   if (!dm && c.mode === 'helper') {
     const me_ = one<any>(d.db, 'SELECT a.display_name AS d, m.character_name AS ch FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.account_id = ?', c.worldId, c.accountId);
     if (me_) L.push(`You are helping ${me_.d}${me_.ch ? `, who plays ${me_.ch}` : ''}.`);
   }
   const budget = budgetFor(d, c.harness);
-  // The running summary of tonight's session (the DM's, or the players' for a player): the whole night in a few
+  // The running summary of tonight's session (the GM's, or the players' for a player): the whole night in a few
   // hundred words, so a model that only gets the last lines still knows what came before.
   const sum = latestSummary(d, c.worldId, dm ? 'dm' : 'party');
   if (sum) L.push(`Session so far ("${sum.name}"${sum.active ? ', recording now' : ', ended'}; running summary of ${sum.lines} transcript lines):\n${sum.text.slice(0, 3000)}`);
-  // The rules calls Minerva flagged tonight (DM only): so "was that right?" has the answer at hand.
+  // The rules calls Minerva flagged tonight (GM only): so "was that right?" has the answer at hand.
   if (dm && sum) { const notes = ruleNotes(d, sum.sessionId, { onlyFlags: true, limit: 3 }); if (notes.length) L.push(`Rules checks flagged this session (newest first):\n${notes.map((n) => `- ${n.term}: ${n.note}`).join('\n')}`); }
   const live = liveLines(d, c.worldId, dm, budget.liveLines);
   if (live.session?.active && live.lines.length) {
@@ -532,7 +532,7 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   return { text: L.join('\n\n'), hits, prepMs: ms(t0) };
 }
 
-/** The persona each harness speaks as: the DM's assistant, or the broker the players know. */
+/** The persona each harness speaks as: the GM's assistant, or the broker the players know. */
 function dmPersona(d: Deps, c: Caller): Persona {
   if (c.harness === 'dm') return { agentName: agentName(d, c.worldId) };
   const b = brokerPersona(d, c.worldId);
@@ -601,8 +601,8 @@ export interface RunInput { chatId: string; replyId: string; text: string; conte
 
 /** Runs in progress, so the Stop button can end one. */
 const running = new Map<string, AbortController>();
-/** The end of a player's answer that was cut short because the DM needed the model. */
-export const PAUSED_FOR_DM = '_Paused so the DM could go first. Ask again in a moment._';
+/** The end of a player's answer that was cut short because the GM needed the model. */
+export const PAUSED_FOR_DM = '_Paused so the GM could go first. Ask again in a moment._';
 export const stopRun = (chatId: string): boolean => { const a = running.get(chatId); if (!a) return false; a.abort(); return true; };
 
 /** Tell the owner's screens about an action (a new card, or a decision): the card travels with the event, so no screen re-reads the chat. */
@@ -629,10 +629,10 @@ export type AutoCheck = (tool: string) => boolean;
 
 interface Executed { content: string; proposed?: string; ran?: { ok: boolean; status: number }; cites: Citation[]; summary?: string; duplicate?: boolean }
 
-/** Which run a call belongs to, for Minerva's thoughts (the DM's harness only). */
+/** Which run a call belongs to, for Minerva's thoughts (the GM's harness only). */
 export interface RunMeta { runId?: string; source?: ThoughtSource }
 
-/** A read in the DM's words, for Minerva's thoughts: "search_library “goblin cave”". */
+/** A read in the GM's words, for Minerva's thoughts: "search_library “goblin cave”". */
 const lookText = (name: string, a: any): string => {
   const q = a?.query ?? a?.q ?? a?.name ?? a?.term ?? a?.title ?? a?.path ?? a?.id ?? a?.pageId;
   return `${name.replace(/_/g, ' ')}${typeof q === 'string' && q ? ` “${q.slice(0, 80)}”` : ''}`;
@@ -652,25 +652,25 @@ async function execCall(d: Deps, c: Caller, chatId: string, byName: Map<string, 
       note('error', `Tried a tool that does not exist: ${name}${near.length ? ` (meant ${near[0]}?)` : ''}.`);
       return { content: `Unknown tool "${name}".${near.length ? ` Did you mean ${near.map((n) => `"${n}"`).join(' or ')}? Call that instead.` : ' Use only the tools you were given.'}`, cites: [] };
     }
-    // Arguments are checked against the tool's schema before anything runs or becomes a card: a card the DM approves must not then fail on a typo.
+    // Arguments are checked against the tool's schema before anything runs or becomes a card: a card the GM approves must not then fail on a typo.
     const chk = checkArgs(tool, args ?? {});
     if (chk.problems.length) {
       note('error', `My ${name} call had bad arguments, fixing them: ${chk.problems.join('; ')}.`);
       return { content: `Not ${tool.write ? 'proposed' : 'run'}: ${chk.problems.join('; ')}. Fix the arguments and call ${name} again.`, cites: [] };
     }
     args = chk.args;
-    // A template that would not be saved is sent back to the model with the reason, so it can fix it before the DM is asked.
+    // A template that would not be saved is sent back to the model with the reason, so it can fix it before the GM is asked.
     if (name === 'create_template') { try { readTemplate(args); } catch (e: any) { return { content: `Not proposed: ${String(e?.message ?? e).slice(0, 300)}. Fix the template and call create_template again.`, cites: [] }; } }
-    // A web search that would not run (off, or a query with a DM-only or classified word) never becomes a card: nothing is sent.
+    // A web search that would not run (off, or a query with a GM-only or classified word) never becomes a card: nothing is sent.
     if (name === 'house_rule_save') { const why = saveProblem(c.worldId, args); if (why) return { content: why, cites: [] }; }
     if (name === 'web_research') { const why = webPrecheck(d, c.worldId, args); if (why) return { content: why, cites: [] }; }
     if (tool.write && !auto(name)) {
       // The same change already waiting in this chat (a model that repeats itself, or a retry) is not a second card.
       const same = one<{ id: string }>(d.db, "SELECT id FROM agent_actions WHERE chat_id = ? AND tool = ? AND args = ? AND status = 'pending'", chatId, name, JSON.stringify(args ?? {}));
-      if (same) return { content: `Already proposed as action ${same.id}: ${describeCall(name, args)}. It is waiting for the DM; do not propose it again.`, proposed: same.id, duplicate: true, cites: [], summary: describeCall(name, args) };
+      if (same) return { content: `Already proposed as action ${same.id}: ${describeCall(name, args)}. It is waiting for the GM; do not propose it again.`, proposed: same.id, duplicate: true, cites: [], summary: describeCall(name, args) };
       const aid = proposeAction(d, c, chatId, tool, args);
       note('ask', `Proposed: ${describeCall(name, args)}. Waiting for you.`, { actionId: aid });
-      return { content: `Proposed to the DM as action ${aid}: ${describeCall(name, args)}. It has NOT run; it waits for the DM to approve it.`, proposed: aid, cites: [], summary: describeCall(name, args) };
+      return { content: `Proposed to the GM as action ${aid}: ${describeCall(name, args)}. It has NOT run; it waits for the GM to approve it.`, proposed: aid, cites: [], summary: describeCall(name, args) };
     }
     if (!tool.write) note('look', `Looking up: ${lookText(name, args)}.`);
     const t = await runTool(d, c, tool, args);
@@ -734,7 +734,7 @@ async function runFast(d: Deps, c: Caller, input: RunInput, plan: FastPlan, byNa
 }
 
 /**
- * The tool names to offer for a message. The player harness always uses the keyword selection. The DM harness follows
+ * The tool names to offer for a message. The player harness always uses the keyword selection. The GM harness follows
  * `opts.tools` (see options.ts); an embedding mode with no embeddings model answering falls back to the keyword selection.
  */
 export async function chooseTools(d: Deps, opts: ReturnType<typeof agentOptions>, selText: string, requestText: string, tools: McpTool[], names: string[], dm: boolean): Promise<string[]> {
@@ -785,7 +785,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const exec = c.harness === 'dm' ? input.exec : undefined;
     const meta: Required<RunMeta> = { runId: input.replyId, source: exec ? 'task' : 'assistant' };
     if (c.harness === 'dm') think(d, c.worldId, { ...meta, kind: 'plan', chatId: input.chatId, text: `${exec ? `Task (${exec.mode === 'do' ? 'doing it' : 'proposing'})` : 'Working on'}: “${input.text.slice(0, 160)}”` });
-    // The DM's own chat asks the settings at every call (the per-tool list and the Auto switch); a player's never runs a write.
+    // The GM's own chat asks the settings at every call (the per-tool list and the Auto switch); a player's never runs a write.
     let auto: AutoCheck = c.harness === 'dm' ? (name) => runsWithoutAsking(d, c.worldId, name) : () => false;
     if (exec) {
       const allow = new Set(exec.allow?.length ? exec.allow : TASK_DEFAULT_TOOLS);
@@ -820,7 +820,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     T.snippets = hits.length;
     if (c.harness === 'dm') T.hits = hits.map((x) => x.title);
     const dmHarness = c.harness === 'dm';
-    // The DM's guides: a request that matches one (its triggers, or "use guide X") gets the guide and what its steps found.
+    // The GM's guides: a request that matches one (its triggers, or "use guide X") gets the guide and what its steps found.
     if (dmHarness) {
       const g = await applyGuides(d, { worldId: c.worldId, viewer: c.viewer, chatId: input.chatId, text: input.text, exec: (n, a) => execCall(d, c, input.chatId, byName, auto, n, a, meta) }).catch((e) => { console.error('agent: guides failed', e); return null; });
       if (g) {
@@ -836,7 +836,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     const selText = `${input.text} ${input.context.selection ? 'selection' : ''}`;
     const picked = new Set(exec ? names.filter((n) => byName.get(n)?.write || TASK_READS.includes(n)).slice(0, 40) : await chooseTools(d, opts, selText, input.text, tools, names, dmHarness));
     // House rules that are on and that this message is about: their guidance for this person, the exact calls, what
-    // they may see, and the tools (plus feature tools a rule names). The DM's assistant and a player's helper only.
+    // they may see, and the tools (plus feature tools a rule names). The GM's assistant and a player's helper only.
     if (dmHarness || c.mode === 'helper') {
       const hr = ruleHints(d.db, c.worldId, `${input.text} ${input.context.selection ?? ''}`, dmHarness, c.accountId);
       if (hr.text) {
@@ -851,14 +851,14 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     T.toolsOffered = offerNow().length;
     const userText = (input.history.filter((m) => m.role === 'user').map((m) => m.content ?? '') as string[]).concat(input.text, input.context.selection ?? '');
     const base = c.harness === 'player' ? leakChecker(d.db, c.worldId, [...userText, ...liftedTexts(d, c), ...playerTexts(d, c.worldId, c.accountId), ...all<{ answer: string }>(d.db, `SELECT answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND status = 'answered' AND answer IS NOT NULL`, c.worldId, c.accountId).map((r) => r.answer)]) : null;
-    // The broker never gives the DM's assistant away: her name, or that it works for the DM, blocks the reply like DM-only text does.
+    // The broker never gives the GM's assistant away: her name, or that it works for the GM, blocks the reply like GM-only text does.
     const check = base ? (t: string) => { const g = personaGiveaway(t, agentName(d, c.worldId)); return g ? { blocked: true, match: g } : base(t); } : null;
-    const taskNote = exec ? `\n\nThis message is a TASK from a macro or a spoken command, not a conversation. ${exec.mode === 'do' ? 'Carry it out now by calling the tools: they run at once with no confirmation. Do all the steps in one go (call several tools together). Use only the tools offered. Never invent ids: read them first (get_combat, search_library, list_sound_library).' : 'Propose the steps with the write tools (the DM confirms each).'} Players see what you change on their screens, so only show them party-level pages. Finish with one short line saying what you did.` : '';
+    const taskNote = exec ? `\n\nThis message is a TASK from a macro or a spoken command, not a conversation. ${exec.mode === 'do' ? 'Carry it out now by calling the tools: they run at once with no confirmation. Do all the steps in one go (call several tools together). Use only the tools offered. Never invent ids: read them first (get_combat, search_library, list_sound_library).' : 'Propose the steps with the write tools (the GM confirms each).'} Players see what you change on their screens, so only show them party-level pages. Finish with one short line saying what you did.` : '';
     const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(c, input.summary, dmPersona(d, c), opts.skills) + taskNote }, ...input.history, { role: 'user', content: withContext(built.text, input.text) }];
 
     let reply = '';
     let done = false;
-    // A source lookup that needed the DM (a blanket key's results, or pages above this player's view) is escalated by the tool: the reply says so and nothing more.
+    // A source lookup that needed the GM (a blanket key's results, or pages above this player's view) is escalated by the tool: the reply says so and nothing more.
     let escalated = false;
     let wrote = false;
     let retried = false;
@@ -940,7 +940,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         blocked = true;
         const match = chk.match ?? gate?.match ?? '';
         run(d.db, 'INSERT INTO agent_leaks (id, world_id, account_id, chat_id, matched, at) VALUES (?, ?, ?, ?, ?, ?)', id('lk_'), c.worldId, c.accountId, input.chatId, match, now());
-        audit(d, c.worldId, c.accountId, 'agent.leak_blocked', `chat ${input.chatId}: reply shared DM-only text ("${match.slice(0, 80)}")`);
+        audit(d, c.worldId, c.accountId, 'agent.leak_blocked', `chat ${input.chatId}: reply shared GM-only text ("${match.slice(0, 80)}")`);
         d.hub.emit(c.worldId, 'agent', { kind: 'leak', chatId: input.chatId }, dmOnly);
         reply = BLOCKED_REPLY;
         live.replace(BLOCKED_REPLY);
@@ -956,7 +956,7 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
     }
   } catch (err: any) {
     if (err instanceof ModelPreempted) {
-      // The DM needed the model and this answer gave way (DM first, core/ai.ts): keep what was shown and say why it stopped.
+      // The GM needed the model and this answer gave way (GM first, core/ai.ts): keep what was shown and say why it stopped.
       const shown = (gate ? gate.sent : live.text).trim();
       finish(`${shown ? `${shown}\n\n` : ''}${PAUSED_FOR_DM}`, 'done');
     } else if (err?.name === 'AbortError') {

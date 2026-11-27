@@ -1,4 +1,4 @@
-// Sharing library pages with players: one dialog, opened from a page, from the library tree, or from the Share button in the DM's top bar.
+// Sharing library pages with players: one dialog, opened from a page, from the library tree, or from the Share button in the GM's top bar.
 // The recipient gets the same player copy; secret parts and anything above the player level stay hidden (the server decides).
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
@@ -93,7 +93,7 @@ function ShareDialog({ start, pick = false, onClose }: { start: string[]; pick?:
       )}
       {single && s && (s.everyone
         ? <p className="ok-box small">Everyone in the party can already read this page.</p>
-        : s.locked ? <p className="error-box small">This page is marked DM-only in its own title, tags or text. Remove that mark at its source to share it.</p>
+        : s.locked ? <p className="error-box small">This page is marked GM-only in its own title, tags or text. Remove that mark at its source to share it.</p>
         : <div className="stack tight">
           {otherCopy && <p className="note small">Players can already read another copy of this page. Sharing this one adds your version’s player copy.</p>}
           {[{ id: 'party', label: 'Everyone' }, ...players.map((m) => ({ id: m.id, label: who(m) }))].map((p) => {

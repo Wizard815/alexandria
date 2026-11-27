@@ -1,13 +1,13 @@
 // Helpers for a player's assistant (the broker's voice), built only from what
 // that player may see: the players' transcript (lines the whole table heard,
-// never a DM aside) and the published session log. No model is needed.
+// never a GM aside) and the published session log. No model is needed.
 //
 //   GET /helper/journal-draft   a draft of this player's journal for a session, from the table transcript
 //   GET /helper/recap           what happened last session: the published log entries, newest first
 //
 // The quick helper (quick.ts) is the one part that uses a model: a small second one, the 'helper' job.
 //   GET  /helper/quick          is it on, and which model answers
-//   GET  /helper/quick/brief    what the small model is given for a task (?task=&q=; the DM: &account=)
+//   GET  /helper/quick/brief    what the small model is given for a task (?task=&q=; the GM: &account=)
 //   POST /helper/quick          { task: ask|rules|turn|sheet|suggest, question? } -> an answer or a handoff
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
@@ -88,7 +88,7 @@ const feature: Feature = {
 
     r.post('/quick', async (req, res) => {
       if (isDM(res)) throw new HttpError(403, 'The quick helper is for players');
-      if (!quickOn(res)) throw new HttpError(403, 'The DM has turned the quick helper off');
+      if (!quickOn(res)) throw new HttpError(403, 'The GM has turned the quick helper off');
       const c = ctx(res);
       try {
         res.json(await askQuick(d, { worldId: c.world.id, worldName: c.world.name, accountId: me(res), settings: settings(res), task: taskOf(req.body?.task), question: questionOf(req.body?.question) }));

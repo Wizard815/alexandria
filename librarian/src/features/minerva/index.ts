@@ -1,4 +1,4 @@
-// Minerva: the DM's agent and her campaign memory (docs/MINERVA.md).
+// Minerva: the GM's agent and her campaign memory (docs/MINERVA.md).
 // The vault is Markdown in the library under Minerva/ (vault.ts); the codex
 // accretes (codex.ts); revelations feed each player's knowledge
 // (revelations.ts); finished sessions become one review (after.ts). Players
@@ -56,9 +56,9 @@ function routes(d: import('../../app.ts').Deps) {
   mine.post('/goals', (req, res) => res.status(202).json(playerGoal(d, W(res), me(res), { goal: String(req.body?.goal ?? ''), heat: req.body?.heat, text: req.body?.text })));
   r.use('/me', mine);
 
-  // ---- the DM's side ------------------------------------------------------------------------
+  // ---- the GM's side ------------------------------------------------------------------------
   r.use(requireDM);
-  // A model asking through the DM's token is never handed classified text: an answer that repeats any is refused whole (docs/SECURITY.md).
+  // A model asking through the GM's token is never handed classified text: an answer that repeats any is refused whole (docs/SECURITY.md).
   r.use((req, res, next) => {
     if (String(req.headers[CALLER_HEADER] ?? '').toLowerCase() !== CALLER_MODEL) return next();
     const json = res.json.bind(res);
@@ -152,7 +152,7 @@ function routes(d: import('../../app.ts').Deps) {
   });
 
   // ---- live help ----
-  // Look at the last minutes of the recording now and draft suggestions into the review queue (the DM's own button; the scheduler does it by itself every couple of minutes).
+  // Look at the last minutes of the recording now and draft suggestions into the review queue (the GM's own button; the scheduler does it by itself every couple of minutes).
   r.post('/live/suggest', async (_req, res) => { requireEnabled(d.db, W(res)); res.json(await suggestionPass(d, W(res), { force: true })); });
 
   // ---- arcs and sessions ----
@@ -200,7 +200,7 @@ function routes(d: import('../../app.ts').Deps) {
   });
   r.get('/revelations/:slug', (req, res) => res.json(findMystery(d, W(res), String(req.params.slug))));
 
-  // ---- the tools' own routes (the DM's agent runs them with the DM's token) ----
+  // ---- the tools' own routes (the GM's agent runs them with the GM's token) ----
   r.post('/memory/log', (req, res) => res.json(memoryLog(d, W(res), { text: String(req.body?.text ?? ''), about: req.body?.about, session: req.body?.session }, me(res))));
   r.post('/memory/capture', (req, res) => {
     const w = W(res);
@@ -247,7 +247,7 @@ function routes(d: import('../../app.ts').Deps) {
   });
   r.post('/import', express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '24mb' }), (req, res) => {
     requireEnabled(d.db, W(res));
-    // ?map={"folder":"acc_id" | "skip"}: the DM's choice for player folders that matched nobody.
+    // ?map={"folder":"acc_id" | "skip"}: the GM's choice for player folders that matched nobody.
     let map: Record<string, string> | undefined;
     if (typeof req.query.map === 'string' && req.query.map) {
       try { const j = JSON.parse(req.query.map); if (j && typeof j === 'object' && !Array.isArray(j)) map = Object.fromEntries(Object.entries(j).map(([k, v]) => [k, String(v)])); } catch { throw new HttpError(400, 'map must be JSON'); }
@@ -270,7 +270,7 @@ const feature: Feature = {
     if (cols.length && !cols.includes('seen_ids')) db.exec(`ALTER TABLE minerva_live ADD COLUMN seen_ids TEXT NOT NULL DEFAULT '[]'`);
   },
   settings: {
-    // What the DM calls the assistant. Only the DM side ever sees or uses it.
+    // What the GM calls the assistant. Only the GM side ever sees or uses it.
     agentName: { type: 'string', default: 'Minerva', max: 60 },
   },
   worldMount: 'minerva',
@@ -290,26 +290,26 @@ const feature: Feature = {
     return () => clearInterval(t);
   },
   mcpTools: [
-    // DM harness (Minerva).
+    // GM harness (Minerva).
     { name: 'context_for', dmOnly: true, description: "Minerva's memory: everything she knows about a player, an NPC, a place, a mystery or an arc (who). With no name: the campaign status, the active arc and the last session. Read this before answering about long-term threads.", props: { who: S('A player, character, NPC, place, mystery or arc (optional)') }, call: (a) => ({ method: 'GET', path: `/minerva/context?who=${enc(a.who ?? '')}` }) },
     { name: 'who_is', dmOnly: true, description: 'Find who or what a name is: a codex page, a player (by name, character or mic speaker), or a library page. Use it before writing about an entity so no duplicate page is made.', props: { name: S('Name, alias, character or speaker') }, required: ['name'], call: (a) => ({ method: 'GET', path: `/minerva/who?name=${enc(a.name)}` }) },
-    { name: 'memory_log', write: true, description: 'Log what just happened at the table to the session in progress (DM-only notes).', props: { text: S('What happened'), about: S('Who or what it is about (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/memory/log', body: { text: a.text, about: a.about } }) },
+    { name: 'memory_log', write: true, description: 'Log what just happened at the table to the session in progress (GM-only notes).', props: { text: S('What happened'), about: S('Who or what it is about (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/memory/log', body: { text: a.text, about: a.about } }) },
     { name: 'memory_capture', write: true, description: "Quick capture of an idea or table note. About a player it goes to that player's notes; otherwise to the status inbox.", props: { text: S('The note'), about: S('A player, character or topic (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/memory/capture', body: { text: a.text, about: a.about } }) },
-    { name: 'conversation_log', write: true, description: "File a conversation by speaker: each player's lines go to their journal, the whole to the session's DM notes.", props: { lines: { type: 'array', items: { type: 'object', properties: { speaker: { type: 'string' }, text: { type: 'string' } } } }, session: { type: 'integer', description: 'Session number (default: the one in progress)' } }, required: ['lines'], call: (a) => ({ method: 'POST', path: '/minerva/conversation', body: { lines: a.lines, session: a.session } }) },
+    { name: 'conversation_log', write: true, description: "File a conversation by speaker: each player's lines go to their journal, the whole to the session's GM notes.", props: { lines: { type: 'array', items: { type: 'object', properties: { speaker: { type: 'string' }, text: { type: 'string' } } } }, session: { type: 'integer', description: 'Session number (default: the one in progress)' } }, required: ['lines'], call: (a) => ({ method: 'POST', path: '/minerva/conversation', body: { lines: a.lines, session: a.session } }) },
     { name: 'status_update', write: true, description: `Change one section of the Campaign Status doc (${[...STATUS_SECTIONS, 'Inbox'].join(', ')}). It is the living doc: keep it current, never replace it with an archive.`, props: { section: S('Section name'), text: S('The new text'), mode: { type: 'string', enum: ['replace', 'append'] } }, required: ['section', 'text'], call: (a) => ({ method: 'POST', path: '/minerva/status/update', body: { section: a.section, text: a.text, mode: a.mode } }) },
     { name: 'revelation_create', write: true, description: 'Start a mystery: a conclusion and at least three clues, so the players can find it more than one way. Name it as a question; players who find a clue see its name.', props: { title: S('The mystery, as a question'), conclusion: S('The truth'), clues: { type: 'array', items: { type: 'string' }, description: 'At least three clues' } }, required: ['title', 'conclusion', 'clues'], call: (a) => ({ method: 'POST', path: '/minerva/revelations', body: { title: a.title, conclusion: a.conclusion, clues: a.clues } }) },
     { name: 'revelation_mark', write: true, description: "Record who found which clue (or guessed, or reached the conclusion). The player's knowledge page is rebuilt from the marks.", props: { mystery: S('Mystery title'), clue: S('Clue number or text'), player: S('Player or character'), kind: { type: 'string', enum: ['clue', 'theory', 'reached'] }, text: S('The theory (kind theory)'), session: { type: 'integer' } }, required: ['mystery', 'player'], call: (a) => ({ method: 'POST', path: '/minerva/revelations/mark', body: { mystery: a.mystery, clue: a.clue, player: a.player, kind: a.kind, text: a.text, session: a.session } }) },
-    { name: 'codex_upsert', write: true, description: 'Add to an entity\'s codex page: a dated appearance, what changed, a secret (in a DM-only block), a tie to a player or a note. The page is found by library page id, name or alias; one is made only when none exists. Call who_is first.', props: { entity: S('Library page id (optional)'), name: S('Name'), kind: { type: 'string', enum: ['npc', 'pc', 'place', 'region', 'organization', 'trade-route', 'family', 'creature', 'race', 'item', 'quest', 'map', 'topic'] }, section: S('appearances, changed, secret, ties or notes'), text: S('What to add'), session: { type: 'integer' }, visible: { type: 'boolean', description: 'Only true when the DM wants the players to read this text. Your analysis (hooks, plans, what someone wants) is never visible: on a page the players can open it is written in a DM-only block unless this is true' } }, required: ['section', 'text'], call: (a) => ({ method: 'POST', path: '/minerva/codex', body: { entity: a.entity, name: a.name, kind: a.kind, section: a.section, text: a.text, session: a.session, visible: a.visible } }) },
+    { name: 'codex_upsert', write: true, description: 'Add to an entity\'s codex page: a dated appearance, what changed, a secret (in a GM-only block), a tie to a player or a note. The page is found by library page id, name or alias; one is made only when none exists. Call who_is first.', props: { entity: S('Library page id (optional)'), name: S('Name'), kind: { type: 'string', enum: ['npc', 'pc', 'place', 'region', 'organization', 'trade-route', 'family', 'creature', 'race', 'item', 'quest', 'map', 'topic'] }, section: S('appearances, changed, secret, ties or notes'), text: S('What to add'), session: { type: 'integer' }, visible: { type: 'boolean', description: 'Only true when the GM wants the players to read this text. Your analysis (hooks, plans, what someone wants) is never visible: on a page the players can open it is written in a GM-only block unless this is true' } }, required: ['section', 'text'], call: (a) => ({ method: 'POST', path: '/minerva/codex', body: { entity: a.entity, name: a.name, kind: a.kind, section: a.section, text: a.text, session: a.session, visible: a.visible } }) },
     { name: 'promote', write: true, description: 'Give a recurring NPC, place or item its own codex page, drafted from where the sessions mention them. Link the library page, never copy it.', props: { name: S('Name'), kind: S('npc, place, organization, ...') }, required: ['name'], call: (a) => ({ method: 'POST', path: '/minerva/promote', body: { name: a.name, kind: a.kind } }) },
     { name: 'arc_start', write: true, description: 'Start a new arc (about 8 to 12 sessions). Sessions are filed under the open arc.', props: { title: S('Arc title') }, required: ['title'], call: (a) => ({ method: 'POST', path: '/minerva/arcs', body: { title: a.title } }) },
-    { name: 'arc_close', write: true, description: "Close an arc and draft its one-page summary for the DM's review.", props: { arc: S('Arc number, slug or title (default: the open arc)') }, call: (a) => ({ method: 'POST', path: `/minerva/arcs/${enc(String(a.arc ?? 'open'))}/close` }) },
+    { name: 'arc_close', write: true, description: "Close an arc and draft its one-page summary for the GM's review.", props: { arc: S('Arc number, slug or title (default: the open arc)') }, call: (a) => ({ method: 'POST', path: `/minerva/arcs/${enc(String(a.arc ?? 'open'))}/close` }) },
     { name: 'goal_update', write: true, description: "Set a player character's goal: its heat (on, ongoing, simmering, sleeping) and a dated note.", props: { player: S('Player or character'), goal: S('The goal'), heat: HEAT, text: S('Note') }, required: ['player', 'goal'], call: (a) => ({ method: 'POST', path: '/minerva/goal', body: { player: a.player, goal: a.goal, heat: a.heat, text: a.text } }) },
     // Player harness (the broker): only the caller's own notes.
     { name: 'my_context', playerOnly: true, description: "This player's own journal, goals, knowledge and bonds, and what the whole party knows.", props: {}, call: () => ({ method: 'GET', path: '/minerva/me/context' }) },
     { name: 'my_who_is', playerOnly: true, description: 'Find a player character or something the whole party knows, by name.', props: { name: S('Name') }, required: ['name'], call: (a) => ({ method: 'GET', path: `/minerva/me/who?name=${enc(a.name)}` }) },
-    { name: 'my_memory_log', playerOnly: true, description: "Add a line to this player's journal for the session. It waits for the DM to approve it.", props: { text: S('What to write down'), about: S('Who or what it is about (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/me/journal', body: { text: a.text, about: a.about } }) },
-    { name: 'my_memory_capture', playerOnly: true, description: "Quick note into this player's own notes. It waits for the DM to approve it.", props: { text: S('The note'), about: S('About (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/me/capture', body: { text: a.text, about: a.about } }) },
-    { name: 'my_goal_update', playerOnly: true, description: "Update one of this player's own goals: its heat and a note. It waits for the DM to approve it.", props: { goal: S('The goal'), heat: HEAT, text: S('Note') }, required: ['goal'], call: (a) => ({ method: 'POST', path: '/minerva/me/goals', body: { goal: a.goal, heat: a.heat, text: a.text } }) },
+    { name: 'my_memory_log', playerOnly: true, description: "Add a line to this player's journal for the session. It waits for the GM to approve it.", props: { text: S('What to write down'), about: S('Who or what it is about (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/me/journal', body: { text: a.text, about: a.about } }) },
+    { name: 'my_memory_capture', playerOnly: true, description: "Quick note into this player's own notes. It waits for the GM to approve it.", props: { text: S('The note'), about: S('About (optional)') }, required: ['text'], call: (a) => ({ method: 'POST', path: '/minerva/me/capture', body: { text: a.text, about: a.about } }) },
+    { name: 'my_goal_update', playerOnly: true, description: "Update one of this player's own goals: its heat and a note. It waits for the GM to approve it.", props: { goal: S('The goal'), heat: HEAT, text: S('Note') }, required: ['goal'], call: (a) => ({ method: 'POST', path: '/minerva/me/goals', body: { goal: a.goal, heat: a.heat, text: a.text } }) },
   ],
 };
 

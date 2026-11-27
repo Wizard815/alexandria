@@ -53,7 +53,7 @@
         "choices": 2,
         "checks": true,
         "maxRewardCp": 50,
-        "consequences": "Wounds, lost time and conditions go in a dmnote so the DM applies them."
+        "consequences": "Wounds, lost time and conditions go in a dmnote so the GM applies them."
       }
     },
     {
@@ -72,7 +72,7 @@
           "ruins"
         ],
         "theme": "traps, eerie signs and small treasures",
-        "instructions": "Keep it tense. A trap is a save or check with a timer; a strange sign is a clue the DM explains later (put the real meaning in a dmnote, never in what the player reads).",
+        "instructions": "Keep it tense. A trap is a save or check with a timer; a strange sign is a clue the GM explains later (put the real meaning in a dmnote, never in what the player reads).",
         "tone": "Tense and quiet.",
         "choices": 2,
         "checks": true,
@@ -192,12 +192,12 @@
           "village"
         ],
         "theme": "offerings, omens, small blessings and curses",
-        "instructions": "Taking from a shrine is the greedy choice; leaving something is the kind one. An omen is a line the DM explains later.",
+        "instructions": "Taking from a shrine is the greedy choice; leaving something is the kind one. An omen is a line the GM explains later.",
         "tone": "Hushed and strange.",
         "choices": 2,
         "checks": false,
         "maxRewardCp": 30,
-        "consequences": "Blessings, curses and omens go in a dmnote for the DM to apply."
+        "consequences": "Blessings, curses and omens go in a dmnote for the GM to apply."
       }
     }
   ]

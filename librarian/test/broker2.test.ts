@@ -1,4 +1,4 @@
-// Broker v2: question classification (secrets never leak), DM notes and page
+// Broker v2: question classification (secrets never leak), GM notes and page
 // rules, special offers, free giving between players, coin requests and
 // item pictures.
 import { test, before, after } from 'node:test';
@@ -70,7 +70,7 @@ before(async () => {
     ID[name] = j.account.id;
   }
   const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
-  P.salt = await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
+  P.salt = await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
   P.hearts = await page('lore/Hearts', 'party', `---\nknowledge: deep\n---\n# The Hearts\nThe nine Hearts were forged before the sundering to bind the elder storms.\n`);
   P.road = await page('party/Road', 'party', `---\nknowledge: common\n---\n# The road north\nThe party took the road north past the burned mill near Greywater ford.\n`);
   P.velmira = await page('dm/Velmira', 'dm', `# Velmira\nVelmira the smuggler queen keeps her treasury beneath the lighthouse.\n`);
@@ -87,7 +87,7 @@ test('TestBrokerClassify_SecretQuestionNeverReachesPlayers', async () => {
   const k = await ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });
   const questions = ['Who does the harbour council of Saltmarsh secretly answer to?', 'Where does Velmira keep her treasury?'];
   for (const question of questions) {
-    // The DM sees why it is a secret, with the DM-side lines.
+    // The GM sees why it is a secret, with the GM-side lines.
     const c = await ok('POST', `${B()}/classify`, T.dm, { question });
     assert.equal(c.verdict, 'secret', `${question}: ${c.reason}`);
     assert.ok(JSON.stringify(c.dmEvidence).includes('Velmira'));
@@ -109,7 +109,7 @@ test('TestBrokerClassify_SecretQuestionNeverReachesPlayers', async () => {
   noSecrets('list', mine, questions.join(' '));
   assert.ok(mine.requests.every((r: any) => r.classification === undefined));
   noSecrets('MCP list', await mcp(k.key, 'list_broker_requests'), questions.join(' '));
-  // The DM's list carries the classification and evidence.
+  // The GM's list carries the classification and evidence.
   const dmList = await ok('GET', B(), T.dm);
   const r = dmList.requests.find((x: any) => x.status === 'pricing');
   assert.equal(r.classification.verdict, 'secret');
@@ -127,7 +127,7 @@ test('TestBrokerClassify_SharedQuestionCitesPlayerCopyOnly', async () => {
 });
 
 test('TestBrokerNotes_DMNotesAreSoldAndCiteSafely', async () => {
-  // A note tied to a DM-only page cites "the broker's own sources", never the page title.
+  // A note tied to a GM-only page cites "the broker's own sources", never the page title.
   const n = await ok('POST', `${B()}/notes`, T.dm, { topic: 'Greywater ford ferryman toll', text: 'The ferryman at Greywater ford charges two silver a head, double after dark.', knowledge: 'local', pageId: P.velmira });
   assert.equal(n.page_title, 'Velmira');
   const q = await ok('POST', `${B()}/quote`, T.jess, { question: 'What does the ferryman at Greywater ford charge?' });
@@ -141,7 +141,7 @@ test('TestBrokerNotes_DMNotesAreSoldAndCiteSafely', async () => {
   // Turning the note off: the broker no longer knows it.
   await ok('PATCH', `${B()}/notes/${n.id}`, T.dm, { active: false });
   assert.equal((await ok('POST', `${B()}/quote`, T.jess, { question: 'What does the ferryman at Greywater ford charge?' })).secret, true);
-  // Save a DM answer as a note.
+  // Save a GM answer as a note.
   const saved = await ok('POST', `${B()}/${a.id}/note`, T.dm, { text: 'The ferryman is called Old Brann.' });
   assert.equal(saved.from_request, a.id);
   assert.equal((await call('GET', `${B()}/notes`, T.jess)).status, 403);
@@ -224,7 +224,7 @@ test('TestTransfers_CoinRequestFundsAnOffer', async () => {
   assert.equal(await coin('jess'), jessBefore - 280);
   assert.equal(await coin('tom'), 300);
   assert.equal((await ok('POST', `${B()}/offers/${o.id}/pay`, T.tom, {})).status, 'paid');
-  // Gives are never pending, and the DM sees them.
+  // Gives are never pending, and the GM sees them.
   const ap = await ok('GET', `/api/worlds/${W}/approvals`, T.dm);
   assert.ok(ap.counts.transfers >= 1);
   assert.ok(ap.transfers.some((t: any) => t.kind === 'coin' && t.amount_cp === 280));
@@ -262,7 +262,7 @@ test('TestTransfers_MoveSplitMergeItems', async () => {
   assert.equal((await call('POST', `${I()}/${rope.id}/move`, T.jess, { to: ID.tom, qty: 5 })).status, 400);
   const toms = (await ok('GET', `${I()}?owner=me`, T.tom)).items;
   assert.ok(toms.some((x: any) => x.name === 'Rope (50 ft)' && x.qty === 1 && x.status === 'approved'));
-  // The DM still has the private note on every stack.
+  // The GM still has the private note on every stack.
   const dmView = (await ok('GET', `${I()}?owner=${ID.tom}`, T.dm)).items.find((x: any) => x.name === 'Rope (50 ft)');
   assert.equal(dmView.dm_note, 'One is frayed');
 });

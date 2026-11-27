@@ -1,6 +1,6 @@
-// DM page: the item database shops stock from. It starts with the generic
+// GM page: the item database shops stock from. It starts with the generic
 // items of the SRD (CC-BY-4.0, credited on every row), and grows with the
-// DM's own items and imports (a game module, JSON or CSV; duplicates by name
+// GM's own items and imports (a game module, JSON or CSV; duplicates by name
 // are skipped). Search, filter, edit, duplicate, export. Players never see it.
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -132,7 +132,7 @@ function ItemModal({ item, cfg, onClose, onDone }: { item: Item | null; cfg: Sho
         <Field label="Properties"><input value={f.properties} maxLength={1000} placeholder="Damage: 1d8 slashing; Versatile" onChange={(e) => setF({ ...f, properties: e.target.value })} /></Field>
         <Field label="Description"><textarea rows={4} maxLength={8000} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
         <Field label="Tags" help="Separated by commas"><input value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} /></Field>
-        <Field label="DM notes (never shown to players)"><textarea rows={2} maxLength={4000} value={f.dmNotes} onChange={(e) => setF({ ...f, dmNotes: e.target.value })} /></Field>
+        <Field label="GM notes (never shown to players)"><textarea rows={2} maxLength={4000} value={f.dmNotes} onChange={(e) => setF({ ...f, dmNotes: e.target.value })} /></Field>
         {item && <span className="tiny faint">Source: {item.sourceLabel}{item.attribution ? `. ${item.attribution}` : ''}</span>}
         <ErrorBox error={act.error} />
         <div className="row" style={{ gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>

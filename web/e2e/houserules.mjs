@@ -1,9 +1,9 @@
-// End-to-end test of house rules (mods): the DM turns on Inspiration as
+// End-to-end test of house rules (mods): the GM turns on Inspiration as
 // rerolls in World settings → House rules and switches the world to spell
 // points (confirming the settings it changes), grants Jess a personal reroll
 // with a reason on the House rules page; Jess sees it on her home page, rolls
 // in session chat, presses Reroll under her roll and the server rerolls it;
-// the DM sees the change log, every rule on the Rules tab, and adds a shared
+// the GM sees the change log, every rule on the Rules tab, and adds a shared
 // package under Make or add one. Screenshots go to SHOTS (default: none).
 // Run from web/: npm run build && node e2e/houserules.mjs   (HOUSE_PORT, default 19812)
 import fs from 'node:fs';
@@ -21,7 +21,7 @@ const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursiv
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('house'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'dungeon master 123');
+const dmLogin = await login('dm', 'game master 123');
 const jessLogin = await login('jess', 'player pass 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
@@ -50,8 +50,8 @@ async function signIn(user, pass, opts) {
 }
 
 try {
-  // 1. World settings → House rules: inspiration rerolls on, then spell points (the DM confirms the settings it sets).
-  const { page: dm } = await signIn('dm', 'dungeon master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
+  // 1. World settings → House rules: inspiration rerolls on, then spell points (the GM confirms the settings it sets).
+  const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
   await dm.goto(`${W}/dm/settings`);
   await dm.getByRole('tab', { name: 'House rules' }).click();
   await dm.getByRole('switch', { name: 'Inspiration as rerolls on' }).click();
@@ -64,7 +64,7 @@ try {
   await shot(dm, '1-world-settings-house-rules');
   note('settings: inspiration rerolls and spell points on');
 
-  // 2. The DM grants Jess a personal reroll with a reason.
+  // 2. The GM grants Jess a personal reroll with a reason.
   await dm.goto(`${W}/dm/house-rules`);
   await dm.getByLabel(/Reason/).fill('Stayed in character through the interrogation');
   await dm.getByRole('button', { name: 'Grant Personal reroll to Jessamine' }).click();
@@ -90,7 +90,7 @@ try {
   check(c.players[0].mods['inspiration-rerolls'].find((x) => x.id === 'personal').value === 0, 'the token is spent');
   note('player: rolled and rerolled in chat');
 
-  // 4. The DM's log shows both.
+  // 4. The GM's log shows both.
   await dm.goto(`${W}/dm/house-rules`);
   await dm.getByText(/Reroll my roll by Jessamine/).first().waitFor({ timeout: 8000 });
   await shot(dm, '5-dm-house-rules-page');
@@ -104,7 +104,7 @@ try {
   const shared = await api(dmLogin.token, 'GET', '/mods/export');
   check(shared.type === 'alexandria-house-rules' && shared.mods.some((m) => m.id === 'inspiration-rerolls'), 'export gives a package of the rules that are on');
   const hero = JSON.parse(fs.readFileSync(path.join(root, 'mods/examples/hero-points.alxmod.json'), 'utf8'));
-  const pkg = { type: 'alexandria-house-rules', kit: 1, name: 'Table extras', author: 'Another DM', mods: [hero] };
+  const pkg = { type: 'alexandria-house-rules', kit: 1, name: 'Table extras', author: 'Another GM', mods: [hero] };
   await dm.getByRole('tab', { name: 'Make or add one' }).click();
   await dm.getByRole('button', { name: 'Hero points' }).click();
   check((await dm.getByLabel('Describe your house rule').inputValue()).startsWith('Hero points'), 'a starter idea fills the description');
@@ -117,7 +117,7 @@ try {
   await dm.getByRole('switch', { name: 'Hero points on' }).waitFor({ timeout: 8000 });
   note('dm: rules tab lists every rule; a shared package was added');
 
-  // 6. A data system from a file (Downtime lite): the DM presses Downtime, Jess starts an activity in the popup.
+  // 6. A data system from a file (Downtime lite): the GM presses Downtime, Jess starts an activity in the popup.
   const dt = JSON.parse(fs.readFileSync(path.join(root, 'mods/examples/downtime-lite.alxmod.json'), 'utf8'));
   await api(dmLogin.token, 'POST', '/mods/import', { mod: dt });
   await api(dmLogin.token, 'PUT', '/mods/downtime-lite/enabled', { on: true });
@@ -138,7 +138,7 @@ try {
   await shot(dm, '8-dm-downtime-tab');
   const tasks = (await api(dmLogin.token, 'GET', '/mods/downtime-lite/records?kind=task')).records.task;
   check(tasks.length === 1 && tasks[0].done === 1 && tasks[0].goal === 3, `Jess's task got its first day (${JSON.stringify(tasks)})`);
-  note('downtime: the DM opened a day, Jess started an activity in the popup');
+  note('downtime: the GM opened a day, Jess started an activity in the popup');
 } catch (e) {
   problems.push('crashed: ' + (e.stack || e));
 } finally {

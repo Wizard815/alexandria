@@ -1,12 +1,12 @@
 // Live lookups in a world's source through a person's key (the agent's
 // `source_lookup` tool). Which keys: only the asker's own (or assigned to
-// them) with the `agent` use, never anyone else's, and never a DM's key for a
+// them) with the `agent` use, never anyone else's, and never a GM's key for a
 // player. The source is asked live, but what comes back is only WHICH pages the
 // key can see: what a player is shown is the stored player copy of each page,
 // and only for a per-user key, and only for a page the player may open (a shared
 // page, or one their own key lifts). Anything else (a blanket or unsure key's
 // results, a page the library does not have yet, a page above the player's level)
-// is escalated: the DM gets it, the player gets "The broker will look into it".
+// is escalated: the GM gets it, the player gets "The broker will look into it".
 import type { Deps } from '../../app.ts';
 import { one } from '../../core/db.ts';
 import { normLevel } from '../../core/levels.ts';
@@ -18,7 +18,7 @@ import { auditUse, isPerUser, keysFor } from './store.ts';
 
 export interface LookupResult {
   results: { id: string; title: string; path: string; snippet: string }[];
-  /** True when part of the answer needs the DM. Nothing of the hidden part is in this reply. */
+  /** True when part of the answer needs the GM. Nothing of the hidden part is in this reply. */
   escalated: boolean;
   message: string;
 }
@@ -64,7 +64,7 @@ export async function lookup(d: Deps, a: { worldId: string; accountId: string; r
       const pg = one<any>(d.db, 'SELECT id, path, title, visibility FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', a.worldId, src.id, h.externalId);
       if (dm) {
         if (a.ai && pg && normLevel(pg.visibility) === 'classified') continue;
-        // The DM's agent reads the AI copy (never classified); a page it cannot read by id is only named.
+        // The GM's agent reads the AI copy (never classified); a page it cannot read by id is only named.
         let snippet = '';
         if (pg) { try { snippet = clip((d.library.get(a.worldId, pg.id, { accountId: a.accountId, role: 'dm', audience: 'ai' } as Viewer) as any).body, 600); } catch { /* classified: title only */ } }
         if (!seen.has(`${src.id}|${h.externalId}`)) { seen.add(`${src.id}|${h.externalId}`); out.results.push({ id: pg?.id ?? '', title: pg?.title ?? h.title, path: pg?.path ?? '', snippet }); }

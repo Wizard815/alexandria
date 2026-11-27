@@ -1,10 +1,10 @@
-// Minerva's thoughts: a short live feed of what the DM's assistant is doing and why, for the DM's
+// Minerva's thoughts: a short live feed of what the GM's assistant is doing and why, for the GM's
 // "Minerva's thoughts" window. Active mode says what it heard, what it made of it and why it acted,
 // asked or let it go; the assistant says what it is working on, what it looked up, what it proposed
 // and how long it took. Held in memory only (the last THOUGHTS_KEPT per world, gone on a restart):
 // the command log stays the record of what was done; this is the running commentary.
 //
-// DM only, always: the event goes to the DM's screens and the route sits behind requireDM. Text is
+// GM only, always: the event goes to the GM's screens and the route sits behind requireDM. Text is
 // clipped, and nothing classified is ever put here (Active mode skips classified lines before this).
 import type { Deps } from '../../app.ts';
 import { dmOnly } from '../../core/events.ts';
@@ -22,7 +22,7 @@ export type ThoughtKind =
   | 'look'
   /** It ran a change itself. */
   | 'do'
-  /** It made a card that waits for the DM. */
+  /** It made a card that waits for the GM. */
   | 'ask'
   /** It decided not to act, and why. */
   | 'skip'
@@ -63,7 +63,7 @@ const heard = new WeakMap<Deps, Map<string, Thought>>();
 
 const clip = (s: string | undefined, n: number) => (s === undefined ? undefined : s.replace(/\s+/g, ' ').trim().slice(0, n));
 
-/** Note a thought and send it to the DM's screens. Never throws: commentary must not break the work it describes. */
+/** Note a thought and send it to the GM's screens. Never throws: commentary must not break the work it describes. */
 export function think(d: Deps, worldId: string, t: Omit<Thought, 'id' | 'at'>): Thought | null {
   try {
     const th: Thought = { ...t, id: id('th_'), at: new Date().toISOString(), text: clip(t.text, 300) ?? '', detail: clip(t.detail, 1200) };

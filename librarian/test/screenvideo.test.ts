@@ -1,6 +1,6 @@
 // Video in the library and on the players' screen: sniffing, streamed uploads
 // with their own limit, Range responses, video items, the "ended" report
-// rules, mixed folders, DM-only files shown by the DM's choice, and sharing.
+// rules, mixed folders, GM-only files shown by the GM's choice, and sharing.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -225,7 +225,7 @@ test('TestVideo_EndedReportRules', async () => {
   const dup = await report(T.dm, i1, m.version);
   assert.deepEqual([dup.body.accepted, dup.body.reason], [false, 'stale']);
   assert.equal((await cur()).current.id, i2);
-  // The DM stops the slideshow: a report changes nothing while paused.
+  // The GM stops the slideshow: a report changes nothing while paused.
   m = await cur();
   backdate();
   await ok('PUT', `${SC()}/media`, T.dm, { playing: false });
@@ -235,7 +235,7 @@ test('TestVideo_EndedReportRules', async () => {
   await ok('PUT', `${SC()}/media`, T.dm, { playing: true });
   backdate();
   m = await cur();
-  // A video with its own play time or on loop is not moved by a report (the clock or the DM moves it).
+  // A video with its own play time or on loop is not moved by a report (the clock or the GM moves it).
   await ok('PATCH', `${SC()}/media/items/${i2}`, T.dm, { loopVideo: true });
   backdate();
   m = await cur();
@@ -304,7 +304,7 @@ test('TestVideo_DmOnlyFilesCanBeShownOnlyWhileCurrentAndClassifiedNever', async 
   assert.equal(folderLoad.skipped, 1, 'the classified file is skipped');
   assert.ok(!folderLoad.items.some((i: any) => i.ref === cls.id));
   await wipe();
-  // A DM-only video: shown now (play), served while it is the current visible item.
+  // A GM-only video: shown now (play), served while it is the current visible item.
   const m = await addFile(dmv.id, { play: true });
   assert.equal(m.items[0].dmOnly, true);
   const url = (await screen(T.jess)).media.current.url;

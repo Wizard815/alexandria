@@ -1,5 +1,5 @@
 // End-to-end test of the Roll20 connection, with the real scripts:
-// - the DM opens DM → Roll20, makes a bridge key and downloads the bridge;
+// - the GM opens GM → Roll20, makes a bridge key and downloads the bridge;
 // - a stand-in Roll20 game page (served for app.roll20.net by the test) runs
 //   the real Mod script in a fake Mod sandbox (librarian/test/roll20-sandbox.js)
 //   and the downloaded bridge userscript, with a GM_xmlhttpRequest like
@@ -30,7 +30,7 @@ const until = async (fn, what, ms = 15000) => {
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('roll20'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'dungeon master 123');
+const dmLogin = await login('dm', 'game master 123');
 const jessLogin = await login('jess', 'player pass 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
@@ -50,13 +50,13 @@ function watch(page, who) {
 }
 
 try {
-  // ---- the DM sets up ----
+  // ---- the GM sets up ----
   const dmCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true, deviceScaleFactor: SHOTS ? 2 : 1 });
   const dm = await dmCtx.newPage();
   watch(dm, 'dm');
   await dm.goto(base + '/login');
   await dm.getByLabel(/username/i).fill('dm');
-  await dm.getByLabel(/password/i).fill('dungeon master 123');
+  await dm.getByLabel(/password/i).fill('game master 123');
   await dm.getByRole('button', { name: /sign in|log in/i }).click();
   await dm.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
   await dm.goto(`${base}/w/saltreach/dm/roll20`);
@@ -119,7 +119,7 @@ try {
     const ta = document.querySelector('#textchat-input textarea');
     document.querySelector('#textchat-input .btn').addEventListener('click', () => { const t = ta.value; ta.value = ''; if (t) sb.say(window.__gm.id, t); });
     window.GM_xmlhttpRequest = (o) => window.__gmXhr({ method: o.method, url: o.url, headers: o.headers, data: o.data }).then((r) => o.onload(r), () => o.onerror());
-    window.__gm = sb.addPlayer('The DM', true);
+    window.__gm = sb.addPlayer('The GM', true);
     const pj = sb.addPlayer('jess', false), pt = sb.addPlayer('tom', false);
     window.__pj = pj;
     window.__toks = [
@@ -151,7 +151,7 @@ try {
   // ---- connected: the characters are linked by name ----
   await until(async () => (await game.locator('#alx-bridge').textContent()) === 'Alexandria: Connected', 'bridge says Connected');
   const st = await until(async () => { const s = await api(dmLogin.token, 'GET', '/roll20'); return s.links.length === 2 ? s : null; }, 'two characters linked');
-  check(st?.online === true, 'the DM sees the bridge online');
+  check(st?.online === true, 'the GM sees the bridge online');
   check(st?.links.find((l) => l.name === 'Jessamine')?.accountId === jessId, 'Jessamine linked to jess');
   check(await game.locator('.message:has-text("ALX::")').evaluateAll((els) => els.every((e) => getComputedStyle(e).display === 'none')), 'bridge lines are hidden in the chat');
   // The demo already has HP for Jessamine? Whatever it had, Roll20 filled only what was missing.
@@ -164,7 +164,7 @@ try {
   // ---- Roll20 → Alexandria: damage on the token ----
   await game.evaluate(() => { const t = window.__toks[0]; window.__sb.userSet(window.__sb.attr(t.ch.id, 'hp'), 'current', '15'); });
   await until(async () => (await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 15, 'Roll20 damage reaches the sheet');
-  // ---- Alexandria → Roll20: the DM poisons and hurts her ----
+  // ---- Alexandria → Roll20: the GM poisons and hurts her ----
   await api(dmLogin.token, 'POST', `/sheet/${jessId}/vitals`, { damage: 4, conditions: ['Poisoned'] });
   await until(() => game.evaluate(() => { const t = window.__toks[0]; return window.__sb.attr(t.ch.id, 'hp').get('current') === 11 && t.tok.get('statusmarkers') === 'chemical-bolt'; }), 'Alexandria damage and condition reach Roll20');
   // ---- a marker added in Roll20 ----
@@ -178,7 +178,7 @@ try {
   const roll = await until(async () => (await api(jessLogin.token, 'GET', '/sessionchat/chat/table')).messages.find((m) => m.kind === 'roll' && m.roll.total === 19), 'the Roll20 roll in the table chat');
   check(roll?.authorId === jessId && /Rapier/.test(roll?.roll.note ?? ''), 'rolled by Jessamine, labelled Rapier');
 
-  // ---- the DM sends a handout and a line from the Roll20 page ----
+  // ---- the GM sends a handout and a line from the Roll20 page ----
   await dm.reload();
   const shared = (await api(dmLogin.token, 'GET', '/library/pages')).find((p) => p.visibility === 'party');
   await dm.getByLabel('Library page').fill(shared.title);
@@ -195,7 +195,7 @@ try {
   await game.locator('#textchat-input textarea').fill('');
   note('handout and chat lines sent');
 
-  // ---- what the DM sees ----
+  // ---- what the GM sees ----
   await dm.reload();
   await dm.getByText(/Connected/).first().waitFor();
   await dm.getByText(/Jessamine: HP/).first().waitFor();
@@ -227,7 +227,7 @@ try {
     function C(ms) { this.models = ms || []; }
     C.prototype.get = function (id) { return this.models.find((m) => m.id === id); };
     C.prototype.create = function (a) { const m = new M({ id: 'h' + this.models.length, ...a }); m.updateBlobs = (b) => { m.blobs = { ...b }; }; this.models.push(m); return m; };
-    const players = new C([new M({ id: 'p-gm', displayname: 'The DM' }), new M({ id: 'p-jess', displayname: 'jess' }), new M({ id: 'p-tom', displayname: 'tom' })]);
+    const players = new C([new M({ id: 'p-gm', displayname: 'The GM' }), new M({ id: 'p-jess', displayname: 'jess' }), new M({ id: 'p-tom', displayname: 'tom' })]);
     const mk = (id, name, owner, hp, max, color, x, y) => {
       const ch = new M({ id, name, controlledby: owner });
       ch.attribs = new C([new M({ id: id + '-hp', name: 'hp', current: String(hp), max: String(max) }), new M({ id: id + '-tmp', name: 'hp_temp', current: '0', max: '' })]);
@@ -261,7 +261,7 @@ try {
       const t = ta.value; ta.value = '';
       const as = /^\/as "([^"]+)" (.*)$/s.exec(t);
       if (as) window.__msg(as[1], '<span class="t"></span>'), log.lastChild.querySelector('.t').textContent = as[2];
-      else window.__msg('The DM', '<span class="t"></span>'), log.lastChild.querySelector('.t').textContent = t;
+      else window.__msg('The GM', '<span class="t"></span>'), log.lastChild.querySelector('.t').textContent = t;
     });
     window.GM_xmlhttpRequest = (o) => window.__gmXhr({ method: o.method, url: o.url, headers: o.headers, data: o.data }).then((r) => o.onload(r), () => o.onerror());
     // An old roll already in the chat when the game opens is history, not a new roll.
@@ -293,7 +293,7 @@ try {
   // A player changes HP on their Roll20 sheet: the bridge sees it in the page data.
   await free.evaluate(() => window.__toks[0].ch.attribs.models[0].set({ current: '9' }));
   await until(async () => (await api(dmLogin.token, 'GET', `/sheet/${jessId}`)).hp === 9, 'free mode: Roll20 HP reaches the sheet');
-  // The DM heals her and makes her prone in Alexandria.
+  // The GM heals her and makes her prone in Alexandria.
   await api(dmLogin.token, 'POST', `/sheet/${jessId}/vitals`, { heal: 6, conditions: ['Prone'] });
   await until(() => free.evaluate(() => window.__toks[0].ch.attribs.models[0].get('current') === 15 && window.__toks[0].tok.get('statusmarkers') === 'back-pain'), 'free mode: Alexandria HP and condition reach Roll20');
   await free.waitForTimeout(2500);

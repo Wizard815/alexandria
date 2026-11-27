@@ -45,7 +45,7 @@ let srv = start();
 await up();
 const browser = await chromium.launch();
 try {
-  // World with shared and DM-only content.
+  // World with shared and GM-only content.
   const admin = await api('POST', '/api/setup', null, { username: 'wizard', password: 'correct horse battery' });
   const dmToken = admin.token;
   await api('POST', '/api/admin/worlds', dmToken, { name: 'BloodEarth', dmAccountId: admin.account.id });
@@ -122,7 +122,7 @@ try {
   if (!(await page.getByText('A port town on the red coast').count())) await page.getByText('Old Kesh').locator('visible=true').first().click();
   await page.getByText('A port town on the red coast').waitFor({ timeout: 10_000 });
   text = await page.locator('body').innerText();
-  if (text.includes('SECRET-')) problems.push('a DM secret is on screen offline');
+  if (text.includes('SECRET-')) problems.push('a GM secret is on screen offline');
   note('library page renders offline');
   // Write actions are off or disabled with a tooltip while offline.
   const writers = page.locator('main button, .dock button', { hasText: /^\s*(Share…|Suggest an edit|Ask about this page|New page|Edit)\s*$/ });
@@ -147,7 +147,7 @@ try {
   if (refused !== 'unreachable') problems.push('server still reachable?');
   note('write buttons disabled');
 
-  // 4. No DM-only text anywhere in the player's offline data.
+  // 4. No GM-only text anywhere in the player's offline data.
   const dump = await page.evaluate(() => new Promise((res) => {
     const req = indexedDB.open('alexandria-offline');
     req.onsuccess = () => {
@@ -161,7 +161,7 @@ try {
   }));
   for (const s of ['SECRET-SMUGGLERS', 'SECRET-TWIST', 'SECRET-DMNOTE']) if (dump.includes(s)) problems.push(`offline data contains ${s}`);
   if (!dump.includes('Shared note number 119')) problems.push('offline data misses a shared page');
-  note(`offline data checked (${Math.round(dump.length / 1024)} KB): no DM-only text`);
+  note(`offline data checked (${Math.round(dump.length / 1024)} KB): no GM-only text`);
 
   // 5. Server back: the app reconnects by itself and writing works again.
   srv = start();

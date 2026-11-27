@@ -1,8 +1,8 @@
-// DM page: the Generators hub. Pick a category and a preset, set a few options,
+// GM page: the Generators hub. Pick a category and a preset, set a few options,
 // then Generate, Reroll (a new seed, locked fields kept), lock what you like,
 // and Save, Send to table or Copy. Everything is made by the server from tables
 // and code; a chat model, when set, can improve the wording. Nothing reaches
-// players until the DM saves at party level or sends it to the table.
+// players until the GM saves at party level or sends it to the table.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Empty, ErrorBox, Field, Loading, Markdown, PageHead, Tabs, VisibilityPicker, useAction, useToast } from '../../ui/index.tsx';
@@ -162,7 +162,7 @@ function Workshop({ cat, entry, opts }: { cat: Exclude<Cat, 'library'>; entry: E
   const toggle = (k: string) => setLocks((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const save = () => act.run(async () => {
     const r = await w.call<any>('POST', '/generators/save', { ...body(res!.seed, locks, true), level });
-    setSaved({ ...r.page, level: r.page.level }); toast(`Saved “${r.page.title}” as ${r.page.level === 'party' ? 'a party page' : 'a DM-only page'}`);
+    setSaved({ ...r.page, level: r.page.level }); toast(`Saved “${r.page.title}” as ${r.page.level === 'party' ? 'a party page' : 'a GM-only page'}`);
     return r;
   });
   const stage = () => act.run(async () => { await w.call('POST', '/generators/stage', { ...body(res!.seed, locks, true), show }); toast(show ? 'Shown to the table' : 'Staged: it is on the stage, not shown yet'); });
@@ -242,11 +242,11 @@ function Workshop({ cat, entry, opts }: { cat: Exclude<Cat, 'library'>; entry: E
 
             {res.sections.filter((s) => s.key !== 'statblock' && !(res.names && s.key === 'names') && !(res.map && (s.key === 'key' || s.key === 'legend'))).map((s) => (
               <div key={s.key} className={`card gen-sec${s.dm ? ' gen-dm' : ''}`}>
-                <div className="row between"><h3 className="gen-h3">{s.label}{s.dm && <span className="chip red gen-chip">DM only</span>}</h3>{lockBtn(s.key)}</div>
+                <div className="row between"><h3 className="gen-h3">{s.label}{s.dm && <span className="chip red gen-chip">GM only</span>}</h3>{lockBtn(s.key)}</div>
                 <Markdown text={s.text} />
               </div>
             ))}
-            {res.statblockMd && <div className="card gen-dm gen-stat"><h3 className="gen-h3">Statblock <span className="chip red gen-chip">DM only</span></h3><Markdown text={res.statblockMd} /></div>}
+            {res.statblockMd && <div className="card gen-dm gen-stat"><h3 className="gen-h3">Statblock <span className="chip red gen-chip">GM only</span></h3><Markdown text={res.statblockMd} /></div>}
 
             <section className="card gen-actions" aria-label="Use this result">
               <div className="row">
@@ -256,10 +256,10 @@ function Workshop({ cat, entry, opts }: { cat: Exclude<Cat, 'library'>; entry: E
               <div className="stack tight">
                 <span className="label">Save to the library</span>
                 <div className="row">
-                  <VisibilityPicker value={level} onChange={setLevel} options={['dm', 'party']} labels={{ dm: 'DM only', party: 'Party can see it' }} />
+                  <VisibilityPicker value={level} onChange={setLevel} options={['dm', 'party']} labels={{ dm: 'GM only', party: 'Party can see it' }} />
                   <button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save</button>
                 </div>
-                {level === 'party' && <span className="tiny muted">Players will see the public parts only. Secrets, hooks and the statblock stay in DM-only blocks. {res.map ? 'The map picture will have no secret doors or traps.' : ''}</span>}
+                {level === 'party' && <span className="tiny muted">Players will see the public parts only. Secrets, hooks and the statblock stay in GM-only blocks. {res.map ? 'The map picture will have no secret doors or traps.' : ''}</span>}
                 {saved && <span className="tiny" role="status">Saved <Link to={`../library?page=${encodeURIComponent(saved.id)}`}>{saved.path}</Link>{res.map ? ' with its map picture (the Map page can use it).' : '.'}</span>}
               </div>
               <div className="stack tight">
@@ -268,7 +268,7 @@ function Workshop({ cat, entry, opts }: { cat: Exclude<Cat, 'library'>; entry: E
                   <label className="gen-check"><input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Show it to the players now</label>
                   <button type="button" className="btn" disabled={act.busy} onClick={() => void stage()}>{show ? 'Show on the stage' : 'Stage a card'}</button>
                 </div>
-                <span className="tiny muted">Players only get the public text{res.map ? ' and the map picture without the DM marks' : ''}. <Link to="../stage">Open the stage</Link></span>
+                <span className="tiny muted">Players only get the public text{res.map ? ' and the map picture without the GM marks' : ''}. <Link to="../stage">Open the stage</Link></span>
               </div>
             </section>
           </div>
@@ -288,7 +288,7 @@ function MapView({ map }: { map: NonNullable<Result['map']> }) {
   return (
     <div className="card gen-mapcard">
       <div className="row between">
-        <span className="tiny muted">{map.kind}, {map.size} · seed {map.seed} · secret doors, traps and hazards show in this DM view only</span>
+        <span className="tiny muted">{map.kind}, {map.size} · seed {map.seed} · secret doors, traps and hazards show in this GM view only</span>
         <button type="button" className="btn small" aria-pressed={zoom} onClick={() => setZoom((z) => !z)}>{zoom ? 'Fit to screen' : 'Full size'}</button>
       </div>
       <div className={`gen-map${zoom ? ' zoom' : ''}`}><img src={url} alt={`${map.title} map`} width={map.width} height={map.height} /></div>
@@ -296,7 +296,7 @@ function MapView({ map }: { map: NonNullable<Result['map']> }) {
       <h3 className="gen-h3">Key</h3>
       <ol className="gen-key">
         {map.key.map((k: MapKey) => (
-          <li key={k.n}><strong><span className="gen-n">{k.n}</span> {k.name}.</strong> <span>{k.text}</span>{k.dm && <span className="gen-dmnote"> DM: {k.dm}</span>}</li>
+          <li key={k.n}><strong><span className="gen-n">{k.n}</span> {k.name}.</strong> <span>{k.text}</span>{k.dm && <span className="gen-dmnote"> GM: {k.dm}</span>}</li>
         ))}
       </ol>
     </div>
@@ -388,7 +388,7 @@ function Mine() {
           {list.data.pages.map((p) => (
             <li key={p.id} className="card row between">
               <div className="stack tight"><Link to={`../library?page=${encodeURIComponent(p.id)}`}><strong>{p.title}</strong></Link><span className="tiny muted">{p.kind}{p.preset ? ` · ${p.preset}` : ''} · {p.path}</span></div>
-              <span className={`chip ${p.level === 'party' ? 'teal' : 'red'}`}>{p.level === 'party' ? 'Party' : 'DM only'}</span>
+              <span className={`chip ${p.level === 'party' ? 'teal' : 'red'}`}>{p.level === 'party' ? 'Party' : 'GM only'}</span>
             </li>
           ))}
         </ul>

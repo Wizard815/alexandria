@@ -12,5 +12,5 @@ export interface LoreOptions {
 export interface LorePage { id: string; ref: string; title: string; path: string; level: string; writtenBy: 'agent' | 'dm'; updatedAt: string; parentId: string | null }
 
 export const LEVEL_LABEL: Record<string, string> = {
-  dm: 'DM only', broker: 'Broker may sell', party: 'Players', classified: 'Classified (no AI)',
+  dm: 'GM only', broker: 'Broker may sell', party: 'Players', classified: 'Classified (no AI)',
 };

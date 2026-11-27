@@ -1,4 +1,4 @@
-// Start, see and end a session from any DM page: one button, one panel. Starting opens the table chat and, if wanted, the recording, and checks the DM in.
+// Start, see and end a session from any GM page: one button, one panel. Starting opens the table chat and, if wanted, the recording, and checks the GM in.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ErrorBox, Field, Switch, useAction } from '../ui/index.tsx';

@@ -3,14 +3,14 @@
 export type Level = 'party' | 'broker' | 'dm' | 'classified';
 
 export const LEVELS: Level[] = ['party', 'broker', 'dm', 'classified'];
-export const LEVEL_LABEL: Record<Level, string> = { party: 'Shared with the party', broker: 'Broker may sell it', dm: 'DM only (AI can read)', classified: 'Classified: never shared with any AI' };
-const SHORT: Record<Level, string> = { party: 'Party', broker: 'Broker', dm: 'DM', classified: 'Classified' };
+export const LEVEL_LABEL: Record<Level, string> = { party: 'Shared with the party', broker: 'Broker may sell it', dm: 'GM only (AI can read)', classified: 'Classified: never shared with any AI' };
+const SHORT: Record<Level, string> = { party: 'Party', broker: 'Broker', dm: 'GM', classified: 'Classified' };
 
 export const levelOf = (v: unknown): Level => (v === 'party' || v === 'broker' || v === 'classified' ? v : 'dm');
 /** The level words a title can start with ("Broker", "Classified"). */
 export const titleLevel = (t: unknown): Level | null => { const m = /^\s*(broker|classified)\b/i.exec(String(t ?? '')); return m ? (m[1].toLowerCase() as Level) : null; };
 
-/** A small chip: amber Broker, red DM, black Classified with a lock. Party pages show nothing unless `all`. */
+/** A small chip: amber Broker, red GM, black Classified with a lock. Party pages show nothing unless `all`. */
 export function LevelChip({ level, all }: { level: unknown; all?: boolean }) {
   const l = levelOf(level);
   if (l === 'party' && !all) return null;

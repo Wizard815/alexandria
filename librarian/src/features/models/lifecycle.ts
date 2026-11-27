@@ -1,7 +1,7 @@
 // Game night: the model lifecycle tied to the game session.
 //
 // "Session live" is decided in ONE place, sessionLive():
-//     a DM pressed "Start game night"   (models_meta 'gamenight', cleared by "End game night")
+//     a GM pressed "Start game night"   (models_meta 'gamenight', cleared by "End game night")
 //  OR an audio recording is running     (audio_sessions.stopped_at IS NULL)
 //  OR a session chat session is open    (sessionchat_sessions.ended_at IS NULL)
 // (rows older than a day are ignored: a crashed recording must not hold models forever).

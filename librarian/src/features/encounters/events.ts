@@ -65,7 +65,7 @@ export const EVENT_STARTERS: Starter[] = [
     id: 'builtin:ev-echo', name: 'Whispering echo', npcName: 'An echo', npcBlurb: 'A voice in the dark that is almost yours.', places: ['cave', 'dungeon', 'ruins'],
     script: { start: 'name', nodes: [
       { id: 'name', text: 'From deeper in the dark, an echo says your name. You did not speak.', options: [{ label: 'Call back', next: 'answer' }, { label: 'Back away slowly', next: null }] },
-      { id: 'answer', text: 'The echo laughs, softly, and says: "Left at the bones." Then silence.', options: [{ label: 'Remember it', next: null, effects: [{ kind: 'dmnote', text: 'Heard a whispering echo say "Left at the bones." The DM decides what it means.' }] }] },
+      { id: 'answer', text: 'The echo laughs, softly, and says: "Left at the bones." Then silence.', options: [{ label: 'Remember it', next: null, effects: [{ kind: 'dmnote', text: 'Heard a whispering echo say "Left at the bones." The GM decides what it means.' }] }] },
     ] },
   }),
   ev({
@@ -107,7 +107,7 @@ export const EVENT_STARTERS: Starter[] = [
     id: 'builtin:ev-shrine', name: 'Roadside shrine', npcName: 'A mossy shrine', npcBlurb: 'A stone figure with a bowl of offerings.', places: ['road', 'woods', 'mountains', 'ruins'],
     script: { start: 'bowl', nodes: [
       { id: 'bowl', text: 'A small mossy shrine. The bowl at its feet holds a few coins and dried flowers.', options: [
-        { label: 'Leave an offering (1 sp)', next: null, effects: [{ kind: 'pay', cp: 10 }, { kind: 'dmnote', text: 'Left an offering at a shrine: the DM may grant +1 on their next saving throw.' }] },
+        { label: 'Leave an offering (1 sp)', next: null, effects: [{ kind: 'pay', cp: 10 }, { kind: 'dmnote', text: 'Left an offering at a shrine: the GM may grant +1 on their next saving throw.' }] },
         { label: 'Take the coins from the bowl', next: null, effects: [{ kind: 'gold', cp: 15 }, { kind: 'dmnote', text: 'Took coins from a shrine. Bad luck may follow.' }] },
         { label: 'Say a quiet word and move on', next: null },
       ] },
@@ -116,7 +116,7 @@ export const EVENT_STARTERS: Starter[] = [
   ev({
     id: 'builtin:ev-bottle', name: 'Message in a bottle', npcName: 'A bottle in the surf', npcBlurb: 'Green glass, waxed shut.', places: ['coast'],
     script: { start: 'bottle', nodes: [
-      { id: 'bottle', text: 'A green bottle rolls in the surf at your feet, its neck sealed with wax.', options: [{ label: 'Open it', next: null, effects: [{ kind: 'item', name: 'Message in a bottle', qty: 1, note: 'A water-stained note. The DM knows what it says.' }, { kind: 'dmnote', text: 'Found a message in a bottle: tell them what it says.' }] }, { label: 'Throw it back', next: null }] },
+      { id: 'bottle', text: 'A green bottle rolls in the surf at your feet, its neck sealed with wax.', options: [{ label: 'Open it', next: null, effects: [{ kind: 'item', name: 'Message in a bottle', qty: 1, note: 'A water-stained note. The GM knows what it says.' }, { kind: 'dmnote', text: 'Found a message in a bottle: tell them what it says.' }] }, { label: 'Throw it back', next: null }] },
     ] },
   }),
   ev({

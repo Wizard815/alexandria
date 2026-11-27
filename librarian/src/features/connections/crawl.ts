@@ -11,7 +11,7 @@
 // call budget (intake/detail.ts); the progress shows both.
 //
 // Progress is kept in connections_crawls (so the page can be reloaded) and
-// sent to the DM's live stream as a `crawl` event. Never to players.
+// sent to the GM's live stream as a `crawl` event. Never to players.
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
 import { dmOnly } from '../../core/events.ts';
@@ -238,7 +238,7 @@ async function work(d: Deps, worldId: string, cid: string, mode: 'crawl' | 'rein
           run(d.db, 'DELETE FROM search_chunk_state WHERE world_id = ?', worldId);
         }
         pruneChunks(d.db);
-        // Pages, not copies: a page with a DM copy and a party copy is one page, so "done" never passes "of".
+        // Pages, not copies: a page with a GM copy and a party copy is one page, so "done" never passes "of".
         P.embedding.pagesTotal = embeddingCoverage(d, worldId).pages.pending;
         const donePages = new Set<string>();
         P.embedding.state = 'running';

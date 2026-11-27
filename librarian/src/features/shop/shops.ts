@@ -1,7 +1,7 @@
 // Shops: a name, a kind, a shopkeeper card, a place, stock lines that point at
 // the item database, a markup, and a status. What players get is built here
 // and only here (playerShop), from a short allow-list of fields, so nothing
-// the DM keeps (notes, the haggle note, the keeper's secret, hidden stock
+// the GM keeps (notes, the haggle note, the keeper's secret, hidden stock
 // lines) can ride along.
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run } from '../../core/db.ts';
@@ -161,7 +161,7 @@ export function playerShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer, withStoc
     id: s.id, name: s.name, kind: s.kind, kindLabel: KIND_LABEL[s.kind as ShopKind] ?? s.kind, description: s.description, status: s.status,
     keeper: k.name ? { name: k.name ?? '', race: k.race ?? '', role: k.role ?? '', look: k.look ?? '', voice: k.voice ?? '', personality: k.personality ?? '' } : null,
     location: locationFor(d, s, viewer), sellPct: null as number | null,
-    // The town's name, its public description and its prices in words; never its DM notes or the exact level.
+    // The town's name, its public description and its prices in words; never its GM notes or the exact level.
     town: town ? { name: town.name, description: town.description, prices: priceWord(town.price_pct) } : null,
     haggles: (s.barter_pct ?? 0) > 0,
   };
@@ -170,7 +170,7 @@ export function playerShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer, withStoc
   return out;
 }
 
-/** The whole shop for the DM. */
+/** The whole shop for the GM. */
 export function dmShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer) {
   const k = keeperOf(s);
   const town = townFor(db, s);

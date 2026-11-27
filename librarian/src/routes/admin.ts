@@ -155,7 +155,7 @@ export default function adminRoutes(d: Deps) {
     const slug = str(req.body?.slug, 'slug', { max: 40, optional: true }) || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(slug)) throw new HttpError(400, 'Slug must be lowercase letters, numbers and dashes');
     const dm = str(req.body?.dmAccountId, 'dmAccountId', { max: 60 });
-    if (!one(db, 'SELECT 1 FROM accounts WHERE id = ?', dm)) throw new HttpError(400, 'DM account not found');
+    if (!one(db, 'SELECT 1 FROM accounts WHERE id = ?', dm)) throw new HttpError(400, 'GM account not found');
     const wid = id('wld_');
     tx(db, () => {
       if (one(db, 'SELECT 1 FROM worlds WHERE slug = ?', slug)) throw new HttpError(409, 'That slug is taken');
@@ -172,7 +172,7 @@ export default function adminRoutes(d: Deps) {
     const gone = one<{ slug: string }>(db, 'SELECT slug FROM worlds WHERE id = ?', wid);
     const sourceIds = all<{ id: string }>(db, 'SELECT id FROM sources WHERE world_id = ?', wid).map((s) => s.id);
     if (!run(db, 'DELETE FROM worlds WHERE id = ?', wid)) throw new HttpError(404, 'World not found');
-    // The files go with the rows: the DM's vault, the party and _api mirrors (a new world with the same slug must not inherit them),
+    // The files go with the rows: the GM's vault, the party and _api mirrors (a new world with the same slug must not inherit them),
     // the world's recordings and what its sources downloaded.
     if (d.dataDir && gone) {
       for (const dir of [path.join(d.dataDir, 'worlds', gone.slug), path.join(d.dataDir, 'audio', wid), ...sourceIds.map((sid) => path.join(d.dataDir!, 'sources', sid))]) {
@@ -207,7 +207,7 @@ export default function adminRoutes(d: Deps) {
   });
 
   // The server's audit log. Being an admin does not open a world's secrets: what happened inside a world (a page's path,
-  // a coin note, an agent tool's arguments) is the DM's to read at /api/worlds/:world/audit, so only the plumbing keeps its detail here.
+  // a coin note, an agent tool's arguments) is the GM's to read at /api/worlds/:world/audit, so only the plumbing keeps its detail here.
   const PLUMBING = /^(setup|join|password\.|account\.|admin\.|key\.|backup\.|invite\.create|world\.(create|delete|crawl|reindex)|member\.|source\.|intake\.key|settings\.update|worldlore\.config)/;
   r.get('/audit', (req, res) => {
     const rows = all<any>(db, 'SELECT * FROM audit ORDER BY id DESC LIMIT ?', Math.min(Number(req.query.limit) || 100, 1000));

@@ -133,8 +133,8 @@ before(async () => {
   await ok('POST', `${A()}/consent`, T.tom, { agree: true });
   const mic = async (who: string, key: string, body: any) => { MIC[key] = (await ok('POST', `${A()}/mics`, T[who], { deviceId: 'dev-' + key, ...body })).id; };
   await mic('dm', 'table', { label: 'Table', mode: 'always', playersTranscript: true, aside: false });
-  await mic('dm', 'headset', { label: 'DM headset', mode: 'hold-to-talk', playersTranscript: false, aside: false });
-  await mic('dm', 'dmalways', { label: 'DM private', mode: 'always', playersTranscript: false, aside: false, room: false });
+  await mic('dm', 'headset', { label: 'GM headset', mode: 'hold-to-talk', playersTranscript: false, aside: false });
+  await mic('dm', 'dmalways', { label: 'GM private', mode: 'always', playersTranscript: false, aside: false, room: false });
   await mic('dm', 'talkpub', { label: 'Talk mic', mode: 'hold-to-talk', playersTranscript: true, aside: false });
   await mic('dm', 'mutable', { label: 'Mute mic', mode: 'hold-to-mute', playersTranscript: true, aside: false });
   await mic('jess', 'jess', { label: 'Jess phone', mode: 'always' });
@@ -158,7 +158,7 @@ test('Audio_consent: players must agree before any upload is accepted', async ()
   const st = await ok('GET', `${A()}/status`, T.zed);
   assert.equal(st.consent.agreed, false);
   assert.equal(st.recording, true);
-  // the DM's consent text is a world setting
+  // the GM's consent text is a world setting
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { recordingConsentText: 'Everyone agrees, ok?' });
   assert.equal((await ok('GET', `${A()}/consent`, T.zed)).text, 'Everyone agrees, ok?');
   assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.dm, { audioRetentionDays: 0 })).status, 400);
@@ -231,11 +231,11 @@ test('Audio_merge: words the best mic missed are filled in from another mic', as
   assert.equal(ls[0].text, 'we open the heavy door');
 });
 
-test('Audio_aside: an aside makes overlapping lines from every mic DM-only', async () => {
+test('Audio_aside: an aside makes overlapping lines from every mic GM-only', async () => {
   const sid = await newSession();
   // Before the aside: ordinary table talk.
   await upOk('dm', sid, 'table', 0, 0, 'welcome back adventurers');
-  // The DM talks into the headset (hold to talk) while the table and a phone also hear it.
+  // The GM talks into the headset (hold to talk) while the table and a phone also hear it.
   await upOk('dm', sid, 'headset', 0, 20_000, `the ${SECRET} is hidden`);
   await hold('dm', sid, 'headset', 'talk', 20_000, 21_800);
   await upOk('dm', sid, 'table', 1, 20_000, `the ${SECRET} is hidden`);
@@ -276,7 +276,7 @@ test('Audio_aside: only lines that overlap the aside are hidden, the ones just b
 
 test('Audio_aside: talk running straight into an aside is cut at the aside, not spliced into it', async () => {
   const sid = await newSession();
-  // Back-to-back table chunks: public talk, then (with no pause) a DM aside the table mic also hears.
+  // Back-to-back table chunks: public talk, then (with no pause) a GM aside the table mic also hears.
   await upOk('dm', sid, 'table', 0, 0, 'the ferry costs two silver a head and double after dark friends');
   await hold('dm', sid, null, 'aside', 5000, 10_000);
   await upOk('dm', sid, 'headset', 0, 5000, `remember the ${SECRET} owns the captains`);
@@ -298,7 +298,7 @@ test('Audio_aside: an explicit aside key window arriving after the line removes 
   await upOk('dm', sid, 'table', 0, 0, `${SECRET} treasure map`);
   assert.equal((await lines('jess', sid)).length, 1, 'visible until the aside is recorded');
   await hold('dm', sid, null, 'aside', 100, 1500);
-  assert.equal((await lines('jess', sid)).length, 0, 'now DM-only');
+  assert.equal((await lines('jess', sid)).length, 0, 'now GM-only');
   assert.equal((await lines('dm', sid)).length, 1);
   await wait(100);
   feed.stop(); dmFeed.stop();
@@ -307,10 +307,10 @@ test('Audio_aside: an explicit aside key window arriving after the line removes 
   assert.equal(rm.length, 1);
   assert.ok(Object.keys(rm[0].data).every((k) => ['id', 'rev', 'removed', 'sessionId'].includes(k)));
   const secretSeenByDm = dmFeed.events.filter((e) => e.type === 'transcript-line' && JSON.stringify(e.data).includes(SECRET));
-  assert.ok(secretSeenByDm.length >= 1, 'the DM stream carries it');
+  assert.ok(secretSeenByDm.length >= 1, 'the GM stream carries it');
 });
 
-test('Audio_audience: a mic with players\' transcript off is DM-only; players never receive DM lines (REST and live)', async () => {
+test('Audio_audience: a mic with players\' transcript off is GM-only; players never receive GM lines (REST and live)', async () => {
   const sid = await newSession();
   const feed = listen(T.jess);
   const dmFeed = listen(T.dm);
@@ -330,7 +330,7 @@ test('Audio_audience: a mic with players\' transcript off is DM-only; players ne
   const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'guest' });
   const g = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'watcher', password: 'guest pass 1234' });
   assert.equal((await call('GET', `${A()}/sessions/${sid}/lines`, g.token)).status, 403);
-  // the DM marks a public line DM-only later: it disappears from players
+  // the GM marks a public line GM-only later: it disappears from players
   await ok('PATCH', `${A()}/lines/${pl[0].id}`, T.dm, { audience: 'dm' });
   assert.equal((await lines('jess', sid)).length, 0);
   assert.equal((await call('PATCH', `${A()}/lines/${pl[0].id}`, T.jess, { audience: 'players' })).status, 403, 'players cannot change audiences');
@@ -340,7 +340,7 @@ test('Audio_audience: a mic with players\' transcript off is DM-only; players ne
   assert.ok(dmFeed.raw.some((r) => r.includes(SECRET)));
   const playerLineEvents = feed.events.filter((e) => e.type === 'transcript-line');
   assert.ok(playerLineEvents.some((e) => e.data.text === 'I search the room'));
-  assert.ok(playerLineEvents.some((e) => e.data.removed), 'told to drop the line the DM hid');
+  assert.ok(playerLineEvents.some((e) => e.data.removed), 'told to drop the line the GM hid');
   // the typed API for the session log
   const sl = sessionLines(deps.db, W, sid, { includeDm: false });
   assert.ok(sl.every((l) => !l.text.includes(SECRET)));

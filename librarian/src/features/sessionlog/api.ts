@@ -26,7 +26,7 @@ export interface Gathered {
   to: string;
   worldStartMinutes: number;
   playerLines: { at: number; speaker: string; text: string }[];
-  /** DM-only and aside lines: only ever used for the DM notes. */
+  /** GM-only and aside lines: only ever used for the GM notes. */
   dmLines: { speaker: string; text: string; aside: boolean }[];
   combat: string[];
   coin: string[];
@@ -74,7 +74,7 @@ export function gather(db: DB, worldId: string, range: { from: string; to: strin
     if (n?.text) notes.push(String(n.text));
     for (const l of sessionLines(db, worldId, sid)) playerLines.push({ at: l.start, speaker: l.speaker, text: l.text });
     const rows = all<any>(db, "SELECT session_id, start_ms, end_ms, speaker_label, text, sources FROM audio_lines WHERE world_id = ? AND session_id = ? AND audience = 'dm' ORDER BY start_ms", worldId, sid);
-    for (const l of rows) dmLines.push({ speaker: l.speaker_label || 'DM', text: l.text, aside: lineIsAside(l, mics, holds) });
+    for (const l of rows) dmLines.push({ speaker: l.speaker_label || 'GM', text: l.text, aside: lineIsAside(l, mics, holds) });
   }
   const inRange = (col: string) => `${col} >= ? AND ${col} <= ?`;
   const combat = all<any>(db, 'SELECT name FROM combatants WHERE world_id = ? AND is_pc = 0 AND hidden = 0 AND hp IS NOT NULL AND hp <= 0', worldId).map((c) => `${c.name} was defeated`);
@@ -94,7 +94,7 @@ export function gather(db: DB, worldId: string, range: { from: string; to: strin
 
 const bullets = (xs: string[], none: string) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : none);
 
-/** The player-safe material as plain text for a model. DM and aside lines are never in it. */
+/** The player-safe material as plain text for a model. GM and aside lines are never in it. */
 export function material(g: Gathered): string {
   let t = g.playerLines.map((l) => `${l.speaker}: ${l.text}`).join('\n');
   if (t.length > MAX_MATERIAL) {
@@ -137,7 +137,7 @@ export function skeleton(g: Gathered): string {
   ].join('\n\n') + '\n';
 }
 
-/** Notes from the DM-only and aside lines. Never published. */
+/** Notes from the GM-only and aside lines. Never published. */
 export function dmNotes(g: Gathered): string {
   const xs = g.dmLines.filter((l) => l.text.trim().split(/\s+/).length >= 3).slice(0, 25).map((l) => `${l.aside ? '(aside) ' : ''}${l.speaker}: ${l.text.trim()}`);
   return xs.length ? xs.map((x) => `- ${x}`).join('\n') : '';
@@ -188,7 +188,7 @@ export async function draftSummary(d: Deps, g: Gathered): Promise<Drafted> {
 export async function reviseSummary(d: Deps, markdown: string, instruction: string): Promise<string> {
   try {
     const r = await chat(d, 'chat', { messages: [
-      { role: 'system', content: `${SYSTEM} You are given a draft and an instruction from the DM. Return the full revised summary only.` },
+      { role: 'system', content: `${SYSTEM} You are given a draft and an instruction from the GM. Return the full revised summary only.` },
       { role: 'user', content: `DRAFT:\n${markdown}\n\nINSTRUCTION:\n${instruction}` },
     ], temperature: 0.3 });
     if (!r.content.trim()) throw new HttpError(502, 'The model sent an empty answer');

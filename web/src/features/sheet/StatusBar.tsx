@@ -1,7 +1,7 @@
-// The DM's status bar, at the top of every DM page: each player's name,
+// The GM's status bar, at the top of every GM page: each player's name,
 // health (with temporary HP and conditions) and mana. A tap opens that
 // player's sheet. Live: it follows the sheets, the combat tracker and mana.
-// A tap opens a quick panel where the DM deals damage, heals, adds
+// A tap opens a quick panel where the GM deals damage, heals, adds
 // conditions and changes mana, with a link to the whole sheet.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -18,7 +18,7 @@ export default function PartyStatusBar() {
   const players = party.data?.players ?? [];
   const [open, setOpen] = useState<string | null>(null);
   const { toast, toastNode } = useToast();
-  // Tell the DM when a player spends a re-roll, so they can honour it at the table.
+  // Tell the GM when a player spends a re-roll, so they can honour it at the table.
   const last = useRef<Map<string, any>>(new Map());
   useEffect(() => {
     for (const p of players) {
@@ -59,7 +59,7 @@ export default function PartyStatusBar() {
   );
 }
 
-/** The DM's quick panel for one player: health, conditions, mana, re-rolls and secret notes. */
+/** The GM's quick panel for one player: health, conditions, mana, re-rolls and secret notes. */
 function Quick({ account, slug, onClose }: { account: string; slug: string; onClose: () => void }) {
   const { w, info } = useWorld();
   const sheet = useLoad<Sheet>(() => w.call('GET', `/sheet/${account}`), [w, account, (info.settings as any).sheetRerolls], ['sheet', 'spells-char', 'combat', 'settings']);

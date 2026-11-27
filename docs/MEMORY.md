@@ -13,7 +13,7 @@ may read, never from a copy above your level.
 - **Story bible** (the `chat` job): facts (subject, kind, one sentence, the
   page it came from) read out of each page copy. `GET /api/worlds/:w/bible`
   (`?subject=`, `?kind=`, `?q=`), MCP `story_bible`, the "Story bible" page for
-  the DM and for players.
+  the GM and for players.
 
 Nothing here runs without its model. Without embeddings, search is keyword
 only and Connections stays hidden. Without a chat model the bible is empty.
@@ -25,13 +25,13 @@ Every row (chunk or fact) belongs to one scope, cut from one copy of the page.
 
 | scope    | cut from                                  | read by                                         |
 |----------|-------------------------------------------|-------------------------------------------------|
-| `dm`     | the AI copy (everything but classified)   | the DM, and every model on the DM's behalf      |
+| `dm`     | the AI copy (everything but classified)   | the GM, and every model on the GM's behalf      |
 | `broker` | the broker copy (party + broker content)  | the information broker                          |
 | `party`  | the player copy of a party-level page     | every player and guest                          |
 | `lifted` | the player copy of a page that is not party-level but that some account may open now | players, one page at a time |
 
-`lifted` is for pages a player may open although the page is DM-level: their
-own per-user source key sees it, the DM granted it, or another player shared
+`lifted` is for pages a player may open although the page is GM-level: their
+own per-user source key sees it, the GM granted it, or another player shared
 it (see `features/sourcekeys`). The text is the same for everyone who may see
 it, so it is embedded once. Who may see it is decided live, on every read:
 `Library.liftedPages` (access sets, shares, the sharer still seeing the page).
@@ -39,10 +39,10 @@ it, so it is embedded once. Who may see it is decided live, on every read:
 A reader gets `base` plus (players only) the lifted rows of the pages they
 may open right now (`features/search/scopes.ts`, `reachOf`):
 
-- DM or model: `dm`. Broker: `broker`. Player: `party` + their lifted pages.
+- GM or model: `dm`. Broker: `broker`. Player: `party` + their lifted pages.
   Guest: `party` only.
 - Classified text is never embedded, never extracted and never sent to a
-  model (`core/ai.ts` also refuses it). DM-only text is never in `party`,
+  model (`core/ai.ts` also refuses it). GM-only text is never in `party`,
   `lifted` or `broker`.
 - A related percent is the cosine of two page vectors (the normalized mean of
   a page's chunk vectors), both taken from the reader's own scope, mapped to
@@ -80,7 +80,7 @@ somehow survives is never returned.
   pages read, chunks and facts, with "Index all now" and "Re-embed world"
   (`GET /api/admin/embeddings`, `POST /api/admin/embeddings/:world/build`,
   `POST /api/admin/embeddings/:world/reembed`).
-  DMs have `POST /worlds/:w/search/build`, `/search/reembed`, `/bible/rebuild`,
+  GMs have `POST /worlds/:w/search/build`, `/search/reembed`, `/bible/rebuild`,
   `/bible/refresh` and `/bible/read-now` (`{ "all": true }` for everything).
 
 ## Bulk builds (first import, re-embed, rebuild)
@@ -116,7 +116,7 @@ never holds back the pages around it.
 
 ## Refresh world and the Knowledge page
 
-DM > Prep > **Knowledge** shows how current everything the assistant knows is:
+GM > Prep > **Knowledge** shows how current everything the assistant knows is:
 each source (pages, pictures stored and waiting, last sync), the search index
 and story bible (pages read of pages there are), and Minerva's codex links
 (codex pages linked to a library page, and ones whose page is gone).
@@ -142,11 +142,11 @@ A step runs even when an earlier one had problems. It is a job: Admin > Jobs
 lists it, it can be stopped, a restart starts it again, and one runs per world
 at a time (not while a crawl runs). The last run is kept per world.
 
-API (DM): `GET /api/worlds/:w/knowledge`, `POST /api/worlds/:w/knowledge/refresh`
+API (GM): `GET /api/worlds/:w/knowledge`, `POST /api/worlds/:w/knowledge/refresh`
 (`{ "full": true }` for a complete listing; 202, or 409 while one runs),
-`POST /api/worlds/:w/knowledge/refresh/stop`. MCP: `refresh_world` (DM write key).
+`POST /api/worlds/:w/knowledge/refresh/stop`. MCP: `refresh_world` (GM write key).
 
-Copies with the same text are read once. A page's party, broker and DM copies
+Copies with the same text are read once. A page's party, broker and GM copies
 are often identical; when one copy's text (its hash) matches another scope's
 copy of the same page, the vectors and facts are copied instead of asking the
 model again. On a real 825-page world this skipped about 30% of the work.
@@ -180,5 +180,5 @@ against `pages`, so the permission model does not depend on the store.
 
 `librarian/test/memory.test.ts` (scopes, related, bible, immediate deletion
 on each change, classified never sent, model down). The leak crawler seeds a
-DM-only page, a page shared with jess and then unshared, and a page hidden at
+GM-only page, a page shared with jess and then unshared, and a page hidden at
 its source, all embedded and extracted first (`security-world.ts`).

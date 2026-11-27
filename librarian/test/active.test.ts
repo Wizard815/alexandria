@@ -1,5 +1,5 @@
 // Active mode: cue rules, auto / ask / off, undo, de-dup, rate limits, the wake
-// word (the DM's own mic only), DM asides, takeover commands, the command log,
+// word (the GM's own mic only), GM asides, takeover commands, the command log,
 // macros with a Minerva step, and "players never see Minerva". Models are
 // scripted fakes; nothing real is called.
 import { test, before, after } from 'node:test';
@@ -234,17 +234,17 @@ test('TestActive_OffAndPerCategoryAndRateLimit', async () => {
 test('TestActive_PlayerFacingFailsClosed', async () => {
   await reset();
   await settings({ cats: { stage: 'auto', items: 'auto', events: 'auto', clock: 'auto', combatAdd: 'auto', sfx: 'auto', music: 'auto', combat: 'auto' } });
-  // A party-level page may be shown on auto; a DM-only page never, in any setting.
+  // A party-level page may be shown on auto; a GM-only page never, in any setting.
   await say('dm', 'Show them the map of the docks.');
   const shown = (await log('done')).filter((r: any) => r.tool === 'show_on_stage');
   assert.equal(shown.length, 1);
   assert.equal(shown[0].args.ref, ID.docks);
   await say('dm', 'Now show them the smugglers tunnel map.');
   const all2 = await log();
-  assert.ok(!all2.some((r: any) => JSON.stringify(r.args ?? '').includes(ID.secretMap)), 'a DM-only page is never put on the stage');
+  assert.ok(!all2.some((r: any) => JSON.stringify(r.args ?? '').includes(ID.secretMap)), 'a GM-only page is never put on the stage');
   const stage = await ok('GET', `/api/worlds/${W}/stage`, T.jess);
-  assert.ok(!JSON.stringify(stage).includes('tunnel'), 'players see no DM-only page');
-  // A DM aside (DM-only line) may set the music but never anything players see.
+  assert.ok(!JSON.stringify(stage).includes('tunnel'), 'players see no GM-only page');
+  // A GM aside (GM-only line) may set the music but never anything players see.
   await say('dm', 'Show them the map of the docks again.', { aside: true });
   await say('dm', 'Give Tom 500 gold.', { aside: true });
   await say('dm', 'Music: something tense.', { aside: true });
@@ -289,12 +289,12 @@ test('TestActive_PlayersMaySetOffOnlyTheirOwnThings', async () => {
 test('TestActive_WakeWordOnlyFromTheDmMic', async () => {
   await reset();
   await settings({ cats: { music: 'off' } });
-  // Spoken on a player's mic, a room mic, or the DM's voice picked up by a player's mic: nothing.
+  // Spoken on a player's mic, a room mic, or the GM's voice picked up by a player's mic: nothing.
   await say('jess', 'Minerva, play combat music.');
   await say('room', 'Minerva, play combat music.');
   await say('dm', 'Minerva, play combat music.', { mics: [MIC.dm, MIC.jess] });
   assert.equal((await log()).length, 0);
-  // From the DM's own mic it is a direct request: it runs even though the category is off.
+  // From the GM's own mic it is a direct request: it runs even though the category is off.
   const wakeId = await say('dm', 'Minerva, play combat music.');
   assert.equal(all<any>(deps.db, 'SELECT audience FROM audio_lines WHERE id = ?', wakeId)[0].audience, 'dm', 'a command to the assistant is taken out of the players\' transcript');
   const rows = await log('done');
@@ -358,7 +358,7 @@ test('TestActive_RejectTeachesAndWrongUndoes', async () => {
   const w = (await ok('GET', `${A()}/rules`, T.dm)).rules;
   assert.equal(w.length, 1);
   await say('dm', 'The door creaks open again.');
-  assert.equal((await log('done')).length, 0, 'a cue the DM called wrong is not acted on again');
+  assert.equal((await log('done')).length, 0, 'a cue the GM called wrong is not acted on again');
   // A pending card rejected is the same.
   await settings({ cats: { items: 'ask' } });
   await say('dm', 'You find a rusty lantern.');
@@ -421,7 +421,7 @@ test('TestActive_MacroMinervaStepTemplatesAllowlistAndPlayersNeverSeeMinerva', a
   assert.ok(!JSON.stringify(coin).includes('"amountCp":100'), 'the off-list tool did not run');
   const rows = await log('done');
   assert.ok(rows.some((r: any) => r.tool === 'play_music' && r.trigger === 'chat'), 'the macro run is in the command log');
-  // Propose mode leaves the change for the DM.
+  // Propose mode leaves the change for the GM.
   const prop = await ok('POST', `${w}/actions/macros`, T.dm, { name: 'Maybe loot', steps: [{ action: 'minerva.run', args: { prompt: 'Give the party 5 gold', mode: 'propose', tools: 'add_coin' } }] });
   chat.queue.push(() => toolCall('add_coin', { owner: 'party', amountCp: 500 }), () => msg('Proposed.'));
   const r2 = await ok('POST', `${w}/actions/macros/${prop.id}/run`, T.dm, {});
@@ -463,7 +463,7 @@ test('TestPlayerHelp_JournalDraftUsesOnlyTheTable', async () => {
   const r = await ok('GET', `/api/worlds/${W}/helper/journal-draft`, T.jess);
   assert.match(r.markdown, /creep forward/);
   assert.match(r.markdown, /cellar door is old oak/);
-  assert.ok(!/smugglers/.test(r.markdown), 'a DM aside is never in a player draft');
+  assert.ok(!/smugglers/.test(r.markdown), 'a GM aside is never in a player draft');
   const tom = await ok('GET', `/api/worlds/${W}/helper/journal-draft`, T.tom);
   assert.ok(!/creep forward/.test(tom.markdown.split('## What the table heard')[0]), "another player's words are not 'mine'");
   assert.equal((await call('GET', `/api/worlds/${W}/helper/journal-draft`, T.dm)).status, 403);
@@ -516,7 +516,7 @@ test('TestActive_SpokenRequestReplyReachesOnlyTheDm', async () => {
   const jessTap = new EventTap(`${base}/api/worlds/${W}/events`, T.jess);
   await new Promise((r) => setTimeout(r, 100));
   chat.queue.length = 0;
-  chat.queue.push(() => msg('The harbour council answers to Velmira, a DM secret.'), () => msg('The harbour council answers to Velmira, a DM secret.'));
+  chat.queue.push(() => msg('The harbour council answers to Velmira, a GM secret.'), () => msg('The harbour council answers to Velmira, a GM secret.'));
   await say('dm', 'Minerva, tell me who really rules the harbour council.');
   await new Promise((r) => setTimeout(r, 150));
   const row = (await log('done')).find((l) => l.tool === 'agent');

@@ -1,7 +1,7 @@
-// The recordings API: lists, build / retention / delete (DM), and the audio files.
+// The recordings API: lists, build / retention / delete (GM), and the audio files.
 // Fails closed: every file request names a track id (never a path), the stored path
 // is checked to stay inside data/recordings, and a player may only reach the tracks
-// of their own mics. The full mix and everyone else's tracks are DM-only.
+// of their own mics. The full mix and everyone else's tracks are GM-only.
 import type { Express, Response, Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,7 +23,7 @@ import { writeZip, type ZipEntry } from '../../core/zipstream.ts';
 
 const audit = (d: Deps, worldId: string, accountId: string, action: string, detail = '') => { run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
 
-/** May this account read this track? A DM: any track of the world. A player: a track of a mic registered from their own account. */
+/** May this account read this track? A GM: any track of the world. A player: a track of a mic registered from their own account. */
 export function mayHear(d: Deps, worldId: string, accountId: string, t: TrackRow & { world_id: string }): boolean {
   if (t.world_id !== worldId) return false;
   const m = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, accountId);
@@ -65,11 +65,11 @@ const recordedIn = (d: Deps, sessionId: string, accountId: string) => !!one(d.db
     OR EXISTS (SELECT 1 FROM audio_chunks k JOIN audio_mics m ON m.id = k.mic_id WHERE k.session_id = s.id AND m.account_id = ?))`, sessionId, accountId, accountId);
 
 const linesMd = (title: string, sub: string, lines: { start: number; speaker: string; text: string; audience?: string }[], dm: boolean) => [
-  `# ${title}`, '', sub, '', ...(dm ? ['Lines marked **DM only** were not shown to the players.', ''] : []),
-  ...lines.map((l) => `- \`${fmtTime(l.start)}\` **${l.speaker || 'Someone'}**${dm && l.audience === 'dm' ? ' (**DM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`), '',
+  `# ${title}`, '', sub, '', ...(dm ? ['Lines marked **GM only** were not shown to the players.', ''] : []),
+  ...lines.map((l) => `- \`${fmtTime(l.start)}\` **${l.speaker || 'Someone'}**${dm && l.audience === 'dm' ? ' (**GM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`), '',
 ].join('\n');
 
-/** The DM's approved summary: the hand-off approved on Recordings or in Minerva's queue (the newest). Never one still pending. */
+/** The GM's approved summary: the hand-off approved on Recordings or in Minerva's queue (the newest). Never one still pending. */
 function approvedSummary(d: Deps, s: SessionRow): string | null {
   const card = one<any>(d.db, "SELECT text, decided_at FROM audio_handoffs WHERE session_id = ? AND status = 'approved' ORDER BY decided_at DESC LIMIT 1", s.id);
   let draft: any;
@@ -80,7 +80,7 @@ function approvedSummary(d: Deps, s: SessionRow): string | null {
 }
 
 /**
- * What "Download all" holds for this viewer. The DM: the full recording, every mic track, Transcript.md (the final
+ * What "Download all" holds for this viewer. The GM: the full recording, every mic track, Transcript.md (the final
  * transcript when there is one), the live transcript it replaced, the approved summary and session.json. A player:
  * only the tracks of their own mics, the players' transcript and the players' summary. Anyone else: nothing (null).
  */
@@ -113,7 +113,7 @@ export function zipEntries(d: Deps, s: SessionRow, accountId: string): { name: s
       text('Live transcript.md', linesMd(`${s.name} (live transcript)`, `${sub} - as it was written during the session, before the final transcript replaced it.`, live, true));
     }
     const sum = approvedSummary(d, s);
-    if (sum) text('Summary.md', `# ${s.name}: summary\n\n${sub} - approved by the DM.\n\n${sum.trim()}\n`);
+    if (sum) text('Summary.md', `# ${s.name}: summary\n\n${sub} - approved by the GM.\n\n${sum.trim()}\n`);
     text('session.json', JSON.stringify(sessionJsonDoc(d, s, world), null, 2) + '\n');
   } else {
     text('Transcript (players).md', linesMd(s.name, sub, sessionLines(d.db, s.world_id, s.id, { includeDm: false }), false));
@@ -170,7 +170,7 @@ export function recordingRoutes(r: Router, d: Deps) {
     return s;
   };
 
-  // DM: every session with its recording.
+  // GM: every session with its recording.
   r.get('/recordings', requireDM, async (_req, res) => {
     const c = ctx(res);
     const rows = all<SessionRow>(d.db, 'SELECT * FROM audio_sessions WHERE world_id = ? ORDER BY started_at DESC LIMIT 500', c.world.id);
@@ -193,7 +193,7 @@ export function recordingRoutes(r: Router, d: Deps) {
     });
   });
 
-  // DM: one session, with every track (and tickets to play them).
+  // GM: one session, with every track (and tickets to play them).
   r.get('/recordings/:sid', requireDM, (req, res) => {
     res.json(sessionView(d, sess(res, String(req.params.sid)), me(res), true, true));
   });

@@ -1,8 +1,8 @@
 // End-to-end test of the Foundry VTT connection, with the real module:
-// - the DM opens DM → Foundry VTT, copies the manifest URL and makes a key;
+// - the GM opens GM → Foundry VTT, copies the manifest URL and makes a key;
 // - a stand-in Foundry world (librarian/test/foundry-stub.js) runs the real
 //   Alexandria Bridge module with that key, ticking like the GM's tab;
-// - the DM brings a scene in as a map, the tokens show on the Map page, fog
+// - the GM brings a scene in as a map, the tokens show on the Map page, fog
 //   set in Alexandria reaches Foundry, a player drags their own token on a
 //   phone and it moves in Foundry (uncovering fog), and a map goes out to
 //   Foundry as a new scene.
@@ -32,7 +32,7 @@ const until = async (fn, what, ms = 15000) => {
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('foundry'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'dungeon master 123');
+const dmLogin = await login('dm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
 const api = async (method, p, body, raw) => {
   const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': raw ? 'image/png' : 'application/json', Authorization: 'Bearer ' + dmLogin.token }, body: raw ?? (body ? JSON.stringify(body) : undefined) });
@@ -72,13 +72,13 @@ async function drawMap(page, w, h, seed) {
 
 let fd = null;
 try {
-  // ---- the DM sets up ----
+  // ---- the GM sets up ----
   const dmCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
   const dm = await dmCtx.newPage();
   watch(dm, 'dm');
   await dm.goto(base + '/login');
   await dm.getByLabel(/username/i).fill('dm');
-  await dm.getByLabel(/password/i).fill('dungeon master 123');
+  await dm.getByLabel(/password/i).fill('game master 123');
   await dm.getByRole('button', { name: /sign in|log in/i }).click();
   await dm.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
   await dm.goto(`${base}/w/saltreach/dm/foundry`);
@@ -97,7 +97,7 @@ try {
   const keepPng = await drawMap(dm, 1600, 1000, 7);
   fd = foundryWorld(base, key, keepPng);
   await fd.start();
-  await until(async () => /Connected to Sunken Realm/.test(await dm.getByTestId('foundry-state').textContent()), 'DM page shows Connected to the Foundry world');
+  await until(async () => /Connected to Sunken Realm/.test(await dm.getByTestId('foundry-state').textContent()), 'GM page shows Connected to the Foundry world');
   await dm.getByText('Sunken Keep').first().waitFor();
   check(await dm.getByText('Goblin Warrens').count() > 0, 'every scene listed');
   check((await dm.getByLabel('Player for Jessamine').inputValue()) !== '', 'Jessamine linked to jess by name');
@@ -118,11 +118,11 @@ try {
   await until(async () => fd.keep.getFlag('alexandria-bridge', 'fog')?.ops?.length === 2, 'fog reaches Foundry');
   note('fog drawn in Foundry');
 
-  // ---- the DM's map ----
+  // ---- the GM's map ----
   await dm.goto(`${base}/w/saltreach/dm/map`);
   await dm.getByRole('button', { name: 'sunken-keep' }).click();
   await dm.locator('[data-token]').first().waitFor();
-  check(await dm.locator('[data-token]').count() === 3, 'the DM sees all three tokens');
+  check(await dm.locator('[data-token]').count() === 3, 'the GM sees all three tokens');
   await shot(dm, '3-dm-map-tokens-and-fog');
 
   // ---- a player drags their own token on a phone ----

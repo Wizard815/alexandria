@@ -4,7 +4,7 @@
   "name": "Bloodied",
   "version": "1.0.0",
   "author": "Alexandria",
-  "summary": "A creature below half its hit points is bloodied, and the DM describes it so players can see the fight turning.",
+  "summary": "A creature below half its hit points is bloodied, and the GM describes it so players can see the fight turning.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": [],
@@ -16,7 +16,7 @@
   "rules": [
     {
       "term": "Bloodied (house rule)",
-      "text": "A creature at **half its hit points or fewer** is **bloodied**: the DM says so, and describes how it looks. Some features or monsters may change when bloodied."
+      "text": "A creature at **half its hit points or fewer** is **bloodied**: the GM says so, and describes how it looks. Some features or monsters may change when bloodied."
     }
   ],
   "assistant": {
@@ -26,6 +26,6 @@
       "how hurt"
     ],
     "dm": "Bloodied is on: say when a creature drops to half its HP or below and describe how it looks hurt. When players ask how hurt an enemy is, answer with unhurt, hurt, bloodied or nearly dead.",
-    "player": "At this table the DM tells you when an enemy is bloodied (at half its HP or less), so you can see which foe is close to falling."
+    "player": "At this table the GM tells you when an enemy is bloodied (at half its HP or less), so you can see which foe is close to falling."
   }
 }

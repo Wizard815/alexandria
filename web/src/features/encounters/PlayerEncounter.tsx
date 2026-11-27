@@ -1,4 +1,4 @@
-// Player side: an NPC walks up. Pops up over any player screen when the DM
+// Player side: an NPC walks up. Pops up over any player screen when the GM
 // (or wandering) starts an encounter for me: the NPC's words, my answers, and
 // a small game when the NPC offers one. "Later" folds it into a chip in the
 // corner. A finished talk stays up until I close it, with a button to the
@@ -62,7 +62,7 @@ function Talk({ e, onClose, onFold, onChanged }: { e: Encounter; onClose: () => 
   }, [open, onFold, onClose]);
 
   const choose = (body: Record<string, unknown>) => act.run(async () => onChanged(await w.call<Encounter>('POST', `/encounters/${encodeURIComponent(e.id)}/choose`, body)));
-  // The countdown hit zero: the server picks the answer the DM set for running out of time.
+  // The countdown hit zero: the server picks the answer the GM set for running out of time.
   const timeUp = useCallback(() => { void act.run(async () => onChanged(await w.call<Encounter>('POST', `/encounters/${encodeURIComponent(e.id)}/choose`, { timeout: true }))); }, [e.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const leave = () => act.run(async () => onChanged(await w.call<Encounter>('POST', `/encounters/${encodeURIComponent(e.id)}/leave`)));
   // The latest NPC line is shown big; everything before it is the log.
@@ -161,7 +161,7 @@ function LogLine({ l, npc }: { l: Line; npc: string }) {
   );
 }
 
-/** Home page card: go looking for something to do while the DM is busy elsewhere. */
+/** Home page card: go looking for something to do while the GM is busy elsewhere. */
 export function WanderCard() {
   const { w, info } = useWorld();
   const cfg = useLoad<EncounterConfig>(() => w.call('GET', '/encounters/config'), [w], ['settings', 'encounter']);
@@ -188,7 +188,7 @@ export function WanderCard() {
 export function MyEncounters() {
   const { w, info } = useWorld();
   const list = useLoad<Encounter[]>(() => w.call('GET', '/encounters'), [w], ['encounter']);
-  if (info.role !== 'player') return <div className="page"><PageHead title="Encounters" /><Empty>Encounters are between an NPC and one player. As the DM, use the Encounters page.</Empty></div>;
+  if (info.role !== 'player') return <div className="page"><PageHead title="Encounters" /><Empty>Encounters are between an NPC and one player. As the GM, use the Encounters page.</Empty></div>;
   return (
     <div className="page">
       <PageHead title="Encounters" lead="NPCs who stopped to talk with you, and what was said." />

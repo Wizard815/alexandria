@@ -1,6 +1,6 @@
 # Files in the library
 
-The DM can upload maps, pictures, PDFs, handouts and item sheets to a world's
+The GM can upload maps, pictures, PDFs, handouts and item sheets to a world's
 library (`librarian/src/features/libfiles`, `web/src/features/libfiles`).
 
 ## What can be uploaded
@@ -24,11 +24,11 @@ a source (Kanka, LegendKeeper).
 ## Videos on the players' screen
 
 A library picture, GIF or video can be queued on the players' screen
-(`/w/<world>/screen/players`). The DM's choice to show a file is enough: DM-level
+(`/w/<world>/screen/players`). The GM's choice to show a file is enough: GM-level
 files can be shown, classified ones never. A file players cannot open in the
 library is served to the screen only while it is the current, visible item (and
 never shows in players' file lists, search or the broker); "Share with party" on
-the DM page opens it for real. A video ends its slide when it ends (the screen
+the GM page opens it for real. A video ends its slide when it ends (the screen
 reports it to the server, once per version, for the item showing now), unless
 the item has "Play for N seconds" or Loop; pictures and GIFs use the slideshow
 interval. Browsers play sound only after one click: the screen shows a single
@@ -53,8 +53,8 @@ Players cannot upload (there is no player notes feature to attach files to).
 
 A viewer gets a file only when they may see the **page** and the **file's
 level**: players party-level files on shared pages, the broker up to broker, a
-model acting for the DM up to dm (never `classified`), the DM everything. Lists
-and tickets are built per viewer; levels are shown to the DM only. A DM-only
+model acting for the GM up to dm (never `classified`), the GM everything. Lists
+and tickets are built per viewer; levels are shown to the GM only. A GM-only
 page's files are not found for a player even at party level.
 
 Bytes are served at `/api/media/libfile/<ticket>`. The ticket (the same signed
@@ -86,14 +86,14 @@ sources' published API docs (see `docs/API_VERIFICATION.md`) and are tested agai
 ## Admin library
 
 Admin > Library (Library group, after Worlds) picks a world and reuses the
-Library page. An admin who is **not** the world's DM gets only the party copy
+Library page. An admin who is **not** the world's GM gets only the party copy
 (pages and files shared with the players) and cannot upload: being an admin does
-not open a world's secrets. An admin who is the world's DM gets the DM view and
+not open a world's secrets. An admin who is the world's GM gets the GM view and
 can upload. Routes: `/api/admin/library/worlds` and
 `/api/admin/library/worlds/:world/{library,files}`.
 
 ## API (world routes, `/api/worlds/:world/files`)
 
-`GET /` (`?page=`), `GET /maps`, `GET /targets?page=&level=` (DM),
-`POST /?page=|folder=&title=&name=&kind=&level=&send=<sourceId>` (DM, raw body),
+`GET /` (`?page=`), `GET /maps`, `GET /targets?page=&level=` (GM),
+`POST /?page=|folder=&title=&name=&kind=&level=&send=<sourceId>` (GM, raw body),
 `PATCH /:id`, `DELETE /:id`, `POST /:id/send`, `GET /:id`, `GET /:id/ticket`.

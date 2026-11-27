@@ -108,14 +108,14 @@ function mapView(m: MapResult): MapView {
   return { kind: m.kind, size: m.size, flavour: m.flavour, title: m.title, seed: m.seed, key: m.key, legend: m.legend, stats: m.stats, ftPerCell: m.ftPerCell, width: m.canvas.w, height: m.canvas.h, svg: toSvg(m.canvas, { dm: true, title: m.title }) };
 }
 
-const DM_LEGEND = /^DM view only:\s*/i;
+const DM_LEGEND = /^(?:DM|GM) view only:\s*/i;
 
 function mapOut(m: MapResult, enriched: boolean, locks: Record<string, string>): Out {
   const sections: Section[] = [
     ...(locks.flavour ? [{ key: 'flavour', label: 'Read aloud', text: locks.flavour }] : []),
     { key: 'legend', label: 'Legend', text: m.legend.filter((l) => !DM_LEGEND.test(l)).map((l) => `- ${l}`).join('\n') },
-    // What the players cannot see on their copy (secret doors, traps) is explained on the DM's copy only.
-    ...(m.legend.some((l) => DM_LEGEND.test(l)) ? [{ key: 'dmlegend', label: 'DM legend', text: m.legend.filter((l) => DM_LEGEND.test(l)).map((l) => `- ${l.replace(DM_LEGEND, '')}`).join('\n'), dm: true }] : []),
+    // What the players cannot see on their copy (secret doors, traps) is explained on the GM's copy only.
+    ...(m.legend.some((l) => DM_LEGEND.test(l)) ? [{ key: 'dmlegend', label: 'GM legend', text: m.legend.filter((l) => DM_LEGEND.test(l)).map((l) => `- ${l.replace(DM_LEGEND, '')}`).join('\n'), dm: true }] : []),
     { key: 'key', label: 'Key', text: m.key.map((k) => `${k.n}. **${k.name}.** ${k.text}${k.dm ? ` _DM: ${k.dm}_` : ''}`).join('\n'), dm: true },
   ];
   return {
@@ -177,7 +177,7 @@ async function enrichWith(ctx: Ctx, kind: string, current: Record<string, string
   if (!want.length) return null;
   try {
     const out = await chatJson<Record<string, unknown>>(ctx.d, 'chat', [
-      { role: 'system', content: `You help a D&D dungeon master. Rewrite the given fields of a generated ${kind} so they are vivid, specific and consistent with each other and with the world note, keeping each to one or two sentences. Do not add new facts about named people or places beyond the world note. Reply with JSON only, using exactly the keys given.` },
+      { role: 'system', content: `You help the Game Master of a 5e tabletop role-playing game. Rewrite the given fields of a generated ${kind} so they are vivid, specific and consistent with each other and with the world note, keeping each to one or two sentences. Do not add new facts about named people or places beyond the world note. Reply with JSON only, using exactly the keys given.` },
       { role: 'user', content: JSON.stringify({ fields: Object.fromEntries(want.map((k) => [k, current[k].slice(0, 500)])), world_note: hint.slice(0, 700) }) },
     ]);
     if (!out || typeof out !== 'object') return null;
@@ -223,7 +223,7 @@ export async function generate(ctx: Ctx, spec: Spec): Promise<Out> {
 
 const secret = (title: string, text: string) => `> [!secret] ${title}\n${text.split('\n').map((l) => `> ${l}`).join('\n')}`;
 
-/** The page text. DM-only sections are secret callouts, so a page shared later still hides them; `level` party leaves out anything that is not meant for players at all (statblocks). */
+/** The page text. GM-only sections are secret callouts, so a page shared later still hides them; `level` party leaves out anything that is not meant for players at all (statblocks). */
 export function renderMd(out: Out, level: 'dm' | 'party'): string {
   const L: string[] = [`# ${out.title}`, '', `*${out.subtitle}*`, ''];
   for (const s of out.sections) {

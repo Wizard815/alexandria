@@ -1,4 +1,4 @@
-// Queue: everything waiting on the DM. One tap to approve or reject; swipe a
+// Queue: everything waiting on the GM. One tap to approve or reject; swipe a
 // card right to approve, left to reject; edit or price in a sheet.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';

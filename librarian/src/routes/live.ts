@@ -1,6 +1,6 @@
 // The live session: who is here, the party pouch and coin ledger, and the
 // combat tracker. Players get a computed view: no hidden combatants, no
-// health numbers for the party, monster health only as the DM's setting allows.
+// health numbers for the party, monster health only as the GM's setting allows.
 import { Router, type Response } from 'express';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
@@ -26,7 +26,7 @@ export default function liveRoutes(d: Deps) {
     d.hub.emitPer(c.world.id, 'combat', (v) => combatView(c.world.id, v, s));
   };
 
-  // Balances count approved entries only; player changes wait for the DM.
+  // Balances count approved entries only; player changes wait for the GM.
   const balance = (worldId: string, owner: string) => one<any>(db, `SELECT COALESCE(SUM(amount_cp), 0) AS cp FROM ledger WHERE world_id = ? AND owner = ? AND status = 'approved'`, worldId, owner)!.cp as number;
 
   const combatantIds = (worldId: string) => all<any>(db, 'SELECT id, name FROM combatants WHERE world_id = ?', worldId) as { id: string; name: string }[];
@@ -77,7 +77,7 @@ export default function liveRoutes(d: Deps) {
     res.json({ ok: true });
   });
 
-  // Coin ledger. owner: 'party', 'me', or (DM) an account id.
+  // Coin ledger. owner: 'party', 'me', or (GM) an account id.
   r.get('/ledger', (req, res) => {
     const c = ctx(res);
     const owner = resolveOwner(res, String(req.query.owner ?? 'me'), false);
@@ -88,7 +88,7 @@ export default function liveRoutes(d: Deps) {
   r.post('/ledger', requirePlayerOrDM, (req, res) => {
     const c = ctx(res);
     const owner = resolveOwner(res, String(req.body?.owner ?? 'me'), true);
-    // A player's change is only a request until the DM approves it.
+    // A player's change is only a request until the GM approves it.
     const pending = !isDM(res) && settings(res).playerChangesNeedApproval;
     const e = { id: id('led_'), world_id: c.world.id, owner, amount_cp: int(req.body?.amountCp, 'amountCp', { min: -100_000_000, max: 100_000_000 })!, note: str(req.body?.note, 'note', { max: 200, optional: true }), session_label: str(req.body?.session, 'session', { max: 40, optional: true }) || null, by_id: me(res), at: now(), status: pending ? 'pending' : 'approved' };
     if (e.amount_cp === 0) throw new HttpError(400, 'amountCp cannot be zero');
@@ -107,12 +107,12 @@ export default function liveRoutes(d: Deps) {
     }
     if (raw === 'me') return me(res);
     if (!isDM(res)) throw new HttpError(403, 'You can only see your own coin and the party pouch');
-    if (writing && !s.dmEditsInventory) throw new HttpError(403, 'DM edits to player coin are off in World settings');
+    if (writing && !s.dmEditsInventory) throw new HttpError(403, 'GM edits to player coin are off in World settings');
     if (!memberIds(db, ctx(res).world.id).includes(raw)) throw new HttpError(404, 'Player not found');
     return raw;
   }
 
-  // Combat (DM)
+  // Combat (GM)
   r.get('/combat', (req, res) => res.json(combatView(ctx(res).world.id, readerFor(req, res), settings(res))));
   r.put('/combat', requireDM, (req, res) => {
     const c = ctx(res);
@@ -139,7 +139,7 @@ export default function liveRoutes(d: Deps) {
     const named = ended.map((e) => ({ ...e, combatant: list.find((x) => x.id === e.combatantId)?.name ?? '?' }));
     if (named.length) audit(db, c.world.id, me(res), 'combat.effects_ended', named.map((e) => `${e.name} on ${e.combatant} (${e.why})`).join('; '));
     pushCombat(res);
-    // A PC who is down rolls a death save when their turn comes up: say so for the DM (and the agent).
+    // A PC who is down rolls a death save when their turn comes up: say so for the GM (and the agent).
     const up = list[turn];
     const deathSaveDue = up && isDying({ hp: up.hp, isPc: !!up.is_pc, deathSaves: parseJson(up.death_saves, null) }) ? up.name : undefined;
     res.json({ ...combatView(c.world.id, c.viewer, settings(res)), ...(named.length ? { ended: named } : {}), ...(deathSaveDue ? { deathSaveDue } : {}) });
@@ -178,7 +178,7 @@ export default function liveRoutes(d: Deps) {
       const rl = rollMonsterInitiative(db, c.world.id, nm, !!b.roll);
       if (rl) { rolled = rl; x.initiative = rl.total; }
     }
-    // Armor class and the statblock page are DM-only; the player view never sends them.
+    // Armor class and the statblock page are GM-only; the player view never sends them.
     const ac = int(b.ac, 'ac', { min: 0, max: 99, optional: true });
     const sbPage = b.statblockPage ? str(b.statblockPage, 'statblockPage', { max: 80 }) : null;
     const eff = normEffects(b.effects, { ids: combatantIds(c.world.id), selfId: x.id, currentId: null, existing: [] });
@@ -243,12 +243,12 @@ export default function liveRoutes(d: Deps) {
     }
     if (b.deathSaves !== undefined) f.deathSaves = deathInput(b.deathSaves);
     const hp = f.hp;
-    // A monster dropped to 0 HP is marked Defeated (and, if the DM turned that on, taken out of the tracker).
+    // A monster dropped to 0 HP is marked Defeated (and, if the GM turned that on, taken out of the tracker).
     const had: Effect[] = parseJson<Effect[]>(x.effects, []);
     let eff: Effect[] = b.effects !== undefined ? normEffects(b.effects, { ids: combatantIds(c.world.id), selfId: x.id, currentId: currentId(c.world.id), existing: had }) : had;
     const fell = !x.account_id && known(hp) && hp! <= 0 && !(known(x.hp) && x.hp <= 0);
     if (fell && !eff.some((e) => String(e?.name ?? e).toLowerCase() === 'defeated')) eff = [...eff, { name: 'Defeated' }];
-    // Stable and Dead tags follow the death saves, unless the DM is setting the conditions by hand.
+    // Stable and Dead tags follow the death saves, unless the GM is setting the conditions by hand.
     if (isPc && b.effects === undefined && (b.damage !== undefined || b.deathSave !== undefined || b.deathSaves !== undefined || b.heal !== undefined || b.hp !== undefined)) eff = syncDeathTags(eff, f.deathSaves);
     run(db, 'UPDATE combatants SET name = ?, initiative = ?, hp = ?, max_hp = ?, effects = ?, hidden = ?, ac = ?, temp_hp = ?, concentration = ?, death_saves = ? WHERE id = ?',
       b.name !== undefined ? str(b.name, 'name', { max: 80 }) : x.name,

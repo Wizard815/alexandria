@@ -20,9 +20,9 @@ export interface LogLine { id: string; accountId: string; kind: string; before: 
 export const KINDS: { type: ModuleType; label: string; desc: string; icon: string }[] = [
   { type: 'vitals', label: 'Health', desc: 'HP, temporary HP and conditions', icon: 'fa-heart-pulse' },
   { type: 'mana', label: 'Mana', desc: 'Your mana pool, when the world uses it', icon: 'fa-droplet' },
-  { type: 'rerolls', label: 'Re-rolls', desc: 'Re-roll tokens the DM gives for good role play (house rule)', icon: 'fa-dice' },
+  { type: 'rerolls', label: 'Re-rolls', desc: 'Re-roll tokens the GM gives for good role play (house rule)', icon: 'fa-dice' },
   { type: 'inventory', label: 'Inventory', desc: 'What you carry, from your pack', icon: 'fa-sack-dollar' },
-  { type: 'dm', label: 'From the DM', desc: 'Secret notes and goals the DM leaves for you', icon: 'fa-scroll' },
+  { type: 'dm', label: 'From the GM', desc: 'Secret notes and goals the GM leaves for you', icon: 'fa-scroll' },
   { type: 'contacts', label: 'People', desc: 'Allies, enemies and everyone in between, linked to their pages', icon: 'fa-user-group' },
   { type: 'notes', label: 'Quick notes', desc: 'Jot things down during play', icon: 'fa-pen' },
   { type: 'recent', label: 'Recently', desc: 'People, places and factions from the latest session summaries; ask the broker about them', icon: 'fa-clock-rotate-left' },
@@ -58,9 +58,9 @@ export function ManaMeter({ mana, small = false }: { mana: Mana; small?: boolean
 }
 
 const KIND_LABEL: Record<string, string> = { hp: 'HP', temp: 'Temp HP', max: 'Max HP', conditions: 'Conditions', mana: 'Mana', reroll: 'Re-roll' };
-const SOURCE_LABEL: Record<string, string> = { sheet: 'sheet', combat: 'combat tracker', dm: 'DM', foundry: 'Foundry', roll20: 'Roll20', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
+const SOURCE_LABEL: Record<string, string> = { sheet: 'sheet', combat: 'combat tracker', dm: 'GM', foundry: 'Foundry', roll20: 'Roll20', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
 
-/** Every HP and mana change, newest first. `account` null: the whole party (DM). */
+/** Every HP and mana change, newest first. `account` null: the whole party (GM). */
 export function ChangeLog({ account, limit = 40 }: { account: string | null; limit?: number }) {
   const { w, nameOf, isDM } = useWorld();
   const log = useLoad<{ log: LogLine[] }>(() => w.call('GET', '/sheet/log', undefined, account && isDM ? { account } : undefined), [w, account], ['sheet', 'spells-char', 'combat']);

@@ -74,7 +74,7 @@ before(async () => {
   T.bo = j2.token; ID.bo = j2.account.id;
 
   const put = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  await put('places/Saltmarsh', 'party', '# Saltmarsh\nA fishing town with a lighthouse.\n\n> [!secret] DM\n> The mayor poisons the wells with nightshade.\n');
+  await put('places/Saltmarsh', 'party', '# Saltmarsh\nA fishing town with a lighthouse.\n\n> [!secret] GM\n> The mayor poisons the wells with nightshade.\n');
   await put('dm/Crown', 'dm', '# Crown\nThe lighthouse hides a cursed crown called Gloomcrest.\n');
   await put('lore/Lighthouse', 'party', '# Lighthouse\nA tall tower. Visit the lighthouse at night.\n');
   await put('lore/Whiskers', 'party', '# Whiskers\nA friendly kitten who purrs by the harbour.\n\n> [!secret]\n> The kitten is a spy for the Zaxxar guild.\n');
@@ -97,7 +97,7 @@ before(async () => {
   entry('sle1', 1, 'The lighthouse', 'The party visited the lighthouse and met the keeper.', null);
   entry('sle2', 2, 'Retracted', 'A lighthouse draft with the secret Gloomcrest plot.', '2026-01-03');
 
-  // Items: party stash, Jess's, Bo's (hidden from Jess), with a DM note
+  // Items: party stash, Jess's, Bo's (hidden from Jess), with a GM note
   const item = (id: string, owner: string, name: string, note: string, dmNote: string, status = 'approved') => run(deps.db, `INSERT INTO items (id, world_id, owner, name, qty, note, dm_note, updated_at, updated_by, status) VALUES (?, ?, ?, ?, 1, ?, ?, '2026-01-01', ?, ?)`, id, W, owner, name, note, dmNote, ID.dm, status);
   item('it1', 'party', 'Lighthouse lamp', 'Bright lamp from the tower', 'Cursed by Gloomcrest');
   item('it2', ID.jess, 'Lighthouse key', 'Opens the tower door', '');
@@ -119,7 +119,7 @@ test('TestGlobalSearch_CoversEveryKindForTheDM', async () => {
   // A game rule term (the built-in module).
   const rule = await S('grappled', T.dm, '&semantic=0');
   assert.ok(rule.some((h) => h.kind === 'term'), JSON.stringify(rule.map((r) => r.kind)));
-  // The DM finds DM-only text of every kind.
+  // The GM finds GM-only text of every kind.
   const g = await S('gloomcrest', T.dm, '&semantic=0');
   assert.deepEqual(kindsOf(g), ['item', 'log', 'page', 'person', 'transcript']);
   // kinds filter, aliases and a bad kind.
@@ -144,7 +144,7 @@ test('TestGlobalSearch_PlayersOnlySeeWhatTheyMay', async () => {
   const jess = await S('lighthouse', T.jess, '&semantic=0');
   assert.deepEqual(kindsOf(jess), ['item', 'log', 'page', 'person', 'term', 'transcript']);
   const titles = (k: string) => jess.filter((h) => h.kind === k).map((h) => h.title).sort();
-  assert.deepEqual(titles('page'), ['Lighthouse', 'Saltmarsh'], 'shared pages only (the DM page that mentions the lighthouse is not there)');
+  assert.deepEqual(titles('page'), ['Lighthouse', 'Saltmarsh'], 'shared pages only (the GM page that mentions the lighthouse is not there)');
   assert.deepEqual(titles('item'), ['Lighthouse key', 'Lighthouse lamp'], "own and party items, not Bo's and not pending");
   assert.deepEqual(titles('log'), ['Session 1: The lighthouse'], 'published entries only');
   assert.equal(jess.filter((h) => h.kind === 'transcript').length, 1, "players' lines only");
@@ -153,14 +153,14 @@ test('TestGlobalSearch_PlayersOnlySeeWhatTheyMay', async () => {
   assert.ok((await S('lighthouse map', T.bo, '&kinds=item&semantic=0')).some((h) => h.title === 'Lighthouse map'));
   assert.ok(!(await S('lighthouse map', T.jess, '&kinds=item&semantic=0')).some((h) => h.title === 'Lighthouse map'));
 
-  // Nothing DM-only is found, by any route: DM page, secret block, DM line, DM quote, DM person, DM note, unpublished entry.
+  // Nothing GM-only is found, by any route: GM page, secret block, GM line, GM quote, GM person, GM note, unpublished entry.
   for (const q of ['gloomcrest', 'Gloomcrest', 'Gloomcres', 'Gloomcrst', 'vampire', 'Vexmoor', 'nightshade', 'poisons', 'Zaxxar', 'cursed crown', 'secretly serve', 'secret agent', 'Retracted', 'Cat plot', 'Feline plan', 'relic', 'Bo private']) {
     for (const tok of [T.jess]) {
       const r = await S(q, tok, '&semantic=0&kinds=page,person,transcript,log,item'); // rules are public SRD text
       assert.deepEqual(r.filter((h) => !['Lighthouse lamp'].includes(h.title) || h.kind !== 'item'), [], `player must not find "${q}": ${JSON.stringify(r.map((h) => [h.kind, h.title]))}`);
     }
   }
-  // Snippets of what they do see never carry DM text.
+  // Snippets of what they do see never carry GM text.
   const dump = JSON.stringify(await S('lighthouse tower keeper secret', T.jess, '&semantic=0'));
   for (const bad of ['Gloomcrest', 'vampire', 'nightshade', 'Zaxxar', 'Cursed by', 'secretly']) assert.ok(!dump.includes(bad), `${bad} leaked: ${dump}`);
   // Typos and exclusions are no side channel either.
@@ -220,11 +220,11 @@ test('TestHybrid_EmbedsInTheBackgroundAndMergesWithKeywordSearch', async () => {
   assert.equal((await syncEmbeddings(deps)).embedded, 0);
   assert.equal(embedCalls.length, 0);
 
-  // Player and DM copies are kept apart; DM text is never in the party index.
+  // Player and GM copies are kept apart; GM text is never in the party index.
   const party = all<any>(deps.db, `SELECT text FROM search_chunks WHERE scope = 'party'`).map((r) => r.text).join('\n');
   const dmChunks = all<any>(deps.db, `SELECT text FROM search_chunks WHERE scope = 'dm'`).map((r) => r.text).join('\n');
   for (const bad of ['Zaxxar', 'nightshade', 'Gloomcrest', 'Feline plan']) assert.ok(!party.includes(bad), `${bad} in the party index`);
-  for (const must of ['Zaxxar', 'nightshade', 'Gloomcrest']) assert.ok(dmChunks.includes(must), `${must} missing from the DM index`);
+  for (const must of ['Zaxxar', 'nightshade', 'Gloomcrest']) assert.ok(dmChunks.includes(must), `${must} missing from the GM index`);
   assert.equal(all(deps.db, `SELECT 1 FROM search_chunks WHERE scope = 'party' AND page_id IN (SELECT id FROM pages WHERE visibility = 'dm')`).length, 0);
 
   // "feline" appears in no player-visible page; the kitten page is found by meaning.
@@ -232,7 +232,7 @@ test('TestHybrid_EmbedsInTheBackgroundAndMergesWithKeywordSearch', async () => {
   assert.deepEqual(kw, []);
   const hy = await S('feline', T.jess, '&kinds=page');
   assert.deepEqual(hy.map((h) => h.title), ['Whiskers'], JSON.stringify(hy));
-  // The DM's semantic results include the DM-only page; the player's never do.
+  // The GM's semantic results include the GM-only page; the player's never do.
   const dmHy = await S('feline', T.dm, '&kinds=page');
   assert.ok(dmHy.some((h) => h.title === 'Cat plot' || h.title === 'Whiskers'));
   assert.ok(!JSON.stringify(hy).includes('Zaxxar') && !JSON.stringify(hy).includes('Cat plot'));

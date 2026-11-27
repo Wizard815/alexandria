@@ -190,7 +190,7 @@ export function importVault(d: Deps, worldId: string, buf: Buffer, by: string | 
         for (const m of th.matchAll(/^[-*]\s+(.+?)\s+_\((.+), not confirmed\)_\s*$/gm)) theories.push({ player: acc, text: m[1]!, title: m[2]! });
       }
     }
-    // Levels: missing or unknown is dm; the DM's own folder is never opened to players.
+    // Levels: missing or unknown is dm; the GM's own folder is never opened to players.
     const lv = typeof fm.level === 'string' && ['party', 'broker', 'dm', 'classified'].includes(fm.level) ? fm.level : 'dm';
     fm.level = rel.startsWith('dm/') && lv === 'party' ? 'dm' : lv;
     delete (fm as any).visibility;

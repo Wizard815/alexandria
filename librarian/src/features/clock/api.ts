@@ -225,7 +225,7 @@ const canSee = (role: Role, visibility: string) => role === 'dm' || visibility =
 
 export function getEvent(db: DB, worldId: string, eventId: string, role: Role): WorldEvent {
   const r = one<any>(db, 'SELECT * FROM clock_events WHERE id = ? AND world_id = ?', eventId, worldId);
-  // A player gets "not found" for a DM-only event, the same as for one that does not exist.
+  // A player gets "not found" for a GM-only event, the same as for one that does not exist.
   if (!r || !canSee(role, r.visibility)) throw new HttpError(404, 'Event not found');
   return eventOut(getCalendar(db, worldId).definition, r);
 }

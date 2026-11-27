@@ -15,7 +15,7 @@ export const MAX_TOTAL_DELAY_MS = 60_000;
 export const stepsOf = (m: Pick<MacroRow, 'steps'>): Step[] => parseJson<Step[]>(m.steps, []);
 export const paramsOf = (m: Pick<MacroRow, 'params'>): ArgSpec[] => parseJson<ArgSpec[]>(m.params, []);
 
-/** A macro as sent out. Players get the name and parameters only, never the steps (their arguments may hold DM text). */
+/** A macro as sent out. Players get the name and parameters only, never the steps (their arguments may hold GM text). */
 export const macroOut = (m: MacroRow, full: boolean) => ({
   id: m.id, name: m.name, description: m.description, playerRun: !!m.player_run, pinned: !!m.pinned, params: paramsOf(m),
   ...(full ? { steps: stepsOf(m), createdAt: m.created_at, updatedAt: m.updated_at } : {}),

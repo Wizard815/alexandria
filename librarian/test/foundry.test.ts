@@ -137,7 +137,7 @@ test('TestFoundry_FogParity: the module draws exactly the fog the server enforce
   }
 });
 
-test('TestFoundry_Keys: only the DM makes a key; a bad or replaced key is refused; the module installs by URL', async () => {
+test('TestFoundry_Keys: only the GM makes a key; a bad or replaced key is refused; the module installs by URL', async () => {
   assert.equal((await call('POST', api('/foundry/key'), T.jess)).status, 403);
   assert.equal((await call('GET', api('/foundry'), T.jess)).status, 403);
   const first = (await ok('POST', api('/foundry/key'), T.dm)).key;
@@ -145,7 +145,7 @@ test('TestFoundry_Keys: only the DM makes a key; a bad or replaced key is refuse
   KEY = (await ok('POST', api('/foundry/key'), T.dm)).key;
   assert.equal((await call('POST', '/api/foundry/bridge/sync', first, {})).status, 401);
   assert.equal((await call('POST', '/api/foundry/bridge/sync', 'alx_fvtt_nope', {})).status, 401);
-  assert.equal((await call('POST', '/api/foundry/bridge/sync', T.dm, {})).status, 401, 'a DM session is not a bridge key');
+  assert.equal((await call('POST', '/api/foundry/bridge/sync', T.dm, {})).status, 401, 'a GM session is not a bridge key');
   // The bridge answers a Foundry page on any address (CORS), preflight included.
   const pre = await fetch(`${base}/api/foundry/bridge/sync`, { method: 'OPTIONS', headers: { Origin: 'http://foundry.local:30000', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Private-Network': 'true' } });
   assert.equal(pre.status, 204);
@@ -230,7 +230,7 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   assert.equal(jm.data.token.account, ID.jess);
   assert.equal(gm.hidden_by_dm, true);
   let jessMarks = await ok('GET', api('/map/sunken-keep/marks'), T.jess);
-  assert.deepEqual(jessMarks.map((m: any) => m.data.label), ['Jessamine'], 'a hidden token is the DM\'s alone');
+  assert.deepEqual(jessMarks.map((m: any) => m.data.label), ['Jessamine'], 'a hidden token is the GM\'s alone');
 
   // ---- fog: on in Alexandria → drawn in Foundry; the goblin under fog is kept from players ----
   await ok('PUT', api('/fog/map/sunken-keep/enabled'), T.dm, { pic: sc.pic, enabled: true });
@@ -272,7 +272,7 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   await g.tick();
   dmMarks = await ok('GET', api('/map/sunken-keep/marks'), T.dm);
   assert.equal(dmMarks.find((m: any) => m.id === jm.id).data.x, 76.25, 'Foundry\'s answer does not move it back');
-  // The DM and the assistant move tokens by name too.
+  // The GM and the assistant move tokens by name too.
   await ok('PUT', api('/foundry/tokens/goblin'), T.dm, { x: 11.25, y: 10 });
   await g.tick();
   assert.equal(g.gt.x, g.keep.dimensions.sceneX + 400);
@@ -330,7 +330,7 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   assert.ok(j, 'journal entry made');
   assert.equal(j.ownership.default, 2, 'players can read it');
   assert.doesNotMatch(j.pages[0].text.content, /Smugglers/, 'players get the player copy');
-  assert.match(j.pages[1].text.content, /Smugglers/, 'the GM notes page has the DM copy');
+  assert.match(j.pages[1].text.content, /Smugglers/, 'the GM notes page has the GM copy');
   assert.equal(j.pages[1].ownership.default, 0);
   const said = g.fv.chat.find((m: any) => m.speaker?.alias === 'Bellringer');
   assert.equal(said.content, '<p>The bell &lt;tolls&gt; twice.</p>');
@@ -349,7 +349,7 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   assert.ok(st.activity.some((a: any) => a.dir === 'out' && /Journal entry "Port"/.test(a.text)));
 });
 
-test('TestFoundry_Settings: tokens and fog follow the DM\'s switches; players may be kept from moving tokens', async () => {
+test('TestFoundry_Settings: tokens and fog follow the GM\'s switches; players may be kept from moving tokens', async () => {
   const marks = await ok('GET', api('/map/sunken-keep/marks'), T.dm);
   const jm = marks.find((m: any) => m.data.label === 'Jessamine');
   await ok('PATCH', api('/settings'), T.dm, { foundryPlayersMove: false });

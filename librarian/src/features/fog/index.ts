@@ -1,9 +1,9 @@
-// Fog of war and the table display. Fog is off by default for a map picture; the DM turns it on (starts fully fogged) and
+// Fog of war and the table display. Fog is off by default for a map picture; the GM turns it on (starts fully fogged) and
 // uncovers it with circles and rectangles. Everyone may read it (players draw it over the map picture; the table screen is
-// seen by players); only the DM writes. The real protection is on the server: map marks under fog are never sent to
+// seen by players); only the GM writes. The real protection is on the server: map marks under fog are never sent to
 // players (routes/map.ts), so a client that ignored the fog would still learn nothing from marks.
 //
-// The table display is which map picture the face-up table screen shows, set by the DM and followed live.
+// The table display is which map picture the face-up table screen shows, set by the GM and followed live.
 //
 // Live events (clients refetch): `fog` { mapId, pic, version }, `table-display` { version }.
 import { Router } from 'express';

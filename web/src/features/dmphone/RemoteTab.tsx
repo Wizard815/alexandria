@@ -50,7 +50,7 @@ export default function RemoteTab() {
     const id = preset || presets.data?.[0]?.id;
     if (!id || !text.trim()) return;
     try { await w.call('POST', '/voice/speak', { text: text.trim(), presetId: id }); } catch (e: any) {
-      if (/DM-only|Confirm/i.test(e.message ?? '') && confirm(`${e.message}\n\nSpeak it anyway?`)) await w.call('POST', '/voice/speak', { text: text.trim(), presetId: id, confirm: true });
+      if (/GM-only|Confirm/i.test(e.message ?? '') && confirm(`${e.message}\n\nSpeak it anyway?`)) await w.call('POST', '/voice/speak', { text: text.trim(), presetId: id, confirm: true });
       else throw e;
     }
     setText('');

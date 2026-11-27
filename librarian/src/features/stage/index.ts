@@ -1,6 +1,6 @@
-// The live session board ("the stage"): what the DM puts in front of the
+// The live session board ("the stage"): what the GM puts in front of the
 // table. Cards (an image, the combat tracker, a person, a shop, a place, an
-// event, text, the drawing board) wait in the DM's staging area until shown,
+// event, text, the drawing board) wait in the GM's staging area until shown,
 // to everyone or to chosen players. Players only ever receive the cards shown
 // to them, built from player copies at the moment they are read.
 //
@@ -80,7 +80,7 @@ const num = (v: unknown, field: string, min: number, max: number, dflt: number) 
   return n;
 };
 
-/** Who may fetch an uploaded picture: the DM, or a player/guest when a card shown to them uses it. */
+/** Who may fetch an uploaded picture: the GM, or a player/guest when a card shown to them uses it. */
 function mayFetchImage(d: Deps, worldId: string, imageId: string, accountId: string, role: string): boolean {
   if (role === 'dm') return true;
   const v: Viewer = { accountId, role: role as Viewer['role'] };
@@ -154,7 +154,7 @@ const feature: Feature = {
       res.json(all(db, 'SELECT id, at, by_id AS byId, action, card_id AS cardId, kind, label, detail FROM stage_history WHERE world_id = ? AND id > ? ORDER BY id DESC LIMIT 500', W(res), since));
     });
 
-    // ---- pickers (DM) ----
+    // ---- pickers (GM) ----
     r.get('/pickers', requireDM, (req, res) => {
       const w = W(res);
       const q = String(req.query.q ?? '').trim().toLowerCase().slice(0, 100);
@@ -191,7 +191,7 @@ const feature: Feature = {
       sendImage(res, u);
     });
 
-    // ---- cards (DM) ----
+    // ---- cards (GM) ----
     const refFor = (w: string, kind: Kind, raw: unknown): string | null => {
       const v = raw === undefined || raw === null || raw === '' ? '' : str(raw, 'ref', { max: 500 });
       switch (kind) {
@@ -352,7 +352,7 @@ const feature: Feature = {
     r.post('/cards/:cid/buy', requirePlayerOrDM, (req, res) => {
       const c0 = ctx(res);
       const w = c0.world.id;
-      if (isDM(res)) throw new HttpError(403, 'Players buy from a shop; the DM edits coin and items directly');
+      if (isDM(res)) throw new HttpError(403, 'Players buy from a shop; the GM edits coin and items directly');
       const c = card(w, String(req.params.cid));
       if (c.kind !== 'shop' || !canHave(c, c0.viewer) || !c.shown_at) throw new HttpError(404, 'Card not found');
       const data: any = dataFor(d, c, c0.viewer, worldSettings(db, w));
@@ -397,13 +397,13 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'get_stage',
-      description: "The live session board: the cards on it, the layout and which card is in the spotlight. A DM sees the staging area and everything shown; a player only the cards shown to them. Page, shop and person cards show player copies only.",
+      description: "The live session board: the cards on it, the layout and which card is in the spotlight. A GM sees the staging area and everything shown; a player only the cards shown to them. Page, shop and person cards show player copies only.",
       props: {},
       call: () => ({ method: 'GET', path: '/stage' }),
     },
     {
       name: 'show_on_stage',
-      description: "DM: put something on the live session board so the table sees it now. kind: image (ref = an https link or an uploaded stage picture id), combat (the live initiative card, no ref), person (ref = a People id), shop or place (ref = a library page id; players see the player copy only), event (title, text, optional ref image, optional countdownSec), text (Markdown text), drawing (the shared whiteboard). Use to: ['<player id>'] to show it to some players only; leave it out for everyone. Set spotlight true to make it the one big card.",
+      description: "GM: put something on the live session board so the table sees it now. kind: image (ref = an https link or an uploaded stage picture id), combat (the live initiative card, no ref), person (ref = a People id), shop or place (ref = a library page id; players see the player copy only), event (title, text, optional ref image, optional countdownSec), text (Markdown text), drawing (the shared whiteboard). Use to: ['<player id>'] to show it to some players only; leave it out for everyone. Set spotlight true to make it the one big card.",
       write: true,
       props: {
         kind: { type: 'string', enum: [...KINDS] },
@@ -420,7 +420,7 @@ const feature: Feature = {
     },
     {
       name: 'hide_stage_card',
-      description: 'DM: take a card off the live session board (back to the staging area).',
+      description: 'GM: take a card off the live session board (back to the staging area).',
       write: true,
       props: { cardId: { type: 'string' } },
       required: ['cardId'],

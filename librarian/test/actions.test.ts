@@ -310,7 +310,7 @@ test('TestActions_BindingsAreStoredPerAccountAndScope', async () => {
   await ok('DELETE', `${A()}/bindings/${web.id}`, T.dm);
   await ok('DELETE', `${A()}/bindings/${app.id}`, T.dm);
   await ok('DELETE', `${A()}/bindings/${both.id}`, T.dm);
-  // A DM-only macro cannot be bound by a player.
+  // A GM-only macro cannot be bound by a player.
   const secret = await macro({ name: 'Plot', steps: [{ action: 'combat.next' }] });
   assert.equal((await call('POST', `${A()}/bindings`, T.jess, { combo: 'F15', macroId: secret.id })).status, 404);
   await ok('DELETE', `${A()}/macros/${m.id}`, T.dm);

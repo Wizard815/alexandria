@@ -17,7 +17,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-e2e-'));
 const problems = [];
 const note = (m) => console.log('  ' + m);
 
-// The DM and every player run from 127.0.0.1 here, so the per-IP API limit (900 a minute) would count the whole
+// The GM and every player run from 127.0.0.1 here, so the per-IP API limit (900 a minute) would count the whole
 // table as one client; it is off unless ALX_RATE_LIMIT is set.
 const srv = spawn(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: path.join(root, 'librarian'),
@@ -46,7 +46,7 @@ try {
   // 1. First run: setup through the UI.
   const dmCtx = await browser.newContext({ viewport: { width: 1366, height: 900 } });
   const dm = await dmCtx.newPage();
-  watch(dm, 'DM');
+  watch(dm, 'GM');
   await dm.goto(base + '/');
   await dm.waitForURL('**/setup');
   await dm.getByLabel('Username', { exact: true }).fill('wizard');
@@ -55,13 +55,13 @@ try {
   await dm.waitForURL('**/admin/worlds');
   note('setup ok');
 
-  // 2. Make a world in Library admin, the admin is its DM.
+  // 2. Make a world in Library admin, the admin is its GM.
   await dm.getByRole('button', { name: 'New empty world' }).click(); // the guided setup is the other button
   await dm.getByLabel('Name', { exact: true }).fill('BloodEarth');
   await dm.getByRole('button', { name: 'Create world' }).click();
   await dm.getByRole('link', { name: 'Open' }).click();
   await dm.waitForURL('**/w/bloodearth/dm');
-  note('world made, DM table open');
+  note('world made, GM table open');
   const dmToken = await dm.evaluate(() => localStorage.getItem('alx.token'));
 
   // Some content via the API.
@@ -91,7 +91,7 @@ try {
   await pl.waitForTimeout(800);
   const lore = await pl.locator('main').innerText();
   if (!lore.includes('Old Kesh')) problems.push('player library misses a shared page');
-  if (lore.includes('Plot')) problems.push('player lore lists a DM-only page');
+  if (lore.includes('Plot')) problems.push('player lore lists a GM-only page');
   if (lore.includes('Smugglers')) problems.push('player lore shows secret text');
 
   // 5. Quick event reaches the player.

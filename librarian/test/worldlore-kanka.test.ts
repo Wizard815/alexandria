@@ -413,7 +413,7 @@ test('TestWorldLoreKanka_LevelsSetIsPrivateAndTheBrokerAndClassifiedTags', async
   const e = await boot({ fetch: kankaFetch(k, writes) });
   try {
     const src = addSource(e, 'kanka-api', CFG, 'Kanka', 'party');
-    // Workspace default dm: party is not allowed, saved DM-only.
+    // Workspace default dm: party is not allowed, saved GM-only.
     await setLore(e, { kind: 'source', sourceId: src, root: 'kanka:10', defaultLevel: 'dm' });
     const asked = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm, { title: 'Wants party', markdown: 'x', level: 'party' });
     assert.equal(asked.level, 'dm');

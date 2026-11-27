@@ -5,21 +5,21 @@ export interface PageRow {
   icon: { glyph?: string; color?: string } | null; parentId: string | null; source: string | null; updated_at: string; visibility?: string;
   /** Place in the source's own order (lower first). Null: the source gave none. */
   position?: number | null;
-  /** A page opened through a share or a DM grant (not through a key of your own). */
+  /** A page opened through a share or a GM grant (not through a key of your own). */
   sharedWithMe?: boolean;
-  /** DM only: the source's id ('' for pages written in Alexandria); folder rules are keyed by it. */
+  /** GM only: the source's id ('' for pages written in Alexandria); folder rules are keyed by it. */
   sourceId?: string;
-  /** DM only: the source's connector type, shown to tell apart two sources with the same name. */
+  /** GM only: the source's connector type, shown to tell apart two sources with the same name. */
   sourceKind?: string | null;
   /** Set by mergeCopies: every copy of this page the viewer can open, this one first. */
   copies?: { id: string; source: string | null; visibility?: string }[];
-  /** Set by mergeCopies (DM): some copy of this page is open to the whole party. */
+  /** Set by mergeCopies (GM): some copy of this page is open to the whole party. */
   playersSee?: boolean;
 }
 
 const plain = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
-/** Which source a row is from: its id when known (the DM), else its name. Two sources may share a name. */
+/** Which source a row is from: its id when known (the GM), else its name. Two sources may share a name. */
 export const srcKey = (r: Pick<PageRow, 'source' | 'sourceId'>) => (r.sourceId !== undefined ? `id:${r.sourceId}` : `name:${r.source ?? ''}`);
 
 /**

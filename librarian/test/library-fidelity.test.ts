@@ -118,7 +118,7 @@ test('TestLibraryFidelity_LegendKeeperLinksImagesAndMapBlocks', async () => {
   const self = ms.find((m) => m.ref === 'zed#dz')!;
   assert.equal(pg.links['ref:zed#dz'], zed.id, 'a mention of the first tab resolves to the page');
   assert.equal(mentionView(self, pg.links, pg.linkTitles).target, zed.id);
-  // The sidebar portrait is kept; the hidden one is a DM-only secret; the bad URL is dropped.
+  // The sidebar portrait is kept; the hidden one is a GM-only secret; the bad URL is dropped.
   assert.equal(pg.blocks[0].kind, 'image');
   assert.equal(pg.blocks[1].kind, 'secret');
   assert.ok(!JSON.stringify(pg.blocks).includes('alert'));
@@ -212,7 +212,7 @@ test('TestLibraryFidelity_MarkdownFolderSyncStoresOrderAndUrl', async () => {
     assert.ok(zara.links['name:the inn'], 'a link to the file The Inn.md reaches the page titled The Rusty Anchor');
     assert.ok(zara.links['name:mira voss']);
     assert.ok(!JSON.stringify(zara.blocks).includes('map.png') && !JSON.stringify(zara.blocks).includes('"!"'));
-    // For a player the page titled Mira Voss is DM-only, so the link is "(hidden)" and nothing of it leaks.
+    // For a player the page titled Mira Voss is GM-only, so the link is "(hidden)" and nothing of it leaks.
     const zp = JSON.stringify(lib.get('w', byTitle(lib, player, 'Zara').id, player));
     assert.ok(zp.includes('(hidden)') && !zp.includes('Mira Voss'));
     assert.ok(!byTitle(lib, player, 'Mira Voss'));
@@ -248,8 +248,8 @@ test('TestLibraryFidelity_InternalLinkResolutionEdgeCases', () => {
   assert.ok(text.includes('Nowhere'), 'a [[link]] to a page that was never imported stays plain text');
   assert.ok(!('name:nowhere' in p.links), 'and has no target, so nothing 404s');
   const d = lib.get('w', srcId, dm) as any;
-  assert.ok(d.links['ref:secret'] && d.links['name:the shadow'], 'the DM can open hidden pages');
-  assert.ok(!('ref:missing' in d.links), 'an unimported page is plain text for the DM');
+  assert.ok(d.links['ref:secret'] && d.links['name:the shadow'], 'the GM can open hidden pages');
+  assert.ok(!('ref:missing' in d.links), 'an unimported page is plain text for the GM');
   // What the page shows for each case.
   assert.deepEqual(mentionView({ ref: 'missing' }, d.links, d.linkTitles), { text: '(page not imported)', target: null });
   assert.deepEqual(mentionView({ ref: 'open' }, d.links, d.linkTitles), { text: 'Open Page', target: openId }, 'a mention with no words shows the page title');
@@ -291,7 +291,7 @@ test('TestLibraryFidelity_SourcePageLinkIsHiddenFromPlayersUnlessAllowed', async
     await sync(db, lib, lkFetch());
     const id = byTitle(lib, dm, 'Mid Road').id;
     const d = lib.get('w', id, dm) as any;
-    assert.equal(d.url, 'https://www.legendkeeper.com/app/project/proj1/resource/mid', 'the DM always gets it');
+    assert.equal(d.url, 'https://www.legendkeeper.com/app/project/proj1/resource/mid', 'the GM always gets it');
     assert.equal(d.source_app, 'legendkeeper');
     const pl = lib.get('w', id, player) as any;
     assert.equal(!!pl.url, playersGet, JSON.stringify(cfg));

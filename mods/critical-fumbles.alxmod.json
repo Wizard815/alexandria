@@ -4,7 +4,7 @@
   "name": "Critical fumbles",
   "version": "1.0.0",
   "author": "Alexandria",
-  "summary": "A natural 1 on an attack roll has a small mishap the DM picks: a dropped weapon, an opening, a stumble.",
+  "summary": "A natural 1 on an attack roll has a small mishap the GM picks: a dropped weapon, an opening, a stumble.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": [],
@@ -17,7 +17,7 @@
   "rules": [
     {
       "term": "Critical fumbles (house rule)",
-      "text": "On a **natural 1 on an attack roll**, the attack misses and the attacker suffers a small mishap the DM picks, never worse than: drop the weapon (it lands at your feet), **provoke an opening** (the next attack against you has advantage), or **stumble** (half speed until your next turn). Spells and checks do not fumble."
+      "text": "On a **natural 1 on an attack roll**, the attack misses and the attacker suffers a small mishap the GM picks, never worse than: drop the weapon (it lands at your feet), **provoke an opening** (the next attack against you has advantage), or **stumble** (half speed until your next turn). Spells and checks do not fumble."
     }
   ],
   "assistant": {
@@ -28,6 +28,6 @@
       "critical miss"
     ],
     "dm": "Critical fumbles are on for attack rolls only. On a natural 1 pick one mild mishap: drop the weapon, the next attack against them has advantage, or half speed until their next turn. Never self-damage or hit an ally, and never on spells or checks.",
-    "player": "On a natural 1 attack roll at this table the DM picks a small mishap: you drop the weapon, the next attack on you has advantage, or you are at half speed until your next turn."
+    "player": "On a natural 1 attack roll at this table the GM picks a small mishap: you drop the weapon, the next attack on you has advantage, or you are at half speed until your next turn."
   }
 }

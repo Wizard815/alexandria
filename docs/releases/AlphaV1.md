@@ -2,7 +2,7 @@
 
 ## What is in it
 
-- **The server** as one Docker image: the library, the DM screen, the players' app, live sync, recording and transcripts, the sound board, the stage and players' screen, and the MCP gateway for AI apps.
+- **The server** as one Docker image: the library, the GM screen, the players' app, live sync, recording and transcripts, the sound board, the stage and players' screen, and the MCP gateway for AI apps.
 - **Admin and setup in the browser:** first-run admin account, worlds, accounts, invite codes for players, LegendKeeper and other connections, and the Models page (link Argos and pick a model per job).
 - **Apps:** Windows, macOS, Linux desktop apps and an Android app. Each is the website in a native window that asks for your server address on first start. iPhone and iPad use the website (Add to Home Screen).
 - **Reverse proxy:** ready-made nginx files for a domain with HTTPS and for plain HTTP on a LAN.

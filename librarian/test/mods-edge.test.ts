@@ -162,7 +162,7 @@ test('ModsEdge: record values from players are checked: range, enum, type, lengt
   await refused('POST', `${R}/start`, T.jess, { values: { item: 'rec_nope' } }, /item|not found|no /i);
 });
 
-test('ModsEdge: a player cannot touch another player\'s records, or run a DM action, even by id', async () => {
+test('ModsEdge: a player cannot touch another player\'s records, or run a GM action, even by id', async () => {
   const R = `${M()}/edge-list/records`;
   const items = (await ok('GET', `${M()}/edge-list/records?kind=item`, T.dm)).records.item;
   const rope = items.find((x: any) => x.name === 'Rope');
@@ -173,13 +173,13 @@ test('ModsEdge: a player cannot touch another player\'s records, or run a DM act
   assert.ok(!seen.some((x: any) => x.id === tomJob.id), "Jess cannot list Tom's job");
   const asTom = (await ok('GET', `${M()}/edge-list/records?kind=job&player=${ID.tom}`, T.jess)).records.job;
   assert.equal(asTom.length, 0, 'a player asking for another player gets nothing');
-  // The DM's add is clamped by the field's min, and odd amounts are refused.
+  // The GM's add is clamped by the field's min, and odd amounts are refused.
   const low = await ok('POST', `${R}/bump`, T.dm, { recordId: tomJob.id, amount: -50 });
   assert.equal(low.record.done, 0);
   for (const amount of [Infinity, 'lots', null, 1e20]) await refused('POST', `${R}/bump`, T.dm, { recordId: tomJob.id, amount });
 });
 
-test('ModsEdge: a prompt answered twice, after closing, or by the DM is refused; one answer moves one record', async () => {
+test('ModsEdge: a prompt answered twice, after closing, or by the GM is refused; one answer moves one record', async () => {
   const items = (await ok('GET', `${M()}/edge-list/records?kind=item`, T.dm)).records.item;
   const rope = items.find((x: any) => x.name === 'Rope');
   const open = await ok('POST', `${M()}/edge-list/prompts/day`, T.dm, {});
@@ -269,7 +269,7 @@ test('ModsEdge: the party inspiration pool is shared, refuses a draw when empty,
   assert.equal(left.record.points, 0, 'both players draw from the same pool');
   await refused('POST', `${R}/add`, T.jess, { recordId: pool.id, amount: 5 });
   const capped = await ok('POST', `${R}/add`, T.dm, { recordId: pool.id, amount: 50 });
-  assert.equal(capped.record.points, 10, 'the DM adding a lot holds at the most');
+  assert.equal(capped.record.points, 10, 'the GM adding a lot holds at the most');
   const chat = (await ok('GET', `/api/worlds/${W}/sessionchat/chat/table`, T.dm)).messages.map((x: any) => x.body).join('\n');
   assert.match(chat, /Jessamine draws on the party's inspiration \(1 left\)\. Sneaking past the guard/);
   await ok('PUT', `${M()}/party-inspiration/enabled`, T.dm, { on: false });

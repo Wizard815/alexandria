@@ -2,7 +2,7 @@
 // under (§4.5). When a session log is published its page is filed under the
 // open arc, and Minerva drafts the status diff, codex accretions and
 // promotions, each player's journal and knowledge, and hook and goal heat as
-// one review for the DM. A model improves the status text when one is set;
+// one review for the GM. A model improves the status text when one is set;
 // every draft is also made from the data alone.
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, ModelUnavailable } from '../../core/ai.ts';
@@ -46,7 +46,7 @@ export function arcForSession(d: Deps, worldId: string, by: string | null): Arc 
 
 const sessionPagesOf = (d: Deps, worldId: string, arcSlug: string) => listPages(d, worldId, `chronicle/arcs/${arcSlug}/sessions/`).filter((p) => p.fm.type === 'session').sort((a, b) => a.rel.localeCompare(b.rel, undefined, { numeric: true }));
 
-/** Close the open arc and draft its one-page summary for the DM. */
+/** Close the open arc and draft its one-page summary for the GM. */
 export async function closeArc(d: Deps, worldId: string, ref: string, by: string | null): Promise<{ arc: Arc; draft: string }> {
   requireEnabled(d.db, worldId);
   const arc = !ref || ref === 'open' ? openArc(d.db, worldId) : findArc(d.db, worldId, ref);
@@ -71,7 +71,7 @@ export async function closeArc(d: Deps, worldId: string, ref: string, by: string
       intro = clean(j?.summary, 1500);
     } catch (e) { if (!(e instanceof ModelUnavailable)) throw e; }
   }
-  const body = `# ${arc.title}\n\n${intro ? `${intro}\n\n` : ''}## What mattered\n${moments.join('\n') || '_No sessions were filed._'}\n\n## Threads carried forward\n${lastOpen.map((x) => `- ${x}`).join('\n') || '_None._'}\n\n## The DM's view\n> [!secret]\n> _What the arc was really about, and what the players have not seen yet._\n`;
+  const body = `# ${arc.title}\n\n${intro ? `${intro}\n\n` : ''}## What mattered\n${moments.join('\n') || '_No sessions were filed._'}\n\n## Threads carried forward\n${lastOpen.map((x) => `- ${x}`).join('\n') || '_None._'}\n\n## The GM's view\n> [!secret]\n> _What the arc was really about, and what the players have not seen yet._\n`;
   const dr = createDraft(d, worldId, {
     review: `arc-${arc.slug}`, kind: 'arc', title: `Summary of ${arc.title}`,
     op: { op: 'create', rel: `chronicle/arcs/${arc.slug}/summary.md`, title: `${arc.title}: summary`, fm: { type: 'arc', level: 'party', arc: arc.slug, tags: [] }, body },
@@ -84,12 +84,12 @@ export async function closeArc(d: Deps, worldId: string, ref: string, by: string
 
 // ---- session pages and the log ------------------------------------------------------------
 
-/** A line for the DM's eyes: one callout holds every line of the section. */
+/** A line for the GM's eyes: one callout holds every line of the section. */
 export const secretLines = (existing: string, line: string): string => (existing.trim() ? `${existing.trim()}\n> - ${line}` : `> [!secret]\n> - ${line}`);
 
 export function sessionRel(arcSlug: string, n: number) { return `chronicle/arcs/${arcSlug}/sessions/session-${n}.md`; }
 
-/** DM capture of what just happened (memory_log), under the session in progress. Only the DM can read it. */
+/** GM capture of what just happened (memory_log), under the session in progress. Only the GM can read it. */
 export function memoryLog(d: Deps, worldId: string, a: { text: string; about?: string; session?: number }, by: string | null): { rel: string } {
   requireEnabled(d.db, worldId);
   const text = clean(a.text, 2000);
@@ -108,7 +108,7 @@ export function memoryLog(d: Deps, worldId: string, a: { text: string; about?: s
   return { rel };
 }
 
-/** File a conversation by speaker: into each player's journal and, as DM notes, the session page. */
+/** File a conversation by speaker: into each player's journal and, as GM notes, the session page. */
 export function conversationLog(d: Deps, worldId: string, a: { lines: { speaker: string; text: string }[]; session?: number }, by: string | null): { journals: number; rel: string } {
   requireEnabled(d.db, worldId);
   const lines = (a.lines ?? []).map((l) => ({ speaker: clean(l?.speaker, 80), text: clean(l?.text, 1000) })).filter((l) => l.speaker && l.text).slice(0, 300);
@@ -139,7 +139,7 @@ export function conversationLog(d: Deps, worldId: string, a: { lines: { speaker:
 
 export interface FileResult { number: number; rel: string; review: string; drafts: number; already?: boolean }
 
-/** Status sections are added to, never replaced: what the DM wrote there stays. */
+/** Status sections are added to, never replaced: what the GM wrote there stays. */
 const STATUS_SECTION_OPS = (text: string, section: string): Op => ({ op: 'section', rel: STATUS_PATH, section, text, mode: 'append' });
 
 /**
@@ -160,8 +160,8 @@ async function modelStatus(d: Deps, worldId: string, summary: string, dmNotes = 
   try {
     const status = readPage(d, worldId, STATUS_PATH);
     const j: any = await chatJson(d, 'chat', [
-      { role: 'system', content: 'You help a Dungeon Master keep a campaign status document current. From the session recap, say what changed and what to prepare next. Use only the material; never invent. JSON only: {"changed": ["short bullet", ...], "next": ["short bullet", ...]} with at most 6 bullets each.' },
-      { role: 'user', content: `Current status "Now":\n${(status ? sectionOf(status.body, 'Now')?.text : '') ?? ''}\n\nSession recap (what the players know):\n${summary.slice(0, 6000)}${dmNotes ? `\n\nThe DM's running notes of the session (DM-only developments included):\n${dmNotes.slice(0, 4000)}` : ''}` },
+      { role: 'system', content: 'You help a Game Master keep a campaign status document current. From the session recap, say what changed and what to prepare next. Use only the material; never invent. JSON only: {"changed": ["short bullet", ...], "next": ["short bullet", ...]} with at most 6 bullets each.' },
+      { role: 'user', content: `Current status "Now":\n${(status ? sectionOf(status.body, 'Now')?.text : '') ?? ''}\n\nSession recap (what the players know):\n${summary.slice(0, 6000)}${dmNotes ? `\n\nThe GM's running notes of the session (GM-only developments included):\n${dmNotes.slice(0, 4000)}` : ''}` },
     ]);
     const list = (v: unknown) => (Array.isArray(v) ? v.map((x) => clean(x, 240)).filter(Boolean).slice(0, 6) : []);
     const out = { changed: list(j?.changed), next: list(j?.next) };
@@ -187,7 +187,7 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
   let body = `# Session ${n}: ${entry.title}\n\nIn the world: ${entry.world_from_label === entry.world_to_label ? entry.world_from_label : `${entry.world_from_label} to ${entry.world_to_label}`}.\n\n${String(entry.summary).trim()}\n`;
   if (log) body = setSection(body, 'Log', log);
   if (conv) body = setSection(body, 'Conversation', conv);
-  if (notes) body = setSection(body, 'DM notes', `> [!secret]\n${notes}`);
+  if (notes) body = setSection(body, 'GM notes', `> [!secret]\n${notes}`);
   writePage(d, worldId, rel, { title: `Session ${n}: ${entry.title}`, fm: { type: 'session', level: 'party', arc: arc.slug, sources: [entry.id], tags: [] }, body, by });
   run(d.db, 'INSERT INTO minerva_sessions (world_id, entry_id, number, arc_slug, rel, filed_at) VALUES (?, ?, ?, ?, ?, ?)', worldId, entryId, n, arc.slug, rel, now());
 
@@ -201,7 +201,7 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
   const met = bullets(sectionOf(summary, 'People met')?.text ?? '');
 
   // 1. The status doc: what changed, what is next, the threads by heat.
-  // The DM's running summary of the recording, when there was one: what happened that the players did not see.
+  // The GM's running summary of the recording, when there was one: what happened that the players did not see.
   const dmRun = draft?.audio_session_id ? String(one<any>(d.db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'dm'", draft.audio_session_id)?.text ?? '') : '';
   const ms = await modelStatus(d, worldId, summary, dmRun);
   const changed = ms?.changed.length ? ms.changed : [...moments, ...recap.slice(0, moments.length ? 0 : 4)].slice(0, 8);
@@ -211,7 +211,7 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
 
   // 2. Hooks and goals: heat follows what happened.
   const lines = sessionTexts(d, worldId, draft);
-  // Everything this session produced: the recap, the DM's notes on it, what the players said, the log kept at the table.
+  // Everything this session produced: the recap, the GM's notes on it, what the players said, the log kept at the table.
   const corpus = `${summary}\n${draft?.dm_notes ?? ''}\n${log}\n${conv}\n${[...lines.values()].flat().join('\n')}`;
   const threads: { title: string; heat: string }[] = [];
   const heatStep: Record<string, string> = { on: 'ongoing', ongoing: 'simmering', simmering: 'sleeping' };
@@ -240,7 +240,7 @@ export async function fileSession(d: Deps, worldId: string, entryId: string, by:
     const page = findCodex(d, worldId, { name: nm }, pages);
     if (page && !page.body.includes(`[[session-${n}]]`)) add('codex', `${page.title}: appeared in session ${n}`, { op: 'codex', name: page.title, entity: String(page.fm.entity ?? '') || undefined, section: 'appearances', text: m.slice(0, 240), session: n });
   }
-  // Only people this session named: in its recap, the DM's notes, the log or what was said at the table.
+  // Only people this session named: in its recap, the GM's notes, the log or what was said at the table.
   const named = (nm: string) => wordRe(nm).test(corpus);
   const promoted = new Set<string>();
   for (const c of promotionCandidates(d, worldId).filter((x) => named(x.name)).slice(0, 8)) {
@@ -286,14 +286,14 @@ function sessionTexts(d: Deps, worldId: string, draft: { audio_session_id?: stri
 
 
 /**
- * The hand-off when a recording ends: the DM's running summary becomes a "Last session" update to the Campaign Status,
- * drafted for the DM's review. Approved, it is in every later conversation (the status doc rides along with each
+ * The hand-off when a recording ends: the GM's running summary becomes a "Last session" update to the Campaign Status,
+ * drafted for the GM's review. Approved, it is in every later conversation (the status doc rides along with each
  * message), so the next session starts from what happened in this one even when no session log is published.
  *
  * Once per recording, unless `refresh` (the final transcript finished, was redone or undone, and the summary was made
- * again from its lines): then a draft still pending is brought up to date, one the DM approved gets a second draft
- * "updated from the final transcript" next to it, and one the DM rejected is left alone. Nothing is ever written to the
- * status doc without the DM's approval.
+ * again from its lines): then a draft still pending is brought up to date, one the GM approved gets a second draft
+ * "updated from the final transcript" next to it, and one the GM rejected is left alone. Nothing is ever written to the
+ * status doc without the GM's approval.
  *
  * 'off': Minerva is off for this world (the caller puts the summary on the Recordings page instead). 'none': no summary.
  */
@@ -306,7 +306,7 @@ export function draftHandoff(d: Deps, worldId: string, sessionId: string, opts: 
   const review = `handoff-${sessionId}`;
   const when = String(s.stopped_at ?? now()).slice(0, 10);
   const final = opts.source === 'final';
-  const text = `_${s.name}, ${when}: ${final ? 'from the final transcript' : 'the running notes'}, approved by the DM._\n\n${String(sum.text).trim()}`;
+  const text = `_${s.name}, ${when}: ${final ? 'from the final transcript' : 'the running notes'}, approved by the GM._\n\n${String(sum.text).trim()}`;
   const op = { op: 'section', rel: STATUS_PATH, section: 'Last session', text, mode: 'replace' } as Op;
   const drafts = all<any>(d.db, 'SELECT id, status, op, title FROM minerva_drafts WHERE world_id = ? AND review = ? ORDER BY created_at, rowid', worldId, review);
   const title = (second: boolean) => `Status: last session (${s.name}, ${second ? `updated from the ${final ? 'final transcript' : 'running notes'}` : `from the ${final ? 'final transcript' : 'running notes'}`})`;

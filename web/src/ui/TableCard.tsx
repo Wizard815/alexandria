@@ -1,4 +1,4 @@
-// One block on the DM's Table (pages/dm/Table.tsx), for the page itself and for features that add blocks (registry dmTable).
+// One block on the GM's Table (pages/dm/Table.tsx), for the page itself and for features that add blocks (registry dmTable).
 // A block with nothing going on shrinks to one line ("quiet"), so the busy ones get the room.
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';

@@ -1,6 +1,6 @@
 // House rules data systems on the web (kit 2): a rule's views (its own lists as
-// tables with their actions), the forms its record actions ask for, the DM's
-// prompt buttons and the popup each player gets when the DM opens a prompt.
+// tables with their actions), the forms its record actions ask for, the GM's
+// prompt buttons and the popup each player gets when the GM opens a prompt.
 // All of it is drawn from the rule file, so a new rule needs no new screen.
 import { useMemo, useState } from 'react';
 import { timeShort } from '../../lib/format.ts';
@@ -91,7 +91,7 @@ export function RecordsView({ rule, view }: { rule: HouseRule; view: ViewSpec })
   );
 }
 
-/** The form a record action asks for: its fields, how much, whose (the DM making a player's record) and a note. */
+/** The form a record action asks for: its fields, how much, whose (the GM making a player's record) and a note. */
 export function ActionForm({ rule, a, rec, records, onClose, submit }: { rule: HouseRule; a: RecordActionView; rec?: Rec; records: Records; onClose: () => void; submit?: (body: Record<string, unknown>) => Promise<void> }) {
   const { w, isDM, members } = useWorld();
   const act = useAction();
@@ -156,7 +156,7 @@ function FieldInput({ name, spec, value, onChange, records, rule }: { name: stri
   return <label className="stack tight" htmlFor={id}><span className="small">{label}{spec.optional ? ' (optional)' : ''}</span>{input}</label>;
 }
 
-/** The DM's buttons for a rule's prompts (Downtime), with how many players answered the open one. */
+/** The GM's buttons for a rule's prompts (Downtime), with how many players answered the open one. */
 export function PromptButtons({ rule }: { rule: HouseRule }) {
   const { w, members } = useWorld();
   const act = useAction();
@@ -185,7 +185,7 @@ export function PromptButtons({ rule }: { rule: HouseRule }) {
 
 interface Round { id: string; modId: string; prompt: string; openedAt: string; closedAt: string | null; answers: Record<string, { choice: number; recordId?: string }> }
 
-/** For a player: the DM's open prompts I have not answered, as a popup. */
+/** For a player: the GM's open prompts I have not answered, as a popup. */
 export function PromptOverlay() {
   const { w, isDM, me } = useWorld();
   const { list } = useHouseRules();
@@ -249,7 +249,7 @@ export function ViewsFor({ place }: { place: ViewSpec['place'] }) {
   return <>{shown.map(({ r, v }) => <RecordsView key={`${r.id}-${v.id}`} rule={r} view={v} />)}</>;
 }
 
-/** The DM's tab for a rule's dm views: its prompt buttons, then each view. */
+/** The GM's tab for a rule's dm views: its prompt buttons, then each view. */
 export function DMSystemTab({ rule }: { rule: HouseRule }) {
   const views = rule.system?.views.filter((v) => v.place === 'dm') ?? [];
   return (

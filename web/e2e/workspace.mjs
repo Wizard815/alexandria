@@ -1,4 +1,4 @@
-// The DM workspace: several DM pages side by side in the main window. Opens Combat and Sound together and acts in each,
+// The GM workspace: several GM pages side by side in the main window. Opens Combat and Sound together and acts in each,
 // checks live updates reach a pane through the one shared event stream, resizing (drag and keyboard), maximise/restore, swap,
 // close, the menu (click opens in the focused pane, "beside", drag a menu row onto a pane), saved layouts and presets, that the
 // URL and the last workspace survive a reload, that plain routes still work, that every page in the menu opens in a pane
@@ -21,7 +21,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('workspace'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const browser = await chromium.launch();
 try {
-  const { ctx, page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1366, height: 768 });
+  const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1366, height: 768 });
   let eventStreams = 0;
   page.on('request', (r) => { if (/\/api\/worlds\/[^/]+\/events/.test(r.url())) eventStreams++; });
   page.on('pageerror', (e) => problems.push(`page error on ${page.url()}: ${e.message}`));
@@ -112,7 +112,7 @@ try {
   check((await pane(0).isVisible()) && (await pane(1).getByPlaceholder('Dock thug').inputValue()) === 'Half typed', 'restore brings both back, state intact');
 
   // ---- the menu ----
-  const nav = page.getByRole('navigation', { name: 'DM' });
+  const nav = page.getByRole('navigation', { name: 'GM' });
   await pane(1).click({ position: { x: 20, y: 60 } });
   // The rail turns the strip of tabs to an area; the panes stay as they are.
   const strip = page.getByTestId('dm-tabs');
@@ -266,7 +266,7 @@ try {
   await ctx.close();
 
   // ---- a phone stays single-pane ----
-  const ph = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 390, height: 844 }, true);
+  const ph = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true);
   ph.page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`phone console: ${m.text()}`); });
   await ph.page.goto(`${W}/ws?l=cols&p=combat,sound`);
   await ph.page.getByTestId('ws-pane-0').waitFor();

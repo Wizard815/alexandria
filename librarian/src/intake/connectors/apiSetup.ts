@@ -7,11 +7,11 @@
 //      sure) and the field mapping from the response schemas; one sample call
 //      only for a list whose schema says too little
 //   3. without one: one sample call to the base URL and to each list URL the
-//      DM gave, guessed from the shape of the JSON
+//      GM gave, guessed from the shape of the JSON
 //
-// The result is a list of endpoints with confidence, for the DM to review.
+// The result is a list of endpoints with confidence, for the GM to review.
 // Nothing is saved or imported here, and nothing marked unsure is used: an
-// endpoint stays unused until the DM assigns it a role.
+// endpoint stays unused until the GM assigns it a role.
 import { type ApiEndpoint, type Role, type Paging, ROLES, PAGE_ROLES, cleanEndpoints } from './apiEndpoints.ts';
 import { pick } from './api.ts';
 
@@ -124,7 +124,7 @@ export function mapFields(props: Prop[]): Mapping {
   if (type) f.typeField = type.name;
   const url = SYN.url.map((n) => props.find((x) => norm(x.name) === n && x.kind === 'string' && x.samples.every((s) => typeof s !== 'string' || /^https?:\/\//.test(s)))).find(Boolean);
   if (url) f.urlField = url.name;
-  // Visibility: a flag or a word. Shared means "the value for everyone"; anything unsure stays DM-only.
+  // Visibility: a flag or a word. Shared means "the value for everyone"; anything unsure stays GM-only.
   for (const [name, shared] of VIS) {
     const p = props.find((x) => norm(x.name) === name);
     if (!p) continue;
@@ -136,11 +136,11 @@ export function mapFields(props: Prop[]): Mapping {
     else f.sharedValues = shared;
     break;
   }
-  if (!f.visibilityField) notes.push('No visibility field found: every record stays DM-only until you map one.');
+  if (!f.visibilityField) notes.push('No visibility field found: every record stays GM-only until you map one.');
   const score = (f.idField ? 0.3 : 0) + (f.titleField ? 0.3 : 0) + (f.bodyField || f.summaryField ? 0.25 : 0) + (f.updatedField || f.tagsField || f.parentField ? 0.15 : 0);
   return { fields: f, score, notes };
 }
-// Calendars and pictures have their own fields. Names are guessed from the response schema or a sample; the DM reviews them.
+// Calendars and pictures have their own fields. Names are guessed from the response schema or a sample; the GM reviews them.
 const CAL = {
   months: ['months', 'month_list', 'monthnames', 'month_names', 'months_list'],
   weekdays: ['weekdays', 'week_days', 'days_of_week', 'daysofweek', 'daynames', 'day_names'],
@@ -470,7 +470,7 @@ export async function discoverApi(fetchFn: typeof fetch, input: DiscoverInput, s
       merged.use = endpointUsable(merged) && (merged.confidence ?? 0) >= 0.5;
       if (existing) Object.assign(existing, merged); else endpoints.push(merged);
     } else if (s.why === 'base' && r.json && typeof r.json === 'object') {
-      // A root document that points at its endpoints: noted, never called until the DM assigns a role.
+      // A root document that points at its endpoints: noted, never called until the GM assigns a role.
       for (const [k, v] of Object.entries(flat(r.json))) {
         const href = typeof v === 'string' ? v : typeof (v as any)?.href === 'string' ? (v as any).href : null;
         if (!href || !href.startsWith(baseUrl) || href === baseUrl || /\{/.test(href) || endpoints.length >= MAX_ENDPOINTS) continue;

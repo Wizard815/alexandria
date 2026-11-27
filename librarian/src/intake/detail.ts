@@ -4,7 +4,7 @@
 //   detailTick   the background: a few calls a minute (the source's budget), the pages people
 //                opened or link to first; every page only when "fetch everything" is on
 //
-// The index (intake/sync.ts) already put every page in the library, DM-only.
+// The index (intake/sync.ts) already put every page in the library, GM-only.
 // Whatever arrives here goes through the same save as a sync: levels, markers
 // and audience are applied as the content arrives, and the player copy is
 // rebuilt before anyone is served it.
@@ -132,7 +132,7 @@ export async function readPages(d: SyncDeps, src: any, pages: { id: string; exte
 export type EnsureResult = 'ready' | 'fetched' | 'unavailable';
 
 /**
- * A page is being opened (by a DM or a player), read by the agent or found by
+ * A page is being opened (by a GM or a player), read by the agent or found by
  * a search: if it is only held at index depth (or changed at the source),
  * read it now. Safe to call for any page: one that is not from a tiered
  * source, or is already read, answers `ready` at once. The page is served

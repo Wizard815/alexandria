@@ -1,6 +1,6 @@
-// One task for the DM's assistant, outside a conversation: a macro's Minerva
+// One task for the GM's assistant, outside a conversation: a macro's Minerva
 // step, or a spoken request the rules did not cover. It runs in its own chat
-// (so the DM can read what happened). In `do` mode the allowed write tools run
+// (so the GM can read what happened). In `do` mode the allowed write tools run
 // at once; in `propose` mode they wait as pending actions.
 import type { Deps } from '../../app.ts';
 import { all, one } from '../../core/db.ts';

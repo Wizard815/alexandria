@@ -374,12 +374,12 @@ async function buildRecording(d: Deps, sessionId: string): Promise<void> {
 
 // ---- the readable files beside the audio --------------------------------------------------------
 
-/** The DM's transcript as Markdown: players' lines and the DM-only ones, marked. */
+/** The GM's transcript as Markdown: players' lines and the GM-only ones, marked. */
 export function transcriptMarkdown(d: Deps, s: SessionRow, worldName: string): string {
   const people = new Map(all<any>(d.db, 'SELECT a.id, a.display_name, m.character_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r.character_name || r.display_name]));
   const lines = all<any>(d.db, 'SELECT * FROM audio_lines WHERE session_id = ? ORDER BY start_ms, id', s.id);
   const fin = one<{ status: string; finished_at: string | null; stats: string }>(d.db, 'SELECT status, finished_at, stats FROM audio_final WHERE session_id = ?', s.id);
-  const out = [`# ${s.name}`, '', `${worldName} - ${localDate(s.started_at)}`, '', 'Lines marked **DM only** were not shown to the players.', ''];
+  const out = [`# ${s.name}`, '', `${worldName} - ${localDate(s.started_at)}`, '', 'Lines marked **GM only** were not shown to the players.', ''];
   const fs0 = parseJson<{ mics?: number; words?: number }>(fin?.stats, {});
   if (fin?.status === 'done' && fs0.words) {
     const n = fs0.mics;
@@ -387,7 +387,7 @@ export function transcriptMarkdown(d: Deps, s: SessionRow, worldName: string): s
   }
   for (const l of lines) {
     const who = l.speaker_account ? people.get(l.speaker_account) ?? 'Someone' : l.speaker_label;
-    out.push(`- \`${fmtTime(l.start_ms)}\` **${who}**${l.audience === 'dm' ? ' (**DM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`);
+    out.push(`- \`${fmtTime(l.start_ms)}\` **${who}**${l.audience === 'dm' ? ' (**GM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`);
   }
   out.push('');
   return out.join('\n');
@@ -436,7 +436,7 @@ export function writeSessionJson(d: Deps, s: SessionRow, worldName: string, dir:
   fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify(sessionJsonDoc(d, s, worldName, roles), null, 2) + '\n');
 }
 
-/** The session.json document (the DM's: every mic, every person). */
+/** The session.json document (the GM's: every mic, every person). */
 export function sessionJsonDoc(d: Deps, s: SessionRow, worldName: string, roles?: Map<string, string>) {
   const tracks = all<TrackRow>(d.db, "SELECT * FROM audio_tracks WHERE session_id = ? ORDER BY CASE kind WHEN 'full' THEN 0 ELSE 1 END, created_at, label", s.id);
   const people = new Map(all<any>(d.db, 'SELECT a.id, a.username, a.display_name, m.character_name, m.role FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ?', s.world_id).map((r) => [r.id, r]));
@@ -451,7 +451,7 @@ export function sessionJsonDoc(d: Deps, s: SessionRow, worldName: string, roles?
     retention: { mode: s.retention_mode, days: s.retention_mode === 'days' ? s.retention_days : null },
     files: [
       ...tracks.map((t) => ({ file: t.file, kind: t.kind === 'full' ? 'full-mix' : 'microphone', durationMs: t.duration_ms, bytes: t.bytes, mime: t.mime })),
-      { file: 'Transcript.md', kind: 'transcript', note: 'Everything the DM can read; DM-only lines are marked.' },
+      { file: 'Transcript.md', kind: 'transcript', note: 'Everything the GM can read; GM-only lines are marked.' },
       { file: 'session.json', kind: 'index' },
     ],
     microphones: tracks.filter((t) => t.kind === 'mic').map((t) => {

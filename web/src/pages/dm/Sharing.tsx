@@ -1,4 +1,4 @@
-// Everything the DM hands out, in one place: shared pages, invites, players' source keys and AI keys.
+// Everything the GM hands out, in one place: shared pages, invites, players' source keys and AI keys.
 import { Link, useSearchParams } from 'react-router-dom';
 import { Empty, ErrorBox, PageHead, Tabs, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';

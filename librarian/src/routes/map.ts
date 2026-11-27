@@ -1,6 +1,6 @@
 // Player marks on a map: pins, sticky notes, routes, numbered stops and
 // icons. 'party' marks are seen by everyone, 'me' marks only by their author.
-// The DM can hide any party mark; DM marks ('dm') are the DM's own layer.
+// The GM can hide any party mark; GM marks ('dm') are the GM's own layer.
 import { Router } from 'express';
 import type { Deps } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
@@ -25,12 +25,12 @@ export default function mapRoutes(d: Deps) {
 
   db.exec('CREATE TABLE IF NOT EXISTS map_scales (world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, pic TEXT NOT NULL, width REAL NOT NULL, unit TEXT NOT NULL, PRIMARY KEY (world_id, pic))');
 
-  // How wide the whole picture is in the world ("400 miles"), for the ruler. One per map picture, set by the DM, read by everyone.
+  // How wide the whole picture is in the world ("400 miles"), for the ruler. One per map picture, set by the GM, read by everyone.
   r.get('/scale', (req, res) => {
     res.json(one<any>(db, 'SELECT width, unit FROM map_scales WHERE world_id = ? AND pic = ?', ctx(res).world.id, str(req.query.pic, 'pic', { max: 200 })) ?? null);
   });
   r.put('/scale', requirePlayerOrDM, (req, res) => {
-    if (!isDM(res)) throw new HttpError(403, 'Only the DM sets the scale');
+    if (!isDM(res)) throw new HttpError(403, 'Only the GM sets the scale');
     const w = ctx(res).world.id;
     const pic = str(req.body?.pic, 'pic', { max: 200 });
     const width = Number(req.body?.width);
@@ -63,9 +63,9 @@ export default function mapRoutes(d: Deps) {
     res.json({ page: { id: page.id, title: page.title }, pins });
   });
 
-  // DM: read the world's map pages from their source now (they are only listed until someone opens them), a few at a time.
+  // GM: read the world's map pages from their source now (they are only listed until someone opens them), a few at a time.
   r.post('/imported/read', requirePlayerOrDM, async (req, res) => {
-    if (!isDM(res)) throw new HttpError(403, 'Only the DM can read maps from the source');
+    if (!isDM(res)) throw new HttpError(403, 'Only the GM can read maps from the source');
     const w = ctx(res).world.id;
     const todo = all<any>(db, "SELECT p.id FROM pages p JOIN sources s ON s.id = p.source_id AND s.enabled = 1 WHERE p.world_id = ? AND p.kind = 'map' AND p.depth = 'index' ORDER BY p.title LIMIT 12", w);
     let read = 0;
@@ -78,7 +78,7 @@ export default function mapRoutes(d: Deps) {
     const c = ctx(res);
     const v = readerFor(req, res);
     const rows = all<any>(db, 'SELECT * FROM map_marks WHERE world_id = ? AND map_id = ? ORDER BY created_at', c.world.id, String(req.params.mapId));
-    // Fog is enforced here, not on the page: a mark under fog is never sent to anyone but the DM (and not to the DM's
+    // Fog is enforced here, not on the page: a mark under fog is never sent to anyone but the GM (and not to the GM's
     // ?view=players table screen either), so a client that ignored the fog would still find nothing under it.
     const fog = v.role === 'dm' ? [] : fogLayers(db, c.world.id, String(req.params.mapId));
     res.json(rows
@@ -123,13 +123,13 @@ export default function mapRoutes(d: Deps) {
     res.status(201).json(m);
   });
 
-  // DM: hide or show a mark. Authors keep seeing their own hidden marks.
+  // GM: hide or show a mark. Authors keep seeing their own hidden marks.
   r.patch('/:mapId/marks/:mid', (req, res) => {
     const c = ctx(res);
     const m = one<any>(db, 'SELECT * FROM map_marks WHERE id = ? AND world_id = ?', String(req.params.mid), c.world.id);
     if (!m || !canSee(c.viewer, m.visibility, m.author_id)) throw new HttpError(404, 'Mark not found');
     if (req.body?.hidden !== undefined) {
-      if (!isDM(res)) throw new HttpError(403, 'Only the DM can hide marks');
+      if (!isDM(res)) throw new HttpError(403, 'Only the GM can hide marks');
       run(db, 'UPDATE map_marks SET hidden_by_dm = ? WHERE id = ?', req.body.hidden ? 1 : 0, m.id);
     }
     if (req.body?.text !== undefined || req.body?.label !== undefined) {

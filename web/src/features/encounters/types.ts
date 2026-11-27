@@ -22,7 +22,7 @@ export interface Encounter {
   shop: { id: string; name: string } | null;
   /** A timed step. endsAt is null until the player has seen it. */
   timer?: { secs: number; endsAt: string | null } | null;
-  // DM only:
+  // GM only:
   accountId?: string; player?: string; templateId?: string | null; templateName?: string; nodeId?: string; dc?: number | null; dcMax?: number | null; paidCp?: number; script?: Script;
 }
 

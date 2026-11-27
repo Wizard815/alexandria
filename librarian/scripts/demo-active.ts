@@ -1,5 +1,5 @@
 // A short tour of Minerva's two modes on the seeded demo world and its fake models:
-// Assistant mode (a proposal the DM approves), /takeover and Active mode reading
+// Assistant mode (a proposal the GM approves), /takeover and Active mode reading
 // a spoken session (music, tracker, items, the stage), the command log with an
 // undo, a reject and a "wrong", an agent macro, and a player using the journal
 // draft helper. It leaves the demo running with that history in place, so the
@@ -39,7 +39,7 @@ let checks = 0;
 const check = (cond: unknown, msg: string): void => { checks++; if (!cond) { log(`  ✗ ${msg}`); process.exitCode = 1; throw new Error(`Check failed: ${msg}`); } log(`  ✓ ${msg}`); };
 
 const login = async (u: string, p: string) => (await api('POST', '/api/auth/login', undefined, { username: u, password: p })).token as string;
-const dm = await login('dm', 'dungeon master 123');
+const dm = await login('dm', 'game master 123');
 const tom = await login('tom', 'player pass 123');
 const jess = await login('jess', 'player pass 123');
 const worlds = await api('GET', '/api/worlds', dm);
@@ -51,7 +51,7 @@ const logRows = async (status?: string) => (await api('GET', `${W}/active/log${s
 log('\nMinerva: Assistant and Active mode\n');
 
 // ---- 1. Assistant mode -----------------------------------------------------------------
-log('1. Assistant mode: she proposes, the DM approves');
+log('1. Assistant mode: she proposes, the GM approves');
 await api('PUT', `${W}/active`, dm, { mode: 'assistant' });
 const chat = (await api('POST', `${W}/agent/chats`, dm, { title: 'Tonight' })).id;
 await api('POST', `${W}/agent/chats/${chat}/messages`, dm, { text: 'Put on something tense for the cellar.\nFAKE_CALL play_music {"mood":"tense"}' });
@@ -74,7 +74,7 @@ for (const u of ['jess', 'tom']) await api('POST', `${W}/audio/consent`, u === '
 await raw('POST', `${W}/actions/run`, dm, { action: 'recording.stop', args: {} });
 const ses = await api('POST', `${W}/audio/sessions`, dm, { name: 'Active mode demo' });
 const mic = async (tok: string, dev: string, lab: string, extra: object = {}) => (await api('POST', `${W}/audio/mics`, tok, { deviceId: dev, label: lab, mode: 'always', playersTranscript: true, ...extra })).id as string;
-const mics = { dm: await mic(dm, 'act-dm', 'DM voice', { room: false }), tom: await mic(tom, 'act-tom', 'Tomas phone') };
+const mics = { dm: await mic(dm, 'act-dm', 'GM voice', { room: false }), tom: await mic(tom, 'act-tom', 'Tomas phone') };
 const tokOf: Record<string, string> = { dm, tom };
 const WEBM = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01]);
 let at = 1000, seq = 0;
@@ -102,7 +102,7 @@ check(!!keyCard, 'the silver key is a card, not an action: the rules alone are n
 await api('POST', `${W}/active/log/${keyCard.id}/approve`, dm);
 rows = await logRows();
 check(rows.some((r) => r.tool === 'show_on_stage' && r.status === 'done' && JSON.stringify(r.args).includes('Docks')), 'the docks map is on the stage (a party page)');
-check(!JSON.stringify(rows).includes('SECRETLEDGER') && !rows.some((r) => r.status === 'done' && /ledger/i.test(r.summary)), 'the DM-only ledger was never shown');
+check(!JSON.stringify(rows).includes('SECRETLEDGER') && !rows.some((r) => r.status === 'done' && /ledger/i.test(r.summary)), 'the GM-only ledger was never shown');
 check(!JSON.stringify(await api('GET', `${W}/stage`, jess)).includes('SECRETLEDGER'), 'players see none of it');
 
 // ---- 4. undo, wrong, reject ---------------------------------------------------------------
@@ -120,7 +120,7 @@ check(!!card, 'with items on ask, the gold waits on a card');
 await api('POST', `${W}/active/log/${card.id}/reject`, dm);
 check((await logRows('rejected')).length === 1, 'the card was rejected');
 await speak('dm', 'You find a rusty lantern near the wall.');
-check((await logRows('pending')).length >= 1, 'a new card is waiting (visible on the desktop and the DM phone)');
+check((await logRows('pending')).length >= 1, 'a new card is waiting (visible on the desktop and the GM phone)');
 
 // ---- 5. a macro ----------------------------------------------------------------------------
 log('5. Agent macros');
@@ -137,9 +137,9 @@ await api('POST', `${W}/agent/chats/${pc}/messages`, tom, { text: 'Draft my jour
 let reply = '';
 for (let i = 0; i < 60 && !reply; i++) { await sleep(200); const c = await api('GET', `${W}/agent/chats/${pc}`, tom); if (!c.busy) reply = c.messages.filter((m: any) => m.role === 'assistant').at(-1)?.text ?? ''; }
 check(reply.length > 0, 'the broker answered');
-check(!/minerva|SECRETLEDGER|takeover/i.test(reply), 'the reply never mentions Minerva or DM-only text');
+check(!/minerva|SECRETLEDGER|takeover/i.test(reply), 'the reply never mentions Minerva or GM-only text');
 const draft = await api('GET', `${W}/helper/journal-draft`, tom);
 check(/silver key|Ogre|ogre|map of the docks|cold cellar/i.test(draft.markdown) && !/SECRETLEDGER/.test(draft.markdown), 'the draft is built from what the table heard');
 
-log(`\nAll ${checks} checks passed. The demo keeps running at ${base} (DM: dm / dungeon master 123).`);
+log(`\nAll ${checks} checks passed. The demo keeps running at ${base} (GM: dm / game master 123).`);
 log(`Look at: ${base}/w/saltreach/dm/active and ${base}/w/saltreach/dm/phone`);

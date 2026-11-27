@@ -3,12 +3,12 @@
 //
 // Rows are cut from one copy of a page and carry that copy's scope:
 //
-//   dm       the AI copy (everything but classified): the DM and every model
+//   dm       the AI copy (everything but classified): the GM and every model
 //   broker   the broker copy (party + broker content): the information broker
 //   party    the player copy of a party-level page: every player and guest
 //   lifted   the player copy of a page that is NOT party-level but that some
 //            account may open as a player right now (its own per-user source
-//            key, a DM grant or another player's share). The text is the same
+//            key, a GM grant or another player's share). The text is the same
 //            for everyone who may see it; who may see it is decided live.
 //
 // A viewer reads `base` plus, for a player, the lifted rows of exactly the
@@ -48,7 +48,7 @@ export interface Reach {
 /** What a library search scope reads (callers that have no viewer, only a scope: they never get lifted pages). */
 export const reachOfScope = (scope: Scope): Reach => ({ base: scope === 'party' ? 'party' : scope === 'broker' ? 'broker' : 'dm', lifted: new Set(), accountId: '' });
 
-/** The scopes a viewer reads, right now. Players add the pages their own key, a DM grant or a share lifts. */
+/** The scopes a viewer reads, right now. Players add the pages their own key, a GM grant or a share lifts. */
 export function reachOf(d: { library: Library }, worldId: string, v: Viewer): Reach {
   const aud = audienceOf(v);
   if (aud === 'dm' || aud === 'ai') return { base: 'dm', lifted: new Set(), accountId: v.accountId };
@@ -63,7 +63,7 @@ export const reachScopes = (r: Reach): VecScope[] => (r.lifted.size ? [r.base, '
 /**
  * Of these page ids, the ones this reach may open right now: the page must
  * still exist in the world and still have the copy of the base scope, or be
- * one of the lifted pages and still DM-level. Checked against the pages table,
+ * one of the lifted pages and still GM-level. Checked against the pages table,
  * so a stale row can never name a page the viewer lost.
  */
 export function openable(db: DB, worldId: string, reach: Reach, ids: Iterable<string>): Set<string> {
@@ -98,7 +98,7 @@ const staleSql = (scope: Exclude<VecScope, 'lifted'>, st: string) => {
 /**
  * Delete every stored row that the page's permissions no longer allow, or that
  * was cut from text the page no longer has: rows of a scope the page has no
- * copy for (made DM-only, hidden at the source, classified, removed, no longer
+ * copy for (made GM-only, hidden at the source, classified, removed, no longer
  * lifted for anyone) and rows older than the copy. Synchronous and pure SQL
  * except for the lifted scope, so callers run it in the same step as the
  * change (Library.changed). Re-embedding and re-extraction happen later in
@@ -126,7 +126,7 @@ export function reconcile(lib: Library, worldId: string, ids?: string[]) {
       } catch { /* the store's feature is not installed */ }
     }
   });
-  // Lifted rows: only for pages that are still DM-level and that some player may open now.
+  // Lifted rows: only for pages that are still GM-level and that some player may open now.
   const lifted = new Set<string>();
   let any = false;
   for (const store of STORES) {

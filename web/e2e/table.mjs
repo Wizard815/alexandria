@@ -1,4 +1,4 @@
-// End-to-end test of the DM's Table, on the demo world: every zone renders, quiet blocks shrink to a line, the world clock
+// End-to-end test of the GM's Table, on the demo world: every zone renders, quiet blocks shrink to a line, the world clock
 // moves and undoes, a fight shows in initiative order and Next turn moves it, a shop opens from its block, the table map
 // picker follows the table screen's choice, Arrange hides, brings back and moves blocks, the time can be set with AM/PM, effects show
 // on combatants, a quick event goes out from the Table, and a phone has no sideways scroll.
@@ -27,8 +27,8 @@ const api = async (method, p, body) => {
 };
 
 try {
-  token = await login('dm', 'dungeon master 123');
-  const { page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1440, height: 900 });
+  token = await login('dm', 'game master 123');
+  const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1440, height: 900 });
   page.on('pageerror', (e) => problems.push(`page error on ${page.url()}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`console on ${page.url()}: ${m.text()}`); });
   await page.goto(`${W}/dm`);
@@ -142,7 +142,7 @@ try {
   if (process.env.TABLE_SHOTS) { fs.mkdirSync(process.env.TABLE_SHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.TABLE_SHOTS, 'table.png'), fullPage: true }); }
 
   // 7. A phone: no sideways scroll.
-  const { page: ph } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 390, height: 844 }, true);
+  const { page: ph } = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true);
   await ph.goto(`${W}/dm`);
   await shows(ph.getByTestId('dm-table'));
   await ph.waitForTimeout(800);

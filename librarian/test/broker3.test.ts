@@ -42,7 +42,7 @@ async function withWorld(opts: { fetch?: typeof fetch; env?: Record<string, stri
       T[name] = j.token; ID[name] = j.account.id;
     }
     const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
-    await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
+    await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
     await page('lore/Hearts', 'party', `---\nknowledge: deep\n---\n# The Hearts\nThe nine Hearts were forged before the sundering to bind the elder storms.\n`);
     await page('party/Road', 'party', `---\nknowledge: common\n---\n# The road north\nThe party took the road north past the burned mill near Greywater ford.\n`);
     await page('dm/Velmira', 'dm', `# Velmira\nVelmira the smuggler queen keeps her treasury beneath the lighthouse.\n`);
@@ -94,7 +94,7 @@ test('TestBrokerClock_OldBrokerMinutesMoveOverOnce', async () => {
     assert.equal((await c.ok('GET', `${c.B}/config`, c.T.jess)).clock.minutes, 5010, 'moved once, not again');
   });
   await withWorld({}, async (c) => {
-    // A world clock the DM already moved is left alone.
+    // A world clock the GM already moved is left alone.
     await advance(c, 100);
     const cur = (await c.ok('GET', `/api/worlds/${c.W}/clock`, c.T.dm)).minutes;
     run(c.deps.db, `INSERT INTO broker_config (world_id, config, game_minutes, clock_migrated) VALUES (?, '{}', 9000, 0)`, c.W);
@@ -108,12 +108,12 @@ test('TestBrokerDelivery_AutoAndReviewPerTier', async () => {
     const by = (k: string) => cfg.tiers.find((t: any) => t.knowledge === k);
     assert.deepEqual(['common', 'local', 'deep', 'secret'].map((k) => by(k).delivery), ['auto', 'auto', 'review', 'review'], 'defaults');
 
-    // Auto: delivered when the wait is over, no DM step.
+    // Auto: delivered when the wait is over, no GM step.
     const local = await ask(c, 'jess', 'Who rules Saltmarsh harbour?');
     await advance(c, 60);
     assert.equal((await mine(c, 'jess', local.a.id)).status, 'answered');
 
-    // Deep is "DM reviews": still waiting after its wait, until the DM approves.
+    // Deep is "GM reviews": still waiting after its wait, until the GM approves.
     const deep = await ask(c, 'jess', 'What are the nine Hearts and the elder storms?');
     assert.equal(deep.q.delivery, 'review');
     await advance(c, 2 * 1440);
@@ -130,7 +130,7 @@ test('TestBrokerDelivery_AutoAndReviewPerTier', async () => {
     assert.equal(done.status, 'answered');
     assert.match(done.answer, /old songs/);
 
-    // Switch the local tier to review: it now waits for the DM, and a refusal refunds.
+    // Switch the local tier to review: it now waits for the GM, and a refusal refunds.
     const c2 = structuredClone(cfg);
     c2.tiers.find((t: any) => t.knowledge === 'local').delivery = 'review';
     await c.ok('PUT', `${c.B}/config`, c.T.dm, c2);
@@ -167,7 +167,7 @@ test('TestBrokerDelivery_GuardedIsAlwaysTheDMWhateverTheSettings', async () => {
     const row = await mine(c, 'jess', a.id);
     assert.equal(row.status, 'pricing', 'never delivered on its own');
     assert.equal(row.answer, undefined);
-    // Even once the DM prices and the player accepts, the DM's own answer is what is delivered.
+    // Even once the GM prices and the player accepts, the GM's own answer is what is delivered.
     await c.ok('POST', `${c.B}/${a.id}/price`, c.T.dm, { costCp: 10, waitAmount: 0, answer: 'Under the old lighthouse.' });
     await c.ok('POST', `${c.B}/${a.id}/accept`, c.T.jess);
     assert.equal((await mine(c, 'jess', a.id)).answer, 'Under the old lighthouse.');
@@ -176,7 +176,7 @@ test('TestBrokerDelivery_GuardedIsAlwaysTheDMWhateverTheSettings', async () => {
 
 test('TestBrokerDelivery_OutputCheckHoldsDMTextForTheDM', async () => {
   await withWorld({}, async (c) => {
-    // A machine-built answer that somehow holds a DM-only line is never auto-delivered.
+    // A machine-built answer that somehow holds a GM-only line is never auto-delivered.
     const { a } = await ask(c, 'jess', 'Who rules Saltmarsh harbour?');
     run(c.deps.db, 'UPDATE broker_requests SET answer = ? WHERE id = ?', 'The harbour council secretly answers to the smuggler queen Velmira.', a.id);
     await advance(c, 120);
@@ -185,8 +185,8 @@ test('TestBrokerDelivery_OutputCheckHoldsDMTextForTheDM', async () => {
     assert.equal(row.answer, undefined);
     assert.ok(!JSON.stringify(row).includes('Velmira'));
     const dm = (await c.ok('GET', c.B, c.T.dm)).requests.find((x: any) => x.id === a.id);
-    assert.equal(dm.needs_review, true, 'held for the DM');
-    // A DM-written answer is the DM's call.
+    assert.equal(dm.needs_review, true, 'held for the GM');
+    // A GM-written answer is the GM's call.
     await c.ok('PATCH', `${c.B}/${a.id}`, c.T.dm, { answer: 'Ask the queen herself.' });
     await c.ok('POST', `${c.B}/${a.id}/approve`, c.T.dm);
     assert.equal((await mine(c, 'jess', a.id)).answer, 'Ask the queen herself.');
@@ -207,14 +207,14 @@ test('TestBrokerScope_SettingsSiteLinkAndSpoilerTagsAreSafe', async () => {
     assert.equal((await c.call('PATCH', `/api/worlds/${c.W}/settings`, c.T.dm, { brokerTopics: 'Feudal Japan' })).status, 400);
     await c.ok('PATCH', `/api/worlds/${c.W}/settings`, c.T.dm, { brokerTopics: ['Feudal Japan: history, folklore'] });
     assert.deepEqual((await c.ok('GET', `${c.B}/config`, c.T.jess)).topics, ['Feudal Japan: history, folklore']);
-    // Spoiler topics are DM only.
+    // Spoiler topics are GM only.
     assert.equal((await c.call('GET', `${c.B}/spoilers`, c.T.jess)).status, 403);
     assert.equal((await c.call('PUT', `${c.B}/spoilers`, c.T.jess, { topics: ['x'] })).status, 403);
     await c.ok('PUT', `${c.B}/spoilers`, c.T.dm, { topics: ['the Midnight Pact'] });
     assert.deepEqual((await c.ok('GET', `${c.B}/spoilers`, c.T.dm)).topics, ['the Midnight Pact']);
     assert.ok(!JSON.stringify(await c.ok('GET', `${c.B}/config`, c.T.jess)).includes('Midnight'));
     assert.ok(!JSON.stringify(await c.ok('GET', `/api/worlds/${c.W}/settings`, c.T.jess)).includes('Midnight'));
-    // A question that names a spoiler topic goes to the DM and looks like any unknown one.
+    // A question that names a spoiler topic goes to the GM and looks like any unknown one.
     const sp = await ask(c, 'jess', 'What can you tell me about the midnight pact?');
     const unk = await ask(c, 'jess', 'What colour are the moon cheese caravans?');
     assert.equal(sp.a.status, 'pricing');
@@ -250,7 +250,7 @@ test('TestBrokerOther_NoRulesSourceSaysSoAndItemsAreThePlayersOwn', async () => 
     return new Response(JSON.stringify({ choices: [{ message: { content: `\`\`\`json\n${JSON.stringify({ type: 'what', ...l })}\n\`\`\`` } }] }), { status: 200 });
   }) as typeof fetch;
   await withWorld({ fetch: fake, env: { ALX_MODEL_AUDIT_URL: 'http://audit.invalid/v1', ALX_MODEL_AUDIT_MODEL: 'tiny' } }, async (c) => {
-    const lampPage = await c.page('items/Brass lamp', 'party', `# Brass lamp\nA brass lamp that burns without oil for one hour each day.\n\n> [!secret] DM\n> The lamp is cursed and binds its owner to Velmira.\n`);
+    const lampPage = await c.page('items/Brass lamp', 'party', `# Brass lamp\nA brass lamp that burns without oil for one hour each day.\n\n> [!secret] GM\n> The lamp is cursed and binds its owner to Velmira.\n`);
     const lamp = await c.ok('POST', `/api/worlds/${c.W}/inventory`, c.T.dm, { owner: c.ID.jess, name: 'Brass lamp', qty: 1, note: 'Warm to the touch.', reason: 'Loot' });
     await c.ok('PUT', `/api/worlds/${c.W}/itemcards/${lamp.id}/page`, c.T.dm, { pageId: lampPage });
     const jess = await c.ok('POST', `${c.B}/quote`, c.T.jess, { question: 'What does the brass lamp do?' });
@@ -270,7 +270,7 @@ test('TestBrokerOther_NoRulesSourceSaysSoAndItemsAreThePlayersOwn', async () => 
     assert.equal(rules.kind, 'other');
     assert.match(rules.answer, /no rules book/);
     assert.deepEqual(rules.sources, []);
-    // Low confidence goes to the DM, never auto-answered or refused.
+    // Low confidence goes to the GM, never auto-answered or refused.
     const low = await ask(c, 'jess', 'Who rules Saltmarsh harbour?');
     assert.equal(low.a.status, 'pricing');
     const lowOff = await ask(c, 'jess', 'Is it nice out?');

@@ -1,4 +1,4 @@
-// UI leak crawler. Serves the security world (one unique marker at every DM-only,
+// UI leak crawler. Serves the security world (one unique marker at every GM-only,
 // broker and classified spot, see librarian/test/security-world.ts), signs in as
 // each player and the guest, visits every page, opens every panel and overlay,
 // searches, and scans the rendered DOM text and HTML, localStorage,
@@ -20,7 +20,7 @@ const PEOPLE = [
   ['jess', 'player pass 123', 1280], ['tom', 'player pass 123', 1280], ['guest', 'guest pass 1234', 1280], ['jess', 'player pass 123', 390],
 ].map(([u, p, w]) => ({ who: u, user: u === 'guest' ? 'visitor' : u, pass: p, width: w }));
 
-// The table screen is seen by the players, so it may show what both players may see and nothing else, even on the DM's login.
+// The table screen is seen by the players, so it may show what both players may see and nothing else, even on the GM's login.
 for (const m of markers) if (m.seen.includes('jess') && m.seen.includes('tom')) m.seen.push('table');
 
 const hits = new Map();
@@ -98,7 +98,7 @@ async function crawl(browser, p) {
 
   // The library-sharing seeds first, so they are always reached inside the time budget.
   const links = new Set(Object.entries(world.pages).filter(([k]) => k.startsWith('share_')).map(([, pg]) => `${W}/library?page=${encodeURIComponent(pg.id)}`));
-  // The shop next: an open shop with DM notes, a haggle note, a keeper's secret and a hidden line, beside a hidden shop.
+  // The shop next: an open shop with GM notes, a haggle note, a keeper's secret and a hidden line, beside a hidden shop.
   links.add(`${W}/shop`);
   for (const r of PLAYER_ROUTES) links.add(`${W}/${r}`.replace(/\/$/, ''));
   // The players' screen is a route of its own (no layout, no links to it): visit it as every player and the guest too.
@@ -165,12 +165,12 @@ async function crawl(browser, p) {
   await ctx.close();
 }
 
-/** The players' screen, opened with the DM's own token: it must show no more than a guest may read (the player view), and no app chrome. */
+/** The players' screen, opened with the GM's own token: it must show no more than a guest may read (the player view), and no app chrome. */
 async function crawlScreen(browser) {
   const tag = 'dm@screen';
   const { ctx, page } = await signIn(browser, base, 'dungeon', 'dm password 123', { width: 1920, height: 1080 }, false, new RegExp(`/w/${world.slug}`));
   page.on('pageerror', (e) => hits.set(`${tag}: page error ${e.message}`, true));
-  // Only what this route itself fetched: the DM's own offline cache legitimately holds DM data.
+  // Only what this route itself fetched: the GM's own offline cache legitimately holds GM data.
   page.on('response', async (r) => {
     if (!/\/screen\/players|\/api\/media\/screen/.test(r.url())) return;
     const t = await r.text().catch(() => '');
@@ -187,7 +187,7 @@ async function crawlScreen(browser) {
   await ctx.close();
 }
 
-/** The table screen, opened from the DM's login: its DOM is scanned as if a player were reading it (a screen lying face up). */
+/** The table screen, opened from the GM's login: its DOM is scanned as if a player were reading it (a screen lying face up). */
 async function crawlTable(browser) {
   const who = 'table';
   const { ctx, page } = await signIn(browser, base, 'dungeon', 'dm password 123', { width: 1920, height: 1080 }, false, new RegExp(`/w/${world.slug}`));
@@ -203,7 +203,7 @@ async function crawlTable(browser) {
   await scanDom(page, who, here);
   const order = await page.getByTestId('table-order').innerText().catch(() => '');
   if (!/Goblin/.test(order) || !/Jessamine/.test(order)) hits.set(`table: the order should list the goblin and Jessamine, got "${order.slice(0, 120)}"`, true);
-  if (/Ambusher|\bAC\b|temp(orary)? HP/.test(order)) hits.set(`table: the order shows a hidden foe or DM-only stat: "${order.slice(0, 160)}"`, true);
+  if (/Ambusher|\bAC\b|temp(orary)? HP/.test(order)) hits.set(`table: the order shows a hidden foe or GM-only stat: "${order.slice(0, 160)}"`, true);
   // Every mark on the map, then the whiteboard, then each quarter turn.
   for (const m of await page.locator('[data-testid=table-map] [data-mark]').all()) { await m.click({ timeout: 2000 }).catch(() => {}); await page.waitForTimeout(150); await scanDom(page, who, `${here} after a mark`); }
   await page.getByRole('button', { name: 'Whiteboard' }).click();
@@ -245,8 +245,8 @@ if (!process.env.LEAK_SELFTEST) for (const m of markers.filter((x) => x.id.start
 // The open shop's public text must reach both players, or the crawl proves nothing about the shop.
 if (!process.env.LEAK_SELFTEST) for (const id of ['shop_open_desc', 'shop_item_public']) for (const who of ['jess', 'tom']) if (!allowedSeen[who]?.has(id)) hits.set(`${who}: the open shop's ${id} was never seen, so the Shop page is not reached`, true);
 // The spell seeds (security-world.ts: a homebrew spell only jess knows, her spell sheet, her request to learn) must reach her Codex,
-// so the crawl proves the DM's notes, hidden recipes and unknown spells on the same page did not.
+// so the crawl proves the GM's notes, hidden recipes and unknown spells on the same page did not.
 if (!process.env.LEAK_SELFTEST) for (const id of ['spell_known_jess', 'spell_sheet_jess']) if (markers.some((m) => m.id === id) && !allowedSeen.jess?.has(id)) hits.set(`jess: the spell marker ${id} was never seen, so the Codex crawl is not reaching it`, true);
 console.log('  allowed markers seen: ' +Object.entries(allowedSeen).map(([k, v]) => `${k} ${v.size}`).join(', '));
 if (hits.size) { console.log(`\n${hits.size} LEAKS / problems:`); for (const k of hits.keys()) console.log(' - ' + k); process.exit(1); }
-console.log('leaks ok: no DM, broker or classified marker reached a player or guest in the DOM, storage or cache');
+console.log('leaks ok: no GM, broker or classified marker reached a player or guest in the DOM, storage or cache');

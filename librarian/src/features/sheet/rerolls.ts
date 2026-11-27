@@ -1,10 +1,10 @@
 // House rule "Inspiration as re-rolls" (off by default; World settings →
-// Player sheets). Instead of plain inspiration the DM rewards good role play
+// Player sheets). Instead of plain inspiration the GM rewards good role play
 // with re-roll tokens of three kinds:
 //   personal: re-roll one of your own rolls;
 //   party:    re-roll anyone's roll at the table, yours or a friend's;
-//   dm:       make the DM re-roll one of their rolls.
-// The DM gives and takes them back; a player spends their own. Every change
+//   dm:       make the GM re-roll one of their rolls.
+// The GM gives and takes them back; a player spends their own. Every change
 // is logged in sheet_log (kind "reroll").
 //
 // The counts are the "Inspiration as rerolls" house rule's counters
@@ -23,7 +23,7 @@ export const RESOURCE: Record<Reroll, string> = { personal: 'personal', party: '
 
 export const REROLLS = ['personal', 'party', 'dm'] as const;
 export type Reroll = (typeof REROLLS)[number];
-export const REROLL_LABEL: Record<Reroll, string> = { personal: 'Personal re-roll', party: 'Everyone re-roll', dm: 'DM re-roll' };
+export const REROLL_LABEL: Record<Reroll, string> = { personal: 'Personal re-roll', party: 'Everyone re-roll', dm: 'GM re-roll' };
 
 export const rerollRules = (s: WorldSettings) => ({ on: featureSetting<boolean>(s, 'sheetRerolls') === true, cap: featureSetting<number>(s, 'sheetRerollCap') ?? 3 });
 
@@ -43,7 +43,7 @@ export function changeReroll(db: DB, s: WorldSettings, worldId: string, aid: str
   const k = kind as Reroll;
   const d = Number(delta);
   if (!Number.isInteger(d) || d === 0 || Math.abs(d) > 20) throw new HttpError(400, 'delta must be a whole number from -20 to 20, not 0');
-  if (!dm && d > 0) throw new HttpError(403, 'Only the DM gives re-rolls');
+  if (!dm && d > 0) throw new HttpError(403, 'Only the GM gives re-rolls');
   const cur = (rerollsOf(db, s, worldId, aid) as any)[k] as number;
   if (cur + d < 0) throw new HttpError(409, `No ${REROLL_LABEL[k].toLowerCase()} left`);
   const next = Math.min(r.cap, cur + d);

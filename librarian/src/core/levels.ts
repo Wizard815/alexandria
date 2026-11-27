@@ -1,6 +1,6 @@
 // Four secrecy levels for world content. Every rule about them lives here.
 //
-//   level        players  broker (may sell it)  any AI / model context  the DM in the app
+//   level        players  broker (may sell it)  any AI / model context  the GM in the app
 //   party        yes      yes                   yes                     yes
 //   broker       no       yes                   yes                     yes
 //   dm           no       no                    yes                     yes
@@ -12,7 +12,7 @@
 //   player copy   party content only                (player_* columns)
 //   broker copy   party + broker content            (broker_* columns)
 //   AI copy       everything except classified      (ai_* columns)
-//   DM copy       everything                        (the plain columns)
+//   GM copy       everything                        (the plain columns)
 // Anything unknown or unparseable is `dm`: it fails closed.
 //
 // This file is also the contract other features build on: `Level`,
@@ -35,7 +35,7 @@ export const CALLER_MODEL = 'model';
 
 export const maxLevel = (...ls: (Level | null | undefined)[]): Level => ls.reduce<Level>((a, b) => (b && RANK[b] > RANK[a] ? b : a), 'party');
 export const canSeeLevel = (level: Level, audience: Audience): boolean => RANK[level] <= AUDIENCE_MAX[audience];
-/** True when the level may be shown to the audience (unknown levels never are, except to the DM). */
+/** True when the level may be shown to the audience (unknown levels never are, except to the GM). */
 export const levelOk = (level: unknown, audience: Audience): boolean => (isLevel(level) ? canSeeLevel(level, audience) : audience === 'dm');
 export const isLevel = (v: unknown): v is Level => v === 'party' || v === 'broker' || v === 'dm' || v === 'classified';
 
@@ -53,7 +53,7 @@ export function normLevel(v: unknown): Level {
  * (features/sourcekeys). A source that marks a page private says `dm`; an
  * account whose verified per-user key can read that page may open its player
  * copy. Only the source's own marking is lifted: `markerLevel` (broker and
- * classified tags and levels; secret blocks and DM fact groups are cut from
+ * classified tags and levels; secret blocks and GM fact groups are cut from
  * the copy anyway) is never lowered, a source set to `dm` or `party` is not
  * touched, and anything unknown stays as stored. Fails closed.
  */
@@ -151,7 +151,7 @@ export function blockLevel(b: Block): Level {
   }
 }
 
-/** The level a heading starts a section at: Broker / Classified, or the older DM headings. */
+/** The level a heading starts a section at: Broker / Classified, or the older GM headings. */
 export function headingLevel(b: Block, dmHeading: RegExp): Level {
   if (b.kind !== 'heading') return 'party';
   const t = inlineText(b.content).trim();
@@ -195,13 +195,13 @@ const parse = <T,>(s: string | null | undefined, fallback: T): T => {
   try { return JSON.parse(s) as T; } catch { return fallback; }
 };
 
-/** The column prefix of each audience's copy ('' is the DM copy). */
+/** The column prefix of each audience's copy ('' is the GM copy). */
 const PREFIX: Record<Audience, string> = { player: 'player_', broker: 'broker_', ai: 'ai_', dm: '' };
 
 /**
  * The stored copy of a page for one audience: blocks, markdown, sidebar
  * properties and frontmatter. Null when the audience has no copy (a page
- * above its level has none). The DM copy is always there. Never computes
+ * above its level has none). The GM copy is always there. Never computes
  * anything: copies are built when a page is saved.
  */
 export function copyFor(page: PageRow, audience: Audience): PageCopy | null {
@@ -220,7 +220,7 @@ export function copyFor(page: PageRow, audience: Audience): PageCopy | null {
 
 // ---- text checks ---------------------------------------------------------------
 
-/** The page text (blocks, properties, frontmatter, body) a stored row has for the DM but not in its AI copy: what no model may see. */
+/** The page text (blocks, properties, frontmatter, body) a stored row has for the GM but not in its AI copy: what no model may see. */
 export function classifiedOnly(page: PageRow): boolean {
   return normLevel(page.visibility) === 'classified';
 }
@@ -235,7 +235,7 @@ export function isModelSafe(text: string, classifiedGrams: Set<string> | null | 
   return classifiedMatch(text, classifiedGrams, n) === null;
 }
 
-/** Web addresses are left out: a bare URL in the DM copy and the same URL rendered as a Markdown link in the AI copy must not look like different text. */
+/** Web addresses are left out: a bare URL in the GM copy and the same URL rendered as a Markdown link in the AI copy must not look like different text. */
 const URLS = /\bhttps?:\/\/[^\s)\]*<>]+/gi;
 const tokens = (text: string): string[] => String(text ?? '').replace(URLS, ' ').toLowerCase().replace(/[’]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
 

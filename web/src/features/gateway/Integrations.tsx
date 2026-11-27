@@ -15,7 +15,7 @@ export default function Integrations() {
   const worlds = dev.data?.worlds ?? [];
   return (
     <div className="page">
-      <PageHead title="Integrations" lead="Lights, microphones and macros are hosted here, so any app at the table can use them. Each world sets its own up from its DM pages." />
+      <PageHead title="Integrations" lead="Lights, microphones and macros are hosted here, so any app at the table can use them. Each world sets its own up from its GM pages." />
       <ErrorBox error={dev.error} />
       {dev.loading && !dev.data ? <Loading /> : (
         <Section title="Devices per world">
@@ -36,7 +36,7 @@ export default function Integrations() {
         </Section>
       )}
       {dev.data && (
-        <Section title="DM desktop apps" lead="Apps on a DM's computer that talk to this gateway.">
+        <Section title="GM desktop apps" lead="Apps on a GM's computer that talk to this gateway.">
           <p className="muted small">{dev.data.desktopApps === null ? 'Nothing registers a desktop app with the gateway yet, so there is no list to show. Speakers above are the browsers and apps that joined a world’s sound board.' : `${dev.data.desktopApps} connected`}</p>
         </Section>
       )}

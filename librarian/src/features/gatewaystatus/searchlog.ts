@@ -2,8 +2,8 @@
 // the world, who (a role, never a name), the query in plain lower case, how many results, and how they split across sources.
 // Never a result title or page text. Rows are kept 30 days.
 //
-// The words people typed can be a DM's own question about a secret, so the admin pages show them only to an admin who is that world's
-// DM. Any other admin sees counts.
+// The words people typed can be a GM's own question about a secret, so the admin pages show them only to an admin who is that world's
+// GM. Any other admin sees counts.
 import type { Deps } from '../../app.ts';
 import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS gwstatus_searches (
   sources TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS gwstatus_searches_at ON gwstatus_searches (world_id, at);
--- Missing queries a DM has already had a draft page made for.
+-- Missing queries a GM has already had a draft page made for.
 CREATE TABLE IF NOT EXISTS gwstatus_search_drafts (
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   q TEXT NOT NULL,
@@ -142,12 +142,12 @@ const slug = (q: string) => q.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g,
 const titleOf = (q: string) => (q.charAt(0).toUpperCase() + q.slice(1)).slice(0, 80);
 
 /**
- * DM-only draft pages for queries that found nothing. Only the DM of the world may do this, and only for queries the log shows found
+ * GM-only draft pages for queries that found nothing. Only the GM of the world may do this, and only for queries the log shows found
  * nothing in the last 7 days, so it cannot be used to write arbitrary pages. A page that already exists at the path is left alone.
  */
 export function draftMissing(d: Deps, accountId: string, worldId: string, queries: unknown) {
   if (!one(d.db, 'SELECT 1 FROM worlds WHERE id = ?', worldId)) throw new HttpError(404, 'World not found');
-  if (adminViewer(d.db, worldId, accountId).role !== 'dm') throw new HttpError(403, 'Only the world\'s DM can make draft pages from its searches');
+  if (adminViewer(d.db, worldId, accountId).role !== 'dm') throw new HttpError(403, 'Only the world\'s GM can make draft pages from its searches');
   const wanted = Array.isArray(queries) ? queries.map(normalizeQuery).filter(Boolean).slice(0, 30) : null;
   const missing = searchStats(d, accountId, 7).nothing.filter((n) => n.world.id === worldId && !n.drafted);
   const list = wanted ? missing.filter((m) => wanted.includes(m.q)) : missing.slice(0, 20);

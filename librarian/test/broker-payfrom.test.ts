@@ -66,7 +66,7 @@ test('TestBrokerPayFrom_OptionsShowBothBalancesAndTheSetting', async () => {
   await set({ brokerPartyPay: false });
   const off = await ok('GET', `${B()}/pay-options`, T.jess);
   assert.equal(off.party.allowed, false);
-  assert.match(off.party.reason, /DM/);
+  assert.match(off.party.reason, /GM/);
   await set({ brokerPartyPay: true });
   assert.equal((await call('GET', `${B()}/pay-options`)).status, 401);
 });
@@ -92,7 +92,7 @@ test('TestBrokerPayFrom_OfferPaidFromThePartyPouchIsLoggedForTheParty', async ()
   // Another player reads the party log and sees who paid.
   const log = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.tom);
   assert.ok(log.entries.some((e: any) => e.note.includes('paid by Jess from the party pouch')));
-  // The DM sees who paid and from where.
+  // The GM sees who paid and from where.
   const dm = (await ok('GET', `${B()}/offers`, T.dm)).find((x: any) => x.id === o.id);
   assert.equal(dm.paid_by_name, 'Jess');
   assert.equal(dm.paid_from, 'party');
@@ -188,7 +188,7 @@ test('TestBrokerPayFrom_AQuotedQuestionCanBePaidFromTheParty', async () => {
   assert.equal(coin('party'), 1000 - q.cost_cp);
   const row = one<any>(deps.db, `SELECT note FROM ledger WHERE world_id = ? AND owner = 'party' AND amount_cp = ?`, W, -q.cost_cp)!;
   assert.match(row.note, /\(paid by Jess from the party pouch\)$/);
-  // The DM sees who paid and from where on the request.
+  // The GM sees who paid and from where on the request.
   const dm = (await ok('GET', B(), T.dm)).requests.find((x: any) => x.id === yes.id);
   assert.equal(dm.paid_by_name, 'Jess');
   assert.equal(dm.paid_from, 'party');

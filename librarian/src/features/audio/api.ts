@@ -1,5 +1,5 @@
 // Typed read access for other features (the session log uses this). Players'
-// views never include DM-only lines; pass includeDm only for a DM.
+// views never include GM-only lines; pass includeDm only for a GM.
 import type { DB } from '../../core/db.ts';
 import { all } from '../../core/db.ts';
 import { names } from '../../routes/_shared.ts';

@@ -1,4 +1,4 @@
-// Session chats: table and party channels, the DM kept out of party chat
+// Session chats: table and party channels, the GM kept out of party chat
 // (REST, live events, MCP), mentions, server-side dice, hidden page links,
 // the edit window, moderation, retention, sessions that end, and trades.
 import { test, before, after } from 'node:test';
@@ -133,7 +133,7 @@ test('TestSessionChat_DMCannotReadListOrReceivePartyChat', async () => {
   const m = await say('jess', 'party', secret);
   await say('tom', 'table', 'table hello');
   await settle();
-  // REST: the DM, the guest and the admin are all refused; messages by id too.
+  // REST: the GM, the guest and the admin are all refused; messages by id too.
   for (const who of ['dm', 'gus']) {
     assert.equal((await call('GET', C('/chat/party'), T[who])).status, 403, who);
     assert.equal((await call('POST', C('/chat/party'), T[who], { body: 'hi' })).status, 403, who);
@@ -143,20 +143,20 @@ test('TestSessionChat_DMCannotReadListOrReceivePartyChat', async () => {
   assert.equal((await call('POST', C(`/messages/${m.id}/hide`), T.dm, {})).status, 404);
   assert.equal((await call('POST', C(`/messages/${m.id}/react`), T.dm, { emoji: '+' })).status, 404);
   assert.equal((await call('POST', C('/read'), T.dm, { channel: 'party' })).status, 403);
-  // Nothing in the DM's other views mentions it.
+  // Nothing in the GM's other views mentions it.
   const dmSees = JSON.stringify([await ok('GET', C('/current'), T.dm), await ok('GET', C('/sessions'), T.dm), await ok('GET', C('/chat/table'), T.dm)]);
   assert.ok(!dmSees.includes(secret));
-  // Live events: the DM never gets a party event; players do; the table event reaches everyone.
+  // Live events: the GM never gets a party event; players do; the table event reaches everyone.
   assert.ok(!JSON.stringify(dmEvents.events).includes(secret));
   assert.ok(!dmEvents.events.some((e) => e.type === 'chat' && e.data.channel === 'party'));
   assert.ok(dmEvents.events.some((e) => e.type === 'chat' && e.data.channel === 'table'));
   assert.ok(jessEvents.events.some((e) => e.type === 'chat' && e.data.channel === 'party' && e.data.message.body === secret));
   assert.ok(!JSON.stringify(adminEvents.events).includes(secret));
-  // MCP: a DM's write key and read key cannot list or call it; a player key can.
+  // MCP: a GM's write key and read key cannot list or call it; a player key can.
   for (const key of [T.dmKey, T.dmReadKey]) {
     assert.ok(!(await mcpTools(key)).includes('read_party_chat'));
     const r = await mcp(key, 'read_party_chat', {});
-    assert.ok(r.error, 'unknown tool for a DM key');
+    assert.ok(r.error, 'unknown tool for a GM key');
     assert.ok(!JSON.stringify(r).includes(secret));
   }
   assert.ok((await mcpTools(T.dmKey)).includes('read_table_chat'));
@@ -166,11 +166,11 @@ test('TestSessionChat_DMCannotReadListOrReceivePartyChat', async () => {
   const mine = await mcp(T.jessKey, 'read_party_chat', {});
   assert.ok(JSON.stringify(mine).includes(secret));
   assert.ok(!(await mcp(T.jessKey, 'send_table_chat', { body: 'x' })).result);
-  // Even calling the REST route directly with the DM's key (the agent's path) fails.
+  // Even calling the REST route directly with the GM's key (the agent's path) fails.
   assert.equal((await call('GET', C('/chat/party'), T.dmKey)).status, 403);
-  assert.ok(!toolsFor(true).some((t) => t.name === 'read_party_chat'), 'the DM agent never gets the party chat tool');
+  assert.ok(!toolsFor(true).some((t) => t.name === 'read_party_chat'), 'the GM agent never gets the party chat tool');
   assert.ok(toolsFor(false).some((t) => t.name === 'read_party_chat'));
-  // The DM's MCP can read and send table chat.
+  // The GM's MCP can read and send table chat.
   const sent = await mcp(T.dmKey, 'send_table_chat', { body: 'Welcome, adventurers' });
   assert.ok(!sent.result.isError, JSON.stringify(sent));
   const tbl = await mcp(T.tomKey, 'read_table_chat', { limit: 10 });
@@ -193,7 +193,7 @@ test('TestSessionChat_MentionsReplyAndUnread', async () => {
   const ev = jess.events.find((e) => e.type === 'chat' && e.data.message.id === first.id);
   assert.equal(ev?.data.message.mentionsMe, true);
   assert.equal(tom.events.find((e) => e.type === 'chat' && e.data.message.id === first.id)?.data.message.mentionsMe, false);
-  // The DM cannot be pinged into a party message they can't read, nor can a mention leak the channel.
+  // The GM cannot be pinged into a party message they can't read, nor can a mention leak the channel.
   const pm = await say('jess', 'party', '@dungeon psst @tom');
   assert.deepEqual(pm.mentions, [ID.tom]);
   // Unread counts per channel.
@@ -241,13 +241,13 @@ test('TestSessionChat_LinksToPagesPlayersCannotSeeAreHidden', async () => {
   assert.ok(ok1.body.includes(`[[page:${P.open}|Saltmarsh]]`));
   assert.equal((await call('POST', C('/chat/table'), T.jess, { body: `see [[page:${P.secret}]]` })).status, 400);
   assert.equal((await call('POST', C('/chat/party'), T.jess, { body: `see [[page:nope]]` })).status, 400);
-  // The DM may link a DM-only page; players read "(hidden)", the DM sees the title.
+  // The GM may link a GM-only page; players read "(hidden)", the GM sees the title.
   const dmMsg = await say('dm', 'table', `Remember [[page:${P.secret}]]`);
   assert.ok(dmMsg.body.includes('Velmira'));
   const asPlayer = (await ok('GET', C('/chat/table'), T.tom)).messages.find((m: any) => m.id === dmMsg.id);
   assert.equal(asPlayer.body, 'Remember (hidden)');
   assert.ok(!JSON.stringify(asPlayer).includes('Velmira'));
-  // The page is made DM-only after the fact: it turns "(hidden)" for players.
+  // The page is made GM-only after the fact: it turns "(hidden)" for players.
   run(deps.db, `UPDATE pages SET visibility = 'dm' WHERE id = ?`, P.open);
   const later = (await ok('GET', C('/chat/table'), T.tom)).messages.find((m: any) => m.id === ok1.id);
   assert.ok(later.body.includes('(hidden)') && !later.body.includes('Saltmarsh'));
@@ -281,7 +281,7 @@ test('TestSessionChat_DMModeratesTableChatOnly', async () => {
   assert.equal((await call('POST', C(`/messages/${m.id}/hide`), T.jess, {})).status, 403);
   const hidden = await ok('POST', C(`/messages/${m.id}/hide`), T.dm, {});
   assert.equal(hidden.hidden, true);
-  assert.equal(hidden.body, 'something rude', 'the DM still sees what was hidden');
+  assert.equal(hidden.body, 'something rude', 'the GM still sees what was hidden');
   const asPlayer = (await ok('GET', C('/chat/table'), T.jess)).messages.find((x: any) => x.id === m.id);
   assert.equal(asPlayer.hidden, true);
   assert.equal(asPlayer.body, '');
@@ -331,7 +331,7 @@ test('TestSessionChat_TradeAcceptMovesBothSidesAtOnce', async () => {
   assert.equal(await coin('tom'), tomCoin + 50);
   assert.ok(gem.id);
   assert.equal((await call('POST', C(`/trades/${t.id}/accept`), T.tom, {})).status, 409, 'cannot accept twice');
-  // The DM sees the swaps in the transfer log.
+  // The GM sees the swaps in the transfer log.
   const log = (await ok('GET', `/api/worlds/${W}/inventory/transfers`, T.dm)).transfers;
   assert.ok(log.some((x: any) => x.kind === 'item' && x.item_name === 'Silk rope' && x.note === 'Trade'));
 });
@@ -426,7 +426,7 @@ test('TestSessionChat_EndingTheSessionMakesChatsReadOnly', async () => {
 });
 
 test('TestSessionChat_RecordingOrPresenceStartsASession', async () => {
-  // The DM just ended the last one; nothing restarts on its own.
+  // The GM just ended the last one; nothing restarts on its own.
   assert.equal((await ok('GET', C('/current'), T.jess)).session, null);
   // A recording that starts afterwards makes one; it ends when the recording stops.
   run(deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by) VALUES (?, ?, ?, ?, ?)', 'aud_1', W, 'Recorded night', new Date(Date.now() + 1000).toISOString(), ID.dm);

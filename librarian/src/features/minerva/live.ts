@@ -1,10 +1,10 @@
 // Live help while a session is recording (docs/MINERVA.md). A light background
-// pass reads the DM-visible transcript lines that arrived since it last ran
+// pass reads the GM-visible transcript lines that arrived since it last ran
 // and drafts SUGGESTIONS into the Review queue, below everything else:
 //   - a clue the table seems to have found      (revelation_mark)
 //   - a new NPC that was named                  (codex / promotion)
 //   - a promise or a goal                       (goal_update, or a hook page)
-// Nothing is applied: the DM approves each one on the Review page. The audit
+// Nothing is applied: the GM approves each one on the Review page. The audit
 // model improves the wording when one is set; without it the same suggestions
 // come from the rules below. The pass is rate limited (every two minutes, or
 // at once after 30 new lines) and never sends text that holds classified
@@ -41,7 +41,7 @@ export function liveLines(d: Deps, worldId: string, includeDm: boolean, limit = 
 /**
  * Where the pass got to: the newest line time it read, and which lines (id and revision) it read at exactly that
  * time. Times are to the millisecond, so a line added in the same millisecond as the last one read is still new:
- * "newer than seenAt" alone skipped it, and the DM's button then said "No new lines".
+ * "newer than seenAt" alone skipped it, and the GM's button then said "No new lines".
  */
 interface Seen { sessionId: string; seenAt: string; seenIds: Set<string>; lastAt: string | null }
 const lineKey = (l: TranscriptLine) => `${l.id}:${l.rev}`;
@@ -116,7 +116,7 @@ async function modelFilter(d: Deps, worldId: string, found: Suggestion[], lines:
   if (!found.length || !hasJob(d, 'audit')) return found;
   try {
     const j: any = await chatJson(d, 'audit', [
-      { role: 'system', content: 'You help a Dungeon Master. Below are suggestions drafted from the last minutes of a tabletop session transcript. Keep only the ones the transcript really supports. Reply with JSON only: {"keep": [numbers]}.' },
+      { role: 'system', content: 'You help a Game Master. Below are suggestions drafted from the last minutes of a tabletop session transcript. Keep only the ones the transcript really supports. Reply with JSON only: {"keep": [numbers]}.' },
       { role: 'user', content: `Transcript:\n${lines.map((l) => `${l.speaker}: ${l.text}`).join('\n').slice(0, 5000)}\n\nSuggestions:\n${found.map((s, i) => `${i}. ${s.title} (${s.why})`).join('\n')}` },
     ]);
     const keep = Array.isArray(j?.keep) ? new Set(j.keep.map(Number)) : null;
@@ -127,7 +127,7 @@ async function modelFilter(d: Deps, worldId: string, found: Suggestion[], lines:
 export interface PassResult { ran: boolean; reason?: string; lines: number; drafted: number }
 
 /**
- * One pass for a world. `force` skips the rate limit (the DM asked). Never throws for a model problem.
+ * One pass for a world. `force` skips the rate limit (the GM asked). Never throws for a model problem.
  * Drafts are low priority (kind suggest-*): they sort below the review's own drafts.
  */
 export async function suggestionPass(d: Deps, worldId: string, opts: { force?: boolean; at?: number } = {}): Promise<PassResult> {
@@ -149,7 +149,7 @@ export async function suggestionPass(d: Deps, worldId: string, opts: { force?: b
   // Every line at that newest millisecond has now been read (this pass or an earlier one).
   saveSeen(d, worldId, s.id, newest, all_.filter((l) => l.updatedAt === newest).map(lineKey));
   const found = await modelFilter(d, worldId, rulesSuggestions(d, worldId, recent, currentSession(d.db, worldId)), recent);
-  // One suggestion once: not again while it waits, and not again after the DM decided on it.
+  // One suggestion once: not again while it waits, and not again after the GM decided on it.
   const known = new Set(all<any>(d.db, `SELECT title FROM minerva_drafts WHERE world_id = ? AND kind LIKE '${SUGGEST_PREFIX}%'`, worldId).map((r) => String(r.title)));
   let drafted = 0;
   for (const sg of found) {

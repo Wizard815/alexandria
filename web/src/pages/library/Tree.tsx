@@ -14,7 +14,7 @@ const rowHeight = () => (typeof window !== 'undefined' && window.matchMedia?.('(
 /** Room left under the last row so the floating dock never covers it. */
 const END_PAD = 84;
 
-export function Tree({ rows, selected, onOpen, onSaveFolder, saved, badge, onShare }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; onSaveFolder?: (ids: string[], label: string) => void; saved: Set<string>; /** The DM's who-can-see badge for a page or folder (replaces the level chip). */ badge?: (n: Node) => ReactNode; /** The DM's Share button on a page or folder row. */ onShare?: (n: Node) => void }) {
+export function Tree({ rows, selected, onOpen, onSaveFolder, saved, badge, onShare }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; onSaveFolder?: (ids: string[], label: string) => void; saved: Set<string>; /** The GM's who-can-see badge for a page or folder (replaces the level chip). */ badge?: (n: Node) => ReactNode; /** The GM's Share button on a page or folder row. */ onShare?: (n: Node) => void }) {
   const tree = useMemo(() => buildTree(rows), [rows]);
   const [ROW, setRow] = useState(rowHeight);
   useEffect(() => {

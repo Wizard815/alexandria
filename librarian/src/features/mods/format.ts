@@ -1,7 +1,7 @@
 // The house rule (mod) file format and its validator. A mod is data, never
-// code: options the DM tunes, per-character counters, actions that change
+// code: options the GM tunes, per-character counters, actions that change
 // them (with an effect such as a server reroll), triggers on rests and
-// sessions, where it shows (sheet card, DM bar, Table block), chat commands,
+// sessions, where it shows (sheet card, GM bar, Table block), chat commands,
 // rule text, and presets (values for world settings other features own, so a
 // whole system such as spell points or MANA turns on with one switch).
 // Pure: no database. See docs/MODS.md.
@@ -18,8 +18,8 @@ export const PERMISSIONS = {
   'chat.buttons': 'Add buttons under chat messages',
   'sheet.card': 'Show a card on the player sheet',
   'sheet.write': 'Change the player sheet',
-  'dmband': 'Show chips on the DM status bar',
-  'table': 'Add a block to the DM Table',
+  'dmband': 'Show chips on the GM status bar',
+  'table': 'Add a block to the GM Table',
   'clock.read': 'Run on rests and sessions',
   'clock.write': 'Move the world clock',
   'settings.write': 'Change world settings while on',
@@ -93,7 +93,7 @@ export interface ModFile {
   permissions: Permission[];
   /** Kit 2 data system: its own lists, record actions, timers, prompts and views (system.ts). */
   system: System;
-  /** Kit 2: how the assistant works with the rule: words that bring it up, guidance for the DM's assistant and the
+  /** Kit 2: how the assistant works with the rule: words that bring it up, guidance for the GM's assistant and the
    *  player helper (each sees only its own), and other tools to offer with it (a feature's, such as the Codex's). */
   assistant: Assistant | null;
 }
@@ -409,7 +409,7 @@ export function impliedPermissions(mod: ModFile): Permission[] {
   return (Object.keys(PERMISSIONS) as Permission[]).filter((k) => p.has(k));
 }
 
-/** The DM's option values over the defaults, checked; unknown or bad values fall back to the default. */
+/** The GM's option values over the defaults, checked; unknown or bad values fall back to the default. */
 export function resolveOptions(mod: ModFile, saved: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, spec] of Object.entries(mod.options)) {

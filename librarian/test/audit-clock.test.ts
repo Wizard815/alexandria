@@ -1,4 +1,4 @@
-// Audit: world calendar and clock edge cases (negative and zero years, huge years, odd calendars, no DM).
+// Audit: world calendar and clock edge cases (negative and zero years, huge years, odd calendars, no GM).
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { boot, type Kit } from './audit-kit.ts';

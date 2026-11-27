@@ -1,4 +1,4 @@
-// The library (mirror) for one world. DMs read and write everything;
+// The library (mirror) for one world. GMs read and write everything;
 // players and guests only get the player copy of shared pages ("Lore").
 import { Router } from 'express';
 import type { Deps } from '../app.ts';
@@ -21,7 +21,7 @@ export default function libraryRoutes(d: Deps) {
   const L = d.library;
 
   r.use('/pages/:id/share', shareRoutes(d));
-  // DM: who was given which page, in one list.
+  // GM: who was given which page, in one list.
   r.get('/shares', requireDM, (_req, res) => res.json({ shares: allShares(d, ctx(res).world.id) }));
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   // A page held only at index depth (a tiered crawl) is read from its source first, then served.
@@ -65,12 +65,12 @@ export default function libraryRoutes(d: Deps) {
     const log = (found: { id: string }[]) => logSearch(d.db, { worldId: c.world.id, role: roleOf(c.viewer, model), origin: model ? 'agent' : 'library', q, hitIds: found.map((h) => h.id) });
     if (req.query.semantic === '1') { const found = await hybridPages(d, c.world.id, q, scopeFor(c.viewer), 20, c.viewer); log(found); return void res.json(found); }
     let hits = L.search(c.world.id, q, c.viewer);
-    // The DM's search reads the best few pages that are only held at index depth, so the answer comes from the page.
+    // The GM's search reads the best few pages that are only held at index depth, so the answer comes from the page.
     if (c.viewer.role === 'dm' && await readSearchHits(d, c.world.id, hits)) hits = L.search(c.world.id, q, c.viewer);
     log(hits);
     res.json(hits);
   });
-  // DM: shared pages that look like they contain DM notes written as prose.
+  // GM: shared pages that look like they contain GM notes written as prose.
   r.get('/lint', requireDM, (_req, res) => res.json(L.lint(ctx(res).world.id)));
   r.get('/relations', (_req, res) => res.json(L.relations(ctx(res).world.id, ctx(res).viewer)));
 

@@ -4,8 +4,8 @@
 //
 //   GET  /api/worlds/:world/search?q=&kinds=&limit=&semantic=
 //   GET  /api/worlds/:world/search/status        (embedding progress)
-//   POST /api/worlds/:world/search/reindex       (DM: embed what is stale now)
-//   POST /api/worlds/:world/search/build         (DM: one bulk pass over the whole world, embeddings and story bible, as a job)
+//   POST /api/worlds/:world/search/reindex       (GM: embed what is stale now)
+//   POST /api/worlds/:world/search/build         (GM: one bulk pass over the whole world, embeddings and story bible, as a job)
 //   MCP  search_world
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
@@ -50,7 +50,7 @@ const feature: Feature = {
       res.json(await syncEmbeddings(d, { maxPages: 200 }));
     });
 
-    // DM: drop every vector of this world and read it all again, in one bulk pass (a job).
+    // GM: drop every vector of this world and read it all again, in one bulk pass (a job).
     r.post('/reembed', requireDM, async (_req, res) => {
       const c = ctx(res);
       vectorStore(d.db).deleteWorld(c.world.id);
@@ -59,7 +59,7 @@ const feature: Feature = {
       res.json({ ok: true, ...cov, started: startBulkBuild(d, c.world.id, { embeddings: true }) });
     });
 
-    // DM: embed and read into the story bible everything that is waiting, in one fast pass (a job), instead of a few pages a tick.
+    // GM: embed and read into the story bible everything that is waiting, in one fast pass (a job), instead of a few pages a tick.
     // Body: { embeddings?: boolean, bible?: boolean } (both by default). 202 when it started, 200 with started: false when it was already running.
     r.post('/build', requireDM, (req, res) => {
       const c = ctx(res);

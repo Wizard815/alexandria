@@ -222,7 +222,7 @@ fn spawn_assistant(app: &AppHandle, world: Option<String>, toggle: bool) {
 }
 
 /// Show (or create) the players' screen window: the TV facing the table. Autoplay with sound is
-/// allowed here without a click (the DM chose to open this window): Windows WebView2 through a
+/// allowed here without a click (the GM chose to open this window): Windows WebView2 through a
 /// browser argument, Linux WebKitGTK through the webview setting. macOS WKWebView only takes
 /// that choice when the webview is created and Tauri offers no hook for it, so there the
 /// screen's own "Click to start" overlay unlocks sound.

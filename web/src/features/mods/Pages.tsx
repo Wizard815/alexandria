@@ -1,4 +1,4 @@
-// The DM's House rules page (each player's counters with Grant and Take back,
+// The GM's House rules page (each player's counters with Grant and Take back,
 // and the change log), the player's card (my counters with Use buttons) and
 // the player's page (the rules in play and what I hold).
 import { useState, type ReactNode } from 'react';
@@ -14,14 +14,14 @@ const withCounters = (list: HouseRule[]) => list.filter((r) => r.enabled && r.re
 
 type Tab = string; // 'play' | 'rules' | 'make' | `x:<mod>:<title>` for a system rule's own tab
 
-/** The DM's house rules hub: counters in play, every rule with its switch, and making or adding one. */
+/** The GM's house rules hub: counters in play, every rule with its switch, and making or adding one. */
 export function DMHouseRules() {
   const { list, rules } = useHouseRules();
   const [tab, setTab] = useState<Tab | null>(null);
   const on = list.filter((r) => r.enabled).length;
   const extra: { key: string; title: string; render: () => ReactNode }[] = [
     ...houseRuleTabs.filter((t) => list.some((r) => r.id === t.mod && r.enabled)).map((t) => ({ key: `x:${t.mod}:${t.title}`, title: t.title, render: () => { const C = t.component; return <C />; } })),
-    // A data system's own tab: its prompt buttons and the views it puts on the DM's page.
+    // A data system's own tab: its prompt buttons and the views it puts on the GM's page.
     ...list.filter((r) => r.enabled && r.system && (r.system.views.some((v) => v.place === 'dm') || r.system.prompts.length)).map((r) => ({
       key: `x:sys:${r.id}`, title: r.system!.views.find((v) => v.place === 'dm')?.title ?? r.name, render: () => <DMSystemTab rule={r} />,
     })),
@@ -161,7 +161,7 @@ export function PlayerHouseRules() {
       <MyHouseRulesCard />
       <ViewsFor place="sheet" />
       <ViewsFor place="player" />
-      {!rules.data ? <Loading /> : list.length === 0 ? <Empty>Your DM has no house rules on.</Empty> : list.map((r) => (
+      {!rules.data ? <Loading /> : list.length === 0 ? <Empty>Your GM has no house rules on.</Empty> : list.map((r) => (
         <section key={r.id} className="card stack">
           <h2 style={{ margin: 0 }}>{r.name}</h2>
           <div className="small">{r.summary}</div>

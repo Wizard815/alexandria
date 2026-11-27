@@ -1,5 +1,5 @@
 // The player sheet: a small, modular companion to the paper character sheet
-// that each player arranges and fills in, and the DM's status bar with every
+// that each player arranges and fills in, and the GM's status bar with every
 // player's health and mana. See librarian/src/features/sheet.
 import { useSearchParams } from 'react-router-dom';
 import type { WebFeature } from '../registry.ts';

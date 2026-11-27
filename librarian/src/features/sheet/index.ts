@@ -2,7 +2,7 @@
 // Each player arranges their own modules (health and conditions, mana,
 // inventory, allies and enemies, quick notes, recently seen people and
 // places, and their own text, counters and checklists). Every HP and mana
-// change is logged, and the DM gets each player's health and mana in one
+// change is logged, and the GM gets each player's health and mana in one
 // status bar (GET /party).
 //
 // Mana belongs to the spells feature (features/spells): this reads and
@@ -35,11 +35,11 @@ function routes(d: Deps) {
   const { db } = d;
   const W = (res: Response) => ctx(res).world.id;
 
-  /** `me`, or (for the DM) any player. Players may only name themselves. */
+  /** `me`, or (for the GM) any player. Players may only name themselves. */
   function who(res: Response, raw: unknown): string {
     const v = String(raw ?? 'me');
     let aid = v === 'me' ? me(res) : v;
-    // The DM (and the assistant) may name a player by character or display name.
+    // The GM (and the assistant) may name a player by character or display name.
     if (isDM(res) && aid !== me(res) && !memberIds(db, W(res), ['player', 'dm']).includes(aid)) {
       const n = v.trim().toLowerCase();
       const hits = all<any>(db, "SELECT m.account_id, m.character_name, a.display_name FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.role = 'player'", W(res))
@@ -70,7 +70,7 @@ function routes(d: Deps) {
     if (combat) { const s = settingsOf(db, worldId); d.hub.emitPer(worldId, 'combat', (v) => combatViewFor(db, worldId, v, s)); }
   };
 
-  // ---- the DM's status bar: every player's health and mana ----
+  // ---- the GM's status bar: every player's health and mana ----
   r.get('/party', requireDM, (_req, res) => {
     const w = W(res);
     const rows = all<any>(db, "SELECT m.account_id FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.role = 'player' ORDER BY COALESCE(NULLIF(m.character_name, ''), a.display_name) COLLATE NOCASE", w);
@@ -103,7 +103,7 @@ function routes(d: Deps) {
     res.json({ accountId: aid, ...nameOf(w, aid), mine: own, ...vitalsOf(db, w, aid), mana: manaOf(res, aid), rerolls: rerollsOf(db, settings(res), w, aid), modules: shownTo(modulesOf(w, aid), own), fromDm: dmNotes(w, aid) });
   });
 
-  // ---- notes and goals the DM sets for one player: only that player and the DM see them ----
+  // ---- notes and goals the GM sets for one player: only that player and the GM see them ----
   const dmNotes = (w: string, aid: string) => all<any>(db, 'SELECT * FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? ORDER BY kind DESC, done, created_at', w, aid)
     .map((x) => ({ id: x.id, kind: x.kind, text: x.text, done: !!x.done, createdAt: x.created_at, updatedAt: x.updated_at }));
   const noteText = (v: unknown) => {
@@ -124,14 +124,14 @@ function routes(d: Deps) {
     changed(w, aid);
     res.status(201).json({ fromDm: dmNotes(w, aid) });
   });
-  // The DM edits anything; the player may only tick a goal done or not.
+  // The GM edits anything; the player may only tick a goal done or not.
   r.patch('/:aid/dm-notes/:nid', requirePlayerOrDM, (req, res) => {
     const aid = who(res, req.params.aid);
     const w = W(res);
     const x = one<any>(db, 'SELECT * FROM sheet_dm_notes WHERE id = ? AND world_id = ? AND account_id = ?', String(req.params.nid), w, aid);
     if (!x) throw new HttpError(404, 'Note not found');
     const b = req.body ?? {};
-    if (!isDM(res) && (b.text !== undefined || b.kind !== undefined)) throw new HttpError(403, 'Only the DM changes what it says');
+    if (!isDM(res) && (b.text !== undefined || b.kind !== undefined)) throw new HttpError(403, 'Only the GM changes what it says');
     if (!isDM(res) && x.kind !== 'goal') throw new HttpError(400, 'Only goals can be ticked');
     run(db, 'UPDATE sheet_dm_notes SET kind = ?, text = ?, done = ?, updated_at = ? WHERE id = ?',
       b.kind !== undefined ? noteKind(b.kind) : x.kind, b.text !== undefined ? noteText(b.text) : x.text, b.done !== undefined ? (b.done ? 1 : 0) : x.done, now(), x.id);
@@ -147,7 +147,7 @@ function routes(d: Deps) {
 
   r.get('/:aid/recent', (req, res) => {
     const aid = who(res, req.params.aid);
-    // What that player may see, even when the DM asks.
+    // What that player may see, even when the GM asks.
     res.json(recentFor(d, W(res), { accountId: aid, role: 'player' }));
   });
 
@@ -161,7 +161,7 @@ function routes(d: Deps) {
     res.json({ modules: mods });
   });
 
-  // HP, max HP, temporary HP and conditions: the player or the DM.
+  // HP, max HP, temporary HP and conditions: the player or the GM.
   r.post('/:aid/vitals', requirePlayerOrDM, (req, res) => {
     const aid = who(res, req.params.aid);
     const b = req.body ?? {};
@@ -194,7 +194,7 @@ function routes(d: Deps) {
     res.json({ ...out.after, notes: out.notes });
   });
 
-  // Mana up or down (a potion, a lost focus): the player within their pool, the DM any amount. The spells log keeps it.
+  // Mana up or down (a potion, a lost focus): the player within their pool, the GM any amount. The spells log keeps it.
   r.post('/:aid/mana', requirePlayerOrDM, (req, res) => {
     const aid = who(res, req.params.aid);
     const w = W(res);
@@ -202,8 +202,8 @@ function routes(d: Deps) {
     if (!rules.on) throw new HttpError(409, 'Mana is off in this world');
     const b = req.body ?? {};
     const dm = isDM(res);
-    // The MANA branch's world setting (default on); the DM is never stopped by it.
-    if (!dm && featureSetting<boolean>(settings(res), 'spellManaPlayerEdit') === false) throw new HttpError(403, 'The DM changes mana in this world');
+    // The MANA branch's world setting (default on); the GM is never stopped by it.
+    if (!dm && featureSetting<boolean>(settings(res), 'spellManaPlayerEdit') === false) throw new HttpError(403, 'The GM changes mana in this world');
     const note = String(b.note ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
     const out = tx(db, () => {
       const c = character(db, w, aid);
@@ -215,7 +215,7 @@ function routes(d: Deps) {
       if (!dm) next = Math.max(0, Math.min(max, next));
       if (next !== cur) {
         saveCharacter(db, w, aid, { mana: next });
-        logEntry(db, w, aid, 'adjust', me(res), { amount: next - cur, manaAfter: next, note: note || (dm ? 'Adjusted by the DM' : 'Changed on the sheet') });
+        logEntry(db, w, aid, 'adjust', me(res), { amount: next - cur, manaAfter: next, note: note || (dm ? 'Adjusted by the GM' : 'Changed on the sheet') });
       }
       return { now: next, max, changed: next !== cur, before: cur };
     });
@@ -227,7 +227,7 @@ function routes(d: Deps) {
     res.json({ on: true, now: out.now, max: out.max });
   });
 
-  // House rule: re-roll tokens. The DM gives or takes back; a player spends their own.
+  // House rule: re-roll tokens. The GM gives or takes back; a player spends their own.
   r.post('/:aid/rerolls', requirePlayerOrDM, (req, res) => {
     const aid = who(res, req.params.aid);
     const w = W(res);
@@ -290,7 +290,7 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'party_status', dmOnly: true,
-      description: "Every player character's HP, max HP, temporary HP, conditions and mana (the DM's status bar).",
+      description: "Every player character's HP, max HP, temporary HP, conditions and mana (the GM's status bar).",
       props: {}, call: () => ({ method: 'GET', path: '/sheet/party' }),
     },
     {
@@ -308,7 +308,7 @@ const feature: Feature = {
     },
     {
       name: 'give_reroll', write: true,
-      description: "House rule (when the world uses re-rolls): give a player a re-roll token as a reward for good role play, or take one back with a negative delta. Kinds: personal (re-roll their own roll), party (re-roll anyone's roll), dm (make the DM re-roll). Logged.",
+      description: "House rule (when the world uses re-rolls): give a player a re-roll token as a reward for good role play, or take one back with a negative delta. Kinds: personal (re-roll their own roll), party (re-roll anyone's roll), dm (make the GM re-roll). Logged.",
       props: {
         accountId: { type: 'string', description: 'The player: account id (from party_status) or character name' },
         kind: { type: 'string', enum: ['personal', 'party', 'dm'] },

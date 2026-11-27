@@ -180,7 +180,7 @@ function ImportBox({ onDone }: { onDone: () => void }) {
       {src === 'dnd5eapi' && (
         <div className="stack tight">
           <p className="tiny muted">A fresh copy of the System Reference Document from the <a href="https://www.dnd5eapi.co" target="_blank" rel="noreferrer">5e SRD API</a>, as its own module. The app already has both SRDs built in; use this to pick up the API's newer fixes and additions.</p>
-          <Field label="Edition"><select value={edition} onChange={(e) => { setEdition(e.target.value); setPre(null); }}>{(sources.data?.dnd5eapi?.editions ?? [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }]).map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+          <Field label="Edition"><select value={edition} onChange={(e) => { setEdition(e.target.value); setPre(null); }}>{(sources.data?.dnd5eapi?.editions ?? [{ id: '2024', name: 'SRD 5.2 (5e 2024)' }, { id: '2014', name: 'SRD 5.1 (5e 2014)' }]).map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
         </div>
       )}
       {free && (
@@ -237,7 +237,7 @@ function ImportBox({ onDone }: { onDone: () => void }) {
 
 const KIND_TABS: [string, string][] = [['', 'All'], ['spell', 'Spells'], ['monster', 'Monsters'], ['item', 'Items'], ['condition', 'Conditions'], ['rule', 'Rules'], ['class', 'Classes'], ['action', 'Actions'], ['other', 'Other']];
 
-/** Everything in one module, searchable; the DM can read an entry and leave it out of this world (or put it back). */
+/** Everything in one module, searchable; the GM can read an entry and leave it out of this world (or put it back). */
 export function ModuleBrowser({ id, onClose }: { id: string; onClose: () => void }) {
   const { w } = useWorld();
   const act = useAction();

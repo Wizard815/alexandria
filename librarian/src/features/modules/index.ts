@@ -1,5 +1,5 @@
 // Game modules: rules and term glossaries (spells, conditions, monsters,
-// rules...). Two come with the app (SRD 5.2 and SRD 5.1); a DM can import
+// rules...). Two come with the app (SRD 5.2 and SRD 5.1); a GM can import
 // more. See docs/MODULES.md.
 import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
@@ -24,7 +24,7 @@ const audit = (db: any, worldId: string, accountId: string, action: string, deta
 const intQ = (v: unknown, d: number) => { const n = Number(v); return Number.isFinite(n) ? Math.trunc(n) : d; };
 
 // Open5e and the 5e SRD API are a house rule (features/open5e): off, the world cannot pull from them.
-const OPEN5E_OFF = 'Open5e is off in this world: the DM turns it on under House rules';
+const OPEN5E_OFF = 'Open5e is off in this world: the GM turns it on under House rules';
 const open5eOn = (res: any) => featureSetting<boolean>(settings(res), 'open5e') === true;
 const needOpen5e = (req: any, res: any, next: any) => (open5eOn(res) ? next() : next(new HttpError(403, OPEN5E_OFF)));
 
@@ -110,7 +110,7 @@ function routes(d: Deps) {
     throw new HttpError(404, 'Unknown card source');
   });
 
-  // ---- free content sources (DM): what can be pulled in one step ----
+  // ---- free content sources (GM): what can be pulled in one step ----
   r.get('/sources', requireDM, needOpen5e, async (req, res) => {
     const kinds = [...new Set(OPEN5E_ENDPOINTS.map((e) => e.kind))];
     let open5e: any;
@@ -118,11 +118,11 @@ function routes(d: Deps) {
     catch (e: any) { open5e = { base: OPEN5E_BASE, documents: [], error: String(e?.message ?? e).slice(0, 200) }; }
     res.json({
       open5e: { ...open5e, kinds, lists: OPEN5E_ENDPOINTS.map((e) => ({ kind: e.kind, label: e.label })) },
-      dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }], kinds: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] },
+      dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (5e 2024)' }, { id: '2014', name: 'SRD 5.1 (5e 2014)' }], kinds: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] },
     });
   });
 
-  // ---- browse one module and leave single entries out of this world (DM) ----
+  // ---- browse one module and leave single entries out of this world (GM) ----
   r.get('/browse/:id', requireDM, (req, res) => {
     const id = String(req.params.id);
     if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
@@ -178,7 +178,7 @@ function routes(d: Deps) {
     res.json({ fed });
   });
 
-  // ---- import (DM): always preview, then save ----
+  // ---- import (GM): always preview, then save ----
   const raw = express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '16mb' });
   const body = (req: any): { b: any; zip?: Buffer } => {
     if (Buffer.isBuffer(req.body)) {

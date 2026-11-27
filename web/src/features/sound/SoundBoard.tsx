@@ -1,4 +1,4 @@
-// The DM's sound board: music (folders and the mood map), ambience mixer and
+// The GM's sound board: music (folders and the mood map), ambience mixer and
 // scenes, effect pads, who is listening, Spotify and speaker groups.
 import { useEffect, useRef, useState } from 'react';
 import { PageHead, ErrorBox, Empty, Loading, Tabs, Field, useAction, useToast } from '../../ui/index.tsx';

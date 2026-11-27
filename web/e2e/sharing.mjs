@@ -1,5 +1,5 @@
-// End-to-end test of the three DM requests: library sharing (one Share dialog, badges, folder rules, send to
-// players, From the DM), the Players page (a card per player, then the party) and paying the broker from
+// End-to-end test of the three GM requests: library sharing (one Share dialog, badges, folder rules, send to
+// players, From the GM), the Players page (a card per player, then the party) and paying the broker from
 // your own coin or the party pouch. The seeded demo world, the built app and Chromium.
 // Run from web/: npm run build && node e2e/sharing.mjs   (SHARING_E2E_PORT, SHARING_SHOTS=<dir>)
 import { spawn } from 'node:child_process';
@@ -31,7 +31,7 @@ srv.stderr.on('data', (d) => process.stderr.write('[demo] ' + d));
 for (let i = 0; i < 200 && !out.includes('Alexandria demo is running'); i++) await new Promise((r) => setTimeout(r, 200));
 if (!out.includes('Alexandria demo is running')) { console.log(out); srv.kill(); console.log('demo did not start'); process.exit(1); }
 
-const PASS = { dm: 'dungeon master 123', jess: 'player pass 123', tom: 'player pass 123' };
+const PASS = { dm: 'game master 123', jess: 'player pass 123', tom: 'player pass 123' };
 const token = async (user) => (await (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: PASS[user] }) })).json()).token;
 const api = async (tok, method, p, body) => {
   const r = await fetch(`${API}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -75,7 +75,7 @@ try {
   const file = await up.json();
   check(up.status === 201, `file upload failed: ${up.status}`);
 
-  // ---- 1. The DM: Share dialog on a page ------------------------------------
+  // ---- 1. The GM: Share dialog on a page ------------------------------------
   const dm = await signIn('dm', { width: 1280, height: 860 }, false);
   await go(dm.page, `dm/library?page=${encodeURIComponent(solo.id)}`);
   await dm.page.getByRole('button', { name: 'Share…' }).first().click();
@@ -84,7 +84,7 @@ try {
   check(await dlg.isVisible(), 'the Share dialog did not open for a page');
   check(await dlg.getByText('Everyone', { exact: true }).isVisible(), 'dialog has no Everyone choice');
   check(await dlg.getByText('Only these players').isVisible(), 'dialog has no Only these players choice');
-  check(await dlg.getByText('DM only', { exact: true }).isVisible(), 'dialog has no DM only choice');
+  check(await dlg.getByText('GM only', { exact: true }).isVisible(), 'dialog has no GM only choice');
   await dlg.getByText('Only these players').click();
   await dlg.getByLabel(/jess/i).first().check();
   await shot(dm.page, '01-share-dialog-page');
@@ -158,16 +158,16 @@ try {
   await dm.page.waitForTimeout(800);
   check((await api(dmTok, 'GET', '/libshare/overview')).body.files[file.id]?.mode === 'party', 'the file is not shared with everyone');
 
-  // ---- 5. Players: From the DM ----------------------------------------------
+  // ---- 5. Players: From the GM ----------------------------------------------
   const jess = await signIn('jess', { width: 1280, height: 860 }, false);
   await go(jess.page, '');
   const home = await jess.page.locator('main').innerText();
-  check(/From the DM/.test(home), 'Jess has no From the DM card on Home');
+  check(/From the GM/.test(home), 'Jess has no From the GM card on Home');
   check(/Only for Jess|Harbour sketch/.test(home), 'Jess does not see what was sent to her');
   check(await jess.page.locator('.shr-new').first().isVisible().catch(() => false), 'no "New" badge for Jess');
   await shot(jess.page, '06-player-home-from-dm');
   await go(jess.page, 'library');
-  check(/From the DM/.test(await jess.page.locator('.lib-side').innerText()), 'Jess has no From the DM section in the Library');
+  check(/From the GM/.test(await jess.page.locator('.lib-side').innerText()), 'Jess has no From the GM section in the Library');
   const tom = await signIn('tom', { width: 1280, height: 860 }, false);
   await go(tom.page, 'library');
   const tomSide = await tom.page.locator('.lib-side').innerText();
@@ -179,7 +179,7 @@ try {
   check((await api(tomTok, 'GET', `/library/pages/${solo.id}`)).status === 404, 'Tom can open the page shared with Jess only by id');
   check((await api(jessTok, 'GET', `/library/pages/${solo.id}`)).status === 200, 'Jess cannot open the page shared with her');
 
-  // ---- 6. Players page (DM) --------------------------------------------------
+  // ---- 6. Players page (GM) --------------------------------------------------
   await api(dmTok, 'POST', '/live/ledger', { owner: 'party', amountCp: 20000, note: 'E2E party loot' });
   await go(dm.page, 'dm/party');
   const cards = await dm.page.locator('.pl-card').count();
@@ -239,7 +239,7 @@ try {
   check(afterLog.entries.some((e) => /^Broker purchase \(paid by .* from the party pouch\)$/.test(e.note)) && !afterLog.entries.some((e) => /small favour/.test(e.note)), 'the party log does not show the broker payment');
   check(afterLog.cp === before.cp - 2500, `the party pouch did not drop by the price (${before.cp} -> ${afterLog.cp})`);
   const dmOffers = (await api(dmTok, 'GET', '/broker/offers')).body;
-  check(dmOffers.find((o) => o.id === offer2.id)?.paid_from === 'party', 'the DM does not see the offer was paid from the party pouch');
+  check(dmOffers.find((o) => o.id === offer2.id)?.paid_from === 'party', 'the GM does not see the offer was paid from the party pouch');
   await jess.page.reload();
   await jess.page.waitForTimeout(700);
   void offer;
@@ -249,7 +249,7 @@ try {
   await go(dm2.page, 'dm/broker');
   await dm2.page.getByRole('tab', { name: /Special offers/ }).click().catch(() => {});
   await dm2.page.waitForTimeout(500);
-  check(/from the party pouch/.test(await dm2.page.locator('main').innerText()), 'the DM broker page does not say who paid from where');
+  check(/from the party pouch/.test(await dm2.page.locator('main').innerText()), 'the GM broker page does not say who paid from where');
   await shot(dm2.page, '11-dm-broker-paid');
   await dm2.ctx.close();
 } catch (e) {

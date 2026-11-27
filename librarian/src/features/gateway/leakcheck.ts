@@ -1,5 +1,5 @@
 // The runtime leak check: reads each world's library as each player and guest and checks that no run of
-// 8 words of DM-only text (DM pages, secret blocks, broker and classified parts, DM transcript lines)
+// 8 words of GM-only text (GM pages, secret blocks, broker and classified parts, GM transcript lines)
 // shows up. It reads through the same library calls the web app, the offline bulk fetch and the MCP read
 // tools use (Library.list / get / search, and the global search), so a leak found here is one those would serve.
 //
@@ -49,7 +49,7 @@ function pageTexts(pg: any): string[] {
   return out;
 }
 
-/** Search words that would find DM-only text: titles of pages no player may open, and the first words of DM-only runs. */
+/** Search words that would find GM-only text: titles of pages no player may open, and the first words of GM-only runs. */
 function queriesFor(db: DB, worldId: string, dm: Set<string>): string[] {
   const q = new Set<string>();
   for (const p of all<{ title: string }>(db, `SELECT title FROM pages WHERE world_id = ? AND visibility <> 'party' LIMIT ?`, worldId, SEARCH_QUERIES)) q.add(p.title);

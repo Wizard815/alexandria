@@ -21,7 +21,7 @@ export function AssistantBody() {
 export default function AssistantWindow() {
   const { isDM, info } = useWorld();
   useEffect(() => { document.title = `Assistant · ${info?.name ?? 'Alexandria'}`; }, [info?.name]);
-  if (!isDM) return <div className="page"><p className="muted">The popped-out assistant is for the DM.</p></div>;
+  if (!isDM) return <div className="page"><p className="muted">The popped-out assistant is for the GM.</p></div>;
   return (
     <div className="t-fantasy ag-window" style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg, #111)' }}>
       <header className="ag-head" style={{ padding: '8px 12px' }}>

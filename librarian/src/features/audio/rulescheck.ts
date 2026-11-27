@@ -1,6 +1,6 @@
 // Minerva quietly checks the table's rules calls. When a rules term from the enabled modules (a spell, a condition,
 // an action, a rule) is said while recording, the lines around it and the rule's own text go to the audit model,
-// which answers only "fine" or one short sentence on what the rule says. A clear mistake becomes a note for the DM
+// which answers only "fine" or one short sentence on what the rule says. A clear mistake becomes a note for the GM
 // alone (a live event and GET /audio/sessions/:sid/rule-notes); nothing is said to the players, nothing is changed.
 // Each term is checked at most once every ten minutes in a session, two per pass, and a line that repeats classified
 // text is never sent. World setting rulesCheck: 'off' turns it off.
@@ -42,7 +42,7 @@ export function ruleNotes(d: Deps, sessionId: string, opts: { onlyFlags?: boolea
 const SYSTEM = [
   'You check how a tabletop RPG table used one rule, against the rule text you are given.',
   'Flag only a clear mistake that matters at the table: the wrong action type, the wrong save or check, the wrong range, duration or damage, a condition applied with the wrong effect.',
-  'Do not flag flavour, jokes, a house rule the DM states, a rule from another edition the DM chose, or anything the transcript does not show.',
+  'Do not flag flavour, jokes, a house rule the GM states, a rule from another edition the GM chose, or anything the transcript does not show.',
   'Answer with JSON only: {"ok": true} or {"ok": false, "note": "one short sentence on what the rule says"}.',
 ].join('\n');
 

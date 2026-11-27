@@ -109,7 +109,7 @@ export class Jobs {
       },
     };
     try {
-      // A tracked job is background work: its model calls wait behind the DM and the players, whoever started it.
+      // A tracked job is background work: its model calls wait behind the GM and the players, whoever started it.
       const out = await withPriority(0, () => fn(ctx));
       info.status = ctl.signal.aborted ? 'cancelled' : 'done';
       return out;

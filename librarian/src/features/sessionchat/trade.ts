@@ -18,11 +18,11 @@ const sameItem = (db: DB, worldId: string, owner: string, it: any, exceptId: str
   one<any>(db, `SELECT * FROM items WHERE world_id = ? AND owner = ? AND status = 'approved' AND lower(name) = lower(?) AND IFNULL(link, '') = IFNULL(?, '') AND IFNULL(image, '') = IFNULL(?, '') AND IFNULL(page_id, '') = IFNULL(?, '') AND dm_note = ? AND IFNULL(weight, -1) = IFNULL(?, -1) AND id <> ?`,
     worldId, owner, it.name, it.link, it.image, it.page_id, it.dm_note, it.weight, exceptId);
 
-/** An item a player owns outright: approved, theirs, no change waiting for the DM, enough in the stack. */
+/** An item a player owns outright: approved, theirs, no change waiting for the GM, enough in the stack. */
 export function ownedItem(db: DB, worldId: string, owner: string, itemId: string, qty: number) {
   const it = one<any>(db, `SELECT * FROM items WHERE id = ? AND world_id = ? AND status = 'approved'`, itemId, worldId);
   if (!it || it.owner !== owner) throw new HttpError(403, 'You can only trade items you own');
-  if (one(db, `SELECT 1 FROM item_changes WHERE item_id = ? AND status = 'pending'`, it.id)) throw new HttpError(409, `${it.name} has a change waiting for the DM`);
+  if (one(db, `SELECT 1 FROM item_changes WHERE item_id = ? AND status = 'pending'`, it.id)) throw new HttpError(409, `${it.name} has a change waiting for the GM`);
   if (qty > it.qty) throw new HttpError(400, `There are only ${it.qty} ${it.name}`);
   return it;
 }

@@ -36,7 +36,7 @@ Create the admin on first run (the first account is the admin): `curl -X POST lo
 
 ### Admin GUI (Port 8090)
 - Configure MCP modules from GitHub
-- Manage scribes (DM, Player, Guest roles)
+- Manage scribes (GM, Player, Guest roles)
 - Set main + fallback models
 - Update MCP modules without downtime
 - Configure API keys for various world builders
@@ -53,7 +53,7 @@ Create the admin on first run (the first account is the admin): `curl -X POST lo
 - Local LLM support (Ollama, LM Studio, etc.)
 
 ### Scribe Authentication
-- **DM Scribes**: Full MCP access (all tools)
+- **GM Scribes**: Full MCP access (all tools)
 - **Player Scribes**: Read-only MCP access
 - **Guest Scribes**: Limited MCP permissions
 
@@ -135,7 +135,7 @@ Each scribe maintains separate:
 
 Example setup:
 ```
-Desktop DM Scribe → Full MCP access
+Desktop GM Scribe → Full MCP access
 Mobile Player Scribe 1 → Read-only MCP
 Desktop Player Scribe 2 → Read-only MCP
 ```

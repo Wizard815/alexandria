@@ -1,4 +1,4 @@
-// DM: Audio setup. Turn on any number of mics, name them, set each one's
+// GM: Audio setup. Turn on any number of mics, name them, set each one's
 // mode, players' transcript, aside and hold key; start and stop the session.
 import { useEffect, useRef, useState } from 'react';
 import { PageHead, ErrorBox, Field, Switch, Loading, useAction, useToast } from '../../ui/index.tsx';
@@ -143,13 +143,13 @@ export default function AudioSetup() {
                 <div className="au-grid">
                   <Field label="Name"><input value={s.label === inp.label ? '' : s.label} placeholder={inp.label} maxLength={60} onChange={(e) => setSettings((l) => [...l.filter((x) => x.deviceId !== inp.deviceId), { ...s, label: e.target.value }])} onBlur={(e) => void update(inp.deviceId, { label: e.target.value.trim() || inp.label })} /></Field>
                   <Field label="Mode"><select value={s.mode} onChange={(e) => void update(inp.deviceId, { mode: e.target.value as Mode })}>{MODES.map((m) => <option key={m} value={m}>{MODE_LABELS[m]}</option>)}</select></Field>
-                  <div className="field"><span className="label">Players' transcript</span><label className="row" style={{ gap: 8 }}><Switch checked={s.playersTranscript} onChange={(v) => void update(inp.deviceId, { playersTranscript: v })} label="Show this mic in the players' transcript" /><span className="tiny">{s.playersTranscript ? 'Players see it' : 'DM only'}</span></label></div>
-                  <div className="field"><span className="label">DM aside mic</span><label className="row" style={{ gap: 8 }}><Switch checked={s.aside} onChange={(v) => void update(inp.deviceId, { aside: v })} label="Treat this mic as an aside" /><span className="tiny">{s.aside ? 'Keeps every mic out of the players’ view while in use' : 'Off'}</span></label></div>
+                  <div className="field"><span className="label">Players' transcript</span><label className="row" style={{ gap: 8 }}><Switch checked={s.playersTranscript} onChange={(v) => void update(inp.deviceId, { playersTranscript: v })} label="Show this mic in the players' transcript" /><span className="tiny">{s.playersTranscript ? 'Players see it' : 'GM only'}</span></label></div>
+                  <div className="field"><span className="label">GM aside mic</span><label className="row" style={{ gap: 8 }}><Switch checked={s.aside} onChange={(v) => void update(inp.deviceId, { aside: v })} label="Treat this mic as an aside" /><span className="tiny">{s.aside ? 'Keeps every mic out of the players’ view while in use' : 'Off'}</span></label></div>
                   <div className="field"><span className="label">Hold key</span><KeyButton value={s.key} onChange={(k) => void update(inp.deviceId, { key: k })} /></div>
                   <div className="field"><span className="label">Signal</span>{ms?.recording ? <><Meter level={ms.level} /><span className="tiny faint">{ms.sent} sent{ms.failed ? `, ${ms.failed} failed` : ''}</span></> : <span className="tiny faint">Not recording</span>}</div>
                 </div>
               )}
-              {s.enabled && s.mode === 'hold-to-talk' && <p className="tiny muted">Hold to talk: this mic only counts while its key is held. A DM-only mic used this way is also an aside for every other mic.</p>}
+              {s.enabled && s.mode === 'hold-to-talk' && <p className="tiny muted">Hold to talk: this mic only counts while its key is held. A GM-only mic used this way is also an aside for every other mic.</p>}
             </article>
           );
         })}
@@ -174,7 +174,7 @@ export default function AudioSetup() {
       </section>
 
       <section className="card">
-        <h2>DM aside key</h2>
+        <h2>GM aside key</h2>
         <p className="small muted">Hold it while you say something the players must not read. Everything every mic hears in that time stays in your transcript only.</p>
         <KeyButton value={asideKey} onChange={(k) => { setAsideKey(k); engine.saveAsideKey(k); }} />
         {engine.asideHeld && <span className="au-rec-dot" />}
@@ -204,7 +204,7 @@ export default function AudioSetup() {
           return (
             <li key={m.id} className="au-mic-row">
               <span>{m.label} <span className="tiny faint">({m.owner})</span></span>
-              <span className="tiny faint">{MODE_LABELS[m.mode as Mode]}{m.playersTranscript ? '' : ' · DM only'}{m.aside ? ' · aside' : ''}</span>
+              <span className="tiny faint">{MODE_LABELS[m.mode as Mode]}{m.playersTranscript ? '' : ' · GM only'}{m.aside ? ' · aside' : ''}</span>
               {line.text && <span className={`tiny au-stt ${line.where}`} data-stt={line.where}><i className={`fa-solid ${line.where === 'device' ? 'fa-microchip' : line.where === 'loading' ? 'fa-spinner' : 'fa-server'}`} aria-hidden="true" /> {line.text}</span>}
             </li>
           );

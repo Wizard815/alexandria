@@ -1,5 +1,5 @@
-// Giving between players and the party (no DM approval), asking each other
-// for coin, and item pictures. Used by the player Inventory, the DM's Party
+// Giving between players and the party (no GM approval), asking each other
+// for coin, and item pictures. Used by the player Inventory, the GM's Party
 // page and the broker.
 import { uploadPicture } from '../../lib/upload.ts';
 import { useEffect, useState } from 'react';
@@ -16,7 +16,7 @@ export interface Item {
 export interface CoinRequest { id: string; from: string; to: string; amount_cp: number; given_cp: number; note: string; offer_id: string | null; status: 'open' | 'done' | 'declined' | 'cancelled'; at: string }
 export interface Transfer { id: string; kind: 'coin' | 'item'; from_owner: string; to_owner: string; amount_cp: number | null; item_name: string | null; qty: number | null; note: string; by_id: string; at: string; seen: boolean }
 
-/** Whether players may give freely (world setting; on unless the DM turned it off). */
+/** Whether players may give freely (world setting; on unless the GM turned it off). */
 export const givingOn = (s: unknown) => (s as { playerTransfers?: boolean }).playerTransfers !== false;
 
 // ---- Pictures ----
@@ -117,7 +117,7 @@ export function GiveCoinModal({ from = 'me', to: initialTo, onClose, onDone }: {
   });
   return (
     <Modal title="Give coin" onClose={onClose}>
-      <p className="small muted">Coin moves at once. The DM sees it in their log; nothing waits for approval.</p>
+      <p className="small muted">Coin moves at once. The GM sees it in their log; nothing waits for approval.</p>
       <div className="row" style={{ flexWrap: 'wrap' }}>
         <Field label="From"><select value={src} onChange={(e) => setSrc(e.target.value)}>{fromOptions.map((f) => <option key={f} value={f}>{f === 'party' ? 'Party pouch' : nm(f)}</option>)}</select></Field>
         <Field label="To"><select value={to} onChange={(e) => setTo(e.target.value)}>{toOptions.map((t) => <option key={t} value={t}>{t === 'party' ? 'Party pouch' : nm(t)}</option>)}</select></Field>
@@ -152,7 +152,7 @@ export function MoveItemModal({ item, onClose, onDone }: { item: Item; onClose: 
   });
   return (
     <Modal title={`Give or move ${item.name}`} onClose={onClose}>
-      <p className="small muted">Moves at once, no DM approval. Move part of a stack to split it; matching items stack up.</p>
+      <p className="small muted">Moves at once, no GM approval. Move part of a stack to split it; matching items stack up.</p>
       <div className="row" style={{ flexWrap: 'wrap' }}>
         <Field label="To"><select value={to} onChange={(e) => setTo(e.target.value)}>{targets.map((t) => <option key={t} value={t}>{t === 'party' ? 'Party stash' : t === me ? 'My pack' : label(t)}</option>)}</select></Field>
         <Field label={`How many (of ${item.qty})`}><input type="number" min={1} max={item.qty} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(item.qty, Number(e.target.value) || 1)))} /></Field>
@@ -232,7 +232,7 @@ export function CoinRequestsCard({ onChanged }: { onChanged?: () => void }) {
   );
 }
 
-/** Recent gives: for the DM, everyone's; for players, theirs and the party's. */
+/** Recent gives: for the GM, everyone's; for players, theirs and the party's. */
 export function TransfersList({ limit = 20, title = 'Given and moved' }: { limit?: number; title?: string }) {
   const { w, info, nameOf, isDM } = useWorld();
   const list = useLoad(() => w.call<{ transfers: Transfer[]; unseen?: number }>('GET', '/inventory/transfers', undefined, { limit }), [w, limit], ['transfer']);
@@ -260,7 +260,7 @@ export function TransfersList({ limit = 20, title = 'Given and moved' }: { limit
   );
 }
 
-/** "Don't tell": the DM's item changes skip the owner's alert (for the story). Off by default. */
+/** "Don't tell": the GM's item changes skip the owner's alert (for the story). Off by default. */
 export function QuietToggle({ on, set, party }: { on: boolean; set: (v: boolean) => void; party?: boolean }) {
   return (
     <label className="row tiny muted" style={{ gap: 6, cursor: 'pointer' }} title={party ? 'The players are not told about these item changes' : 'The player is not told about these item changes'}>

@@ -1,4 +1,4 @@
-// House rules (mods): World settings → House rules, the DM's grants page, the
+// House rules (mods): World settings → House rules, the GM's grants page, the
 // player's page and home card, and Reroll under chat rolls. See docs/MODS.md.
 import type { WebFeature } from '../registry.ts';
 import { DMHouseRules, MyHouseRulesCard, PlayerHouseRules } from './Pages.tsx';

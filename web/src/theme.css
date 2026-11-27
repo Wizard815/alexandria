@@ -1,4 +1,4 @@
-/* Two looks: .t-fantasy (DM and players, dark parchment-and-gold) and
+/* Two looks: .t-fantasy (GM and players, dark parchment-and-gold) and
    .t-admin (library admin, light and plain). Components use the tokens. */
 :root { color-scheme: dark; --safe-top: env(safe-area-inset-top, 0px); --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)); }
 /* On phones the player's bottom bar sits under the dock: the page keeps room for both. */
@@ -188,7 +188,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .bottomnav a.active, .bottomnav button.active, .bottomnav button[aria-expanded="true"] { color: var(--accent-strong); }
   .bottomnav .icon { position: relative; font-size: 16px; line-height: 20px; }
   .bottomnav .icon .nav-badge { position: absolute; top: -4px; left: 12px; margin: 0; font-size: 10px; line-height: 14px; min-width: 14px; padding: 0 4px; }
-  /* DM: slim top bar; the side menu slides in. */
+  /* GM: slim top bar; the side menu slides in. */
   .shell.has-drawer .dm-phonebar { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 30; background: var(--side); border-bottom: 1px solid var(--line-strong); padding: calc(4px + var(--safe-top)) 12px 4px; }
   .dm-phonebar .brand { font-family: var(--font-head); font-weight: 700; color: var(--accent); letter-spacing: 0.03em; min-width: 0; flex: 1 1 auto; font-size: clamp(14px, 4.4vw, 17px); line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
   .shell.has-drawer .side { display: none; }

@@ -17,7 +17,7 @@
   "rules": [
     {
       "term": "Morale (house rule)",
-      "text": "A creature or group may **flee or surrender** when it is surprised, its leader falls, it drops to half its hit points with no way to win, or most of its side is down. The DM calls for a **DC 10 Wisdom save**; on a failure it runs, hides or gives up. Mindless creatures and fanatics never check."
+      "text": "A creature or group may **flee or surrender** when it is surprised, its leader falls, it drops to half its hit points with no way to win, or most of its side is down. The GM calls for a **DC 10 Wisdom save**; on a failure it runs, hides or gives up. Mindless creatures and fanatics never check."
     }
   ],
   "assistant": {

@@ -1,4 +1,4 @@
-/* NPC encounters: the player's popup and the DM's page. */
+/* NPC encounters: the player's popup and the GM's page. */
 .modal.enc { border-color: var(--accent); border-width: 2px; }
 .enc-kicker { letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
 .enc-npc { display: flex; gap: 12px; align-items: center; }

@@ -1,10 +1,10 @@
-// Knowledge: where the DM sees how current everything the AI knows about the
+// Knowledge: where the GM sees how current everything the AI knows about the
 // world is, and refreshes it all in one step (refresh.ts).
 //
-//   GET  /api/worlds/:world/knowledge                  (DM) status: sources, pictures, index, story bible, Minerva, the last refresh
-//   POST /api/worlds/:world/knowledge/refresh  {full?}  (DM) start "Refresh world" (202), 409 when one is running
-//   POST /api/worlds/:world/knowledge/refresh/stop     (DM) stop it
-//   MCP  refresh_world (DM write key)
+//   GET  /api/worlds/:world/knowledge                  (GM) status: sources, pictures, index, story bible, Minerva, the last refresh
+//   POST /api/worlds/:world/knowledge/refresh  {full?}  (GM) start "Refresh world" (202), 409 when one is running
+//   POST /api/worlds/:world/knowledge/refresh/stop     (GM) stop it
+//   MCP  refresh_world (GM write key)
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';

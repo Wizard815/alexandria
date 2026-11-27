@@ -19,7 +19,7 @@ test('Shares_UnshareCascadesToWhatTheSharerSharedOnward', async () => {
   await k.ok('POST', k.w(`/library/pages/${p}/share`), k.T.jess, { to: [k.ID.tom] });
   assert.equal(await status('tom', p), 200);
   assert.equal(rows(p).length, 2);
-  // The DM stops sharing with jess: tom's access ends and the row goes too.
+  // The GM stops sharing with jess: tom's access ends and the row goes too.
   await k.ok('DELETE', k.w(`/library/pages/${p}/share?to=${k.ID.jess}`), k.T.dm);
   assert.equal(await status('jess', p), 404);
   assert.equal(await status('tom', p), 404);
@@ -69,11 +69,11 @@ test('Shares_APlayerCannotRemoveSomeoneElsesShareAndTheViewSaysWhoMadeIt', async
   const asJess = await k.ok('GET', k.w(`/library/pages/${p}/share`), k.T.jess);
   const mineFirst = asJess.shares.find((s: any) => s.to === k.ID.jess);
   assert.equal(mineFirst.from, k.ID.dm);
-  assert.equal(mineFirst.mine, false, 'jess did not make the DM share');
+  assert.equal(mineFirst.mine, false, 'jess did not make the GM share');
   await k.ok('POST', k.w(`/library/pages/${p}/share`), k.T.jess, { to: [k.ID.tom] });
   const again = await k.ok('GET', k.w(`/library/pages/${p}/share`), k.T.jess);
   assert.equal(again.shares.find((s: any) => s.to === k.ID.tom).mine, true);
-  // Trying to end the DM's share as jess says so, instead of silently doing nothing.
+  // Trying to end the GM's share as jess says so, instead of silently doing nothing.
   const r = await k.call('DELETE', k.w(`/library/pages/${p}/share?to=${k.ID.jess}`), k.T.jess);
   assert.equal(r.status, 403, r.text);
   assert.match(r.body.error, /did not make|only the person/i);

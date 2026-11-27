@@ -1,4 +1,4 @@
-// The AI on the DM's Table: whether the local models are loaded for the session, and one tap to the templates and guides the
+// The AI on the GM's Table: whether the local models are loaded for the session, and one tap to the templates and guides the
 // assistant follows, the model settings, Minerva and Active mode.
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';

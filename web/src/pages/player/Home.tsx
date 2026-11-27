@@ -68,7 +68,7 @@ export default function PlayerHome() {
 
           <section className="card" aria-labelledby="upd-h">
             <h2 id="upd-h">Updates</h2>
-            {!myReqs.length && !recentThreads.length && <p className="muted small">Nothing new. Ask the DM something or start a chat.</p>}
+            {!myReqs.length && !recentThreads.length && <p className="muted small">Nothing new. Ask the GM something or start a chat.</p>}
             {recentThreads.length > 0 && (
               <div className="stack tight">
                 <span className="tiny faint" style={{ textTransform: 'uppercase', letterSpacing: '0.1em' }}>Messages</span>
@@ -108,7 +108,7 @@ export default function PlayerHome() {
           <BrokerTeaser />
           <nav className="card" aria-label="Quick links">
             <div className="grid small">
-              {[['lore', 'Read the lore'], ['people', 'People we met'], ['me', 'My character'], ['map', 'The map'], ['ask', 'Ask the DM'], ['whiteboard', 'Whiteboard']].map(([to, label]) => (
+              {[['lore', 'Read the lore'], ['people', 'People we met'], ['me', 'My character'], ['map', 'The map'], ['ask', 'Ask the GM'], ['whiteboard', 'Whiteboard']].map(([to, label]) => (
                 <Link key={to} to={`${base}/${to}`} className="btn small">{label}</Link>
               ))}
             </div>

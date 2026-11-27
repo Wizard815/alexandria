@@ -1,6 +1,6 @@
-// Minerva: the DM's agent and her campaign memory (docs/MINERVA.md). The vault,
+// Minerva: the GM's agent and her campaign memory (docs/MINERVA.md). The vault,
 // accretion and promotion, revelations and knowledge, the after-session review,
-// arcs, Obsidian export and import, and the walls between the DM's memory and
+// arcs, Obsidian export and import, and the walls between the GM's memory and
 // the players (who only ever meet the broker).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,7 +34,7 @@ const fakeFetch = (async (url: any, init?: any) => {
   if (!u.startsWith('http://fake.test/')) return fetch(url, init);
   const body = init?.body && typeof init.body === 'string' ? JSON.parse(init.body) : null;
   const sys = String(body?.messages?.[0]?.content ?? '');
-  if (/^You are .*Dungeon Master/.test(sys)) { prompts.push({ who: 'dm', body: init.body }); return reply({ role: 'assistant', content: scripted }); }
+  if (/^You are .*Game Master/.test(sys)) { prompts.push({ who: 'dm', body: init.body }); return reply({ role: 'assistant', content: scripted }); }
   if (/information broker/.test(sys)) { prompts.push({ who: 'player', body: init.body }); return reply({ role: 'assistant', content: scripted }); }
   prompts.push({ who: 'other', body: init?.body ?? '' });
   if (/keep a campaign status document current/.test(sys)) return reply({ role: 'assistant', content: JSON.stringify({ changed: ['The lamp was darkened on purpose.'], next: ['Find who paid the keeper.'] }) });
@@ -116,7 +116,7 @@ test('TestMinerva_EnableSeedsTheVault', async () => {
   assert.equal(prof.fm.level, 'party');
   assert.equal(prof.fm.player, ID.jess);
   assert.equal((await page('dm/state/Campaign Status.md')).level, 'dm');
-  // The library stores every vault page DM-only (or broker/classified): none is a party page, so none shows to players.
+  // The library stores every vault page GM-only (or broker/classified): none is a party page, so none shows to players.
   const vis = all<any>(deps.db, `SELECT DISTINCT visibility FROM pages WHERE world_id = ? AND path LIKE 'Minerva/%'`, W).map((r) => r.visibility);
   assert.deepEqual(vis, ['dm']);
   // Turning her on again changes nothing.
@@ -141,7 +141,7 @@ test('TestMinerva_PlayersNeverSeeTheVaultOrHerName', async () => {
   }
   assert.ok(/athena prime/i.test((await call('GET', w('/settings'), T.dm)).text));
   assert.equal((await call('GET', w('/library/pages/Minerva%2Fdm%2Fstate%2FCampaign%20Status.md'), T.jess)).status, 404);
-  // Every DM route refuses a player and a guest.
+  // Every GM route refuses a player and a guest.
   for (const who of ['jess', 'tom', 'guest']) {
     for (const [m, p] of [['GET', '/minerva'], ['GET', '/minerva/pages'], ['GET', '/minerva/page?rel=HOME.md'], ['GET', '/minerva/export'], ['GET', '/minerva/review'], ['GET', '/minerva/who?name=Jessamine'], ['GET', '/minerva/context'], ['POST', '/minerva/enable'], ['POST', '/minerva/codex'], ['POST', '/minerva/import']] as const) {
       const r = await call(m, w(p), T[who], m === 'GET' ? undefined : {});
@@ -164,7 +164,7 @@ test('TestMinerva_SecretBlocksInCodexPagesNeverReachPlayers', async () => {
   await dm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'secret', text: CODEX_SECRET });
   const odo = await dm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'appearances', text: 'Gave the party directions to the lighthouse.', session: 9 });
   assert.equal(odo.created, false);
-  // The DM opens the codex page to the party; its secret block is still the DM's.
+  // The GM opens the codex page to the party; its secret block is still the GM's.
   await dm('PUT', '/minerva/page', { rel: odo.rel, level: 'party' });
   const body = (await page(odo.rel)).body;
   assert.ok(body.includes('> [!secret]') && body.includes('CODEXSECRET'));
@@ -249,7 +249,7 @@ test('TestMinerva_RevelationMarksBecomeKnowledge', async () => {
   assert.deepEqual(rows.map((r) => [r.clue_n, r.account_id]), [[1, ID.jess], [2, ID.jess], [3, ID.tom]]);
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM minerva_clues WHERE world_id = ?', W).n, 3);
   assert.match((await page('dm/revelations/who-darkened-the-lighthouse.md')).body, /\| 1 \| .* \| Jessamine \|/);
-  // Each player's knowledge has only their own clues; the conclusion is theirs only once the DM says they reached it.
+  // Each player's knowledge has only their own clues; the conclusion is theirs only once the GM says they reached it.
   const jk = (await page(`players/${ID.jess}/knowledge.md`)).body;
   assert.ok(jk.includes(CLUE1) && jk.includes(CLUE2) && !jk.includes(CLUE3));
   assert.ok(!jk.includes('CONCLUSIONMARK'));
@@ -263,7 +263,7 @@ test('TestMinerva_RevelationMarksBecomeKnowledge', async () => {
   const jv = JSON.stringify(await as('jess')('GET', '/minerva/me'));
   assert.ok(jv.includes(CLUE1) && jv.includes('CONCLUSIONMARK') && jv.includes('The ferryman is in on it'));
   assert.ok(!JSON.stringify(await as('tom')('GET', '/minerva/me')).includes('CONCLUSIONMARK'));
-  // The mystery page itself (who found what) is the DM's.
+  // The mystery page itself (who found what) is the GM's.
   assert.ok(!jv.includes('Who found') && !jv.includes('not found yet'));
 });
 
@@ -278,16 +278,16 @@ test('TestMinerva_PlayerWritesAreDraftsOnTheDmsList', async () => {
   assert.ok(rv.drafts.every((x: any) => x.byAccount === ID.jess));
   // Not applied yet: the player sees nothing new, the page is not there.
   assert.ok(!JSON.stringify(await jess('GET', '/minerva/me')).includes('Find my brother'));
-  // The DM edits one and approves, rejects another.
+  // The GM edits one and approves, rejects another.
   const j = rv.drafts.find((x: any) => x.kind === 'journal');
-  await dm('POST', `/minerva/review/${j.id}`, { decision: 'approve', text: '- Asked the ferryman about the dark nights (the DM tidied this)' });
+  await dm('POST', `/minerva/review/${j.id}`, { decision: 'approve', text: '- Asked the ferryman about the dark nights (the GM tidied this)' });
   const g = rv.drafts.find((x: any) => x.kind === 'goal');
   await dm('POST', `/minerva/review/${g.id}`, { decision: 'approve' });
   const sh = rv.drafts.find((x: any) => x.kind === 'share');
   await dm('POST', `/minerva/review/${sh.id}`, { decision: 'reject' });
   assert.equal((await call('POST', w(`/minerva/review/${j.id}`), T.dm, { decision: 'approve' })).status, 409, 'decided once');
   const v = await jess('GET', '/minerva/me');
-  assert.ok(JSON.stringify(v.journal).includes('the DM tidied this'));
+  assert.ok(JSON.stringify(v.journal).includes('the GM tidied this'));
   assert.equal(v.goals.find((x: any) => x.title === 'Find my brother')?.heat, 'on');
   assert.ok(!JSON.stringify(await as('tom')('GET', '/minerva/me')).includes('I can read old harbour script'), 'a rejected share never shows');
   // Another player never sees it, and nothing a player sends can reach another root.
@@ -363,10 +363,10 @@ test('TestMinerva_ToolsKeepToTheirSides', async () => {
   const playerTools = toolsFor(false).filter((t) => !t.dmOnly && !t.write).map((t) => t.name);
   for (const n of ['context_for', 'who_is', 'memory_log', 'memory_capture', 'conversation_log', 'status_update', 'revelation_mark', 'codex_upsert', 'promote', 'arc_close', 'goal_update']) assert.ok(dmTools.includes(n), n);
   for (const n of ['context_for', 'who_is', 'memory_log', 'status_update', 'revelation_mark', 'codex_upsert', 'promote', 'arc_close', 'goal_update', 'conversation_log']) assert.ok(!playerTools.includes(n), `a player is not offered ${n}`);
-  for (const n of ['my_context', 'my_who_is', 'my_memory_log', 'my_memory_capture', 'my_goal_update']) { assert.ok(playerTools.includes(n), n); assert.ok(!dmTools.includes(n), `the DM harness does not list the player form ${n}`); }
+  for (const n of ['my_context', 'my_who_is', 'my_memory_log', 'my_memory_capture', 'my_goal_update']) { assert.ok(playerTools.includes(n), n); assert.ok(!dmTools.includes(n), `the GM harness does not list the player form ${n}`); }
   const all_ = toolsFor(true).concat(toolsFor(false));
-  for (const t of all_.filter((x) => x.playerOnly)) assert.ok(!/minerva|assistant|DM's agent/i.test(`${t.name} ${t.description}`), `${t.name} does not name her`);
-  // The DM's write tools are proposals for the DM; the player forms can never write.
+  for (const t of all_.filter((x) => x.playerOnly)) assert.ok(!/minerva|assistant|GM's agent/i.test(`${t.name} ${t.description}`), `${t.name} does not name her`);
+  // The GM's write tools are proposals for the GM; the player forms can never write.
   for (const t of all_.filter((x) => x.playerOnly)) assert.ok(!t.write);
 });
 
@@ -395,14 +395,14 @@ test('TestMinerva_BrokerSpeaksAsTheBrokerAndKnowsOnlyThePlayer', async () => {
   await ask('tom', 'What do I know about the lighthouse lamp?');
   const tj = prompts.filter((p) => p.who === 'player').map((p) => p.body).join('\n');
   assert.ok(tj.includes(CLUE3) && !tj.includes(CLUE1) && !tj.includes('JESSJOURNAL'));
-  // The DM harness is told her name (Athena Prime was set) and sees the status.
+  // The GM harness is told her name (Athena Prime was set) and sees the status.
   prompts.length = 0;
   await ask('dm', 'Where are we in the campaign?');
   const dj = prompts.filter((p) => p.who === 'dm').map((p) => p.body).join('\n');
-  assert.match(dj, /You are Athena Prime, the assistant of the Dungeon Master/);
+  assert.match(dj, /You are Athena Prime, the assistant of the Game Master/);
   assert.ok(dj.includes('Find Dorn the Younger'), 'the status doc is in front of her');
   // A reply that gives her away is blocked and rewritten, whichever way it is said.
-  for (const bad of ['I am Minerva, and I keep notes for the table.', 'I work for the DM, you see.', "I am the DM's assistant, friend.", 'Athena Prime says the tide is low.']) {
+  for (const bad of ['I am Minerva, and I keep notes for the table.', 'I work for the GM, you see.', "I am the GM's assistant, friend.", 'Athena Prime says the tide is low.']) {
     scripted = bad;
     const r = await ask('jess', 'Who are you really?');
     assert.equal(r.text, BLOCKED_REPLY, bad);
@@ -410,7 +410,7 @@ test('TestMinerva_BrokerSpeaksAsTheBrokerAndKnowsOnlyThePlayer', async () => {
   }
   scripted = 'Nothing but the tide.';
   assert.notEqual((await ask('jess', 'Who are you?')).text, BLOCKED_REPLY);
-  // DM-only vault text in a reply is blocked the same way, while the player's own text is allowed.
+  // GM-only vault text in a reply is blocked the same way, while the player's own text is allowed.
   scripted = 'Truly the smuggler queen is the sister of the lighthouse keeper in disguise, they say.';
   assert.equal((await ask('jess', 'Tell me a rumour')).text, BLOCKED_REPLY);
   scripted = "Truly I do not trust the ferryman because he knew my mother name, as you wrote.";
@@ -418,7 +418,7 @@ test('TestMinerva_BrokerSpeaksAsTheBrokerAndKnowsOnlyThePlayer', async () => {
   scripted = "Truly I do not trust the ferryman because he knew my mother name, said Jessamine.";
   assert.equal((await ask('tom', 'What did Jessamine write?')).text, BLOCKED_REPLY, 'but not another player\'s');
   // The check itself.
-  assert.ok(personaGiveaway('The Minerva memory vault') && personaGiveaway('assistant to the Dungeon Master') && !personaGiveaway('The market was busy.'));
+  assert.ok(personaGiveaway('The Minerva memory vault') && personaGiveaway('assistant to the Game Master') && !personaGiveaway('The market was busy.'));
 });
 
 test('TestMinerva_ExportAndImportRoundTrip', async () => {
@@ -454,7 +454,7 @@ test('TestMinerva_ExportIntoAFreshWorldMapsPlayersAndRebuildsArcsAndClues', asyn
   assert.match(prof, new RegExp(`player: ${ID.jess}`));
   const arcsBefore = (await dm('GET', '/minerva/arcs')).arcs;
 
-  // A fresh world, same DM, players with other account ids. Tom signs in as another name, so his folder carries his old username.
+  // A fresh world, same GM, players with other account ids. Tom signs in as another name, so his folder carries his old username.
   const W2 = (await ok('POST', '/api/admin/worlds', T.ads, { name: 'Saltreach Two', dmAccountId: ID.dm })).id;
   const w2 = (p: string) => `/api/worlds/${W2}${p}`;
   const join = async (username: string, character: string) => {
@@ -510,7 +510,7 @@ test('TestMinerva_ImportChecksPathsAndLevels', async () => {
     { name: 'notes/elsewhere.md', data: md('') },
     { name: 'players/not-a-player/profile.md', data: md('level: party') },
     { name: `players/${ID.tom}/notes/imported.md`, data: md('type: note\nlevel: party', 'Imported for Tom.\n') },
-    { name: 'dm/hidden-lore/Open Attempt.md', data: md('type: lore\nlevel: party', 'Trying to open the DM folder.\n') },
+    { name: 'dm/hidden-lore/Open Attempt.md', data: md('type: lore\nlevel: party', 'Trying to open the GM folder.\n') },
     { name: 'codex/lore/No Level.md', data: md('type: codex\nkind: topic', 'No level given.\n') },
     { name: 'codex/lore/Weird Level.md', data: md('type: codex\nlevel: everyone', 'Unknown level.\n') },
     { name: 'codex/lore/Classified.md', data: md('type: codex\nlevel: classified', 'CLASSIFIEDIMPORT the vault under the old lighthouse opens only for bearers of three silver keys\n') },
@@ -531,10 +531,10 @@ test('TestMinerva_ImportChecksPathsAndLevels', async () => {
   assert.equal(one<any>(deps.db, `SELECT visibility FROM pages WHERE world_id = ? AND path = 'Minerva/codex/lore/Prefixed.md'`, W).visibility, 'broker');
   // Nothing outside the vault appeared in the library.
   assert.ok(!one(deps.db, `SELECT 1 FROM pages WHERE world_id = ? AND (path LIKE '%evil%' OR path LIKE '%escape%')`, W));
-  // The imported party page is Tom's alone; nothing from the DM folder reached a player.
+  // The imported party page is Tom's alone; nothing from the GM folder reached a player.
   const tv = JSON.stringify(await as('tom')('GET', '/minerva/me'));
   assert.ok(tv.includes('Imported for Tom'));
-  assert.ok(!tv.includes('Trying to open the DM folder') && !tv.includes('CLASSIFIEDIMPORT'));
+  assert.ok(!tv.includes('Trying to open the GM folder') && !tv.includes('CLASSIFIEDIMPORT'));
   assert.ok(!JSON.stringify(await as('jess')('GET', '/minerva/me')).includes('Imported for Tom'));
   // A broken body is refused.
   assert.equal((await call('POST', w('/minerva/import'), T.dm, Buffer.from('not a zip'), true)).status, 400);

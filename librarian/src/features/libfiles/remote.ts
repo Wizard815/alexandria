@@ -1,5 +1,5 @@
 // Optional write-back of a library file to the source its page came from,
-// when the DM ticks "Also send to <source>". Uses the source's own connection
+// when the GM ticks "Also send to <source>". Uses the source's own connection
 // credentials (effectiveConfig), one explicit upload per file, never for a
 // classified file. Supported:
 //   Kanka (API token):    POST /campaigns/{id}/entities/{entity}/entity_assets

@@ -1,5 +1,5 @@
 // People we've met: what they said, who remembered what, and my own
-// private notes on each (nobody else reads them, the DM included).
+// private notes on each (nobody else reads them, the GM included).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { PageHead, Loading, ErrorBox, Empty, Tabs, useAction } from '../../ui/index.tsx';
@@ -25,14 +25,14 @@ export default function PlayerPeople() {
 
   return (
     <div className="page">
-      <PageHead title="People we've met" lead="Built from sessions and the people your DM shares. Your notes are private to you." />
+      <PageHead title="People we've met" lead="Built from sessions and the people your GM shares. Your notes are private to you." />
       <ErrorBox error={people.error} />
       <div className="row">
         <Tabs label="Filter" value={filter} onChange={setFilter} items={[['all', 'Everyone'], ['ally', 'Allies'], ['neutral', 'Neutral'], ['rival', 'Rivals']]} />
         <label className="sr-only" htmlFor="ppl-q">Find a person</label>
         <input id="ppl-q" type="search" className="input" style={{ maxWidth: 240 }} placeholder="Find…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      {people.loading && !people.data ? <Loading /> : !people.data?.length ? <Empty>No one yet. People appear here once your DM adds them.</Empty> : (
+      {people.loading && !people.data ? <Loading /> : !people.data?.length ? <Empty>No one yet. People appear here once your GM adds them.</Empty> : (
         <div className="cols">
           <div className="col-1 card flush" role="list" aria-label="People">
             <div className="list">

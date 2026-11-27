@@ -1,5 +1,5 @@
 // Where spells live: the bundled SRD 5.2.1 list (read once), the world's own
-// spells (homebrew and imports, deduplicated by name + source), the DM's
+// spells (homebrew and imports, deduplicated by name + source), the GM's
 // per-spell settings (open to players, mana cost, notes), each character's
 // sheet for spells (class, level, ability scores, mana) and known spells.
 import fs from 'node:fs';
@@ -111,7 +111,7 @@ export function srd(): Bundled {
 }
 export const SRD_SOURCE = 'SRD 5.2.1';
 
-/** A spell as the world serves it: where it came from, and the DM's settings for it. */
+/** A spell as the world serves it: where it came from, and the GM's settings for it. */
 export interface WorldSpell extends Spell {
   builtin: boolean;
   kind: 'srd' | 'homebrew' | 'import';
@@ -134,7 +134,7 @@ function customRows(db: DB, worldId: string): WorldSpell[] {
   }));
 }
 
-/** Every spell in the world, SRD first then the world's own, with the DM's settings filled in. */
+/** Every spell in the world, SRD first then the world's own, with the GM's settings filled in. */
 export function catalog(db: DB, worldId: string, publicSrd = false): WorldSpell[] {
   const meta = metaMap(db, worldId);
   const b = srd();
@@ -226,7 +226,7 @@ const ABBR: Record<string, Ability> = { str: 'str', strength: 'str', dex: 'dex',
 
 /**
  * Ability scores and level a player wrote on their own profile ("Me" page) in
- * blocks the DM may read (party or DM, never "only me"): a block titled
+ * blocks the GM may read (party or GM, never "only me"): a block titled
  * "Level", or "Abilities"/"Ability scores"/"Stats" with "INT 13, WIS 10", or
  * one titled "Intelligence" with "13". The spell sheet's own values win.
  */

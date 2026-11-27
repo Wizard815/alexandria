@@ -291,7 +291,7 @@ test('TestLights_HooksAreOffUntilTurnedOnAndFollowTheGame', async () => {
   observe(deps, W, ['combat']);
   await tick();
   assert.deepEqual(col(), [255, 0, 0], 'combat start scene');
-  // A player's turn: the DM's colour for her, her own pick over it.
+  // A player's turn: the GM's colour for her, her own pick over it.
   await ok('POST', `${w}/live/combat/next`, T.dm); // the orc
   observe(deps, W, ['combat']);
   await tick();
@@ -299,7 +299,7 @@ test('TestLights_HooksAreOffUntilTurnedOnAndFollowTheGame', async () => {
   await ok('POST', `${w}/live/combat/next`, T.dm); // Brenna (jess), round 2
   observe(deps, W, ['combat']);
   await tick();
-  assert.deepEqual(col(), [0x11, 0x22, 0x33], "the DM's colour for her");
+  assert.deepEqual(col(), [0x11, 0x22, 0x33], "the GM's colour for her");
   await ok('PUT', `${L()}/me`, T.jess, { color: '#00ff00' });
   await ok('POST', `${w}/live/combat/next`, T.dm);
   await ok('POST', `${w}/live/combat/next`, T.dm);

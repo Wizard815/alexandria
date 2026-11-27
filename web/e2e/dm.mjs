@@ -1,6 +1,6 @@
-// End-to-end test of the DM app: the seeded demo world (fake models), the
-// built app and Chromium. Opens every DM screen at desktop and phone size,
-// checks the floating overlays do not collide, then runs the key DM flows.
+// End-to-end test of the GM app: the seeded demo world (fake models), the
+// built app and Chromium. Opens every GM screen at desktop and phone size,
+// checks the floating overlays do not collide, then runs the key GM flows.
 // Run from web/: npm run build && node e2e/dm.mjs
 // Needs Playwright with Chromium (npm i -D playwright && npx playwright install chromium).
 import { spawn } from 'node:child_process';
@@ -40,7 +40,7 @@ function watch(page, who) {
   page.on('pageerror', (e) => problems.push(`${who} page error on ${page.url()}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`${who} console on ${page.url()}: ${m.text()}`); });
 }
-const PASS = { dm: 'dungeon master 123', jess: 'player pass 123' };
+const PASS = { dm: 'game master 123', jess: 'player pass 123' };
 async function signIn(user, viewport, mobile) {
   const ctx = await browser.newContext({ viewport, isMobile: !!mobile, hasTouch: !!mobile });
   const page = await ctx.newPage();
@@ -85,7 +85,7 @@ async function dockCheck(page, label) {
 }
 
 try {
-  // ---- 1. every DM screen, desktop and phone ---------------------------------
+  // ---- 1. every GM screen, desktop and phone ---------------------------------
   for (const [label, vp, mobile] of [['desktop', { width: 1280, height: 800 }, false], ['phone', { width: 390, height: 844 }, true]]) {
     const { ctx, page } = await signIn('dm', vp, mobile);
     for (const r of ROUTES) {
@@ -99,7 +99,7 @@ try {
     }
     // The rail has five areas, and every page of an area is on its strip: nothing is folded away.
     await go(page, '');
-    const rail = page.locator('nav[aria-label="DM"]');
+    const rail = page.locator('nav[aria-label="GM"]');
     const strip = page.getByTestId('dm-tabs');
     check(JSON.stringify(await rail.locator('a span:not(.nav-badge)').allInnerTexts()) === JSON.stringify(['Play', 'Players', 'World', 'Prep', 'Setup']), `${label} rail: areas are ${(await rail.locator('a').allInnerTexts()).join(', ')}`);
     check(Number(await rail.getByTestId('group-badge-players').innerText()) >= 1, `${label} rail: Players should show what is waiting`);
@@ -157,7 +157,7 @@ try {
     await ctx.close();
   }
 
-  // ---- 2. the DM flows (desktop) ---------------------------------------------
+  // ---- 2. the GM flows (desktop) ---------------------------------------------
   const { ctx: dmCtx, page: dm } = await signIn('dm', { width: 1280, height: 800 });
   const dmToken = await dm.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, token = dmToken) => {
@@ -193,7 +193,7 @@ try {
   await go(dm, 'generators');
   await dm.getByRole('button', { name: /^Villain/ }).click();
   await dm.getByTestId('gen-title').waitFor({ timeout: 15000 });
-  check((await dm.locator('main').innerText()).includes('DM only'), 'generators: the NPC secret is not marked DM only');
+  check((await dm.locator('main').innerText()).includes('GM only'), 'generators: the NPC secret is not marked GM only');
   await dm.getByRole('button', { name: 'Save', exact: true }).click();
   await dm.getByText(/Saved .*Generated\/NPCs/).waitFor({ timeout: 15000 });
   await go(dm, 'generators');
@@ -203,7 +203,7 @@ try {
   await dm.getByRole('button', { name: 'Save', exact: true }).click();
   await dm.getByText(/Saved .*Generated\/Maps/).waitFor({ timeout: 15000 });
   const mapsList = (await api('GET', '/files/maps')).json ?? [];
-  check(mapsList.some((m) => /\(DM\)\.png$/.test(m.name)), 'generators: the saved dungeon map is not on the Map page list');
+  check(mapsList.some((m) => /\(GM\)\.png$/.test(m.name)), 'generators: the saved dungeon map is not on the Map page list');
   note('generators: NPC and dungeon map generated and saved');
 
   // Stage: show a staged card, and a player sees it.
@@ -215,8 +215,8 @@ try {
   const { ctx: plCtx, page: pl } = await signIn('jess', { width: 390, height: 844 }, true);
   await pl.goto(`${W}/stage`);
   await pl.waitForTimeout(1200);
-  check((await pl.locator('main').innerText()).includes('Come to the Salty Dog'), 'stage: the player does not see the card the DM showed');
-  check(!(await pl.locator('main').innerText()).includes('Council secrets'), 'stage: DM-only text on the player stage');
+  check((await pl.locator('main').innerText()).includes('Come to the Salty Dog'), 'stage: the player does not see the card the GM showed');
+  check(!(await pl.locator('main').innerText()).includes('Council secrets'), 'stage: GM-only text on the player stage');
   const plOver = await pl.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(plOver <= 2, `stage: the player's stage scrolls sideways by ${plOver}px`);
   await plCtx.close();

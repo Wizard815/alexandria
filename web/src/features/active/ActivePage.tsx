@@ -1,4 +1,4 @@
-// DM → Active mode: the mode switch, per-category auto / ask / off, takeover
+// GM → Active mode: the mode switch, per-category auto / ask / off, takeover
 // presets, the wake word, and the command log with undo, reject and "wrong".
 import { useState } from 'react';
 import { Empty, ErrorBox, Field, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
@@ -50,7 +50,7 @@ function Settings() {
 
       <div className="card">
         <h3 style={{ margin: 0 }}>Takeover</h3>
-        <p className="small muted" style={{ margin: 0 }}>One tap changes every category. Players still only ever see party-level content, never DM-only pages or asides.</p>
+        <p className="small muted" style={{ margin: 0 }}>One tap changes every category. Players still only ever see party-level content, never GM-only pages or asides.</p>
         <div className="row">
           <button type="button" className={`btn${s.takeoverOn ? ' primary' : ''}`} disabled={act.busy} onClick={() => void cmd('/takeover')}>{s.takeoverOn ? 'Takeover on: put my settings back' : 'Full takeover (all auto)'}</button>
           {Object.entries(s.presets).sort(([a], [b]) => Number(a) - Number(b)).map(([n, p]) => <button key={n} type="button" className="btn" disabled={act.busy} onClick={() => void cmd(`/takeover-${n}`)} title={`/takeover-${n}`}>{n}: {p.name}</button>)}
@@ -78,9 +78,9 @@ function Settings() {
       <div className="card">
         <h3 style={{ margin: 0 }}>Listening</h3>
         <div className="row">
-          <label className="row"><input type="checkbox" checked={s.listen.dm} onChange={(e) => void put({ listen: { ...s.listen, dm: e.target.checked } })} /> Your voice (DM mic)</label>
+          <label className="row"><input type="checkbox" checked={s.listen.dm} onChange={(e) => void put({ listen: { ...s.listen, dm: e.target.checked } })} /> Your voice (GM mic)</label>
           <label className="row"><input type="checkbox" checked={s.listen.players} onChange={(e) => void put({ listen: { ...s.listen, players: e.target.checked } })} /> The players' mics (only their own rolls and item use)</label>
-          <label className="row" title="A room mic hears everybody and names no speaker. Turn this on only if your table mic is the DM's voice; the wake word never counts from it."><input type="checkbox" checked={s.listen.room} onChange={(e) => void put({ listen: { ...s.listen, room: e.target.checked } })} /> The room mic counts as my voice</label>
+          <label className="row" title="A room mic hears everybody and names no speaker. Turn this on only if your table mic is the GM's voice; the wake word never counts from it."><input type="checkbox" checked={s.listen.room} onChange={(e) => void put({ listen: { ...s.listen, room: e.target.checked } })} /> The room mic counts as my voice</label>
           <label className="row"><input type="checkbox" checked={s.scan} onChange={(e) => void put({ scan: e.target.checked })} /> Use the audit model to read narration the rules miss</label>
         </div>
         <div className="row" style={{ alignItems: 'flex-end' }}>

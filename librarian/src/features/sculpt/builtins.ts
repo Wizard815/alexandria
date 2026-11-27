@@ -202,7 +202,7 @@ export const MORE: TemplateDef[] = [
   },
   {
     key: 'villain-monologue', name: 'Villain monologue', category: 'Story', perspective: 'dm',
-    description: 'What the villain says when the party gets close, with tells to play. DM only.',
+    description: 'What the villain says when the party gets close, with tells to play. GM only.',
     fields: [
       f('villain', 'Villain', 'name', { dmOnly: true }),
       f('situation', 'Situation', 'select', { options: ['revealed', 'captured', 'victory', 'bargain'], default: 'revealed', dmOnly: true }),

@@ -2,7 +2,7 @@
 // between), each optionally linked to a library page (LegendKeeper, Kanka
 // and the rest import into the library), "Ask the broker" about a person,
 // place or faction with a question the player can rewrite, and the notes and
-// goals the DM leaves for one player.
+// goals the GM leaves for one player.
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
@@ -135,12 +135,12 @@ export function AskModal({ subject, onClose }: { subject: Subject; onClose: () =
   );
 }
 
-// ---- from the DM ----
+// ---- from the GM ----
 
 export interface DmNote { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string; updatedAt: string }
 
-/** Notes and goals the DM set for this player. Only that player and the DM see them; the player ticks goals. */
-/** The body of the "From the DM" module. Notes the player has not seen yet carry a New tag. */
+/** Notes and goals the GM set for this player. Only that player and the GM see them; the player ticks goals. */
+/** The body of the "From the GM" module. Notes the player has not seen yet carry a New tag. */
 export function FromDm({ account, notes, dm, onChanged }: { account: string; notes: DmNote[]; dm: boolean; onChanged: () => void }) {
   const { w, info } = useWorld();
   const slug = info.slug;
@@ -157,9 +157,9 @@ export function FromDm({ account, notes, dm, onChanged }: { account: string; not
   const tag = (n: DmNote) => isNew(n) && <span className="chip gold" style={{ fontSize: 11 }}>New</span>;
   return (
     <div className="stack tight" data-testid="from-dm">
-      <span className="tiny faint"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> {dm ? 'Only this player sees these.' : 'Only you see these. The DM can add more at any time.'}</span>
+      <span className="tiny faint"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> {dm ? 'Only this player sees these.' : 'Only you see these. The GM can add more at any time.'}</span>
       <ErrorBox error={act.error} />
-      {!dm && !notes.length && <span className="tiny muted">Nothing yet. Secret notes and goals from the DM show up here.</span>}
+      {!dm && !notes.length && <span className="tiny muted">Nothing yet. Secret notes and goals from the GM show up here.</span>}
       {goals.length > 0 && <div className="stack tight">
         <span className="tiny faint">Goals</span>
         <ul className="sht-list">{goals.map((g) => (

@@ -23,7 +23,7 @@ test('TestObsidianPortal_OAuthSignatureMatchesRfc5849', () => {
 test('TestObsidianPortal_VisibilityFailsClosed', () => {
   assert.equal(opShared({ is_game_master_only: false }, false), true);
   assert.equal(opShared({ is_game_master_only: true }, false), false);
-  assert.equal(opShared({}, false), false, 'not said: the DM\'s');
+  assert.equal(opShared({}, false), false, 'not said: the GM\'s');
   assert.equal(opShared({ is_game_master_only: false, visibility: 'public' }, true), true);
   assert.equal(opShared({ is_game_master_only: false, visibility: 'friends' }, true), true);
   assert.equal(opShared({ is_game_master_only: false, visibility: 'private' }, true), false);
@@ -79,7 +79,7 @@ test('TestObsidianPortal_SyncKeepsGmOnlyPagesAndGmInfoFromPlayers', async () => 
   assert.equal(badSig, 0, 'every request is signed correctly');
   assert.ok(seen.every((u) => u.startsWith('https://api.obsidianportal.com/v1/') || u.endsWith('mira.png')), 'only the API host (and the portrait)');
   assert.deepEqual(lib.list('w', dm).map((p: any) => p.title).sort(), ['Mira', 'Port Town', 'Session 1', 'The plot', 'Vorn']);
-  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Mira', 'Port Town', 'Session 1'], 'GM-only pages and private characters stay DM-only');
+  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Mira', 'Port Town', 'Session 1'], 'GM-only pages and private characters stay GM-only');
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pl = JSON.stringify(lib.get('w', town.id, player));
   assert.ok(pl.includes('busy harbour') && !pl.includes('SMUGGLERS'), 'GM info is a secret');

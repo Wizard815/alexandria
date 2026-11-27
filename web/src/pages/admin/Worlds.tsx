@@ -19,7 +19,7 @@ export default function AdminWorlds() {
 
   return (
     <div className="page">
-      <PageHead title="Worlds" lead="Each world has its own library, sources, table and settings. Make one, then pick its DM. The DM invites players from inside the world.">
+      <PageHead title="Worlds" lead="Each world has its own library, sources, table and settings. Make one, then pick its GM. The GM invites players from inside the world.">
         <Link className="btn primary" to="/admin/worlds/setup">Set up a world</Link>
         <button type="button" className="btn" onClick={() => setCreating(true)}>New empty world</button>
       </PageHead>
@@ -60,7 +60,7 @@ function NewWorld({ accounts, meId, onClose, onDone }: { accounts: any[]; meId: 
       <form className="stack" onSubmit={submit}>
         <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
         <Field label="Short name for links" help="Lowercase letters, numbers and dashes. Left empty, it is made from the name."><input value={slug} onChange={(e) => setSlug(e.target.value)} className="mono" /></Field>
-        <Field label="Dungeon Master"><select value={dm} onChange={(e) => setDm(e.target.value)}>{accounts.map((acc) => <option key={acc.id} value={acc.id}>{acc.display_name} ({acc.username})</option>)}</select></Field>
+        <Field label="Game Master"><select value={dm} onChange={(e) => setDm(e.target.value)}>{accounts.map((acc) => <option key={acc.id} value={acc.id}>{acc.display_name} ({acc.username})</option>)}</select></Field>
         <ErrorBox error={a.error} />
         <button className="btn primary" disabled={a.busy}>Create world</button>
       </form>
@@ -104,7 +104,7 @@ function WorldMembers({ world, card, accounts, onChange }: { world: any; card?: 
           <tr key={m.id}>
             <td>{m.display_name} <span className="tiny muted mono">{m.username}</span></td>
             <td>{m.character_name ?? <span className="faint">—</span>}</td>
-            <td><select className="input" value={m.role} onChange={(e) => setMember(m.id, e.target.value)} aria-label={`Role for ${m.display_name}`}><option value="dm">DM</option><option value="player">Player</option><option value="guest">Guest</option></select></td>
+            <td><select className="input" value={m.role} onChange={(e) => setMember(m.id, e.target.value)} aria-label={`Role for ${m.display_name}`}><option value="dm">GM</option><option value="player">Player</option><option value="guest">Guest</option></select></td>
             <td><button type="button" className="btn small danger" onClick={() => remove(m)}>Remove</button></td>
           </tr>
         ))}</tbody>
@@ -112,7 +112,7 @@ function WorldMembers({ world, card, accounts, onChange }: { world: any; card?: 
       {outside.length > 0 && (
         <div className="row">
           <select className="input" style={{ maxWidth: 260 }} value={add} onChange={(e) => setAdd(e.target.value)} aria-label="Account to add"><option value="">Add someone…</option>{outside.map((acc) => <option key={acc.id} value={acc.id}>{acc.display_name} ({acc.username})</option>)}</select>
-          <select className="input" style={{ maxWidth: 140 }} value={role} onChange={(e) => setRole(e.target.value)} aria-label="Role"><option value="player">Player</option><option value="dm">DM</option><option value="guest">Guest</option></select>
+          <select className="input" style={{ maxWidth: 140 }} value={role} onChange={(e) => setRole(e.target.value)} aria-label="Role"><option value="player">Player</option><option value="dm">GM</option><option value="guest">Guest</option></select>
           <button type="button" className="btn" disabled={!add || a.busy} onClick={() => { setMember(add, role); setAdd(''); }}>Add</button>
         </div>
       )}
@@ -131,7 +131,7 @@ function WorldSources({ world }: { world: any }) {
   return (
     <div className="stack">
       <div className="row wrap" aria-label="Pages by level">
-        {([['party', 'Party', 'teal'], ['broker', 'Broker', 'gold'], ['dm', 'DM only', 'red'], ['classified', 'Classified', 'red']] as const).map(([k, label, tone]) => <span key={k} className={`chip ${tone}`}>{label}: <strong>{d.levels[k]}</strong></span>)}
+        {([['party', 'Party', 'teal'], ['broker', 'Broker', 'gold'], ['dm', 'GM only', 'red'], ['classified', 'Classified', 'red']] as const).map(([k, label, tone]) => <span key={k} className={`chip ${tone}`}>{label}: <strong>{d.levels[k]}</strong></span>)}
       </div>
       <h3>Sources</h3>
       {d.sources.length ? (

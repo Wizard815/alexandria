@@ -4,7 +4,7 @@
 //         they want ("I want to get richer", "something for my wizard"):
 //         first the rerank model (when the world has one), else a word match;
 //         then the helper model picks the best three and says why in a line.
-// decide: for a new activity a player or the DM describes, the helper model
+// decide: for a new activity a player or the GM describes, the helper model
 //         picks its tier (common to legendary), how many days and how many
 //         hours a day it takes. Without a model a word rule decides.
 // Both work with no model at all; the answer says which way it was made.

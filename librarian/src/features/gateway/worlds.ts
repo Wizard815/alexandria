@@ -2,7 +2,7 @@
 // which pages in two sources are the same thing, and which source wins when they disagree.
 //
 // Being an admin does not open a world. Page titles shown here are the ones this admin may read: party-level pages,
-// or every page of a world whose DM they are. Pairs that involve other pages are only counted.
+// or every page of a world whose GM they are. Pairs that involve other pages are only counted.
 import type { Deps } from '../../app.ts';
 import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS gateway_page_links (
   decided_at TEXT NOT NULL,
   PRIMARY KEY (world_id, a_id, b_id)
 );
--- How a world settles two sources that disagree. first: a source id, or 'newest'. show_both: show the DM both versions.
+-- How a world settles two sources that disagree. first: a source id, or 'newest'. show_both: show the GM both versions.
 CREATE TABLE IF NOT EXISTS gateway_world_prefs (
   world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
   first TEXT NOT NULL DEFAULT 'newest',
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS gateway_world_prefs (
 
 const rows = <T>(db: DB, sql: string, ...args: unknown[]): T[] => { try { return all<T>(db, sql, ...args); } catch { return []; } };
 
-/** The viewer an admin reads a world as: the DM's copy only where they are that world's DM, otherwise the party copy. */
+/** The viewer an admin reads a world as: the GM's copy only where they are that world's GM, otherwise the party copy. */
 export function adminViewer(db: DB, worldId: string, accountId: string): Viewer {
   const m = one<{ role: string }>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, accountId);
   if (m?.role === 'dm') return { accountId, role: 'dm' };
@@ -94,7 +94,7 @@ export function worldCards(d: Deps, worldId: string, accountId: string) {
       withParty: shares.filter((s) => s.to_id === '*').length,
       withChosen: shares.filter((s) => s.to_id !== '*').length,
       recent: shares.slice(0, 5).map((s) => ({
-        from: s.kind === 'dm' ? 'DM' : nm[s.from_id] ?? 'Someone', to: s.to_id === '*' ? 'the party' : nm[s.to_id] ?? 'Someone',
+        from: s.kind === 'dm' ? 'GM' : nm[s.from_id] ?? 'Someone', to: s.to_id === '*' ? 'the party' : nm[s.to_id] ?? 'Someone',
         // A title is shown only where this admin could read the page anyway.
         page: s.title && (s.visibility === 'party' || viewer.role === 'dm') ? s.title : null,
       })),

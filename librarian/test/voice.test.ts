@@ -1,4 +1,4 @@
-// Read aloud: presets, speaking with a fake TTS, DM-only text confirmation.
+// Read aloud: presets, speaking with a fake TTS, GM-only text confirmation.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -54,7 +54,7 @@ before(async () => {
   const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'jess' });
   T.jess = j.token;
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n` });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n` });
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Plans', visibility: 'dm', markdown: `# Plans\nThe lich awakens beneath the old chapel on midsummer night.\n` });
 });
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -84,7 +84,7 @@ test('TestVoice_SpeakWithFakeTtsStoresAudioAndEmitsEvent', async () => {
   assert.equal(r.event.effect, 'radio');
   assert.equal(r.event.target, 'table');
   assert.ok(fs.existsSync(path.join(tmp, 'data/voice', r.file)));
-  // The DM can fetch the line; a player cannot (table only).
+  // The GM can fetch the line; a player cannot (table only).
   const f = await call('GET', `${V()}/file/${r.file}`, T.dm);
   assert.equal(f.status, 200);
   assert.equal(f.headers.get('content-type'), 'audio/wav');
@@ -119,10 +119,10 @@ test('TestVoice_DmOnlyTextNeedsConfirmBeforePlayers', async () => {
   const blocked = await call('POST', `${V()}/speak`, T.dm, { text: secret, presetId: narrator.id });
   assert.equal(blocked.status, 409);
   assert.equal(blocked.body.needsConfirm, true);
-  assert.equal(ttsCalls.length, before, 'nothing is spoken until the DM confirms');
-  // A part of a DM-only page counts, even inside longer text.
+  assert.equal(ttsCalls.length, before, 'nothing is spoken until the GM confirms');
+  // A part of a GM-only page counts, even inside longer text.
   assert.equal((await call('POST', `${V()}/speak`, T.dm, { text: `Listen closely. ${secret} Tell no one.`, presetId: narrator.id })).status, 409);
-  assert.equal((await call('POST', `${V()}/speak`, T.dm, { text: 'The lich awakens beneath the old chapel on midsummer night.', presetId: narrator.id })).status, 409, 'a DM-only page');
+  assert.equal((await call('POST', `${V()}/speak`, T.dm, { text: 'The lich awakens beneath the old chapel on midsummer night.', presetId: narrator.id })).status, 409, 'a GM-only page');
   // Text players can read is fine.
   await ok('POST', `${V()}/speak`, T.dm, { text: 'Saltmarsh is a fishing town ruled by the harbour council.', presetId: narrator.id });
   // To the table only needs no confirmation; confirm: true lets it through to players.

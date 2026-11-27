@@ -1,6 +1,6 @@
 // Quick generators: names, items and coin amounts. Seeds repeat, filters
 // hold, prices stay in their bands, coins follow the world's coin setting,
-// players are shut out unless the DM allows names, and "give to" works.
+// players are shut out unless the GM allows names, and "give to" works.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -174,7 +174,7 @@ test('QuickGen_coins: scales with level, repeats with a seed, total adds up', ()
   assert.throws(() => genCoins({ mode: 'pile', level: 3 }), RangeError);
 });
 
-test('QuickGen_routes: options, names, items, coins as the DM; coins follow the world setting', async () => {
+test('QuickGen_routes: options, names, items, coins as the GM; coins follow the world setting', async () => {
   const o = await ok('GET', `${QG()}/options`, T.dm);
   assert.ok(o.races.includes('dragonborn') && o.rarities.includes('very rare') && o.types.includes('wondrous item') && o.genders.length === 3);
   const n = await ok('GET', `${QG()}/names?race=dwarf&gender=female&count=5&seed=z`, T.dm);
@@ -231,7 +231,7 @@ test('QuickGen_flavour: falls back to null with no model', async () => {
   assert.equal((await call('POST', `${QG()}/flavour`, T.dm, {})).status, 400);
 });
 
-test('QuickGen_mcp: read tools are listed, work for the DM and refuse a player key', async () => {
+test('QuickGen_mcp: read tools are listed, work for the GM and refuse a player key', async () => {
   const rpc = async (key: string, method: string, params: any = {}) => {
     const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
     return (await r.json()) as any;

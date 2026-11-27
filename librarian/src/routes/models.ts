@@ -1,9 +1,9 @@
 // OpenAI-compatible model endpoints, passed through to the configured
 // provider (OpenAI, Argos, Ollama, LM Studio...).
 //
-// Who may use them: the admin and a DM, signed in. A player, a guest, and every scribe or MCP key are refused (403) unless the admin lists
+// Who may use them: the admin and a GM, signed in. A player, a guest, and every scribe or MCP key are refused (403) unless the admin lists
 // the account or the key (Admin > Models > Gateway access, or PUT /api/admin/models/access). Without a sign-in it is always 401 (see app.ts).
-// So a player or a leaked key cannot spend the DM's provider credit. Each caller has a request rate (a minute) and a daily cap on requests
+// So a player or a leaked key cannot spend the GM's provider credit. Each caller has a request rate (a minute) and a daily cap on requests
 // and tokens, with a 429 that says which; every call is logged (core/modelcalls.ts) for the Model activity view.
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { Readable } from 'node:stream';
@@ -31,7 +31,7 @@ export default function modelRoutes(d: Deps) {
     const job: Job = req.path === '/embeddings' ? 'extra' : 'chat';
     const stopped = (outcome: 'refused' | 'limited', status: number) => recordCall(d.db, { job, model: null, feature: 'gateway', reason: req.path, via: 'gateway', accountId: auth.account.id, status, outcome });
     if (!a.allowed) stopped('refused', 403);
-    if (!a.allowed) throw new HttpError(403, `The model gateway is for the DM and the admin (${a.why}). Ask the admin to allow this account or key.`);
+    if (!a.allowed) throw new HttpError(403, `The model gateway is for the GM and the admin (${a.why}). Ask the admin to allow this account or key.`);
     // A rate per minute for each account.
     const t = Date.now();
     const recent = (hits.get(auth.account.id) ?? []).filter((x) => t - x < 60_000);

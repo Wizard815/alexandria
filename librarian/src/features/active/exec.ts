@@ -1,6 +1,6 @@
-// Running Active-mode actions as the DM, with an undo for each one that can be
-// undone. Actions are ordinary MCP tools (the same ones the DM's agent has),
-// called over loopback with a short-lived DM session, plus a few pseudo-tools
+// Running Active-mode actions as the GM, with an undo for each one that can be
+// undone. Actions are ordinary MCP tools (the same ones the GM's agent has),
+// called over loopback with a short-lived GM session, plus a few pseudo-tools
 // for inventory and the clock. Only the tools in ALLOWED can run from here.
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
@@ -39,7 +39,7 @@ export function dmAuth(d: Deps, worldId: string): { token: string; accountId: st
 const enc = encodeURIComponent;
 async function http(d: Deps, worldId: string, method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; text: string }> {
   const a = dmAuth(d, worldId);
-  if (!a) return { ok: false, status: 403, text: 'No DM in this world' };
+  if (!a) return { ok: false, status: 403, text: 'No GM in this world' };
   try {
     const r = await d.fetch(`http://127.0.0.1:${portOf(d)}/api/worlds/${enc(worldId)}${path}`, { method, headers: { Authorization: `Bearer ${a.token}`, 'Content-Type': 'application/json', 'X-Alexandria-Caller': 'model' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { ok: r.ok, status: r.status, text: await r.text() };

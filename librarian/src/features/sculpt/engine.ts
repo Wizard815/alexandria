@@ -182,7 +182,7 @@ export function renderParts(tpl: Pick<Tpl, 'fields' | 'body' | 'perspective'>, v
       if (pg && rc) {
         tokens++;
         const p = rc.page(pg[1]);
-        // A DM template reads the AI copy, which may hold secrets: those lines stay DM-only.
+        // A GM template reads the AI copy, which may hold secrets: those lines stay GM-only.
         if (!player) lineDm = true;
         if (p) { shown++; return p.excerpt; }
         return '…';
@@ -197,7 +197,7 @@ export function renderParts(tpl: Pick<Tpl, 'fields' | 'body' | 'perspective'>, v
 }
 
 /** Secret blocks are `> [!secret]` callouts: players' copies drop them. */
-export const secretBlock = (md: string): string => ['> [!secret] DM', ...md.split('\n').map((l) => (l.trim() ? `> ${l}` : '>'))].join('\n');
+export const secretBlock = (md: string): string => ['> [!secret] GM', ...md.split('\n').map((l) => (l.trim() ? `> ${l}` : '>'))].join('\n');
 
 export function renderMd(parts: Part[]): string {
   return `${parts.map((p) => (p.dm ? secretBlock(p.md) : p.md)).join('\n\n')}\n`;
@@ -209,8 +209,8 @@ export const publicText = (parts: Part[]): string => parts.filter((p) => !p.dm).
 export interface Leak { key: string; match: string }
 
 /**
- * Player-perspective templates: DM-only fields never appear, page fields must be pages players
- * can open, and neither the values nor the rendered text may repeat DM-only notes.
+ * Player-perspective templates: GM-only fields never appear, page fields must be pages players
+ * can open, and neither the values nor the rendered text may repeat GM-only notes.
  */
 export function cleanForPlayer(d: Deps, worldId: string, tpl: Tpl, values: Values, rc: RenderCtx = makeCtx(d, worldId, true)): { values: Values; leaks: Leak[] } {
   if (tpl.perspective !== 'player') return { values, leaks: [] };
@@ -378,7 +378,7 @@ export async function sculptMany(d: Deps, worldId: string, worldName: string, tp
     const world = Object.fromEntries(Object.entries(rc.vars()).filter(([k, v]) => v && ['world.date', 'world.season', 'party.level', 'location'].includes(k)));
     const desc = (f: Field) => ({ key: f.key, label: f.label, type: f.type, ...(f.options ? { options: f.options } : {}), ...(f.hint ? { hint: f.hint } : {}), ...(f.type === 'rollTable' ? { rows: dieOf(f, items[0].values) } : {}), ...(f.type === 'table' && f.columns ? { columns: f.columns } : {}) });
     const sys = [
-      `You fill blank fields of the template "${tpl.name}" for a D&D game master. World: ${worldName}.`,
+      `You fill blank fields of the template "${tpl.name}" for the Game Master of a 5e tabletop role-playing game. World: ${worldName}.`,
       count > 1 ? `Reply with one JSON object {"results": [...]} holding exactly ${count} different objects, each with the blank field keys.` : 'Reply with one JSON object whose keys are exactly the blank field keys.',
       'Be short, concrete and ready to use at the table. Plain text, no Markdown headings. A "list" is an array of short strings. A "select" is one of its options. A "number" is a number. A "rollTable" is an array of exactly "rows" short strings, one per face of the die. A "table" is an array of rows, each an array of cells.',
       blankKeys.some((f) => f.type === 'statblock') ? `A "statblock" is an object like ${SHAPE}. Keep numbers consistent with the CR.` : '',
@@ -406,7 +406,7 @@ export async function sculptMany(d: Deps, worldId: string, worldName: string, tp
     const cleaned = cleanForPlayer(d, worldId, tpl, it.values, rc);
     const rn = [...(i === 0 ? notes : []), ...it.notes];
     for (const l of cleaned.leaks) {
-      rn.push(`Blocked "${tpl.fields.find((f) => f.key === l.key)?.label ?? l.key}": it repeats words from DM-only notes.`);
+      rn.push(`Blocked "${tpl.fields.find((f) => f.key === l.key)?.label ?? l.key}": it repeats words from GM-only notes.`);
       const j = it.filled.indexOf(l.key);
       if (j >= 0) it.filled.splice(j, 1);
     }

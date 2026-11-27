@@ -19,7 +19,7 @@ test('Audit_WorldDelete: a deleted world leaves no vault, party or _api files, s
   await k.ok('DELETE', `/api/admin/worlds/${k.W}`, k.T.admin, { confirm: true });
   const left = files(dir);
   assert.deepEqual(left, [], `files of a deleted world are still on disk: ${left.join(', ')}`);
-  // Same slug again, another DM.
+  // Same slug again, another GM.
   const nw = await k.ok('POST', '/api/admin/worlds', k.T.admin, { name: 'Harbourtown', dmAccountId: k.ID.dm2 });
   const mirrored = files(dir).filter((f) => f.endsWith('.md'));
   assert.deepEqual(mirrored, [], `the new world starts with the old world's files: ${mirrored.join(', ')}`);

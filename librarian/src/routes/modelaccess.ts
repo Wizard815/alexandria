@@ -1,4 +1,4 @@
-// Admin: who has been calling models, and who may use the /v1 gateway besides the DM and the admin.
+// Admin: who has been calling models, and who may use the /v1 gateway besides the GM and the admin.
 //
 //   GET    /api/admin/models/activity            { jobs, callers, recent }   per job: last call, calls in the last hour and day, which features
 //   GET    /api/admin/models/activity/gateway    { since, calls, users }      the /v1 call log and per-account totals today vs caps (no prompts)

@@ -1,8 +1,8 @@
 // Generators hub: names, NPCs, monsters, taverns and maps work from tables with no
 // model; they are seeded and repeat; monster numbers stay near the CR table; maps
-// are valid, deterministic, connected and small; saving makes a DM page and a map
+// are valid, deterministic, connected and small; saving makes a GM page and a map
 // file; the world only ever lends a place or faction that a model could see (never
-// classified); players are refused everywhere and only get what the DM shares.
+// classified); players are refused everywhere and only get what the GM shares.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -67,7 +67,7 @@ async function boot(opts: { model?: (body: any) => unknown } = {}) {
   const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
   const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  await page('Places/Saltmarsh.md', 'party', `---\nkind: place\ntags: [place]\n---\n# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] DM\n> ${SECRET}.\n`);
+  await page('Places/Saltmarsh.md', 'party', `---\nkind: place\ntags: [place]\n---\n# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] GM\n> ${SECRET}.\n`);
   await page('Places/Hollow Mill.md', 'dm', `---\nkind: place\ntags: [place]\n---\n# Hollow Mill\nA dm-only ruin upriver.\n`);
   await page('Places/Blackwater Reliquary.md', 'classified', `---\nkind: place\ntags: [place]\n---\n# ${CLASSIFIED_PLACE}\nThe sunken bell opens only when three silver keys turn together at the ebb tide.\n`);
   await page('Factions/Lantern Guild.md', 'party', `---\nkind: faction\ntags: [faction]\n---\n# Lantern Guild\nA guild of lamplighters.\n`);
@@ -313,7 +313,7 @@ test('Generators_maps: dungeon and cave rooms connect, and the player view hides
 
 // ---- the app --------------------------------------------------------------
 
-test('Generators_routes: the DM generates every kind; players are refused everywhere', async () => {
+test('Generators_routes: the GM generates every kind; players are refused everywhere', async () => {
   const e = await boot();
   const out = await e.ok('GET', `${e.G}/options`, e.T.dm);
   assert.ok(out.npc.presets.includes('villain') && out.map.kinds.includes('region') && out.model === false);
@@ -366,7 +366,7 @@ test('Generators_world: ties use visible places and factions only, never a class
   assert.ok(!taken.names.includes('Saltmarsh'));
 });
 
-test('Generators_save: a result is saved as a DM page, a map also as a map file, nothing reaches players, and the library lists it', async () => {
+test('Generators_save: a result is saved as a GM page, a map also as a map file, nothing reaches players, and the library lists it', async () => {
   const e = await boot();
   const spec = { kind: 'map', preset: 'dungeon', seed: 'save1', options: { size: 'small' } };
   const saved = await e.ok('POST', `${e.G}/save`, e.T.dm, spec);
@@ -375,7 +375,7 @@ test('Generators_save: a result is saved as a DM page, a map also as a map file,
   assert.equal(saved.files.length, 2);
   const png = saved.files.find((f: any) => f.kind === 'map');
   assert.ok(png && png.level === 'dm' && png.mime === 'image/png');
-  // the page is DM level with the key; the Map page can use the picture
+  // the page is GM level with the key; the Map page can use the picture
   const page = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${saved.page.id}`, e.T.dm);
   assert.equal(page.visibility, 'dm');
   assert.match(page.body, /Key/);
@@ -409,34 +409,34 @@ test('Generators_save: a result is saved as a DM page, a map also as a map file,
   assert.equal(opts.world.places, 2);
 });
 
-test('Generators_save: at party level players read the public part only; the secrets stay in secret blocks; a party map has no DM marks', async () => {
+test('Generators_save: at party level players read the public part only; the secrets stay in secret blocks; a party map has no GM marks', async () => {
   const e = await boot();
   const gen = await e.ok('POST', `${e.G}/generate`, e.T.dm, { kind: 'npc', preset: 'villain', seed: 'party1', options: { statblock: true } });
   const npc = await e.ok('POST', `${e.G}/save`, e.T.dm, { kind: 'npc', preset: 'villain', seed: 'party1', level: 'party', options: { statblock: true } });
   assert.equal(npc.page.level, 'party');
-  assert.equal(npc.title, gen.title, 'saving gives the result the DM saw');
+  assert.equal(npc.title, gen.title, 'saving gives the result the GM saw');
   const asPlayer = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${npc.page.id}`, e.T.jess);
   const text = JSON.stringify(asPlayer);
   assert.ok(text.includes(gen.title), 'the name is public');
   assert.ok(text.includes(gen.fields.look.slice(0, 20)), 'the look is public');
   for (const k of ['secret', 'want', 'hook']) assert.ok(!text.includes(gen.fields[k]), `${k} is not in the player copy`);
   assert.doesNotMatch(text, /statblock-json/);
-  // the DM still has the secrets on the page
+  // the GM still has the secrets on the page
   const asDm = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${npc.page.id}`, e.T.dm);
   assert.ok(asDm.body.includes(gen.fields.secret));
-  // a party map: picture at party level, without the DM's marks
+  // a party map: picture at party level, without the GM's marks
   const m = await e.ok('POST', `${e.G}/save`, e.T.dm, { kind: 'map', preset: 'dungeon', seed: 'secret-door', level: 'party', options: { size: 'large' } });
   assert.equal(m.files.find((f: any) => f.kind === 'map').level, 'party');
   const pm = await e.ok('GET', `/api/worlds/${e.W}/files/maps`, e.T.jess);
   assert.equal(pm.length, 1);
   const mp = JSON.stringify(await e.ok('GET', `/api/worlds/${e.W}/library/pages/${m.page.id}`, e.T.jess));
-  assert.doesNotMatch(mp, /Occupants|Treasure|DM:/);
-  // a result that repeats DM-only words is refused at party level
+  assert.doesNotMatch(mp, /Occupants|Treasure|GM:/);
+  // a result that repeats GM-only words is refused at party level
   const leak = await e.call('POST', `${e.G}/save`, e.T.dm, { kind: 'npc', preset: 'noble', seed: 'x', level: 'party', locks: { look: `Looks like ${SECRET}` } });
   assert.equal(leak.status, 409);
 });
 
-test('Generators_stage: send to table stages a card with the public text only, and the map picture without DM marks', async () => {
+test('Generators_stage: send to table stages a card with the public text only, and the map picture without GM marks', async () => {
   const e = await boot();
   const gen = await e.ok('POST', `${e.G}/generate`, e.T.dm, { kind: 'npc', preset: 'cleric', seed: 'stg' });
   const r = await e.ok('POST', `${e.G}/stage`, e.T.dm, { kind: 'npc', preset: 'cleric', seed: 'stg' });
@@ -492,7 +492,7 @@ test('Generators_model: without a chat model the tables fill everything; with on
   assert.ok(b.fields.atmosphere.length > 10);
 });
 
-test('Generators_mcp: generate, generate_map and save_generated are DM-only tools', async () => {
+test('Generators_mcp: generate, generate_map and save_generated are GM-only tools', async () => {
   const e = await boot();
   const { toolsFor } = await import('../src/routes/mcpServer.ts');
   const dm = toolsFor(true).map((t: any) => t.name);

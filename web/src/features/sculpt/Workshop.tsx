@@ -14,7 +14,7 @@ interface OutDone { done: Record<string, any>; errors: Record<string, string> }
 
 const OUT_LABEL: Record<OutputKey, string> = { page: 'Save as a page', stage: 'Show on the stage', combat: 'Add to combat', send: 'Send to players', broker: 'Make a broker note' };
 const OUT_HELP: Record<OutputKey, string> = {
-  page: 'Into the library, DM-only parts as secret blocks',
+  page: 'Into the library, GM-only parts as secret blocks',
   stage: 'Players see only the parts meant for them',
   combat: 'Everything lands in initiative',
   send: 'A message to every player',
@@ -50,7 +50,7 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
     return a;
   }, [tpl, player]);
 
-  // Live preview: the server renders it, so DM-only parts and leak checks match what is saved.
+  // Live preview: the server renders it, so GM-only parts and leak checks match what is saved.
   const seq = useRef(0);
   useEffect(() => {
     if (batch) return;
@@ -84,7 +84,7 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
   });
   const readAloud = () => act.run(async () => {
     const c = await w.call<Check>('POST', '/sculpt/check', { templateId: tpl.id, values, context });
-    if (!c.ok) throw new Error('Blocked: the text repeats DM-only notes.');
+    if (!c.ok) throw new Error('Blocked: the text repeats GM-only notes.');
     const presets = await w.call<any[]>('GET', '/voice/presets');
     if (!presets.length) throw new Error('No voice yet. Add one in Settings → Voice.');
     await w.call('POST', '/voice/speak', { text: c.text.slice(0, 2000), presetId: presets[0].id });
@@ -129,7 +129,7 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
               )
               : <input {...common} type={f.type === 'number' ? 'number' : 'text'} placeholder={f.type === 'dice' ? '2d6+3' : undefined} onChange={(e) => set(f.key, e.target.value)} />;
             return (
-              <Field key={f.key} label={`${f.label}${f.required ? ' *' : ''}${f.dmOnly ? ' (DM only)' : ''}`} help={f.hint}>
+              <Field key={f.key} label={`${f.label}${f.required ? ' *' : ''}${f.dmOnly ? ' (GM only)' : ''}`} help={f.hint}>
                 <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'nowrap', gap: 6 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>{input}</div>
                   <button type="button" className="btn small ghost" aria-pressed={locked.has(f.key)} title={locked.has(f.key) ? 'Locked: Sculpt keeps this' : 'Unlocked: Sculpt may change this'} aria-label={`${locked.has(f.key) ? 'Unlock' : 'Lock'} ${f.label}`} onClick={(e) => { e.preventDefault(); toggle(f.key); }}>{locked.has(f.key) ? '🔒' : '🔓'}</button>
@@ -151,17 +151,17 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
         <div className="card stack">
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <h3 style={{ margin: 0 }}>{batch ? `Result ${pick + 1} of ${batch.length}` : 'Preview'}</h3>
-            <span className="tiny faint">{player ? 'What the players get' : 'Grey boxes are DM-only and become secret blocks'}</span>
+            <span className="tiny faint">{player ? 'What the players get' : 'Grey boxes are GM-only and become secret blocks'}</span>
           </div>
           {batch && (
             <div className="row" style={{ flexWrap: 'wrap', gap: 4 }} role="tablist" aria-label="Results">
               {batch.map((_x, i) => <button key={i} type="button" role="tab" aria-selected={i === pick} className={`btn small ${i === pick ? '' : 'ghost'}`} onClick={() => setPick(i)}>{i + 1}</button>)}
             </div>
           )}
-          {!batch && check && !check.ok && <div className="error-box" role="alert">Blocked by the leak check: {check.leaks.map((l) => l.key).join(', ')} repeats DM-only notes and was left out.</div>}
+          {!batch && check && !check.ok && <div className="error-box" role="alert">Blocked by the leak check: {check.leaks.map((l) => l.key).join(', ')} repeats GM-only notes and was left out.</div>}
           {!shown ? <Loading /> : shown.parts.length === 0 ? <Empty>Nothing yet. Fill a field or press Sculpt.</Empty> : shown.parts.map((p, i) => (
             <div key={i} className={p.dm ? 'sculpt-dm' : undefined}>
-              {p.dm && <div className="tiny faint">DM only</div>}
+              {p.dm && <div className="tiny faint">GM only</div>}
               <Markdown text={p.md} />
             </div>
           ))}
@@ -182,7 +182,7 @@ export default function Workshop({ tpl, initial, context, autoSculpt, preset, on
             {player && <button type="button" className="btn" disabled={act.busy || !check?.text} onClick={() => void readAloud()}>Read aloud</button>}
           </div>
           {missing ? <span className="tiny muted">Fill the fields marked * to save.</span> : noBlock && <span className="tiny muted">Press Sculpt to make the statblock first.</span>}
-          {check?.publicOk === false && <span className="tiny muted" role="status">The player-visible text repeats DM-only notes, so the stage, messages and broker will refuse it until you change it.</span>}
+          {check?.publicOk === false && <span className="tiny muted" role="status">The player-visible text repeats GM-only notes, so the stage, messages and broker will refuse it until you change it.</span>}
           {out && (
             <div className="stack tight" role="status">
               {Object.entries(out.done).map(([k, v]) => <div key={k} className="small">✔ {OUT_LABEL[k as OutputKey]}{k === 'combat' ? `: ${v.count} in initiative` : k === 'page' && v.path ? `: ${v.path}` : ''}</div>)}

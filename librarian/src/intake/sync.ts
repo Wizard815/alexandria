@@ -2,7 +2,7 @@
 // - one sync_runs row per sync, with stats and a log the admin panel shows
 // - entries are saved in batch (player copies empty until the end)
 // - pages the source no longer has are removed, only after a complete listing
-// - player copies are rebuilt last, so links to DM-only pages are scrubbed
+// - player copies are rebuilt last, so links to GM-only pages are scrubbed
 import type { DB } from '../core/db.ts';
 import { one, all, run } from '../core/db.ts';
 import type { Library } from '../core/library.ts';
@@ -70,7 +70,7 @@ export function connectorContext(d: SyncDeps, src: any, cfg: any, signal: AbortS
   // Every call to the source goes through the limiter of its connection (shared by all worlds and keys that use it).
   const limits = limitsOf(c.id, cfg, d.env, getState(d.db, src.id).spread);
   const limiter = limiterFor(limitKeyOf(src, d.db), limits);
-  // A LegendKeeper project has one hourly allowance for every key that reads it, the DM's and the players' alike.
+  // A LegendKeeper project has one hourly allowance for every key that reads it, the GM's and the players' alike.
   const proj = projectOf(c.id, cfg ?? {});
   limiter.project = proj ? projectWindow(d.db, `proj:${proj.id}`, limits.perMinute === 0 ? 0 : proj.perHour) : null;
   // The status page hears of every call, answer and ending of this connection (the test of a connection not saved yet is nobody's).
@@ -141,7 +141,7 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
     if (connectorFor(src.kind, cfg)?.tiered) counter.onHit = () => { stats.indexCalls = counter.index; stats.detailCalls = counter.detail; d.onEntry?.(stats); };
     if (tier) {
       ts = { token: state.token, cache: state.cache, full: needsFullListing(state, opts.full), complete: true, next: { token: state.token, cache: state.cache } };
-      // A complete listing is spread over the window the DM chose: the calls of the last one (or 30 when none is known) are paced evenly across it.
+      // A complete listing is spread over the window the GM chose: the calls of the last one (or 30 when none is known) are paced evenly across it.
       if (ts.full && made.limits.spreadMinutes > 0) counter.paceMs = Math.floor((made.limits.spreadMinutes * 60_000) / Math.max(1, state.lastIndexCalls || 30));
       made.ctx.tier = ts;
       log(ts.full ? 'Listing everything (tier 1: list calls only)' : 'Listing what changed since the last crawl (tier 1)');
@@ -186,7 +186,7 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
     // Pictures downloaded by this run are detail calls: they count against the source's totals like pages read later.
     if (counter.detail) addDetailCalls(d.db, sourceId, counter.detail);
     // A page the list says is hidden loses its player copy now, not when its details are next read.
-    if (demoted.length) { d.library.applyAudience(src.world_id, src.id); log(`${demoted.length} pages are hidden at the source: made DM-only`); }
+    if (demoted.length) { d.library.applyAudience(src.world_id, src.id); log(`${demoted.length} pages are hidden at the source: made GM-only`); }
     // Only a complete listing may delete. A listing of what changed lists nothing else.
     // A complete listing that found nothing while the source has pages is far more likely a half-down API
     // or a key that lost its rights than a world emptied on purpose: keep the pages.
@@ -195,7 +195,7 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
     else if (!ts || ts.complete) stats.removed = d.library.removeMissing(src.world_id, src.id, seen);
     else log('Only changed pages were listed, so nothing is removed this time');
     if (ts) saveIndexState(d.db, sourceId, { token: ts.next.token, cache: ts.next.cache, complete: ts.complete, calls: counter.index });
-    // The source's audience decides what its records are: DM only, or shared (a reader still needs the pages they point at shared).
+    // The source's audience decides what its records are: GM only, or shared (a reader still needs the pages they point at shared).
     const audience = normAudience(src.audience);
     if (audience !== 'auto') {
       for (const r of records as any[]) {
@@ -208,7 +208,7 @@ async function runSyncNow(d: SyncDeps, sourceId: string, by: string | null, opts
     if (!ts || ts.complete) pruneOrphanImages(d.db, src.world_id, src.id);
     stats.records = saved.relations + saved.timelines + saved.calendars + saved.markers + saved.images;
     if (stats.records) log(`Saved ${saved.relations} relations, ${saved.timelines} timelines, ${saved.calendars} calendars, ${saved.markers} map markers, ${saved.images} pictures`);
-    log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.dmOnly} DM-only), removed ${stats.removed}`);
+    log(`Saved ${stats.pages} pages (${stats.shared} shared, ${stats.dmOnly} GM-only), removed ${stats.removed}`);
     if (tier) {
       const dc = depthCounts(d.db, sourceId);
       log(`Index: ${counter.index} calls, ${dc.total} pages · read in full: ${dc.full} of ${dc.total}${counter.detail ? ` · ${counter.detail} picture downloads` : ''}`);

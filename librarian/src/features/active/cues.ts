@@ -12,10 +12,10 @@ export interface LineIn {
   id: string;
   text: string;
   speaker: string;
-  /** dm: the DM's own mic; player: a player's own mic; other: room mic or nobody known. */
+  /** dm: the GM's own mic; player: a player's own mic; other: room mic or nobody known. */
   role: 'dm' | 'player' | 'other';
   accountId: string | null;
-  /** A DM-only line (aside): nothing players see may follow from it. */
+  /** A GM-only line (aside): nothing players see may follow from it. */
   aside: boolean;
 }
 
@@ -376,7 +376,7 @@ function combatCues(low: string, raw: string, ctx: CueCtx): Scored[] {
 }
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** Monsters joining the fight and initiative rolls, from DM or player lines. */
+/** Monsters joining the fight and initiative rolls, from GM or player lines. */
 function addCues(line: LineIn, ctx: CueCtx): Scored[] {
   const out: Scored[] = [];
   const low = norm(line.text);
@@ -416,7 +416,7 @@ function playerCues(line: LineIn, ctx: CueCtx): Scored[] {
   return out;
 }
 
-/** Everything the lines say: DM rules, plus creatures joining and player rolls. */
+/** Everything the lines say: GM rules, plus creatures joining and player rolls. */
 export function allCues(line0: LineIn, ctx: CueCtx, opts: { explicit?: boolean } = {}): Scored[] {
   const line = { ...line0, text: digitize(line0.text) };
   const base = cuesOf(line, ctx, opts);

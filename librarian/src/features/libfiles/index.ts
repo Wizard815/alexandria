@@ -10,7 +10,7 @@
 //
 // The same routes are mounted for the library admin at
 // /api/admin/library/worlds/:world/{library,files}: an admin who is the world's
-// DM gets the DM view, any other admin only the party copy, and cannot upload.
+// GM gets the GM view, any other admin only the party copy, and cannot upload.
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
@@ -70,7 +70,7 @@ export function pageOpenable(d: Deps, worldId: string, pageId: string, visibilit
 
 /**
  * May this viewer have this file? The page and the file's own level both count; a classified file is never for a model.
- * A player may also have a DM-only file the DM shared with them (a share on the file, or a folder rule), even when its page stays hidden.
+ * A player may also have a GM-only file the GM shared with them (a share on the file, or a folder rule), even when its page stays hidden.
  */
 export function mayRead(d: Deps, f: Pick<Row, 'level' | 'page_id' | 'world_id'> & { id?: string }, viewer: Viewer): boolean {
   const pg = one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ? AND world_id = ?', f.page_id, f.world_id);
@@ -91,7 +91,7 @@ function view(d: Deps, f: Row, viewer: Viewer, pageTitle?: string) {
     url: `/api/media/libfile/${mintTicket({ w: f.world_id, k: 'libfile', f: f.id, a: viewer.accountId })}`,
   };
   if (pageTitle !== undefined && pageShown) out.pageTitle = pageTitle;
-  // The DM (and the broker's view) also see the level and where the file was sent.
+  // The GM (and the broker's view) also see the level and where the file was sent.
   if (sees(viewer)) { out.level = f.level; if (f.remote && viewer.role === 'dm') out.remote = JSON.parse(f.remote); }
   return out;
 }
@@ -158,7 +158,7 @@ function fileRoutes(d: Deps): Router {
       .filter((f) => mayRead(d, f, v)).map((f) => view(d, f, v, titles.get(f.page_id))));
   });
 
-  // Where an upload could also be sent (DM). Null hides the option.
+  // Where an upload could also be sent (GM). Null hides the option.
   r.get('/targets', requireDM, (req, res) => {
     const c = ctx(res);
     const pg = pageOf(res, req.query.page);
@@ -188,7 +188,7 @@ function fileRoutes(d: Deps): Router {
     const kind = oneOf(req.query.kind ?? 'other', 'kind', KINDS, 'other');
     if (kind === 'map' && sniffed.family !== 'image') throw new HttpError(400, 'A map must be a picture');
     if (temp && req.query.send) throw new HttpError(400, 'Videos stay on this server and are not sent to a source');
-    // Fail closed: no level means DM-only; a level that is not one is refused.
+    // Fail closed: no level means GM-only; a level that is not one is refused.
     const level: Level = req.query.level === undefined || req.query.level === '' ? 'dm' : isLevel(req.query.level) ? req.query.level : (() => { throw new HttpError(400, 'level must be party, broker, dm or classified'); })();
     const sendTo = req.query.send ? String(req.query.send) : '';
 
@@ -204,7 +204,7 @@ function fileRoutes(d: Deps): Router {
       d.library.save(c.world.id, { path: p, title, body: '', frontmatter: { tags: ['file'] }, visibility: level }, me(res));
       pg = one<any>(d.db, 'SELECT id, path, title, visibility, source_id, external_id FROM pages WHERE world_id = ? AND path = ?', c.world.id, p);
     }
-    // The page must be one this DM view can open and (for a new send) a source that takes files.
+    // The page must be one this GM view can open and (for a new send) a source that takes files.
     if (sendTo) {
       const t = targetFor(d, c.world.id, pg, level, sniffed.mime);
       if (!t || t.sourceId !== sendTo) throw new HttpError(400, 'That source cannot take this file (classified files are never sent, and not every source has an upload or takes this type of file)');
@@ -242,7 +242,7 @@ function fileRoutes(d: Deps): Router {
   }
   const emit = (row: Row) => d.hub.emit(row.world_id, 'libfile', { pageId: row.page_id }, (v) => mayRead(d, row, v));
 
-  // Try the upload to the source again (DM).
+  // Try the upload to the source again (GM).
   r.post('/:fid/send', requireDM, async (req, res) => {
     const c = ctx(res);
     const row = fileOf(res, req.params.fid);
@@ -288,7 +288,7 @@ function fileRoutes(d: Deps): Router {
   return r;
 }
 
-/** The admin's view of a world: DM view when the admin is the world's DM, else the party copy and no writes. */
+/** The admin's view of a world: GM view when the admin is the world's GM, else the party copy and no writes. */
 function adminWorld(d: Deps) {
   return (req: Request, res: Response, next: (e?: any) => void) => {
     const auth = res.locals.auth as Auth;

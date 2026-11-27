@@ -1,7 +1,7 @@
 // The world's item database: what shops stock. Rows come from a game module
-// (the built-in SRD 5.2 / 5.1 modules, CC-BY-4.0, or a module the DM imported),
-// from a JSON or CSV file, or from the DM's own hand. Every row keeps where it
-// came from and that source's attribution. dm_notes is for the DM alone.
+// (the built-in SRD 5.2 / 5.1 modules, CC-BY-4.0, or a module the GM imported),
+// from a JSON or CSV file, or from the GM's own hand. Every row keeps where it
+// came from and that source's attribution. dm_notes is for the GM alone.
 //
 // Dedupe: an item's key is its name, lower-cased with punctuation folded
 // ("Thieves' Tools" = "thieves tools"). An import never adds a second row with
@@ -58,7 +58,7 @@ export interface ItemRow {
   created_at: string; updated_at: string; updated_by: string | null;
 }
 
-/** An item as the DM sees it (the API shape). */
+/** An item as the GM sees it (the API shape). */
 export const itemOut = (r: ItemRow) => ({
   id: r.id, name: r.name, type: r.type, category: r.category, rarity: r.rarity, costCp: r.cost_cp, weight: r.weight,
   description: r.description, properties: r.properties, attunement: !!r.attunement, source: r.source, sourceLabel: r.source_label,

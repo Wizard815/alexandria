@@ -1,5 +1,5 @@
 // What players asked to change (coin and items), what they disputed, and
-// the DM's own changes still waiting for the owner to confirm.
+// the GM's own changes still waiting for the owner to confirm.
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
@@ -152,7 +152,7 @@ function ItemModal({ c, onClose, onSave }: { c: Change; onClose: () => void; onS
       <Field label="Item"><input value={name} maxLength={120} onChange={(e) => setName(e.target.value)} /></Field>
       <Field label="Quantity"><input type="number" min={0} value={qty} onChange={(e) => setQty(Math.max(0, Number(e.target.value) || 0))} /></Field>
       <Field label="Note the owner sees"><input value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} /></Field>
-      <Field label="DM note (only you)"><input value={dmNote} maxLength={500} onChange={(e) => setDmNote(e.target.value)} /></Field>
+      <Field label="GM note (only you)"><input value={dmNote} maxLength={500} onChange={(e) => setDmNote(e.target.value)} /></Field>
       <div className="row end">
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
         <button type="button" className="btn primary" disabled={!name.trim()} onClick={() => void onSave({ name: name.trim(), qty, note, dmNote })}>Approve</button>

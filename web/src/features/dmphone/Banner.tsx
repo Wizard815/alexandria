@@ -1,4 +1,4 @@
-// On the DM's table page at phone width: a dismissible link to the phone assistant.
+// On the GM's table page at phone width: a dismissible link to the phone assistant.
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';

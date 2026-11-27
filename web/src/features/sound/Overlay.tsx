@@ -1,6 +1,6 @@
 // Sits on every page (no visible UI unless the browser blocked autoplay). It
 // follows `sound` events:
-//   DM:      plays what is aimed at the table, on the chosen speaker group.
+//   GM:      plays what is aimed at the table, on the chosen speaker group.
 //   players: plays what is aimed at players, on the channels they switched on.
 import { useEffect, useRef, useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';

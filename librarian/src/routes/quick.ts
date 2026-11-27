@@ -1,6 +1,6 @@
 // Quick events (recall, notice, saving throw, timed choice, party vote,
-// reaction...). The DM sends one, the chosen players get a prompt with a
-// timer, answer, and the DM resolves it. Players never see the DC or the
+// reaction...). The GM sends one, the chosen players get a prompt with a
+// timer, answer, and the GM resolves it. Players never see the DC or the
 // success/fail text until it is resolved, and then only their own outcome.
 import { Router } from 'express';
 import { randomInt } from 'node:crypto';
@@ -102,7 +102,7 @@ export default function quickRoutes(d: Deps) {
     res.json(view(ev, c.viewer, c.world.id));
   });
 
-  // DM resolves. Results default to total >= DC for checks, first answer for
+  // GM resolves. Results default to total >= DC for checks, first answer for
   // reactions, and the top option for votes. { results: { accountId: 'success'|'fail' } } overrides.
   r.post('/:eid/resolve', requireDM, (req, res) => {
     const c = ctx(res);

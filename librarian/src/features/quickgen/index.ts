@@ -1,5 +1,5 @@
 // Quick generators: names, items and coin amounts, instantly, from tables and
-// code (no model). api.ts is what other features import. DM only, except that
+// code (no model). api.ts is what other features import. GM only, except that
 // a world can let players roll names (setting quickgenPlayers).
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
@@ -33,13 +33,13 @@ const feature: Feature = {
   worldRoutes: (d) => {
     const r = Router({ mergeParams: true });
 
-    // DM only. With quickgenPlayers on, players may roll names (and read the option lists).
+    // GM only. With quickgenPlayers on, players may roll names (and read the option lists).
     r.use((req, res, next) => {
       if (isDM(res)) return next();
       const role = ctx(res).viewer.role;
       const namesOnly = req.method === 'GET' && (req.path === '/names' || req.path === '/options');
       if (role === 'player' && featureSetting<boolean>(settings(res), 'quickgenPlayers') === true && namesOnly) return next();
-      throw new HttpError(403, role === 'player' ? 'Quick generators are for the DM' : 'Not allowed');
+      throw new HttpError(403, role === 'player' ? 'Quick generators are for the GM' : 'Not allowed');
     });
 
     r.get('/options', (_req, res) => {
@@ -69,7 +69,7 @@ const feature: Feature = {
       const text = String(req.body?.text ?? '').slice(0, 200);
       if (!text.trim()) throw new HttpError(400, 'text is required');
       const out = await chatJson<{ flavour?: string }>(d, 'audit', [
-        { role: 'system', content: 'You help a D&D dungeon master. Reply with JSON only: {"flavour": "<one short vivid sentence, at most 25 words>"}.' },
+        { role: 'system', content: 'You help the Game Master of a 5e tabletop role-playing game. Reply with JSON only: {"flavour": "<one short vivid sentence, at most 25 words>"}.' },
         { role: 'user', content: `Give one sentence of flavour for this ${what}: ${text}` },
       ]);
       const f = typeof out?.flavour === 'string' ? out.flavour.trim().slice(0, 300) : '';

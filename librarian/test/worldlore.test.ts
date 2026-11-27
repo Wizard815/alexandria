@@ -286,7 +286,7 @@ test('TestWorldLore_PlayersCannotUseLoreTools', async () => {
       assert.equal(r.status, 403, `${m} ${sub}`);
       assert.ok(!JSON.stringify(r.body).includes('zxqv'));
     }
-    // Through MCP with the player's own key: the lore tools are DM-only, so not even listed, and a call is refused.
+    // Through MCP with the player's own key: the lore tools are GM-only, so not even listed, and a call is refused.
     const k = await e.ok('POST', '/api/keys', e.T.jess, { scope: 'scribe', worldId: e.W, label: 'ai', access: 'read' });
     const listed = (await e.call('POST', '/mcp', k.key ?? k.token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).body.result.tools.map((t: any) => t.name);
     assert.ok(!listed.includes('lore_list') && !listed.includes('lore_read'));
@@ -457,7 +457,7 @@ test('TestWorldLore_LibraryModeWritesUnderWorldLoreOnly', async () => {
     assert.equal(pageRow(e, 'path = ?', mv.ref), undefined);
     assert.equal(syncs(e), 0);
 
-    // Everywhere else the library is as before: the DM's write route still works, the agent's save_page still needs approval.
+    // Everywhere else the library is as before: the GM's write route still works, the agent's save_page still needs approval.
     const tools = (await import('../src/routes/mcpServer.ts')).toolsFor(true);
     assert.equal(tools.find((t) => t.name === 'save_page')!.write, true);
     assert.ok(!(await autoApprove(e)).includes('save_page'));
@@ -489,7 +489,7 @@ test('TestWorldLore_BrokerLevelPageNeverReachesAPlayer', async () => {
     for (const s of seen) { assert.ok(!s.includes(MARK), 'the fact reached a player'); assert.ok(!s.includes('Harbour rumour') && !s.includes('Sealed order')); }
     // Player copies are empty; the files players can see hold nothing.
     for (const r of all<any>(e.deps.db, `SELECT player_body, player_blocks, visibility FROM pages WHERE world_id = ? AND path LIKE '%WorldLore%'`, e.W)) { assert.equal(r.player_body, null); assert.equal(r.player_blocks, null); assert.notEqual(r.visibility, 'party'); }
-    // The DM sees it; the agent can read broker pages but never classified ones.
+    // The GM sees it; the agent can read broker pages but never classified ones.
     const list = await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages?ai=1`, e.T.dm);
     assert.deepEqual(list.map((p: any) => p.title), ['Harbour rumour']);
     const all2 = await e.ok('GET', `/api/worlds/${e.W}/worldlore/pages`, e.T.dm);
@@ -586,7 +586,7 @@ test('TestWorldLore_AgentRunsLoreWriteWithoutAskingAndOthersStillWait', async ()
     await setLore(e, { kind: 'library', root: 'WorldLore', defaultLevel: 'dm' });
     const approve = new Set(await autoApprove(e));
     assert.ok(approve.has('lore_write') && approve.has('lore_delete') && approve.has('lore_move'));
-    for (const t of ['save_page', 'add_coin', 'add_item', 'send_broker_offer', 'add_broker_note']) assert.ok(!approve.has(t), `${t} still needs the DM`);
+    for (const t of ['save_page', 'add_coin', 'add_item', 'send_broker_offer', 'add_broker_note']) assert.ok(!approve.has(t), `${t} still needs the GM`);
   } finally { e.close(); }
 });
 

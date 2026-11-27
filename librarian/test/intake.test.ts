@@ -9,7 +9,7 @@ import { frontmatterGroups, markdownEntry } from '../src/intake/connectors/markd
 import { genericApi, pick } from '../src/intake/connectors/api.ts';
 
 test('TestIntake_MarkdownToBlocks', () => {
-  const b = markdownToBlocks('# Title\n\nHello **bold** [[Odda|her]] and [link](https://x.y).\n\n> [!note] Heads up\n> Mind the gap\n\n> [!secret] DM\n> The twist\n\n- [x] done\n- open\n\n| A | B |\n|---|---|\n| 1 | 2 |\n');
+  const b = markdownToBlocks('# Title\n\nHello **bold** [[Odda|her]] and [link](https://x.y).\n\n> [!note] Heads up\n> Mind the gap\n\n> [!secret] GM\n> The twist\n\n- [x] done\n- open\n\n| A | B |\n|---|---|\n| 1 | 2 |\n');
   assert.deepEqual(b.map((x) => x.kind), ['heading', 'paragraph', 'callout', 'secret', 'bulletList', 'table']);
   const p = b[1] as any;
   assert.ok(p.content.some((x: any) => x.bold && x.text === 'bold'));
@@ -24,8 +24,8 @@ test('TestIntake_MarkdownToBlocks', () => {
 
 test('TestIntake_PlayerBlocksFailClosed', () => {
   const pl = playerBlocks([
-    { kind: 'heading', level: 2, content: [{ text: 'DM — plans' }] },
-    { kind: 'paragraph', content: [{ text: 'hidden under DM heading' }] },
+    { kind: 'heading', level: 2, content: [{ text: 'GM — plans' }] },
+    { kind: 'paragraph', content: [{ text: 'hidden under GM heading' }] },
     { kind: 'heading', level: 2, content: [{ text: 'Open' }] },
     { kind: 'callout', variant: 'gm', children: [{ kind: 'paragraph', content: [{ text: 'gm only' }] }] },
     { kind: 'unsupported', sourceKind: 'widget' },
@@ -42,7 +42,7 @@ test('TestIntake_FrontmatterBecomesFacts', () => {
   const g = frontmatterGroups({ age: 40, home: '[[Nanyo]]', tags: ['x'], secret: { lover: 'Tamsin' } } as any);
   assert.equal(g[0].title, 'Facts');
   assert.deepEqual(g[0].rows.map((r) => r.key), ['age', 'home']);
-  assert.ok(g[1].dm, 'secret: map is a DM-only group');
+  assert.ok(g[1].dm, 'secret: map is a GM-only group');
   const e = markdownEntry('people/Han.md', '---\nvisibility: party\nknowledge: deep\naliases: [Mikey]\n---\n# Han\nA druid. #pc', 'dm');
   assert.equal(e.visibility, 'party');
   assert.equal(e.knowledge, 'deep');

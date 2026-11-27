@@ -1,7 +1,7 @@
 // Search everything in the world: pages, people, rules, transcript, session
 // log and items, in one ranked list grouped by kind. Open it with "/" or
 // Ctrl/Cmd+/ (or the Search button in the top bar). Arrow keys move, Enter
-// opens, Esc closes. The same box serves the DM and players; the server only
+// opens, Esc closes. The same box serves the GM and players; the server only
 // returns what the viewer may see.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';

@@ -1,17 +1,17 @@
 // Personal and party inventories. Weight only appears when the world tracks
-// it. dm_note is for the DM alone (e.g. "this ring is cursed") and is never
+// it. dm_note is for the GM alone (e.g. "this ring is cursed") and is never
 // sent to players.
 //
 // Players can't change items directly: an add, edit, move or remove is a
-// proposal (item_changes, status pending) until the DM approves it. A
+// proposal (item_changes, status pending) until the GM approves it. A
 // player-added item exists as status 'pending' and shows as "Waiting for the
-// DM". The DM's changes to someone else's items apply at once but leave an
-// alert the owner can confirm or dispute; the DM can revert a dispute.
+// GM". The GM's changes to someone else's items apply at once but leave an
+// alert the owner can confirm or dispute; the GM can revert a dispute.
 //
 // Giving is different: players hand each other coin and items, and move
 // things in and out of the party stash, without asking (world setting
 // playerTransfers). Those moves are checked (you can only give what you
-// have) and logged in `transfers` for the DM, who gets a non-blocking alert.
+// have) and logged in `transfers` for the GM, who gets a non-blocking alert.
 // Players can also ask each other for coin (coin_requests), e.g. to afford a
 // broker offer.
 //
@@ -32,7 +32,7 @@ import { checkPageId } from '../features/itemcards/link.ts';
 const ITEM_COLS = ['owner', 'name', 'qty', 'weight', 'note', 'dm_note', 'link', 'image'] as const;
 export const itemSnapshot = (it: any) => Object.fromEntries(ITEM_COLS.map((k) => [k, it[k] ?? null]));
 
-/** Apply a pending change (approve). `over` lets the DM edit it first. */
+/** Apply a pending change (approve). `over` lets the GM edit it first. */
 export function applyChange(db: DB, ch: any, over: Record<string, any> = {}, by: string) {
   const after = { ...JSON.parse(ch.after_json || '{}'), ...over };
   tx(db, () => {
@@ -60,7 +60,7 @@ export function rejectChange(db: DB, ch: any, by: string) {
   });
 }
 
-/** Undo a DM change the owner disputed (or any DM change): put the item back as it was. */
+/** Undo a GM change the owner disputed (or any GM change): put the item back as it was. */
 export function revertChange(db: DB, ch: any, by: string) {
   const before = ch.before_json ? JSON.parse(ch.before_json) : null;
   tx(db, () => {
@@ -82,7 +82,7 @@ export default function inventoryRoutes(d: Deps) {
     if (raw === 'party') return 'party';
     if (raw === 'me' || raw === me(res)) return me(res);
     if (!isDM(res)) throw new HttpError(403, 'You can only see your own and the party inventory');
-    if (writing && !settings(res).dmEditsInventory) throw new HttpError(403, 'DM edits to player inventories are off in World settings');
+    if (writing && !settings(res).dmEditsInventory) throw new HttpError(403, 'GM edits to player inventories are off in World settings');
     if (!memberIds(db, ctx(res).world.id).includes(raw)) throw new HttpError(404, 'Player not found');
     return raw;
   }
@@ -98,7 +98,7 @@ export default function inventoryRoutes(d: Deps) {
     const out: any = { id: it.id, owner: it.owner, name: it.name, qty: it.qty, note: it.note, link: it.link, pageId: it.page_id ?? null, image: it.image ?? null, updated_at: it.updated_at, updated_by: it.updated_by, status: it.status ?? 'approved' };
     if (s.trackWeight) out.weight = it.weight;
     if (isDM(res)) out.dm_note = it.dm_note;
-    // A proposed edit, move or removal waiting for the DM.
+    // A proposed edit, move or removal waiting for the GM.
     const ch = one<any>(db, `SELECT id, kind, after_json, by_id, at FROM item_changes WHERE item_id = ? AND status = 'pending' ORDER BY at DESC LIMIT 1`, it.id);
     if (ch && (isDM(res) || ch.by_id === me(res) || it.owner === 'party')) {
       const after = JSON.parse(ch.after_json || '{}');
@@ -124,8 +124,8 @@ export default function inventoryRoutes(d: Deps) {
     d.hub.emit(c.world.id, 'approval', { id: ch.id, kind: ch.kind, status }, dmAnd(me(res), ...(ch.owner !== 'party' ? [ch.owner] : party)));
   };
 
-  // The DM changed someone else's items: record it so the owner is told,
-  // unless the DM asked to keep this one quiet (see dmReason).
+  // The GM changed someone else's items: record it so the owner is told,
+  // unless the GM asked to keep this one quiet (see dmReason).
   function dmAlert(res: Response, kind: 'add' | 'edit' | 'remove', itemId: string, ownerId: string, before: any, after: any, reason: string) {
     const c = ctx(res);
     if (ownerId === me(res) || res.locals.dmQuiet) return;
@@ -135,9 +135,9 @@ export default function inventoryRoutes(d: Deps) {
     approvalEvent(res, ch, 'alert');
   }
   /**
-   * The DM's reason for changing someone's things (required when Settings say
-   * so). `quiet: true` from the DM means "don't tell them" (a secret for the
-   * story): no reason is needed and no alert is raised. Every DM write calls
+   * The GM's reason for changing someone's things (required when Settings say
+   * so). `quiet: true` from the GM means "don't tell them" (a secret for the
+   * story): no reason is needed and no alert is raised. Every GM write calls
    * this first, so it also marks the request quiet for dmAlert. Players can't
    * be quiet; their changes go through approvals.
    */
@@ -193,7 +193,7 @@ export default function inventoryRoutes(d: Deps) {
   r.get('/images/:uid', (req, res) => {
     const c = ctx(res);
     const u = one<any>(db, 'SELECT * FROM uploads WHERE id = ? AND world_id = ?', String(req.params.uid), c.world.id);
-    // Visible to the DM, the uploader, and anyone who can see an item that uses it.
+    // Visible to the GM, the uploader, and anyone who can see an item that uses it.
     const ok = u && (isDM(res) || u.by_id === me(res) || one(db, `SELECT 1 FROM items WHERE world_id = ? AND image = ? AND status IN ('approved', 'pending') AND owner IN (?, 'party')`, c.world.id, u.id, me(res)));
     if (!ok) throw new HttpError(404, 'Picture not found');
     res.setHeader('Content-Type', u.mime);
@@ -204,10 +204,10 @@ export default function inventoryRoutes(d: Deps) {
     res.end(Buffer.from(u.data));
   });
 
-  // ---- Giving: coin and items between players and the party, no DM approval ----
+  // ---- Giving: coin and items between players and the party, no GM approval ----
 
   function canGive(res: Response) {
-    if (!isDM(res) && !settings(res).playerTransfers) throw new HttpError(403, 'Giving coin and items is turned off in this world; ask the DM');
+    if (!isDM(res) && !settings(res).playerTransfers) throw new HttpError(403, 'Giving coin and items is turned off in this world; ask the GM');
   }
   /** A purse or inventory a transfer may touch: 'party', 'me', or a member (players: any member as a recipient). */
   function holder(res: Response, raw: unknown, role: 'from' | 'to'): string {
@@ -225,7 +225,7 @@ export default function inventoryRoutes(d: Deps) {
     run(db, 'INSERT INTO transfers (id, world_id, kind, from_owner, to_owner, amount_cp, item_name, qty, note, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       tid, c.world.id, t.kind, t.from, t.to, t.amount ?? null, t.item ?? null, t.qty ?? null, t.note, me(res), now());
     audit(db, c.world.id, me(res), `give.${t.kind}`, `${t.from}->${t.to} ${t.kind === 'coin' ? t.amount : `${t.item} x${t.qty}`}`);
-    // A note to the DM and the people involved; nothing waits on it.
+    // A note to the GM and the people involved; nothing waits on it.
     const involved = [t.from, t.to].filter((x) => x !== 'party');
     const aud = t.from === 'party' || t.to === 'party' ? () => true : dmAnd(...involved);
     d.hub.emit(c.world.id, 'transfer', { id: tid, kind: t.kind, from: t.from, to: t.to, amount_cp: t.amount ?? null, item: t.item ?? null, qty: t.qty ?? null, by: me(res) }, aud);
@@ -271,7 +271,7 @@ export default function inventoryRoutes(d: Deps) {
     const it = one<any>(db, `SELECT * FROM items WHERE id = ? AND world_id = ? AND status = 'approved'`, String(req.params.iid), c.world.id);
     if (!it) throw new HttpError(404, 'Item not found');
     if (!isDM(res) && it.owner !== me(res) && it.owner !== 'party') throw new HttpError(403, 'You can only give your own items, or take from the party stash');
-    if (one(db, `SELECT 1 FROM item_changes WHERE item_id = ? AND status = 'pending'`, it.id)) throw new HttpError(409, 'This item has a change waiting for the DM');
+    if (one(db, `SELECT 1 FROM item_changes WHERE item_id = ? AND status = 'pending'`, it.id)) throw new HttpError(409, 'This item has a change waiting for the GM');
     const b = req.body ?? {};
     const to = holder(res, b.to, 'to');
     if (to === it.owner) throw new HttpError(400, 'It is already there');
@@ -315,7 +315,7 @@ export default function inventoryRoutes(d: Deps) {
     res.json({ transfers: rows.map((t) => ({ ...t, seen: !!t.seen })), unseen: isDM(res) ? one<any>(db, 'SELECT COUNT(*) AS n FROM transfers WHERE world_id = ? AND seen = 0', c.world.id)!.n : undefined });
   });
   r.post('/transfers/seen', (req, res) => {
-    if (!isDM(res)) throw new HttpError(403, 'DM only');
+    if (!isDM(res)) throw new HttpError(403, 'GM only');
     run(db, 'UPDATE transfers SET seen = 1 WHERE world_id = ?', ctx(res).world.id);
     res.json({ ok: true });
   });
@@ -400,9 +400,9 @@ export default function inventoryRoutes(d: Deps) {
     return out;
   };
 
-  /** DM: every player's pack and coin, then the party's, in one answer. */
+  /** GM: every player's pack and coin, then the party's, in one answer. */
   r.get('/overview', (req, res) => {
-    if (!isDM(res)) throw new HttpError(403, 'DM only');
+    if (!isDM(res)) throw new HttpError(403, 'GM only');
     const w = ctx(res).world.id;
     const s = settings(res);
     const items = all<any>(db, `SELECT * FROM items WHERE world_id = ? AND status IN ('approved', 'pending') ORDER BY status, name COLLATE NOCASE`, w);
@@ -500,7 +500,7 @@ export default function inventoryRoutes(d: Deps) {
       if (it.status === 'pending') {
         // Still only a proposal: the proposer may adjust it.
         const ch = one<any>(db, `SELECT * FROM item_changes WHERE item_id = ? AND kind = 'add' AND status = 'pending'`, it.id);
-        if (!ch || ch.by_id !== me(res)) throw new HttpError(409, 'This item is waiting for the DM');
+        if (!ch || ch.by_id !== me(res)) throw new HttpError(409, 'This item is waiting for the GM');
         tx(db, () => {
           run(db, 'UPDATE items SET owner = ?, name = ?, qty = ?, weight = ?, note = ?, link = ?, image = ?, updated_at = ? WHERE id = ?', next.owner, next.name, next.qty, next.weight, next.note, next.link, next.image, now(), it.id);
           run(db, 'UPDATE item_changes SET owner = ?, after_json = ? WHERE id = ?', next.owner, JSON.stringify(itemSnapshot(next)), ch.id);
@@ -538,7 +538,7 @@ export default function inventoryRoutes(d: Deps) {
       if (it.status === 'pending') {
         // Withdraw your own proposal.
         const ch = one<any>(db, `SELECT * FROM item_changes WHERE item_id = ? AND kind = 'add' AND status = 'pending'`, it.id);
-        if (!ch || ch.by_id !== me(res)) throw new HttpError(409, 'This item is waiting for the DM');
+        if (!ch || ch.by_id !== me(res)) throw new HttpError(409, 'This item is waiting for the GM');
         rejectChange(db, ch, me(res));
         return res.json({ ok: true, withdrawn: true });
       }

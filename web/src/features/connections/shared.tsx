@@ -1,6 +1,6 @@
 // Shared by the Connections page, the world pages and the setup flow: the
 // types the admin API returns, the form built from a connector's fields, and
-// the audience words ("DM only", "Shared with players", "Follows the source").
+// the audience words ("GM only", "Shared with players", "Follows the source").
 import { useState } from 'react';
 import { Field, Switch } from '../../ui/index.tsx';
 import { CopyButton } from '../../lib/copy.tsx';
@@ -41,8 +41,8 @@ export const SCHEDULES: [string, string][] = [['', 'Only when I press Sync'], ['
 export const scheduleLabel = (m: number | null) => SCHEDULES.find(([k]) => k === String(m ?? ''))?.[1] ?? `Every ${m} minutes`;
 
 export const AUDIENCES: { id: Audience; label: string; chip: string; text: string }[] = [
-  { id: 'auto', label: 'Follows the source', chip: '', text: 'Use the source’s own visibility flags and levels. Anything it does not clearly share stays DM-only. This is the safe default.' },
-  { id: 'dm', label: 'DM only', chip: 'red', text: 'Everything from this source is DM-only, whatever the source says.' },
+  { id: 'auto', label: 'Follows the source', chip: '', text: 'Use the source’s own visibility flags and levels. Anything it does not clearly share stays GM-only. This is the safe default.' },
+  { id: 'dm', label: 'GM only', chip: 'red', text: 'Everything from this source is GM-only, whatever the source says.' },
   { id: 'party', label: 'Shared with players', chip: 'teal', text: 'Everything from this source may be shown to players. Use it when the connection already uses a player-level key (for example a Kanka member token that only sees public entries). Secret blocks, broker and classified parts of a page are still hidden.' },
 ];
 export function AudienceChip({ a }: { a: Audience }) {

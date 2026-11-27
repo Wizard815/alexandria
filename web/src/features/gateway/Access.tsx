@@ -28,7 +28,7 @@ export default function Access() {
       {m.loading && !d ? <Loading /> : d && (
         <>
           <div className="tiles">
-            <Tile label="Tools offered" value={d.tools.length} sub={`${read.length} read · ${write.length} write (DM write keys only)`} />
+            <Tile label="Tools offered" value={d.tools.length} sub={`${read.length} read · ${write.length} write (GM write keys only)`} />
             <Tile label="Scribe keys" value={d.keys.scribe} sub={`${d.keys.write} can write`} />
             <Tile label="Admin keys" value={d.keys.admin} tone={d.keys.admin ? 'warn' : ''} sub="reach every admin page" />
           </div>
@@ -39,7 +39,7 @@ export default function Access() {
             </dl>
             <h3>Add to an app</h3>
             <pre className="adm-code" tabIndex={0}>{config}</pre>
-            <p className="small muted">Use a scribe key, so the app gets that person's access and nothing more. Scribe keys are made in a world, by its players and DM.</p>
+            <p className="small muted">Use a scribe key, so the app gets that person's access and nothing more. Scribe keys are made in a world, by its players and GM.</p>
           </Section>
           <Section title="Tools it offers" lead="Every tool calls the librarian with the caller's own key, so the same visibility rules apply.">
             <div className="adm-table-wrap"><div className="scroll-x"><table className="table">
@@ -47,7 +47,7 @@ export default function Access() {
               <tbody>{d.tools.map((t) => (
                 <tr key={t.name}>
                   <td className="mono">{t.name}</td><td className="small">{t.description}</td>
-                  <td>{t.write ? <Pill tone="warn">DM write key</Pill> : t.dmOnly ? <Pill>DM</Pill> : t.playerOnly ? <Pill>Players</Pill> : <Pill tone="ok">Any key</Pill>}</td>
+                  <td>{t.write ? <Pill tone="warn">GM write key</Pill> : t.dmOnly ? <Pill>GM</Pill> : t.playerOnly ? <Pill>Players</Pill> : <Pill tone="ok">Any key</Pill>}</td>
                 </tr>
               ))}</tbody>
             </table></div></div>

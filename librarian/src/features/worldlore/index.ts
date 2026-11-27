@@ -1,9 +1,9 @@
 // WorldLore: one part of a world's source (a LegendKeeper folder or resource,
 // a Markdown folder) or of the library is the AI's own wiki. The agent reads,
 // writes, moves and deletes there with no confirmation. Everywhere else the
-// sources stay read-only and library writes still wait for the DM.
+// sources stay read-only and library writes still wait for the GM.
 //
-// The DM sets it in World settings (PUT /worldlore/config), which also adds
+// The GM sets it in World settings (PUT /worldlore/config), which also adds
 // the lore tools to the world's agentAutoApprove list. Disabling removes them.
 // Every write is checked against the workspace root (see service.ts and the
 // connectors' write capability), re-synced, and audited.
@@ -19,7 +19,7 @@ import {
 
 const enc = encodeURIComponent;
 const S = (description: string) => ({ type: 'string', description });
-const LEVEL = { type: 'string', enum: ['dm', 'broker', 'party', 'classified'], description: "Who may learn it. dm: only the DM (default is the workspace's). broker: DM-only, but the information broker may sell it to players. classified: never sent to any AI, not even you. party: players see it (only allowed when the DM set the workspace to party)." };
+const LEVEL = { type: 'string', enum: ['dm', 'broker', 'party', 'classified'], description: "Who may learn it. dm: only the GM (default is the workspace's). broker: GM-only, but the information broker may sell it to players. classified: never sent to any AI, not even you. party: players see it (only allowed when the GM set the workspace to party)." };
 
 const state = (d: any, worldId: string) => {
   const cfg = configOf(worldSettings(d, worldId));
@@ -38,8 +38,8 @@ const feature: Feature = {
   worldMount: 'worldlore',
   worldRoutes: (d) => {
     const r = Router({ mergeParams: true });
-    // Everything here is for the DM (and the DM's agent, which runs with the DM's own token).
-    r.use((_req, res, next) => { if (!isDM(res)) throw new HttpError(403, 'Only the DM can use WorldLore'); next(); });
+    // Everything here is for the GM (and the GM's agent, which runs with the GM's own token).
+    r.use((_req, res, next) => { if (!isDM(res)) throw new HttpError(403, 'Only the GM can use WorldLore'); next(); });
 
     r.get('/', (_req, res) => res.json(state(d, ctx(res).world.id)));
     r.get('/options', async (_req, res) => res.json(await options(d, ctx(res).world.id)));

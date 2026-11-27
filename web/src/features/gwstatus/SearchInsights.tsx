@@ -1,5 +1,5 @@
-// Admin → Search, below the search box: what people have been searching for. Words are shown only for worlds the admin is the DM of;
-// every other world is counts. "Draft pages for these" makes DM-only drafts for what found nothing, in a world the admin is the DM of.
+// Admin → Search, below the search box: what people have been searching for. Words are shown only for worlds the admin is the GM of;
+// every other world is counts. "Draft pages for these" makes GM-only drafts for what found nothing, in a world the admin is the GM of.
 import { useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { ErrorBox, Loading, useAction, useToast } from '../../ui/index.tsx';
@@ -22,7 +22,7 @@ export default function SearchInsights() {
   const d = q.data;
   const drafts = (world: string, queries?: string[]) => void a.run(async () => {
     const r = await client.request<{ created: unknown[]; skipped: string[] }>('POST', '/api/admin/gwstatus/searches/draft', { world, ...(queries ? { queries } : {}) });
-    toast(r.created.length ? `Made ${r.created.length} DM-only draft page${r.created.length === 1 ? '' : 's'} in drafts/` : 'Nothing new to draft');
+    toast(r.created.length ? `Made ${r.created.length} GM-only draft page${r.created.length === 1 ? '' : 's'} in drafts/` : 'Nothing new to draft');
     await q.reload();
   });
   const range = (
@@ -50,7 +50,7 @@ export default function SearchInsights() {
       </div>
       <ErrorBox error={a.error || q.error} />
       <div className="gws-insights">
-        <Section title="Most searched" lead="The words people typed, in worlds you are the DM of.">
+        <Section title="Most searched" lead="The words people typed, in worlds you are the GM of.">
           {d.popular.length ? (
             <ul className="gws-list">{d.popular.slice(0, 10).map((p) => (
               <li key={`${p.world.id}${p.q}`}>
@@ -58,10 +58,10 @@ export default function SearchInsights() {
                 <Meter value={p.count} max={maxPop} />
               </li>
             ))}</ul>
-          ) : <p className="muted small">{dmWorlds.length ? 'Nobody has searched yet.' : 'You are not the DM of any world, so no words are shown.'}</p>}
+          ) : <p className="muted small">{dmWorlds.length ? 'Nobody has searched yet.' : 'You are not the GM of any world, so no words are shown.'}</p>}
           {hiddenWorlds.length > 0 && (
             <p className="tiny muted" style={{ marginTop: 10 }}>
-              The words searched in {hiddenWorlds.map((w) => `${w.name} (${w.searches})`).join(', ')} are shown only to {hiddenWorlds.length === 1 ? 'its DM' : 'their DMs'}: you see counts.
+              The words searched in {hiddenWorlds.map((w) => `${w.name} (${w.searches})`).join(', ')} are shown only to {hiddenWorlds.length === 1 ? 'its GM' : 'their GMs'}: you see counts.
             </p>
           )}
         </Section>
@@ -76,8 +76,8 @@ export default function SearchInsights() {
                 <li key={n.q}><span className="gws-q"><strong>{n.q}</strong> {n.drafted && <Pill tone="ok">drafted</Pill>}</span><span className="gws-count">{n.count}× <span className="tiny faint">{ago(n.lastAt)}</span></span></li>
               ))}</ul>
             </div>
-          )) : <p className="muted small">{d.totals.nothing ? `${d.totals.nothing} searches found nothing; their words are shown only to the DM of each world.` : 'Every search found something.'}</p>}
-          {nothingBy.size > 0 && <p className="tiny muted" style={{ marginTop: 8 }}>Drafts are DM-only pages in <span className="mono">drafts/</span>, one per missing search.</p>}
+          )) : <p className="muted small">{d.totals.nothing ? `${d.totals.nothing} searches found nothing; their words are shown only to the GM of each world.` : 'Every search found something.'}</p>}
+          {nothingBy.size > 0 && <p className="tiny muted" style={{ marginTop: 8 }}>Drafts are GM-only pages in <span className="mono">drafts/</span>, one per missing search.</p>}
         </Section>
 
         <Section title="Searches by source" lead="Where the answers came from, counting each result.">

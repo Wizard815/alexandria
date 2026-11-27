@@ -1,4 +1,4 @@
-// The DM's Codex: every spell (SRD, homebrew, imports) with who may read it,
+// The GM's Codex: every spell (SRD, homebrew, imports) with who may read it,
 // its mana cost and notes; the characters (sheet, known spells, mana, rests);
 // the spell crafting recipes (by tier, drafts from the assistant, import and
 // export); and requests to learn.
@@ -92,7 +92,7 @@ function MetaEditor({ s, onEdit, onGone }: { s: Spell; onEdit: () => void; onGon
       <div className="row between"><span>Players may read it <span className="tiny muted">(they always read the spells they know)</span></span><Switch checked={!!s.public} label={`Players may read ${s.name}`} onChange={(v) => void save({ public: v })} /></div>
       <div className="row" style={{ gap: 10, alignItems: 'flex-end' }}>
         <Field label="Mana cost" help="Empty: the world's cost table."><input type="number" min={0} max={999} value={cost} onChange={(e) => setCost(e.target.value)} style={{ width: 100 }} /></Field>
-        <Field label="DM notes (never shown to players)"><textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+        <Field label="GM notes (never shown to players)"><textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         <button type="button" className="btn small" disabled={act.busy} onClick={() => void save({ manaOverride: cost === '' ? null : Number(cost), dmNotes: notes })}>Save</button>
       </div>
       {!s.builtin && (
@@ -153,7 +153,7 @@ function SpellEditor({ spell, onClose, onSaved }: { spell: Spell | null; onClose
           <Field label="Mana cost (empty: table)"><input type="number" min={0} value={f.manaOverride} onChange={(e) => set('manaOverride', e.target.value)} style={{ width: 100 }} /></Field>
           <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={f.public} onChange={(e) => set('public', e.target.checked)} /> Players may read it</label>
         </div>
-        <Field label="DM notes (never shown to players)"><textarea rows={2} value={f.dmNotes} onChange={(e) => set('dmNotes', e.target.value)} /></Field>
+        <Field label="GM notes (never shown to players)"><textarea rows={2} value={f.dmNotes} onChange={(e) => set('dmNotes', e.target.value)} /></Field>
         <div className="row end"><button type="button" className="btn primary" disabled={act.busy || !f.name.trim()} onClick={() => void save()}>Save spell</button></div>
       </div>
     </Modal>
@@ -191,7 +191,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           <Field label="Module"><select value={moduleId} onChange={(e) => { setModuleId(e.target.value); setPreview(null); }}><option value="">Choose…</option>{(mods.data?.available ?? []).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>
         )}
         {type === 'library' && (
-          <Field label="Folder" help='Pages with a level in their frontmatter or a "spell" tag. Classified pages and DM-only parts of a page are left out.'><input value={folder} onChange={(e) => { setFolder(e.target.value); setPreview(null); }} placeholder="Spells" /></Field>
+          <Field label="Folder" help='Pages with a level in their frontmatter or a "spell" tag. Classified pages and GM-only parts of a page are left out.'><input value={folder} onChange={(e) => { setFolder(e.target.value); setPreview(null); }} placeholder="Spells" /></Field>
         )}
         <Field label="Source (shown on every spell)"><input value={source} onChange={(e) => setSource(e.target.value)} placeholder="e.g. Our house rules" /></Field>
         <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Replace spells with the same name and source</label>
@@ -387,7 +387,7 @@ function RecipeEditor({ recipe, onClose, onSaved }: { recipe: RecipeView | null;
           <Field label="Mana to learn"><input type="number" min={0} value={f.manaCost} onChange={(e) => set('manaCost', e.target.value)} style={{ width: 90 }} /></Field>
           <Field label="Players see it"><select value={f.visibility} onChange={(e) => set('visibility', e.target.value)}><option value="visible">Yes</option><option value="hidden">No (??? or nothing, per the world setting)</option></select></Field>
         </div>
-        <Field label="DM notes (never shown to players)"><textarea rows={2} value={f.dmNotes} onChange={(e) => set('dmNotes', e.target.value)} /></Field>
+        <Field label="GM notes (never shown to players)"><textarea rows={2} value={f.dmNotes} onChange={(e) => set('dmNotes', e.target.value)} /></Field>
         <div className="row end"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save recipe</button></div>
       </div>
     </Modal>

@@ -2,7 +2,7 @@
 // besides pages (relations, timelines, calendars, map markers), and the push
 // API for tools that cannot be polled.
 //
-// Push: a DM or admin makes a source key (alx_push_...) for one source. The
+// Push: a GM or admin makes a source key (alx_push_...) for one source. The
 // key can only call the three /api/intake/<source>/... endpoints for that
 // source: it is not an account token, so it can't read anything or reach any
 // other route. Entries go through library.saveEntry and the same leak guard
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS intake_keys (
 
 `;
 
-/** Key management, shared by the admin routes (any source) and the DM routes (this world's sources). */
+/** Key management, shared by the admin routes (any source) and the GM routes (this world's sources). */
 function keyRoutes(d: Deps, scope: (req: Request, res: Response) => string | null, actor: (res: Response) => string) {
   const r = Router({ mergeParams: true });
   const sourceOf = (req: Request, res: Response) => {
@@ -199,7 +199,7 @@ const feature: Feature = {
   worldMount: 'intake',
   worldRoutes: (d) => {
     const r = Router({ mergeParams: true });
-    // What the world's sources provide, so screens can hide what no source has. Names of sources are for the DM only.
+    // What the world's sources provide, so screens can hide what no source has. Names of sources are for the GM only.
     r.get('/capabilities', (_req, res) => {
       const w = ctx(res).world.id;
       const sources = all<any>(d.db, 'SELECT id, name, kind, config FROM sources WHERE world_id = ? ORDER BY name', w);
@@ -211,17 +211,17 @@ const feature: Feature = {
     r.get('/calendars', (_req, res) => res.json(calendarsFor(d.db, ctx(res).world.id, ctx(res).viewer)));
     r.get('/timelines', (_req, res) => res.json(timelinesFor(d.db, ctx(res).world.id, ctx(res).viewer)));
     // Map images imported from the sources (Kanka maps, LegendKeeper map documents, generic API map endpoints), for the Map page to pick from.
-    // The DM sees all; a player only maps whose page is shared with them (the same check as every picture). Each url is a short-lived ticket for this account.
+    // The GM sees all; a player only maps whose page is shared with them (the same check as every picture). Each url is a short-lived ticket for this account.
     // ?view=players lists what a player would get (for the table screen, which the players see).
     r.get('/map-images', (req, res) => {
       const c = ctx(res);
       res.json(mapImagesFor(d.db, c.world.id, readerFor(req, res, true).role === 'dm' ? 'dm' : 'player').map((m) => ({ ...m, url: `/api/media/intake/${mintTicket({ w: c.world.id, k: 'intake', f: m.id, a: c.viewer.accountId })}` })));
     });
     r.get('/markers', (_req, res) => res.json(markersFor(d.db, ctx(res).world.id, ctx(res).viewer)));
-    // The DM makes source keys for this world's sources.
+    // The GM makes source keys for this world's sources.
     r.use((req, res, next) => {
       if (!/^\/(sources\/[^/]+\/keys|keys\/[^/]+)$/.test(req.path)) return next();
-      if (!isDM(res)) throw new HttpError(403, 'Only the DM can manage source keys');
+      if (!isDM(res)) throw new HttpError(403, 'Only the GM can manage source keys');
       next();
     });
     r.use(keyRoutes(d, (_req, res) => ctx(res).world.id, accountId));
@@ -232,7 +232,7 @@ const feature: Feature = {
   appRoutes: (app, d) => {
     pushApi(app, d);
     // A page's own picture (downloaded by a sync). <img> cannot send the sign-in header: a signed ticket names one picture and one account, and
-    // the permission is checked again on every request, so a page the DM hides stops serving its picture at once.
+    // the permission is checked again on every request, so a page the GM hides stops serving its picture at once.
     app.get('/api/media/intake/:ticket', (req, res) => {
       const t = readTicket(String(req.params.ticket));
       const m = t && t.k === 'intake' && one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', t.w, t.a);

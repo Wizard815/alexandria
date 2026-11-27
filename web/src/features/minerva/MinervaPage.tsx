@@ -1,4 +1,4 @@
-// The DM's page for her assistant: the campaign status first, then the arc, the
+// The GM's page for her assistant: the campaign status first, then the arc, the
 // threads by heat, the review queue, promotion suggestions, the revelations
 // board and a panel for each player. Phone-friendly: one column, tabs scroll.
 import { useRef, useState } from 'react';

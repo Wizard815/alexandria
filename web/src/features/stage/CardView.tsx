@@ -45,7 +45,7 @@ function Shop({ card }: { card: StageCard }) {
   const d = card.data;
   const buy = (name: string) => act.run(async () => {
     const r = await w.call<{ pending: boolean }>('POST', `/stage/cards/${card.id}/buy`, { item: name, qty: 1 });
-    setDone(r.pending ? `Asked to buy ${name}. Waiting for the DM to approve.` : `Bought ${name}.`);
+    setDone(r.pending ? `Asked to buy ${name}. Waiting for the GM to approve.` : `Bought ${name}.`);
   });
   return (
     <>

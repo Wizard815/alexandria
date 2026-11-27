@@ -1,4 +1,4 @@
-// What every DM page is called, in one place: the menu, the side-screen and pop-out panel pickers, the Screens page and the
+// What every GM page is called, in one place: the menu, the side-screen and pop-out panel pickers, the Screens page and the
 // page headers all read these, so a page has one short name, one icon and one line of description everywhere.
 // A leaf module (no imports) so anything can use it without a cycle.
 

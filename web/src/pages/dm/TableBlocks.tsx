@@ -75,7 +75,7 @@ export function HereBlock() {
             return (
               <li key={h.account_id} title={h.location || undefined}>
                 <span className={`tb-avatar${h.role === 'dm' ? ' dm' : ''}`} aria-hidden="true">{initials(name)}</span>
-                <span className="tb-here-name"><b>{name}</b>{h.role === 'dm' ? <span className="tiny faint">DM</span> : h.location ? <span className="tiny faint tb-ellipsis">{h.location}</span> : null}</span>
+                <span className="tb-here-name"><b>{name}</b>{h.role === 'dm' ? <span className="tiny faint">GM</span> : h.location ? <span className="tiny faint tb-ellipsis">{h.location}</span> : null}</span>
               </li>
             );
           })}
@@ -91,8 +91,8 @@ export function HereBlock() {
 
 // ---- Play ----
 
-/** A map: either what the table screen shows (fog as the DM's tint, marks, and a picker that changes the table), or any map
- * just for the DM to look at, which changes nothing on the table. */
+/** A map: either what the table screen shows (fog as the GM's tint, marks, and a picker that changes the table), or any map
+ * just for the GM to look at, which changes nothing on the table. */
 export function MapBlock() {
   const { w, info, me } = useWorld();
   const act = useAction();
@@ -208,7 +208,7 @@ export function CombatBlock() {
 
 // ---- Waiting on you ----
 
-/** Everything waiting on the DM: approvals, disputes, requests and the assistant's proposed changes. */
+/** Everything waiting on the GM: approvals, disputes, requests and the assistant's proposed changes. */
 export function NeedsBlock() {
   const { w, info, nameOf } = useWorld();
   const base = `/w/${info.slug}/dm`;

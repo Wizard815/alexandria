@@ -1,4 +1,4 @@
-// The session log: players read published entries; the DM drafts, reviews,
+// The session log: players read published entries; the GM drafts, reviews,
 // checks for leaks and publishes.
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -54,7 +54,7 @@ export function SessionLogPlayer() {
   );
 }
 
-// ---- DM ----
+// ---- GM ----
 
 export function SessionLogDM() {
   const { w } = useWorld();
@@ -154,7 +154,7 @@ function Review({ id, onGone, onChange }: { id: string; onGone: () => void; onCh
       setDone(`Published as session ${e.number}.`); setLeaks(null);
       await reloadAll();
     } catch (err) {
-      // Show what overlaps, so the DM can fix it or publish anyway.
+      // Show what overlaps, so the GM can fix it or publish anyway.
       setLeaks(await call('GET', '/leakcheck'));
       throw err;
     }
@@ -206,16 +206,16 @@ function Review({ id, onGone, onChange }: { id: string; onGone: () => void; onCh
 
       <div className="card stack">
         <h3 style={{ margin: 0 }}>Publish</h3>
-        <p className="small muted">Publishing first checks the summary against DM-only pages, secrets and everything said off the record.</p>
+        <p className="small muted">Publishing first checks the summary against GM-only pages, secrets and everything said off the record.</p>
         <div className="row">
           <button className="btn" disabled={act.busy} onClick={() => void check()}>Check for leaks</button>
           <button className="btn primary" disabled={act.busy} onClick={() => void publish(false)}>{dr.entryId ? 'Publish this revision' : 'Publish'}</button>
           {leaks && leaks.overlaps.length > 0 && !leaks.blocked && <button className="btn danger" disabled={act.busy} onClick={() => void publish(true)}>Publish anyway</button>}
         </div>
-        {leaks && (leaks.overlaps.length === 0 ? <p className="small" role="status">No overlap with DM-only text found{leaks.audited ? ' (the audit model looked too)' : ''}.</p> : (
+        {leaks && (leaks.overlaps.length === 0 ? <p className="small" role="status">No overlap with GM-only text found{leaks.audited ? ' (the audit model looked too)' : ''}.</p> : (
           <div className="stack tight" role="alert">
-            <strong>{leaks.blocked ? 'Remove the aside passages before publishing (they can never be published):' : 'These passages repeat or hint at DM-only text. Look at each one before you publish:'}</strong>
-            {leaks.overlaps.map((o, i) => <div key={i} className="error-box"><div>“{o.text}”</div><div className="tiny">{o.kind === 'terms' ? `Uses words only DM-only text has (${(o.terms ?? []).join(', ')}). From: ${o.source}` : o.kind === 'model' ? `The audit model thinks this hints at a DM note${o.why ? `: ${o.why}` : ''}. From: ${o.source}` : `From: ${o.source}`}{o.aside ? ' (never publishable)' : ''}</div></div>)}
+            <strong>{leaks.blocked ? 'Remove the aside passages before publishing (they can never be published):' : 'These passages repeat or hint at GM-only text. Look at each one before you publish:'}</strong>
+            {leaks.overlaps.map((o, i) => <div key={i} className="error-box"><div>“{o.text}”</div><div className="tiny">{o.kind === 'terms' ? `Uses words only GM-only text has (${(o.terms ?? []).join(', ')}). From: ${o.source}` : o.kind === 'model' ? `The audit model thinks this hints at a GM note${o.why ? `: ${o.why}` : ''}. From: ${o.source}` : `From: ${o.source}`}{o.aside ? ' (never publishable)' : ''}</div></div>)}
           </div>
         ))}
       </div>
@@ -231,8 +231,8 @@ function Review({ id, onGone, onChange }: { id: string; onGone: () => void; onCh
       </div>
 
       <div className="card stack">
-        <h3 style={{ margin: 0 }}>DM notes <span className="chip">never published</span></h3>
-        {dr.dmNotes ? <Markdown text={dr.dmNotes} /> : <p className="small muted">No DM-only lines were recorded.</p>}
+        <h3 style={{ margin: 0 }}>GM notes <span className="chip">never published</span></h3>
+        {dr.dmNotes ? <Markdown text={dr.dmNotes} /> : <p className="small muted">No GM-only lines were recorded.</p>}
       </div>
     </div>
   );

@@ -23,7 +23,7 @@ const HIDDEN_TEXT = 'HIDDENTEXT the flagged page of the source';
 const ITEMS: any[] = [
   { id: 1, name: 'Open Page', body: 'Everyone may read this open page about the harbour.', is_private: false },
   { id: 2, name: 'Flagged Page', body: HIDDEN_TEXT, is_private: true },
-  { id: 3, name: 'Mixed Page', body: `Plain words about the guild hall.\n\n> [!secret] DM\n> ${SECRET_BLOCK}\n`, is_private: false },
+  { id: 3, name: 'Mixed Page', body: `Plain words about the guild hall.\n\n> [!secret] GM\n> ${SECRET_BLOCK}\n`, is_private: false },
   { id: 4, name: 'Classified Page', body: CLASSIFIED_TEXT, is_private: false, tags: ['classified'] },
   { id: 5, name: 'Broker Page', body: BROKER_TEXT, is_private: false, tags: ['broker'] },
 ];
@@ -252,12 +252,12 @@ test('TestAudience_DmNeverShowsAnythingToPlayersAndPartyKeepsSecretsOut', async 
   // dm: nothing from this source reaches a player, whatever the source says.
   const dmOn = await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'dm' });
   assert.equal(dmOn.audience, 'dm');
-  assert.equal(dmOn.audience_label, 'DM only');
+  assert.equal(dmOn.audience_label, 'GM only');
   assert.deepEqual(playerTitles(), []);
   assert.equal(all<any>(t.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND player_body IS NOT NULL', wid).length, 0, 'no player copy exists');
   assert.equal(everything(lib, wid, player), '');
   assert.deepEqual((lib.search(wid, 'harbour', player) as any[]).length, 0, 'search shows players nothing');
-  assert.ok(everything(lib, wid, dmViewer).includes('Everyone may read'), 'the DM still has it all');
+  assert.ok(everything(lib, wid, dmViewer).includes('Everyone may read'), 'the GM still has it all');
   // ... and a fresh sync under dm keeps it that way.
   await waitSync(t, src.id);
   assert.deepEqual(playerTitles(), []);
@@ -308,7 +308,7 @@ test('TestAudience_CreatedAsPartyNeedsConfirmationAndPlayersGetNothingFromTheAge
   assert.equal((await t.call('POST', `/api/admin/worlds/${wid}/sources`, t.admin, { ...body, audience: 'nonsense' })).status, 400);
   const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { ...body, confirmParty: true });
   assert.equal(src.audience, 'party');
-  // The DM's tool tells the agent what is connected; a player gets nothing.
+  // The GM's tool tells the agent what is connected; a player gets nothing.
   const dmView = await t.ok('GET', `/api/worlds/${wid}/world-sources`);
   assert.equal(dmView.sources[0].audience, 'party');
   assert.equal(dmView.sources[0].audience_label, 'Shared with players');
@@ -319,10 +319,10 @@ test('TestAudience_CreatedAsPartyNeedsConfirmationAndPlayersGetNothingFromTheAge
   assert.equal(mine.status, 200);
   assert.deepEqual(mine.body, { sources: [] });
   assert.ok(!mine.text.includes('Shared wiki'));
-  // The tool is listed for the DM only.
+  // The tool is listed for the GM only.
   const { allTools } = await import('../src/routes/mcpServer.ts');
   const tool = allTools().find((x: any) => x.name === 'world_sources') as any;
-  assert.ok(tool?.dmOnly, 'world_sources is a DM-only read tool');
+  assert.ok(tool?.dmOnly, 'world_sources is a GM-only read tool');
   assert.equal(tool.write, undefined);
 });
 
@@ -456,14 +456,14 @@ test('TestCrawl_FetchesSavesCountsLevelsThenEmbedsEveryPage', async () => {
   const after1 = await t.ok('GET', `/api/admin/worlds/${wid}/overview`);
   assert.equal(after1.embeddings.pages.pending, 0);
   assert.equal(after1.embeddings.pages.indexed, after1.embeddings.pages.eligible);
-  // Pages are counted once each, not once per copy: a shared page has a DM copy and a party copy and is still one page.
+  // Pages are counted once each, not once per copy: a shared page has a GM copy and a party copy and is still one page.
   const copies = Object.values(after1.embeddings.scopes as Record<string, any>).reduce((n: number, s: any) => n + s.eligible, 0);
   assert.equal(after1.embeddings.pages.eligible, 4, 'five pages, one of them classified (never embedded)');
   assert.ok(copies > after1.embeddings.pages.eligible, 'the per-scope copies add up to more than the pages');
   assert.ok(after1.embeddings.pages.eligible <= after1.pages, 'never "700 of 1017 pages" in a world of 555');
   assert.ok(p.embedding.pagesDone <= p.embedding.pagesTotal, `${p.embedding.pagesDone} of ${p.embedding.pagesTotal}: never "556 of 555"`);
   assert.equal(p.embedding.pagesDone, 4);
-  assert.ok(after1.embeddings.dmChunks >= 4, 'DM-side chunks of every page but the classified one');
+  assert.ok(after1.embeddings.dmChunks >= 4, 'GM-side chunks of every page but the classified one');
   assert.ok(after1.embeddings.partyChunks >= 2, 'player-side chunks only for the shared pages');
   // Nothing a player may not read, and nothing classified, was sent to the embeddings model.
   const sent = gate.embedTexts.join('\n');

@@ -2,13 +2,13 @@
 // (the "WorldLore home"); the agent's pages are pages under it. Calls (API 2022-06-28):
 //   POST   /pages                       create (parent page or database, title, first 100 blocks)
 //   PATCH  /blocks/{id}/children        append the rest of the blocks, 100 at a time
-//   PATCH  /pages/{id}                  rename, set the Visibility property, or archive (Notion's trash, which the DM can restore)
+//   PATCH  /pages/{id}                  rename, set the Visibility property, or archive (Notion's trash, which the GM can restore)
 //   DELETE /blocks/{id}                 clear the old blocks before new text is written
 // Before every write the target and its parents are read FRESH from Notion and the root must be among them. Notion's API cannot move a
 // page, so a move is refused with a clear message.
 //
 // Levels: under a database that has a Visibility select property, the page's level is written there and read back on sync. Under a plain
-// page Notion has no field for it: the page stays the DM's in Notion (not published), and the library keeps the level the agent gave.
+// page Notion has no field for it: the page stays the GM's in Notion (not published), and the library keeps the level the agent gave.
 import type { ConnectorContext, ConnectorWrite } from '../connector.ts';
 import { WriteRefused } from '../connector.ts';
 import type { Entry } from '../model.ts';
@@ -237,7 +237,7 @@ export const notionWrite: ConnectorWrite = {
   async deletePage(cfg, ctx, a) {
     const be = backend(cfg, ctx);
     const { target } = await inside(be, a.root, a.id, true);
-    // Archived pages go to Notion's trash, where the DM can restore them for 30 days.
+    // Archived pages go to Notion's trash, where the GM can restore them for 30 days.
     be.ok(await be.call('PATCH', `/pages/${target.id}`, { archived: true }), `page ${notionTitle(target.raw)}`);
   },
   async readPage(cfg, ctx, a): Promise<Entry | null> {
@@ -245,7 +245,7 @@ export const notionWrite: ConnectorWrite = {
     const { target } = await inside(be, a.root, a.id, false);
     return readNotion(cfg, ctx, target.id, target.kind === 'database' ? { [target.id]: 'd' } : {});
   },
-  /** Pages and databases at the top of what the integration sees: the DM picks one as the WorldLore home. */
+  /** Pages and databases at the top of what the integration sees: the GM picks one as the WorldLore home. */
   async roots(cfg, ctx) {
     return (await find(cfg, ctx, '')).slice(0, 200);
   },

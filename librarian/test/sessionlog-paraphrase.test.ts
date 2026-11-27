@@ -1,5 +1,5 @@
 // The session log's second and third leak checks: distinctive terms only
-// DM-only text has, and the audit model. Paraphrases share no eight-word run
+// GM-only text has, and the audit model. Paraphrases share no eight-word run
 // with their source, so the shingle check alone misses them.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -73,12 +73,12 @@ before(async () => {
 });
 after(() => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-test('SessionLogParaphrase: names and rare words from DM-only pages are flagged', () => {
+test('SessionLogParaphrase: names and rare words from GM-only pages are flagged', () => {
   const hits = rareTermCheck(deps.db, W, PARAPHRASE);
   const texts = hits.map((h) => h.text).join(' | ');
   assert.ok(hits.some((h) => /Velmira/.test(h.text) && h.terms?.some((t) => /velmira/i.test(t))), `the sentence with Velmira: ${texts}`);
   assert.ok(hits.some((h) => /Drowned King/.test(h.text)), `the Drowned King sentence: ${texts}`);
-  assert.ok(hits.every((h) => h.kind === 'terms' && h.source.startsWith('DM page: ')));
+  assert.ok(hits.every((h) => h.kind === 'terms' && h.source.startsWith('GM page: ')));
   // The payroll sentence on its own, with no name in it: two rare words from the same page.
   const only = rareTermCheck(deps.db, W, 'Her payroll covers three captains of the watch.');
   assert.equal(only.length, 1);
@@ -113,7 +113,7 @@ test('SessionLogParaphrase: publish flags the paraphrase for review and force pu
   assert.equal(forced.status, 200, forced.text);
 });
 
-test('SessionLogParaphrase: with an audit model, a leak with no shared words is flagged for the DM', async () => {
+test('SessionLogParaphrase: with an audit model, a leak with no shared words is flagged for the GM', async () => {
   const summary = "The town's chief official turns out to be the one robbing ships.";
   auditMode = 'off';
   const without = await fullLeakCheck(deps, W, summary);
@@ -125,10 +125,10 @@ test('SessionLogParaphrase: with an audit model, a leak with no shared words is 
   assert.equal(withModel.audited, true);
   const m = withModel.overlaps.find((o) => o.kind === 'model');
   assert.ok(m, JSON.stringify(withModel));
-  assert.match(m!.source, /^DM page: /);
+  assert.match(m!.source, /^GM page: /);
   assert.ok(sent.some((b) => b.includes('robs the ships')), 'the mayor note was put in front of the model');
   assert.ok(m!.why?.includes('mayor'));
-  assert.equal(m!.aside, false, 'for the DM to review, not a hard stop');
+  assert.equal(m!.aside, false, 'for the GM to review, not a hard stop');
   // Classified text is never sent to any model.
   assert.ok(sent.length >= 1);
   for (const body of sent) assert.ok(!body.includes('CLASSIFIEDMARK') && !body.includes('pewter'), 'classified text left the building');

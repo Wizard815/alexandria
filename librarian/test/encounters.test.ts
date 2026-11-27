@@ -1,6 +1,6 @@
-// NPC encounters: the DM sends a talk to one player, the player answers in
+// NPC encounters: the GM sends a talk to one player, the player answers in
 // their app, options give coin, items or a shop, small games run on the
-// server, the reward cap, the DM speaking live, wandering, and what other
+// server, the reward cap, the GM speaking live, wandering, and what other
 // players and guests never see.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -139,7 +139,7 @@ test('TestEncounters_StakedSkillCheckWinsAndLoses', async () => {
   const [e] = await send({ accountIds: [ID.tom], npcName: 'Hollis', script });
   const p = await ok('GET', `${P()}/${e.id}`, T.tom);
   assert.deepEqual(p.game, { kind: 'check', label: 'Skill check', stakeCp: 10, winCp: 25, skill: 'Athletics' });
-  assert.equal(p.dc, undefined, 'the DC stays with the DM');
+  assert.equal(p.dc, undefined, 'the DC stays with the GM');
   assert.equal((await call('POST', `${P()}/${e.id}/choose`, T.tom, { play: true, roll: 20 })).status, 409, 'cannot cover the stake');
   setCoin(ID.tom, 100);
   let v = await ok('POST', `${P()}/${e.id}/choose`, T.tom, { play: true, roll: 2, modifier: 1 });

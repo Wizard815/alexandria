@@ -118,7 +118,7 @@ after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true });
 
 // ---- the mode ----------------------------------------------------------------------------------------------------
 
-test('Stt_mode: server by default; the DM picks server, device or auto; players read it but cannot change it', async () => {
+test('Stt_mode: server by default; the GM picks server, device or auto; players read it but cannot change it', async () => {
   assert.equal((await ok('GET', `${A()}/status`, T.jess)).transcription.stt, 'server');
   await setting('speechToText', 'auto');
   assert.equal((await ok('GET', `${A()}/status`, T.jess)).transcription.stt, 'auto');
@@ -147,7 +147,7 @@ test('Stt_device: a chunk promised by its device waits; the device text becomes 
   const row = chunkRow(sid, 'jess', 0);
   assert.equal(row.source, 'device');
   assert.deepEqual(JSON.parse(row.stt), { model: 'whisper-base', backend: 'webgpu', ms: 600, rtf: 0.12 });
-  // A second copy of the same text (a retry) changes nothing; the DM sees where each mic's text came from.
+  // A second copy of the same text (a retry) changes nothing; the GM sees where each mic's text came from.
   assert.equal((await sendText('jess', sid, 'jess', 0, deviceText('The ferryman wants twelve silver pieces'))).body.accepted, true);
   assert.equal((await lines('jess', sid)).length, 1);
   await ok('POST', `${A()}/mics/${MIC.jess}/stt`, T.jess, { state: 'running', model: 'whisper-base', backend: 'webgpu', rtf: 0.12, backlog: 0 });
@@ -183,7 +183,7 @@ test('Stt_device: only the mic\'s owner may send its text, and only for a chunk 
   const sid = await newSession();
   await upload('jess', sid, 'jess', 0, '', { wait: true });
   assert.equal((await sendText('tom', sid, 'jess', 0, deviceText('I am Jess honest'))).status, 403, 'another player cannot speak for Jess');
-  assert.equal((await sendText('dm', sid, 'jess', 0, deviceText('I am Jess honest'))).status, 403, 'nor can the DM');
+  assert.equal((await sendText('dm', sid, 'jess', 0, deviceText('I am Jess honest'))).status, 403, 'nor can the GM');
   assert.equal((await sendText('jess', sid, 'jess', 5000, deviceText('never uploaded'))).status, 404);
   await ok('POST', `${A()}/consent`, T.jess, { agree: false });
   assert.equal((await sendText('jess', sid, 'jess', 0, deviceText('after withdrawing'))).status, 403, 'consent withdrawn: refused');
@@ -191,7 +191,7 @@ test('Stt_device: only the mic\'s owner may send its text, and only for a chunk 
   assert.equal(chunkRow(sid, 'jess', 0).status, 'awaiting');
 });
 
-test('Stt_device: a DM-only title in a device\'s line hides that line from the players, as with the server model', async () => {
+test('Stt_device: a GM-only title in a device\'s line hides that line from the players, as with the server model', async () => {
   await setting('speechToText', 'device');
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Pale Vault.md', visibility: 'dm', markdown: '# The Pale Vault\nSealed.\n' });
   engine(deps).resetHint();
@@ -312,7 +312,7 @@ test('Final_api: two phones with clocks seconds apart give one line per sentence
   assert.deepEqual(after.map((l) => l.text), [S1, S2], after.map((l) => `${l.start} ${l.text}`).join(' / '));
   assert.deepEqual(after.map((l) => l.speaker), ['Jessamine', 'Tomas'], 'each line is credited to the closest phone');
   assert.ok(after[1].start - after[0].start > 7000 && after[1].start - after[0].start < 11000, 'the two sentences are ~9 s apart on one clock');
-  // Players read the final transcript too; the live version is the DM's.
+  // Players read the final transcript too; the live version is the GM's.
   assert.deepEqual((await lines('tom', sid)).map((l) => l.text), [S1, S2]);
   assert.equal((await call('GET', `${A()}/sessions/${sid}/lines?version=live`, T.tom)).status, 403);
   assert.ok((await lines('dm', sid, '?version=live')).length >= 3);
@@ -327,7 +327,7 @@ test('Final_api: two phones with clocks seconds apart give one line per sentence
   assert.deepEqual((await lines('dm', sid)).map((l) => l.text), [S1, S2]);
 });
 
-test('Final_api: DM-only stays DM-only through the final pass; Transcript.md and session.json are rewritten', async () => {
+test('Final_api: GM-only stays GM-only through the final pass; Transcript.md and session.json are rewritten', async () => {
   await setting('speechToText', 'device');
   const sid = await newSession('Final files');
   await ok('POST', `${A()}/mics`, T.dm, { deviceId: 'dev-table', label: 'Table mic', mode: 'always', playersTranscript: false });
@@ -344,10 +344,10 @@ test('Final_api: DM-only stays DM-only through the final pass; Transcript.md and
   await engine(deps).finalize(sid);
   const ls = await lines('dm', sid);
   assert.equal(ls.find((l) => /secret/.test(l.text))?.audience, 'dm');
-  assert.ok(!(await lines('tom', sid)).some((l) => /secret/.test(l.text)), 'players never read the DM-only line');
+  assert.ok(!(await lines('tom', sid)).some((l) => /secret/.test(l.text)), 'players never read the GM-only line');
   const md = fs.readFileSync(path.join(dir, 'Transcript.md'), 'utf8');
   assert.match(md, /Final transcript: 2 microphones synced onto one timeline/);
-  assert.match(md, /\(\*\*DM only\*\*\): secret plans for the drowned chapel/);
+  assert.match(md, /\(\*\*GM only\*\*\): secret plans for the drowned chapel/);
   assert.match(md, /\*\*Tomas\*\*: the tavern is warm/);
   const doc = JSON.parse(fs.readFileSync(path.join(dir, 'session.json'), 'utf8'));
   assert.equal(doc.transcript.status, 'done');

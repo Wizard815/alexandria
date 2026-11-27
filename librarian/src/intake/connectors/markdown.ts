@@ -2,7 +2,7 @@
 // a git repo of reference files, or any MCP server that can list and read
 // files (an Obsidian MCP, a filesystem MCP...). Frontmatter becomes tags,
 // aliases and sidebar facts; [[wiki links]] become links; > [!secret]
-// callouts, %% comments %%, <!-- dm --> blocks and DM headings stay DM-only.
+// callouts, %% comments %%, <!-- dm --> blocks and GM headings stay GM-only.
 // Levels (core/levels.ts): visibility: broker | classified, the tags broker and
 // classified, > [!broker] and > [!classified] callouts, Broker and Classified
 // headings, and broker_* / classified_* keys.
@@ -35,7 +35,7 @@ function valueInline(v: FMValue): Inline[] {
   return out;
 }
 
-/** Frontmatter keys as sidebar facts. Nested secret:/dm: maps become DM-only groups. */
+/** Frontmatter keys as sidebar facts. Nested secret:/dm: maps become GM-only groups. */
 export function frontmatterGroups(fm: FM): PropertyGroup[] {
   const facts: PropertyGroup = { title: 'Facts', rows: [] };
   const groups: PropertyGroup[] = [];
@@ -132,7 +132,7 @@ export function vaultDir(vaultsDir: string | null, folder: string) {
   return full;
 }
 
-const vaultNameField = { key: 'vaultName', label: 'Obsidian vault name', type: 'text' as const, help: 'The name Obsidian shows for this vault. With it, each page gets an "Open file" button that opens the note in Obsidian on the DM’s computer. Empty: no button.' };
+const vaultNameField = { key: 'vaultName', label: 'Obsidian vault name', type: 'text' as const, help: 'The name Obsidian shows for this vault. With it, each page gets an "Open file" button that opens the note in Obsidian on the GM’s computer. Empty: no button.' };
 const shareField = { key: 'defaultShared', label: 'Pages without a visibility are shared', type: 'boolean' as const, help: 'Off (safer): only pages with visibility: party in their frontmatter are shared.' };
 
 export const markdownFolder: Connector = {
@@ -166,7 +166,7 @@ export const gitRepo: Connector = {
   description: 'Clones a repository of Markdown reference files (read-only) and imports it. Pulls again on every sync.',
   capabilities: ['pages', 'properties', 'tags', 'relations'],
   fields: [
-    { key: 'url', label: 'Repository URL', type: 'url', required: true, placeholder: 'https://github.com/you/dnd-ref' },
+    { key: 'url', label: 'Repository URL', type: 'url', required: true, placeholder: 'https://github.com/you/ttrpg-ref' },
     { key: 'subdir', label: 'Subfolder', type: 'text', help: 'Only import this folder.' },
     { key: 'branch', label: 'Branch', type: 'text', placeholder: 'main' },
     shareField,

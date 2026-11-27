@@ -1,9 +1,9 @@
 // Sound (PLAN §5): the music, ambience and effects libraries on the gateway,
-// the DM's sound board, players' own on/off switches, and Spotify.
+// the GM's sound board, players' own on/off switches, and Spotify.
 //
 // Live event `sound`: { channel: 'music'|'ambience'|'sfx'|'voice', action:
 // 'play'|'stop'|'set', url, volume, loop, fadeMs, target: 'table'|'players'|
-// 'both', at, ... }. The DM's page plays what is aimed at the table; a
+// 'both', at, ... }. The GM's page plays what is aimed at the table; a
 // player's device plays what is aimed at players on channels it switched on.
 import express, { Router } from 'express';
 import fs from 'node:fs';
@@ -109,14 +109,14 @@ export function soundHint(d: Deps, worldId: string): string {
   return libraryHint(i, withOverrides(i.music, over));
 }
 
-/** How many players have the sound channel switched on (the DM's own devices do not count). */
+/** How many players have the sound channel switched on (the GM's own devices do not count). */
 function listeningPlayers(d: Deps, worldId: string, channel: 'music' | 'ambience' | 'sfx'): number {
   const col = channel;
   return one<{ n: number }>(d.db, `SELECT COUNT(DISTINCT l.account_id) AS n FROM sound_listeners l JOIN members m ON m.account_id = l.account_id AND m.world_id = l.world_id WHERE l.world_id = ? AND m.role <> 'dm' AND l.${col} = 1`, worldId)?.n ?? 0;
 }
-const NO_ONE = 'No player has "Allow sound" switched on, so players will not hear this. Tell the DM.';
+const NO_ONE = 'No player has "Allow sound" switched on, so players will not hear this. Tell the GM.';
 
-/** May this person fetch this file now? A DM: any file. A player: only what is playing for them or was sent to devices. */
+/** May this person fetch this file now? A GM: any file. A player: only what is playing for them or was sent to devices. */
 function fileFor(d: Deps, worldId: string, dm: boolean, kind: string, fid: string) {
   const f = indexOf(d).files.get(fid);
   if (!f || f.kind !== kind) return null;
@@ -140,25 +140,25 @@ const feature: Feature = {
     });
   },
   mcpTools: [
-    { name: 'list_sound_library', dmOnly: true, description: "DM: what the sound board can play: music tracks (id, area, mood spot), ambience layers, sound effects (id, bank, name), the mood corners and the saved scenes and pads.", props: {}, call: () => ({ method: 'GET', path: '/sound/library' }) },
-    { name: 'list_sound_scenes', dmOnly: true, description: 'DM: the saved ambience scenes (name, layers) and the sound pads.', props: {}, call: () => ({ method: 'GET', path: '/sound/scenes' }) },
-    { name: 'get_sound_now', description: 'What music and ambience are playing now (a player sees only what is aimed at players). For the DM it also says how many players have each sound channel on.', props: {}, call: () => ({ method: 'GET', path: '/sound/now' }) },
+    { name: 'list_sound_library', dmOnly: true, description: "GM: what the sound board can play: music tracks (id, area, mood spot), ambience layers, sound effects (id, bank, name), the mood corners and the saved scenes and pads.", props: {}, call: () => ({ method: 'GET', path: '/sound/library' }) },
+    { name: 'list_sound_scenes', dmOnly: true, description: 'GM: the saved ambience scenes (name, layers) and the sound pads.', props: {}, call: () => ({ method: 'GET', path: '/sound/scenes' }) },
+    { name: 'get_sound_now', description: 'What music and ambience are playing now (a player sees only what is aimed at players). For the GM it also says how many players have each sound channel on.', props: {}, call: () => ({ method: 'GET', path: '/sound/now' }) },
     {
       name: 'play_music', write: true,
-      description: "DM: play background music. If the result has a note that no player has Allow sound on, tell the DM. Give a mood (calm, tense, sneaky or combat: the nearest track plays, in the area if given), or a trackId from list_sound_library. target: table (the DM's device, default), players or both.",
+      description: "GM: play background music. If the result has a note that no player has Allow sound on, tell the GM. Give a mood (calm, tense, sneaky or combat: the nearest track plays, in the area if given), or a trackId from list_sound_library. target: table (the GM's device, default), players or both.",
       props: { mood: { type: 'string', enum: ['calm', 'tense', 'sneaky', 'combat'] }, area: { type: 'string', description: 'Music folder, e.g. dungeon' }, trackId: { type: 'string' }, volume: { type: 'number', description: '0 to 1' }, fadeMs: { type: 'integer' }, target: { type: 'string', enum: [...TARGETS] } },
       call: (a) => (a.trackId ? { method: 'POST', path: '/sound/music/play', body: { trackId: a.trackId, volume: a.volume, fadeMs: a.fadeMs, target: a.target } } : { method: 'POST', path: '/sound/music/mood', body: { mood: a.mood ?? 'calm', area: a.area, volume: a.volume, fadeMs: a.fadeMs, target: a.target } }),
     },
-    { name: 'stop_music', write: true, description: 'DM: fade out the background music.', props: { fadeMs: { type: 'integer' } }, call: (a) => ({ method: 'POST', path: '/sound/music/stop', body: { fadeMs: a.fadeMs } }) },
+    { name: 'stop_music', write: true, description: 'GM: fade out the background music.', props: { fadeMs: { type: 'integer' } }, call: (a) => ({ method: 'POST', path: '/sound/music/stop', body: { fadeMs: a.fadeMs } }) },
     {
       name: 'play_ambience', write: true,
-      description: "DM: set the ambience. Give a saved scene (name or id) or layers [{kind: 'rain', volume: 0.4}] (the kinds are listed in list_sound_library; an unknown kind plays the nearest). With neither, the ambience stops. If the result has a note that no player has Allow sound on, tell the DM.",
+      description: "GM: set the ambience. Give a saved scene (name or id) or layers [{kind: 'rain', volume: 0.4}] (the kinds are listed in list_sound_library; an unknown kind plays the nearest). With neither, the ambience stops. If the result has a note that no player has Allow sound on, tell the GM.",
       props: { scene: { type: 'string', description: 'Saved scene name or id' }, layers: { type: 'array', items: { type: 'object' } }, fadeMs: { type: 'integer' }, target: { type: 'string', enum: [...TARGETS] } },
       call: (a) => (a.scene || a.layers?.length ? { method: 'POST', path: '/sound/ambience/scene', body: { scene: a.scene, layers: a.layers, fadeMs: a.fadeMs, target: a.target } } : { method: 'POST', path: '/sound/ambience/stop', body: { fadeMs: a.fadeMs, target: a.target } }),
     },
     {
       name: 'play_sfx', write: true,
-      description: 'DM: play a sound effect: a pad (padId), a sound effect id, or a name (the first effect whose name contains it, e.g. "creak").',
+      description: 'GM: play a sound effect: a pad (padId), a sound effect id, or a name (the first effect whose name contains it, e.g. "creak").',
       props: { padId: { type: 'string' }, id: { type: 'string' }, name: { type: 'string' }, volume: { type: 'number' }, target: { type: 'string', enum: [...TARGETS] } },
       call: (a) => ({ method: 'POST', path: '/sound/sfx/play', body: { padId: a.padId, id: a.id, name: a.name, volume: a.volume, target: a.target } }),
     },
@@ -175,7 +175,7 @@ const feature: Feature = {
       const s = one<any>(db, 'SELECT * FROM sound_state WHERE world_id = ?', worldId);
       return { music: s?.music ? JSON.parse(s.music) : null, ambience: s?.ambience ? JSON.parse(s.ambience) : null };
     };
-    /** What to tell the DM about who can hear a sound aimed at players. */
+    /** What to tell the GM about who can hear a sound aimed at players. */
     const hearing = (worldId: string, channel: 'music' | 'ambience' | 'sfx', t: Target) => {
       if (!toPlayers(t)) return {};
       const n = listeningPlayers(d, worldId, channel);
@@ -214,7 +214,7 @@ const feature: Feature = {
       res.json(tracks(wid(res)).find((x) => x.id === t.id));
     });
 
-    // Upload a sound effect or an ambience loop (DM). The body is the raw file.
+    // Upload a sound effect or an ambience loop (GM). The body is the raw file.
     r.post('/upload', requireDM, express.raw({ type: () => true, limit: '26mb' }), (req, res) => {
       if (!d.dataDir) throw new HttpError(503, 'The gateway has no data folder for sounds');
       const kind = oneOf(req.query.kind, 'kind', ['sfx', 'ambience'] as const);
@@ -467,7 +467,7 @@ const feature: Feature = {
       d.hub.emit(w, 'sound-listeners', { at: now() }, dmOnly);
       res.json(switchOut(one<any>(db, 'SELECT * FROM sound_listeners WHERE world_id = ? AND account_id = ? AND device = ?', w, me(res), dev)));
     });
-    // Who hears what (DM). Devices not seen for 12 hours are marked stale.
+    // Who hears what (GM). Devices not seen for 12 hours are marked stale.
     r.get('/listeners', requireDM, (_req, res) => {
       const w = wid(res);
       const who = names(db, w);
@@ -476,14 +476,14 @@ const feature: Feature = {
       res.json(rows.map((l) => ({ account: l.account_id, name: who[l.account_id] ?? 'Someone', ...switchOut(l), seenAt: l.seen_at, stale: l.seen_at < cut })));
     });
 
-    // ---- Spotify (DM) --------------------------------------------------------
+    // ---- Spotify (GM) --------------------------------------------------------
     r.get('/spotify', requireDM, (_req, res) => res.json(spotify.spotifyStatus(d, wid(res))));
     r.put('/spotify', requireDM, (req, res) => {
       spotify.setClientId(d, wid(res), str(req.body?.clientId, 'clientId', { max: 64 }).trim());
       res.json(spotify.spotifyStatus(d, wid(res)));
     });
     r.post('/spotify/login', requireDM, (req, res) => res.json({ url: spotify.loginUrl(d, wid(res), str(req.body?.redirectUri, 'redirectUri', { max: 500 })) }));
-    // The web page Spotify sends the DM back to posts the code here.
+    // The web page Spotify sends the GM back to posts the code here.
     r.post('/spotify/callback', requireDM, async (req, res) => {
       await spotify.finishLogin(d, wid(res), str(req.body?.code, 'code', { max: 2000 }), str(req.body?.state, 'state', { max: 200 }));
       res.json(spotify.spotifyStatus(d, wid(res)));

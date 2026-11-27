@@ -1,5 +1,5 @@
 // Me: who my character is, block by block, each with its own audience.
-// "Only me" blocks are hidden from the DM too; the librarian enforces it.
+// "Only me" blocks are hidden from the GM too; the librarian enforces it.
 import { useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -9,7 +9,7 @@ type Section = 'story' | 'traits' | 'goals' | 'bonds' | 'basics';
 interface Block { id: string; section: Section; title: string; body: string; visibility: 'me' | 'dm' | 'party'; sort: number }
 
 const SECTIONS: [Section, string][] = [['story', 'Story'], ['traits', 'Traits'], ['goals', 'Goals'], ['bonds', 'Bonds'], ['basics', 'Basics']];
-const VIS_LABELS = { me: 'Only me', dm: 'Me and the DM', party: 'The party can see' };
+const VIS_LABELS = { me: 'Only me', dm: 'Me and the GM', party: 'The party can see' };
 const RACES = ['human', 'elf', 'half-elf', 'dwarf', 'halfling', 'gnome', 'half-orc', 'orc', 'tiefling', 'dragonborn', 'goliath', 'aasimar'];
 
 export default function PlayerMe() {
@@ -55,7 +55,7 @@ export default function PlayerMe() {
         </div>
         <aside className="col-1 stack loose">
           <ThemeCard />
-          <div className="note small">“Only me” blocks are hidden from everyone, the DM too. “Me and the DM” is for secrets your DM should know. Stats stay in your character sheet app.</div>
+          <div className="note small">“Only me” blocks are hidden from everyone, the GM too. “Me and the GM” is for secrets your GM should know. Stats stay in your character sheet app.</div>
         </aside>
       </div>
       {edit && <BlockModal block={edit} onClose={() => setEdit(null)} onSaved={async () => { setEdit(null); await prof.reload(); toast('Saved'); }} />}

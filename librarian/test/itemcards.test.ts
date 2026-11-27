@@ -1,5 +1,5 @@
-// Item cards: items linked to library pages, the card a DM or player gets,
-// who may link, and that DM-only page content never reaches a player.
+// Item cards: items linked to library pages, the card a GM or player gets,
+// who may link, and that GM-only page content never reaches a player.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -62,16 +62,16 @@ before(async () => {
     ID[name] = j.account.id;
   }
   const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
-  P.md = await page('items/Moonblade', 'party', `# Moonblade\nA silver sword that glows near undead.\n\n> [!secret] DM\n> The blade is cursed by the lich Mordane.\n\n## History\nForged in Westmarch.\n`);
+  P.md = await page('items/Moonblade', 'party', `# Moonblade\nA silver sword that glows near undead.\n\n> [!secret] GM\n> The blade is cursed by the lich Mordane.\n\n## History\nForged in Westmarch.\n`);
   P.dmOnly = await page('dm/Ashgrove', 'dm', `# Ashgrove\nThe Ashgrove cult meets under the old mill.\n`);
 
-  // A structured (LegendKeeper-style) page with facts, a DM fact group and a secret block.
+  // A structured (LegendKeeper-style) page with facts, a GM fact group and a secret block.
   run(deps.db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s1', ?, 'api', 'Wiki', '{}', 'party')`, W);
   P.lk = deps.library.saveEntry(W, 's1', 'wiki', {
     externalId: 'e1', title: 'Ring of Warding', visibility: 'party', folder: ['Items'],
     properties: [
       { title: 'Facts', rows: [{ key: 'Rarity', value: [{ text: 'Rare' }] }] },
-      { title: 'DM facts', dm: true, rows: [{ key: 'Curse', value: [{ text: 'Mordane watches the wearer' }] }] },
+      { title: 'GM facts', dm: true, rows: [{ key: 'Curse', value: [{ text: 'Mordane watches the wearer' }] }] },
     ],
     blocks: [
       { kind: 'paragraph', content: [{ text: 'A plain iron ring.' }] },
@@ -110,7 +110,7 @@ test('TestItemCards_DMSeesFullCardAndPlayerOnlyThePlayerCopy', async () => {
   noSecrets('markdown card', pCard);
   assert.ok(!JSON.stringify(pCard).includes('Handle with care'));
 
-  // Structured page: facts and the DM fact group.
+  // Structured page: facts and the GM fact group.
   const dmLk = await ok('GET', `${IC()}/${lkIt.id}`, T.dm);
   assert.ok(dmLk.page.facts.some((g: any) => g.dm));
   const pLk = await ok('GET', `${IC()}/${lkIt.id}`, T.jess);
@@ -133,7 +133,7 @@ test('TestItemCards_DMOnlyPageGivesPlayersNothingFromThePage', async () => {
   noSecrets('dm-only page card', pCard);
   assert.ok(!JSON.stringify(pCard).includes('Ashgrove'));
 
-  // Missing player copy (page was shared, then went back to DM-only).
+  // Missing player copy (page was shared, then went back to GM-only).
   const pg = await ok('GET', `/api/worlds/${W}/library/pages/${P.md}`, T.dm);
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: pg.path, visibility: 'dm', body: pg.body });
   const md = (await ok('GET', `${INV()}?owner=me`, T.jess)).items.find((i: any) => i.name === 'Moonblade');
@@ -155,7 +155,7 @@ test('TestItemCards_OnlyOwnerOrDMCanLink', async () => {
   assert.equal((await ok('GET', `${IC()}/${it.id}`, T.jess)).page.title, 'Moonblade');
   await ok('PATCH', `${INV()}/${it.id}`, T.jess, { pageId: P.lk });
   assert.equal((await ok('GET', `${IC()}/${it.id}`, T.jess)).page.title, 'Ring of Warding');
-  // The DM may too, and can unlink.
+  // The GM may too, and can unlink.
   await ok('PUT', `${IC()}/${it.id}/page`, T.dm, { pageId: null });
   assert.equal((await ok('GET', `${IC()}/${it.id}`, T.jess)).page, null);
   assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.dm, {})).status, 400);
@@ -166,7 +166,7 @@ test('TestItemCards_PlayerCannotLinkADMOnlyPage', async () => {
   const it = await add(T.dm, { owner: ID.jess, name: 'Candle', reason: 'gift' });
   assert.equal((await call('PUT', `${IC()}/${it.id}/page`, T.jess, { pageId: P.dmOnly })).status, 400);
   assert.equal((await call('PATCH', `${INV()}/${it.id}`, T.jess, { pageId: P.dmOnly })).status, 400);
-  // Adding an item through the player flow with a DM-only page is refused too.
+  // Adding an item through the player flow with a GM-only page is refused too.
   assert.equal((await call('POST', INV(), T.jess, { owner: 'me', name: 'Trick', pageId: P.dmOnly })).status, 400);
   // A player's own proposed item can carry a shared page.
   const mine = await call('POST', INV(), T.jess, { owner: 'me', name: 'Brooch', pageId: P.lk });

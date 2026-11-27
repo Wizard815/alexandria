@@ -1,5 +1,5 @@
-// The DM's side of the information broker: every question with how it was
-// judged (library, DM secret or unknown) and what it sold for; special
+// The GM's side of the information broker: every question with how it was
+// judged (library, GM secret or unknown) and what it sold for; special
 // offers to send; notes the broker may sell; per-page price rules and a
 // "try a question" box for tuning; the persona, prices, delivery mode per
 // tier, allowed topics and the world-site link. Game time is the World clock's.
@@ -170,7 +170,7 @@ function Setup({ cfg, onSaved }: { cfg: BrokerConfig; onSaved: () => Promise<voi
       </div>
       <section className="col-2 card" aria-labelledby="tiers-h">
         <h2 id="tiers-h">Prices and waits</h2>
-        <p className="small muted">The tier comes from the best-matching shared page's knowledge level. Players see this list as "Set by your DM".</p>
+        <p className="small muted">The tier comes from the best-matching shared page's knowledge level. Players see this list as "Set by your GM".</p>
         {c.tiers.map((t, i) => (
           <fieldset key={t.id} className="stack tight" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10 }}>
             <legend className="small muted">{KNOW[t.knowledge]}</legend>
@@ -243,9 +243,9 @@ function Scope() {
   );
 }
 
-const VERDICT: Record<string, string> = { shared: 'Library: sold from what players can read', secret: 'DM secret: never sold on its own', unknown: 'Unknown: nothing matches' };
+const VERDICT: Record<string, string> = { shared: 'Library: sold from what players can read', secret: 'GM secret: never sold on its own', unknown: 'Unknown: nothing matches' };
 
-/** How a question was judged, with the DM-only lines that matched (DM only). */
+/** How a question was judged, with the GM-only lines that matched (GM only). */
 function Judged({ c }: { c: Classification }) {
   const { info } = useWorld();
   return (
@@ -257,12 +257,12 @@ function Judged({ c }: { c: Classification }) {
         {c.routing && <span className="chip" title={`Labelled by ${c.routing.source === 'rules' ? 'the keyword rules' : 'the audit model'}`} style={c.routing.intent !== 'fact' ? { borderColor: 'var(--danger-text)' } : undefined}>{c.routing.intent}</span>}
         {c.routing && <span className="chip faint" title="Confidence">{Math.round(c.routing.confidence * 100)}% · {c.routing.source === 'rules' ? 'rules' : 'model'}</span>}
         {c.knowledge && c.verdict === 'shared' && <span className="chip">{c.knowledge}{c.multiplier !== 1 ? ` ×${c.multiplier}` : ''}</span>}
-        {c.entities.map((e) => <Link key={e.id} className="chip" to={e.id.startsWith('person:') ? `/w/${info.slug}/dm/people` : `/w/${info.slug}/dm/library?page=${encodeURIComponent(e.id)}`} title={e.shared ? 'Players can see this' : 'DM only'}>{e.shared ? '' : '🔒 '}{e.title}</Link>)}
+        {c.entities.map((e) => <Link key={e.id} className="chip" to={e.id.startsWith('person:') ? `/w/${info.slug}/dm/people` : `/w/${info.slug}/dm/library?page=${encodeURIComponent(e.id)}`} title={e.shared ? 'Players can see this' : 'GM only'}>{e.shared ? '' : '🔒 '}{e.title}</Link>)}
       </div>
       <span className="tiny muted">{c.reason}</span>
       {!!c.dmEvidence.length && (
         <details className="tiny">
-          <summary style={{ color: 'var(--danger-text)' }}>DM-only lines that matched ({c.dmEvidence.length})</summary>
+          <summary style={{ color: 'var(--danger-text)' }}>GM-only lines that matched ({c.dmEvidence.length})</summary>
           <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{c.dmEvidence.map((e, i) => <li key={i}><strong>{e.title}:</strong> {e.text}</li>)}</ul>
         </details>
       )}
@@ -287,7 +287,7 @@ function PagePicker({ value, onChange, label, help }: { value: string; onChange:
   );
 }
 
-/** Special offers: the DM sells something directly, to one player or the party. */
+/** Special offers: the GM sells something directly, to one player or the party. */
 function Offers() {
   const { w, info, members } = useWorld();
   const list = useLoad(() => w.call<Offer[]>('GET', '/broker/offers'), [w], ['broker-offer']);
@@ -366,7 +366,7 @@ function Offers() {
   );
 }
 
-/** Notes: facts the DM gives the broker to sell. The broker never invents anything else. */
+/** Notes: facts the GM gives the broker to sell. The broker never invents anything else. */
 function Notes() {
   const { w } = useWorld();
   const list = useLoad(() => w.call<BrokerNote[]>('GET', '/broker/notes'), [w], []);
@@ -398,7 +398,7 @@ function Notes() {
       </section>
       <section className="col-2 card flush" aria-label="Notes">
         <ErrorBox error={list.error} />
-        {!list.data ? <Loading /> : !list.data.length ? <Empty>No notes yet. Save a good DM answer as a note from the Questions tab, or add one here.</Empty> : list.data.map((n) => (
+        {!list.data ? <Loading /> : !list.data.length ? <Empty>No notes yet. Save a good GM answer as a note from the Questions tab, or add one here.</Empty> : list.data.map((n) => (
           <article key={n.id} className="list-item" style={{ display: 'block', padding: '10px 14px', opacity: n.active ? 1 : 0.6 }}>
             <div className="row between"><strong>{n.topic}</strong><span className="chip">{n.knowledge}</span></div>
             <div className="small read" style={{ whiteSpace: 'pre-wrap' }}>{n.text}</div>
@@ -471,7 +471,7 @@ function Tune({ cfg }: { cfg: BrokerConfig }) {
   );
 }
 
-/** Free-text spoiler topics: a question that names one always comes to the DM. */
+/** Free-text spoiler topics: a question that names one always comes to the GM. */
 function Spoilers() {
   const { w } = useWorld();
   const act = useAction();

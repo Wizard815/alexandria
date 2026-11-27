@@ -1,5 +1,5 @@
-// Relations and family trees, read from page frontmatter. DM-only links
-// (under secret:, or pointing at a DM-only page) are dashed red here and
+// Relations and family trees, read from page frontmatter. GM-only links
+// (under secret:, or pointing at a GM-only page) are dashed red here and
 // never shown to players.
 import { useMemo, useState, type ReactElement } from 'react';
 import { PageHead, ErrorBox, Empty, Loading, Tabs, VisChip } from '../../ui/index.tsx';
@@ -20,7 +20,7 @@ export default function DMRelations() {
 
   return (
     <div className="page wide">
-      <PageHead title="Relations" lead="Family and membership, read from page frontmatter. Secret links are DM-only." />
+      <PageHead title="Relations" lead="Family and membership, read from page frontmatter. Secret links are GM-only." />
       <ErrorBox error={rels.error} />
       <div className="card">
         <div className="row between">
@@ -28,7 +28,7 @@ export default function DMRelations() {
           <div className="row">
             <label className="field" style={{ minWidth: 180 }}><span className="sr-only">Find</span><input type="search" placeholder="Find a name…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
             <label className="field"><span className="sr-only">Kind</span><select value={kind} onChange={(e) => setKind(e.target.value)}><option value="all">All kinds</option>{kinds.map((k) => <option key={k} value={k}>{k}</option>)}</select></label>
-            <Tabs label="Visibility" value={vis} onChange={setVis} items={[['all', 'All'], ['party', 'Shared'], ['dm', 'DM only']]} />
+            <Tabs label="Visibility" value={vis} onChange={setVis} items={[['all', 'All'], ['party', 'Shared'], ['dm', 'GM only']]} />
           </div>
         </div>
       </div>
@@ -91,11 +91,11 @@ function Tree({ rels }: { rels: Rel[] }) {
     return (
       <li key={`${name}-${depth}`} style={{ listStyle: 'none', margin: '6px 0' }}>
         <span className="row" style={{ gap: 6 }}>
-          <span className="chip gold" style={via?.visibility === 'dm' ? { borderStyle: 'dashed', borderColor: 'var(--danger)', color: 'var(--danger-text)' } : undefined} title={via?.visibility === 'dm' ? 'This link is DM-only' : undefined}>{name}</span>
+          <span className="chip gold" style={via?.visibility === 'dm' ? { borderStyle: 'dashed', borderColor: 'var(--danger)', color: 'var(--danger-text)' } : undefined} title={via?.visibility === 'dm' ? 'This link is GM-only' : undefined}>{name}</span>
           {sp.map((s) => {
             const other = s.from_title === name ? s.to_title : s.from_title;
             const dm = s.visibility === 'dm';
-            return <span key={s.id} className="small" style={dm ? { color: 'var(--danger-text)' } : { color: 'var(--muted)' }}>{dm ? '⚭?' : '⚭'} {other} <span className="tiny">({s.kind.replace(' of', '')}{dm ? ', DM only' : ''})</span></span>;
+            return <span key={s.id} className="small" style={dm ? { color: 'var(--danger-text)' } : { color: 'var(--muted)' }}>{dm ? '⚭?' : '⚭'} {other} <span className="tiny">({s.kind.replace(' of', '')}{dm ? ', GM only' : ''})</span></span>;
           })}
         </span>
         {!loop && kids.length > 0 && depth < 12 && (
@@ -111,12 +111,12 @@ function Tree({ rels }: { rels: Rel[] }) {
     <div className="cols">
       <section className="card col-3" aria-label="Family tree">
         {roots.length ? <ul style={{ margin: 0, padding: 0 }}>{roots.map((r) => node(r, null, 0, new Set()))}</ul> : <Empty>No parent and child links in this view.</Empty>}
-        <span className="tiny faint">Dashed red = DM-only link. Players never see it.</span>
+        <span className="tiny faint">Dashed red = GM-only link. Players never see it.</span>
       </section>
       <section className="card col-1" aria-label="Other relations">
         <h3>Other ties</h3>
         {other.length ? other.map((r) => (
-          <div key={r.id} className="small" style={r.visibility === 'dm' ? { color: 'var(--danger-text)' } : undefined}>{r.from_title} <span className="muted">{r.kind}</span> {r.to_title}{r.visibility === 'dm' && ' · DM only'}</div>
+          <div key={r.id} className="small" style={r.visibility === 'dm' ? { color: 'var(--danger-text)' } : undefined}>{r.from_title} <span className="muted">{r.kind}</span> {r.to_title}{r.visibility === 'dm' && ' · GM only'}</div>
         )) : <span className="small faint">None.</span>}
       </section>
     </div>

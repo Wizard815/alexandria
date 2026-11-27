@@ -1,6 +1,6 @@
 // The player harness's output check (PLAN §6.3): a reply that shares an
-// 8-word run with DM-only text is blocked. DM-only text is every DM page and
-// DM-only part of a page (secret blocks, DM fact groups) and every DM-only
+// 8-word run with GM-only text is blocked. GM-only text is every GM page and
+// GM-only part of a page (secret blocks, GM fact groups) and every GM-only
 // transcript line, minus whatever the players may also see.
 import type { DB } from '../../core/db.ts';
 import { all } from '../../core/db.ts';
@@ -35,22 +35,22 @@ export function treeText(v: unknown, out: string[] = []): string[] {
 
 interface PageRow { path?: string; frontmatter?: string | null; updated_at?: string; visibility: string; body: string; blocks: string | null; properties: string | null; player_body: string | null; player_blocks: string | null; player_properties: string | null }
 
-/** The 8-word runs of DM-only text in a world. */
+/** The 8-word runs of GM-only text in a world. */
 /**
- * Word sequences that only DM-only text contains. `skip(pageId, body)` may leave
+ * Word sequences that only GM-only text contains. `skip(pageId, body)` may leave
  * a page out; Sculpting uses it for read-aloud pages it saved after they passed
  * this same check, while their text is unchanged.
  */
 export function dmOnlyGrams(db: DB, worldId: string, skip?: (pageId: string, body: string) => boolean): Set<string> {
   const dm = new Set<string>();
   const players = new Set<string>();
-  // Seven-word runs of what players may read: a DM line that differs from a public sentence by one end word ("The lighthouse has been dark for a month" / "Its lighthouse has been dark for a month") is that public fact, not a secret.
+  // Seven-word runs of what players may read: a GM line that differs from a public sentence by one end word ("The lighthouse has been dark for a month" / "Its lighthouse has been dark for a month") is that public fact, not a secret.
   const publicSeven = new Set<string>();
   const add = (into: Set<string>, text: string) => { for (const g of grams(text)) into.add(g); if (into === players) for (const g of grams(text, LEAK_WORDS - 1)) publicSeven.add(g); };
   for (const p of all<PageRow & { id: string }>(db, 'SELECT id, path, frontmatter, updated_at, visibility, body, blocks, properties, player_body, player_blocks, player_properties FROM pages WHERE world_id = ?', worldId)) {
     if (skip?.(p.id, p.body ?? '')) continue;
     add(dm, [p.body, treeText(parseJson(p.blocks, [])).join(' '), treeText(parseJson(p.properties, [])).join(' ')].join('\n'));
-    // Vault pages the whole party may read are stored DM-only; their player text is the party's too.
+    // Vault pages the whole party may read are stored GM-only; their player text is the party's too.
     const shared = p.path && p.updated_at ? partyBody(db, worldId, { id: p.id, path: p.path, frontmatter: p.frontmatter ?? null, updated_at: p.updated_at }) : null;
     if (shared) add(players, shared);
     if (p.visibility === 'party') add(players, [p.player_body ?? '', treeText(parseJson(p.player_blocks, [])).join(' '), treeText(parseJson(p.player_properties, [])).join(' ')].join('\n'));
@@ -68,7 +68,7 @@ export function dmOnlyGrams(db: DB, worldId: string, skip?: (pageId: string, bod
 
 export interface LeakVerdict { blocked: boolean; match?: string }
 
-/** A checker over one snapshot of the world's DM-only text, for checking many pieces of one reply cheaply. `allowed` is text the player wrote themselves. */
+/** A checker over one snapshot of the world's GM-only text, for checking many pieces of one reply cheaply. `allowed` is text the player wrote themselves. */
 export function leakChecker(db: DB, worldId: string, allowed: string[] = []): (text: string) => LeakVerdict {
   const dm = dmOnlyGrams(db, worldId);
   for (const a of allowed) for (const g of grams(a)) dm.delete(g);
@@ -78,7 +78,7 @@ export function leakChecker(db: DB, worldId: string, allowed: string[] = []): (t
   };
 }
 
-/** Does the reply share a run of 8 words with DM-only text? `allowed` is text the player wrote themselves. */
+/** Does the reply share a run of 8 words with GM-only text? `allowed` is text the player wrote themselves. */
 export function leakCheck(db: DB, worldId: string, reply: string, allowed: string[] = []): LeakVerdict {
   if (!grams(reply).size) return { blocked: false };
   return leakChecker(db, worldId, allowed)(reply);
@@ -86,7 +86,7 @@ export function leakCheck(db: DB, worldId: string, reply: string, allowed: strin
 
 /**
  * Lets a streamed reply through one sentence at a time, never sending a sentence
- * that shares a run of LEAK_WORDS words with DM-only text. A sentence is held
+ * that shares a run of LEAK_WORDS words with GM-only text. A sentence is held
  * until the next one is complete too, so a run that crosses the sentence
  * boundary is caught before the first half goes out.
  */

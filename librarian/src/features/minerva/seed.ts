@@ -18,7 +18,7 @@ const STATUS_HINTS: Record<string, string> = {
 
 export const statusBody = (): string => `# Campaign Status\n\n${STATUS_SECTIONS.map((s) => `## ${s}\n${STATUS_HINTS[s]}\n`).join('\n')}`;
 
-/** A player's root: profile, shared page, bonds, knowledge, and the DM's own note on them. Existing pages are left as they are. */
+/** A player's root: profile, shared page, bonds, knowledge, and the GM's own note on them. Existing pages are left as they are. */
 export function ensurePlayer(d: Deps, worldId: string, p: PlayerRef, by: string | null) {
   const who = p.character || p.name;
   const root = `players/${p.accountId}`;
@@ -28,7 +28,7 @@ export function ensurePlayer(d: Deps, worldId: string, p: PlayerRef, by: string 
   make(`${root}/profile.md`, `${who}: profile`, { type: 'profile', level: 'party', tags: [] }, `# ${who}\n\nPlayed by ${p.name}.\n\n## Who they are\n_The character in a few lines._\n\n## What they want\n_See the goals folder._\n`);
   make(`${root}/shared.md`, 'Shared with the party', { type: 'profile', level: 'party', tags: [] }, `# Shared with the party\n\nWhat ${who} lets the other players know.\n\n## Shared\n`);
   make(`${root}/bonds.md`, `${who}: bonds`, { type: 'bonds', level: 'party', tags: [] }, `# Bonds\n\nPeople, places and factions ${who} cares about.\n`);
-  make('dm/players/' + p.accountId + '.md', `${who}: the DM's notes`, { type: 'note', level: 'dm', tags: [] }, `# ${who} (${p.name})\n\n## What they enjoy\n\n## What they are after\n\n## Hooks aimed at them\n\n## Table notes\n`);
+  make('dm/players/' + p.accountId + '.md', `${who}: the GM's notes`, { type: 'note', level: 'dm', tags: [] }, `# ${who} (${p.name})\n\n## What they enjoy\n\n## What they are after\n\n## Hooks aimed at them\n\n## Table notes\n`);
   make(`codex/characters/pc/${who.replace(/[\\/:*?"<>|]/g, ' ').trim()}.md`, who, { type: 'codex', kind: 'pc', level: 'party', aliases: p.name && p.name !== who ? [p.name] : [], tags: [], sources: [] }, `# ${who}\n\nPlayed by ${p.name}.\n\n## Appearances\n\n## What changed\n\n## Secrets\n`);
   if (!readPage(d, worldId, `${root}/knowledge.md`)) rebuildKnowledge(d, worldId, p.accountId, by);
 }
@@ -63,7 +63,7 @@ export function refreshHome(d: Deps, worldId: string, by: string | null = null) 
     threads && !/^_.*_$/.test(threads.trim()) ? threads : hooks.length ? hooks.map((h) => `- [${h.fm.heat ?? 'ongoing'}] [[${h.title}]]`).join('\n') : '_None yet._',
     '',
     '## Review queue',
-    pending ? `${pending} change${pending === 1 ? '' : 's'} waiting for the DM.` : 'Nothing waiting.',
+    pending ? `${pending} change${pending === 1 ? '' : 's'} waiting for the GM.` : 'Nothing waiting.',
     '',
     '## Arcs',
     listArcs(d.db, worldId).map((a) => `- ${a.n}. ${a.title} (${a.status})`).join('\n') || '_None._',

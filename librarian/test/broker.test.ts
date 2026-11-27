@@ -1,4 +1,4 @@
-// The information broker and DM approvals, end to end over HTTP.
+// The information broker and GM approvals, end to end over HTTP.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -50,12 +50,12 @@ before(async () => {
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  // Shared pages at each knowledge level, plus DM-only text the broker must never use.
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n` });
+  // Shared pages at each knowledge level, plus GM-only text the broker must never use.
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n` });
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'lore/Hearts', visibility: 'party', markdown: `---\nknowledge: deep\n---\n# The Hearts\nThe nine Hearts were forged before the sundering to bind the elder storms.\n` });
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'party/Road', visibility: 'party', markdown: `---\nknowledge: common\n---\n# The road north\nThe party took the road north past the burned mill near Greywater ford.\n` });
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Velmira', visibility: 'dm', markdown: `# Velmira\nVelmira the smuggler queen keeps her treasury beneath the lighthouse.\n` });
-  // Give the players coin (DM entries are approved straight away).
+  // Give the players coin (GM entries are approved straight away).
   await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 2000, note: 'Starting coin' });
   await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.tom, amountCp: 20, note: 'Starting coin' });
 });
@@ -94,7 +94,7 @@ test('TestBroker_QuoteUsesPartyLibraryAndNeverCharges', async () => {
   const deep = await ok('POST', `${B()}/quote`, T.jess, { question: 'What are the nine Hearts and the elder storms?' });
   assert.equal(deep.tier, 'deep');
   assert.equal(deep.cost_cp, 200);
-  // Only DM pages know this: the library has no match, so the DM prices it.
+  // Only GM pages know this: the library has no match, so the GM prices it.
   const secret = await ok('POST', `${B()}/quote`, T.jess, { question: 'Where is the treasury beneath the lighthouse?' });
   assert.equal(secret.tier, 'secret');
   assert.equal(secret.cost_cp, null);
@@ -115,7 +115,7 @@ test('TestBroker_AskChargesAndHidesAnswerUntilGameTime', async () => {
   assert.match(led.note, /Saltmarsh/);
   assert.equal(led.status, 'approved', 'broker charges are system entries');
 
-  // DM sees the prepared answer; it holds only player-copy text.
+  // GM sees the prepared answer; it holds only player-copy text.
   const dmView = (await ok('GET', B(), T.dm)).requests.find((x: any) => x.id === r.id);
   assert.match(dmView.answer, /harbour council of seven captains/);
   assert.doesNotMatch(dmView.answer, /Velmira|smuggler queen/);
@@ -297,7 +297,7 @@ test('TestApprovals_DMQuietChangeSkipsTheAlert', async () => {
   assert.equal((pack.items ?? pack).find((x: any) => x.id === it.id).qty, 2);
   await ok('DELETE', `/api/worlds/${W}/inventory/${it.id}?quiet=1`, T.dm);
   assert.equal(await alerts(), before, 'quiet changes raise no alert');
-  // A player can't be quiet: their change still waits for the DM.
+  // A player can't be quiet: their change still waits for the GM.
   const r = await ok('POST', `/api/worlds/${W}/inventory`, T.jess, { name: 'Lucky coin', quiet: true });
   assert.equal(r.pending, true);
   // Default is still loud.

@@ -13,7 +13,7 @@ import { listItems, makeRng, rollDice } from './lang.ts';
 export const OUTPUT_KEYS = ['page', 'stage', 'combat', 'send', 'broker'] as const;
 export type OutputKey = (typeof OUTPUT_KEYS)[number];
 
-/** Call another route of this same server as the DM making the request. */
+/** Call another route of this same server as the GM making the request. */
 export async function selfCall(req: Request, worldId: string, method: string, path: string, body: unknown): Promise<any> {
   const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
   const r = await fetch(`http://127.0.0.1:${req.socket.localPort}/api/worlds/${worldId}${path}`, {
@@ -25,13 +25,13 @@ export async function selfCall(req: Request, worldId: string, method: string, pa
   return j;
 }
 
-/** The text players may see of a result; throws if it repeats DM-only notes or is empty. */
+/** The text players may see of a result; throws if it repeats GM-only notes or is empty. */
 export function publicOf(tpl: Tpl, results: SculptResult[], values: Values[], rc: RenderCtx): { text: string; parts: Part[][] } {
   const parts = values.map((v) => renderParts(tpl, v, rc));
   const text = parts.map(publicText).filter(Boolean).join('\n\n---\n\n');
   if (!text.trim()) throw new HttpError(422, 'There is nothing in this result that players may see');
   const hit = firstLeak(rc, text);
-  if (hit) throw new HttpError(409, 'Blocked: the text repeats words from DM-only notes.');
+  if (hit) throw new HttpError(409, 'Blocked: the text repeats words from GM-only notes.');
   void results;
   return { text, parts };
 }

@@ -45,7 +45,7 @@ export interface LoreConfig {
   /** A source's externalId (LegendKeeper resource id, Kanka `kanka:<entity id>` of a note or journal) or folder path (Markdown); the library folder for `library`. */
   root: string;
   defaultLevel: 'dm' | 'broker' | 'party';
-  /** The DM's own link to the workspace, when the app can't work it out. */
+  /** The GM's own link to the workspace, when the app can't work it out. */
   url?: string;
 }
 
@@ -63,7 +63,7 @@ export function validateConfig(v: unknown): asserts v is LoreConfig | null {
 
 export const configOf = (s: WorldSettings): LoreConfig | null => ((s as any).worldLore ?? null) as LoreConfig | null;
 
-/** What a requested level becomes. `party` only when the DM chose party as the workspace default; anything unknown is DM-only. */
+/** What a requested level becomes. `party` only when the GM chose party as the workspace default; anything unknown is GM-only. */
 export function effectiveLevel(cfg: LoreConfig, asked: unknown): WriteLevel {
   if (asked === undefined || asked === null || asked === '') return cfg.defaultLevel;
   if (!LEVELS.includes(asked as WriteLevel)) throw new HttpError(400, `level must be one of ${LEVELS.join(', ')}`);
@@ -129,7 +129,7 @@ interface Workspace {
 
 export function workspace(d: Deps, worldId: string): Workspace {
   const cfg = configOf(worldSettings(d, worldId));
-  if (!cfg) throw new HttpError(409, 'WorldLore is not set up for this world. The DM sets it in World settings.');
+  if (!cfg) throw new HttpError(409, 'WorldLore is not set up for this world. The GM sets it in World settings.');
   if (cfg.kind === 'library') return { cfg, src: null, connector: null, srcCfg: {}, ctx: null, close: () => {} };
   const src = one<any>(d.db, 'SELECT * FROM sources WHERE id = ? AND world_id = ?', cfg.sourceId, worldId);
   if (!src) throw new HttpError(409, 'The WorldLore source is gone. Pick another in World settings.');
@@ -266,7 +266,7 @@ export async function writePage(d: Deps, worldId: string, who: string | null, a:
     if (!a.id && markdown === undefined) throw new HttpError(400, 'markdown is required');
     const updating = !!a.id;
     const level = updating && a.level === undefined ? undefined : effectiveLevel(w.cfg, a.level);
-    const note = a.level === 'party' && level !== 'party' ? 'party is only allowed when the workspace default is party; saved DM-only' : undefined;
+    const note = a.level === 'party' && level !== 'party' ? 'party is only allowed when the workspace default is party; saved GM-only' : undefined;
     let ref: string;
     let created = false;
 
@@ -406,13 +406,13 @@ export function readPage(d: Deps, worldId: string, viewer: { accountId: string; 
 }
 
 function finish(d: Deps, worldId: string, who: string | null, by: string, action: string, detail: string) {
-  audit(d, worldId, who, `worldlore.${action}`, `${by === 'agent' ? 'agent' : 'DM'}: ${detail}`);
+  audit(d, worldId, who, `worldlore.${action}`, `${by === 'agent' ? 'agent' : 'GM'}: ${detail}`);
   d.hub.emit(worldId, 'page', { worldlore: action }, dmOnly);
 }
 
 // ---- pickers and links ----------------------------------------------------------------
 
-/** What the DM can pick as the workspace: each writable source with its top-level resources or folders, and the library. */
+/** What the GM can pick as the workspace: each writable source with its top-level resources or folders, and the library. */
 export async function options(d: Deps, worldId: string) {
   const out: any[] = [];
   for (const src of all<any>(d.db, 'SELECT * FROM sources WHERE world_id = ? ORDER BY name', worldId)) {
@@ -442,7 +442,7 @@ export async function searchOptions(d: Deps, worldId: string, sourceId: string, 
   try { return { roots: await c.write.search(cfg, ctx, q) }; } catch (err: any) { return { roots: [], error: String(err.message).slice(0, 160) }; } finally { mcp.close(); }
 }
 
-/** Where the DM can open the workspace: a source link when known, and the library. */
+/** Where the GM can open the workspace: a source link when known, and the library. */
 export function links(d: Deps, worldId: string) {
   const cfg = configOf(worldSettings(d, worldId));
   if (!cfg) return null;

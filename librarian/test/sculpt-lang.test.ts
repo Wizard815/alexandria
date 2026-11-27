@@ -40,16 +40,16 @@ test('Sculpt language: world context variables come from the clock, the party an
   assert.match(r.md, /Party: Jess/);
   assert.match(r.md, /Level: 7/);
   assert.match(r.md, /Where: The Quay/);
-  // A DM template reads the AI copy of a page, and keeps that line DM-only.
+  // A GM template reads the AI copy of a page, and keeps that line GM-only.
   const pageLine = r.parts.find((p: any) => /gulls/.test(p.md));
-  assert.ok(pageLine?.dm, 'the page excerpt is in a DM-only part');
+  assert.ok(pageLine?.dm, 'the page excerpt is in a GM-only part');
   // The current location falls back to nothing, and a page used as context sets it.
   const ctx = await bare.ok('GET', `${bare.S}/context?location=Dock`, bare.T.dm);
   assert.equal(ctx.vars.location, 'Dock');
   assert.ok(ctx.names.includes('world.date'));
 });
 
-test('Sculpt language: a player template gets the player excerpt of a page and never DM text', async () => {
+test('Sculpt language: a player template gets the player excerpt of a page and never GM text', async () => {
   const t = await make(env, { perspective: 'player', body: '*{{name}}*\n\n{{page:Saltmarsh}}\n' });
   const r = await run(env, t, { name: 'Hello' });
   assert.match(r.md, /gulls/);
@@ -73,7 +73,7 @@ test('Sculpt language: conditionals and lists', async () => {
   // #dm still works around inline blocks.
   const dm = await make(bare, { fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}\n{{#if name}}\n{{#dm}}\nsecret {{dice:1d1}}\n{{/dm}}\n{{/if}}\n' });
   const d = await run(bare, dm, { name: 'Z' });
-  assert.ok(d.md.includes('> [!secret] DM') && d.md.includes('secret 1'));
+  assert.ok(d.md.includes('> [!secret] GM') && d.md.includes('secret 1'));
 });
 
 test('Sculpt language: dice, table, image, pageLink and rollTable fields', async () => {
@@ -200,7 +200,7 @@ test('Sculpt built-ins: a player template stays clean, and the model never gets 
   await env.ok('POST', `${env.S}/run`, env.T.dm, { templateId: npc, values: { role: 'a keeper of the vault, silver bells, drowned crowns' }, context: { page: 'Vault' } });
   const sent = JSON.stringify(env.model.calls);
   assert.ok(!sent.includes('classifiedmarker9911'), 'no classified text in a model request');
-  // A player-view sculpt model request has no DM-only text at all.
+  // A player-view sculpt model request has no GM-only text at all.
   const playerCall = JSON.stringify(env.model.calls[0]);
   assert.ok(!playerCall.includes('Velmira'));
 });

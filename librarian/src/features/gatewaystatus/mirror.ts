@@ -1,7 +1,7 @@
 // The world mirror, as the admin sees it: each world's folder of copies on disk (vault, party, _api), how many files, when one was last
 // written, and the copies that could not be written. The database is the truth; the folder is a copy for people who read it.
 //
-// A non-DM admin gets counts only: the paths of failed copies are page paths, and a DM-only page's path is DM-only.
+// A non-GM admin gets counts only: the paths of failed copies are page paths, and a GM-only page's path is GM-only.
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';

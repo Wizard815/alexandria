@@ -1,14 +1,14 @@
 # Alexandria
 
-A D&D campaign app for the whole table. The DM runs the world: library,
+A tabletop role-playing game (TTRPG) campaign app for the whole table. The GM runs the world: library,
 combat, quick events, calendar, inventory, map. Players get their own view
-of it, on a laptop or a phone. Nothing the DM keeps secret reaches a
+of it, on a laptop or a phone. Nothing the GM keeps secret reaches a
 player.
 
 ```
 alexandria/
 ├── librarian/   # The server: API, live updates, MCP endpoint, leak guard (Node.js)
-├── web/         # The app: admin, DM and player screens (React + Vite)
+├── web/         # The app: admin, GM and player screens (React + Vite)
 ├── packages/
 │   └── client/  # Typed API client used by the app (and future desktop/mobile builds)
 ├── library/     # Docker setup for the LegendKeeper MCP server
@@ -28,8 +28,8 @@ cd librarian && npm install && npm start           # serves the app and the API 
 
 Open http://localhost:8090. The first visit asks you to create the admin
 account. Then:
-1. **Library admin → Worlds:** make a world and pick its DM.
-2. **As the DM, World settings → Invites:** make an invite code for each
+1. **Library admin → Worlds:** make a world and pick its GM.
+2. **As the GM, World settings → Invites:** make an invite code for each
    player.
 3. **Players open `/join`**, enter the code and pick a username and
    password. That's all they set up.
@@ -50,16 +50,16 @@ node --experimental-strip-types librarian/scripts/demo.ts
 ```
 
 This starts a made-up world with fake models (no GPU needed), then prints
-sign-ins for the gateway admin, the DM and three players.
+sign-ins for the gateway admin, the GM and three players.
 
 ## Who can see what
 
 - **Admin** is the plumbing: accounts, worlds, sources. It opens no world's
   secrets.
-- **DM** sees and changes everything in their world.
-- **Players** see only what the DM shares. Every record is checked on the
-  server. Library pages get a player copy with DM-only parts removed.
-  Players' "only me" notes are hidden from the DM too.
+- **GM** sees and changes everything in their world.
+- **Players** see only what the GM shares. Every record is checked on the
+  server. Library pages get a player copy with GM-only parts removed.
+  Players' "only me" notes are hidden from the GM too.
 
 See [librarian/README.md](librarian/README.md) for the rules and the
 full API.
@@ -70,12 +70,12 @@ The librarian is an MCP server at `/mcp`.
 - **Players get a read-only key automatically when they join.** The join
   screen shows ready-to-paste settings for Claude, Cursor and Claude Code.
   Their AI sees only what that player can see, and can't change anything.
-- **The DM can make a write key** under "Connect an AI". Their AI can then
+- **The GM can make a write key** under "Connect an AI". Their AI can then
   save pages, add NPCs, schedule sessions, send quick events and hand out
   items.
 
 Keys are stored only as hashes and shown once. Read keys refuse every
-write, and a write key stops writing if its owner stops being the DM.
+write, and a write key stops writing if its owner stops being the GM.
 
 ## World sources
 
@@ -89,7 +89,7 @@ for:
 - any JSON API (REST or an MCP tool)
 
 Imports are read-only, pages keep their layout, and anything a source
-hides stays DM-only.
+hides stays GM-only.
 
 See [docs/CONNECTORS.md](docs/CONNECTORS.md) for writing a new connector.
 See [librarian/docs/MCP_SOURCES.md](librarian/docs/MCP_SOURCES.md) for
@@ -98,7 +98,7 @@ what was learned from the live LegendKeeper and Kanka servers.
 ## Virtual tabletops
 
 **Foundry VTT:** install the Alexandria Bridge module in Foundry from its
-manifest URL (DM → Setup → Foundry VTT). Maps, tokens, fog of war, HP,
+manifest URL (GM → Setup → Foundry VTT). Maps, tokens, fog of war, HP,
 conditions, rolls and journal entries move both ways. See
 [docs/FOUNDRY.md](docs/FOUNDRY.md).
 
@@ -107,13 +107,13 @@ The full API is in [docs/API.md](docs/API.md).
 ## Roll20
 
 A Roll20 game can stay in step with a world: HP, conditions (as token
-markers), rolls and handouts move both ways. Set it up under DM → Setup →
+markers), rolls and handouts move both ways. Set it up under GM → Setup →
 Roll20, with Roll20 Pro (a Mod script in the game) or without it (the bridge
 alone). See [docs/ROLL20.md](docs/ROLL20.md).
 
 ## Online play on Owlbear Rodeo
 
-Alexandria serves an Owlbear Rodeo extension: the table screen's map picture and this world's fog of war on an Owlbear table, with the fog led from either side. DM → Setup → Owlbear Rodeo; see [docs/OWLBEAR.md](docs/OWLBEAR.md).
+Alexandria serves an Owlbear Rodeo extension: the table screen's map picture and this world's fog of war on an Owlbear table, with the fog led from either side. GM → Setup → Owlbear Rodeo; see [docs/OWLBEAR.md](docs/OWLBEAR.md).
 
 ## Models
 

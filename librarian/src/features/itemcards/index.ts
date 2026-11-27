@@ -15,7 +15,7 @@ import { safePagePath } from '../../core/library.ts';
 
 const EXCERPT_CHARS = 800;
 
-/** Drop anything DM-only, whatever the copy says (defence in depth). */
+/** Drop anything GM-only, whatever the copy says (defence in depth). */
 function scrub(blocks: Block[]): Block[] {
   return blocks
     .filter((b) => b.kind !== 'secret' && !(b.kind === 'callout' && /secret|dm/i.test(String((b as any).variant ?? ''))))
@@ -114,16 +114,16 @@ const feature: Feature = {
       res.json(out);
     });
 
-    // Link or unlink (pageId null). Only the DM or the item's holder.
+    // Link or unlink (pageId null). Only the GM or the item's holder.
     r.put('/:itemId/page', (req, res) => {
       const c = ctx(res);
-      if (c.viewer.role !== 'dm' && c.viewer.role !== 'player') throw new HttpError(403, 'Only players and the DM can link items');
+      if (c.viewer.role !== 'dm' && c.viewer.role !== 'player') throw new HttpError(403, 'Only players and the GM can link items');
       const it = find(res, String(req.params.itemId));
       const b = req.body ?? {};
       let pageId: string | null | undefined;
-      // The DM (or the assistant, on approval) may write the item's page and link it in one go.
+      // The GM (or the assistant, on approval) may write the item's page and link it in one go.
       if (b.newPage && typeof b.newPage === 'object') {
-        if (c.viewer.role !== 'dm') throw new HttpError(403, 'Only the DM can write a new page here');
+        if (c.viewer.role !== 'dm') throw new HttpError(403, 'Only the GM can write a new page here');
         const np = b.newPage;
         const title = typeof np.title === 'string' && np.title.trim() ? np.title.trim().slice(0, 120) : it.name;
         const path = safePagePath(typeof np.path === 'string' && np.path.trim() ? np.path : `items/${title}`);
@@ -157,7 +157,7 @@ const feature: Feature = {
       props: {
         itemId: { type: 'string' },
         pageId: { type: ['string', 'null'], description: 'Library page id, or null to unlink' },
-        newPage: { type: 'object', description: 'Write this page and link it (DM): {title, markdown, visibility: dm|party}', properties: { title: { type: 'string' }, markdown: { type: 'string' }, visibility: { type: 'string', enum: ['dm', 'party'] } } },
+        newPage: { type: 'object', description: 'Write this page and link it (GM): {title, markdown, visibility: dm|party}', properties: { title: { type: 'string' }, markdown: { type: 'string' }, visibility: { type: 'string', enum: ['dm', 'party'] } } },
       },
       required: ['itemId'],
       call: (a) => ({ method: 'PUT', path: `/itemcards/${encodeURIComponent(String(a.itemId))}/page`, body: a.newPage ? { newPage: a.newPage } : { pageId: a.pageId ?? null } }),

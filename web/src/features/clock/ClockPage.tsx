@@ -1,4 +1,4 @@
-// DM page: move the world clock, see and undo changes, manage events and edit the calendar.
+// GM page: move the world clock, see and undo changes, manage events and edit the calendar.
 import { useEffect, useState, type FormEvent } from 'react';
 import { PageHead, ErrorBox, Empty, Loading, Field, Tabs, VisibilityPicker, useAction } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -156,7 +156,7 @@ function Events({ c }: { c: ClockState }) {
             {events.map((e) => (
               <div key={e.id} className="row between" style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
                 <div style={{ flex: '1 1 240px' }}>
-                  <strong style={{ fontWeight: 500 }}>{e.title}</strong> <span className="chip">{e.kind}</span> <span className="chip">{e.visibility === 'party' ? 'party' : 'DM only'}</span>{e.repeat && <span className="chip">yearly</span>}
+                  <strong style={{ fontWeight: 500 }}>{e.title}</strong> <span className="chip">{e.kind}</span> <span className="chip">{e.visibility === 'party' ? 'party' : 'GM only'}</span>{e.repeat && <span className="chip">yearly</span>}
                   <div className="tiny muted">{e.startLabel}</div>
                   {e.description && <div className="small muted">{e.description}</div>}
                 </div>

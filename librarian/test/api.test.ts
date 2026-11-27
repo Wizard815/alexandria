@@ -1,5 +1,5 @@
 // End-to-end tests over HTTP. Most of them check the leak guard: that
-// nothing DM-only reaches a player through any route.
+// nothing GM-only reaches a player through any route.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -47,7 +47,7 @@ secret:
 ---
 Head of House Varn.
 
-> [!secret] DM
+> [!secret] GM
 > She poisoned the old lord.
 
 Public part again.
@@ -55,7 +55,7 @@ Public part again.
   fs.writeFileSync(path.join(vaults, 'bloodearth', 'people', 'Tamsin.md'), `---
 title: Brother Tamsin
 ---
-DM-only page by default.
+GM-only page by default.
 `);
   const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: vaults, env: { ALX_ADMIN_TABLE_LOGIN: '1' } });
   const { app } = made;
@@ -127,7 +127,7 @@ test('TestLibrary_VaultImportAndPlayerCopy', async () => {
   assert.ok(all.includes('Head of House Varn') && all.includes('Public part again'));
   for (const leak of ['poisoned', 'not her husband', 'Tamsin', 'secret']) assert.ok(!all.includes(leak), `player page leaked "${leak}"`);
 
-  // DM copy keeps everything.
+  // GM copy keeps everything.
   const dmCopy = JSON.stringify(await ok('GET', `/api/worlds/${W}/library/pages/${pPages[0].id}`, T.dm));
   assert.ok(dmCopy.includes('poisoned') && dmCopy.includes('not her husband'));
 
@@ -168,7 +168,7 @@ test('TestRequests_VisibilityAndApply', async () => {
   const kesh = list.find((p: any) => p.title === 'Old Kesh');
   const priv = await ok('POST', `/api/worlds/${W}/requests`, T.jess, { kind: 'edit', pageId: kesh.id, title: 'Add the Gull inn', body: 'The Gull is an inn on the quay.' });
   assert.equal(priv.visibility, 'dm', 'default comes from World settings');
-  assert.equal((await ok('GET', `/api/worlds/${W}/requests`, T.tom)).length, 0, 'other players do not see a DM-only request');
+  assert.equal((await ok('GET', `/api/worlds/${W}/requests`, T.tom)).length, 0, 'other players do not see a GM-only request');
   const tamsinId = (await ok('GET', `/api/worlds/${W}/library/pages`, T.dm)).find((p: any) => p.title === 'Brother Tamsin').id;
   assert.equal((await call('POST', `/api/worlds/${W}/requests`, T.jess, { kind: 'edit', pageId: tamsinId, title: 'x', body: 'y' })).status, 404, 'cannot target hidden pages');
   const dec = await ok('POST', `/api/worlds/${W}/requests/${priv.id}/decide`, T.dm, { decision: 'accepted', apply: { mode: 'append' } });
@@ -181,7 +181,7 @@ test('TestRequests_VisibilityAndApply', async () => {
 test('TestMessages_OnlyMembersReadAndOnlyStarterKeeps', async () => {
   const t = await ok('POST', `/api/worlds/${W}/messages`, T.jess, { members: [ID.tom] });
   await ok('POST', `/api/worlds/${W}/messages/${t.id}`, T.jess, { body: 'Don’t tell Sela about the ring.' });
-  assert.equal((await call('GET', `/api/worlds/${W}/messages/${t.id}`, T.dm)).status, 404, 'DM is not in this chat');
+  assert.equal((await call('GET', `/api/worlds/${W}/messages/${t.id}`, T.dm)).status, 404, 'GM is not in this chat');
   assert.equal((await ok('GET', `/api/worlds/${W}/messages/${t.id}`, T.tom)).messages.length, 1);
   assert.equal((await call('POST', `/api/worlds/${W}/messages/${t.id}/keep`, T.tom)).status, 403);
   assert.equal((await ok('POST', `/api/worlds/${W}/messages/${t.id}/keep`, T.jess)).kept, true);
@@ -262,7 +262,7 @@ test('TestLive_PresenceAndPurse', async () => {
   await ok('PUT', `/api/worlds/${W}/live/presence`, T.jess, { location: 'At the table' });
   await ok('PUT', `/api/worlds/${W}/live/presence`, T.tom, { location: 'Discord' });
   await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: 'party', amountCp: 4000, note: 'Odda’s favour', session: 'S14' });
-  // A player's coin change waits for the DM and does not count until approved.
+  // A player's coin change waits for the GM and does not count until approved.
   const req = await ok('POST', `/api/worlds/${W}/live/ledger`, T.tom, { owner: 'party', amountCp: -60, note: 'Room at the Gull', session: 'S14' });
   assert.equal(req.pending, true);
   assert.equal((await ok('GET', `/api/worlds/${W}/live?session=S14`, T.jess)).purse.cp, 4000);
@@ -276,7 +276,7 @@ test('TestLive_PresenceAndPurse', async () => {
 });
 
 test('TestInventory_WeightOffAndDmNotesPrivate', async () => {
-  assert.equal((await call('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Mother’s ring' })).status, 400, 'the DM gives a reason when changing a player’s items');
+  assert.equal((await call('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Mother’s ring' })).status, 400, 'the GM gives a reason when changing a player’s items');
   const it = await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Mother’s ring', weight: 0.1, dmNote: 'It is cursed.', reason: 'Found in the vault' });
   const mine = await ok('GET', `/api/worlds/${W}/inventory?owner=me`, T.jess);
   const s = JSON.stringify(mine);
@@ -285,7 +285,7 @@ test('TestInventory_WeightOffAndDmNotesPrivate', async () => {
   assert.equal((await call('PATCH', `/api/worlds/${W}/inventory/${it.id}`, T.tom, { qty: 0 })).status, 403);
   const move = await ok('PATCH', `/api/worlds/${W}/inventory/${it.id}`, T.jess, { owner: 'party' });
   assert.equal(move.pending, true);
-  assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items.length, 0, 'moving waits for the DM');
+  assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items.length, 0, 'moving waits for the GM');
   await ok('POST', `/api/worlds/${W}/approvals/${move.pendingChange.id}`, T.dm, { action: 'approve' });
   assert.equal((await ok('GET', `/api/worlds/${W}/inventory?owner=party`, T.tom)).items.length, 1);
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { trackWeight: true });
@@ -300,7 +300,7 @@ test('TestMap_MarksRespectVisibilityAndSettings', async () => {
   const s2 = await ok('POST', `/api/worlds/${W}/map/reach/marks`, T.jess, { kind: 'stop', x: 44, y: 62 });
   assert.deepEqual([s1.data.n, s2.data.n], [1, 2]);
   assert.equal((await ok('GET', `/api/worlds/${W}/map/reach/marks`, T.tom)).length, 4, 'Mira’s private pin is hidden');
-  assert.equal((await ok('GET', `/api/worlds/${W}/map/reach/marks`, T.dm)).length, 4, 'even from the DM');
+  assert.equal((await ok('GET', `/api/worlds/${W}/map/reach/marks`, T.dm)).length, 4, 'even from the GM');
   assert.equal((await call('POST', `/api/worlds/${W}/map/reach/marks`, T.tom, { kind: 'pin', x: 120, y: 0 })).status, 400);
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { mapDraw: false });
   assert.equal((await call('POST', `/api/worlds/${W}/map/reach/marks`, T.tom, { kind: 'route', points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] })).status, 403);
@@ -308,11 +308,11 @@ test('TestMap_MarksRespectVisibilityAndSettings', async () => {
 
 test('TestPeople_ProfileBlocksAndPrivateNotes', async () => {
   await ok('PUT', `/api/worlds/${W}/profiles/me/blocks`, T.jess, { section: 'story', title: 'Backstory', body: 'Grew up on the docks.', visibility: 'party' });
-  await ok('PUT', `/api/worlds/${W}/profiles/me/blocks`, T.jess, { section: 'story', title: 'What the DM knows', body: 'The letter.', visibility: 'dm' });
+  await ok('PUT', `/api/worlds/${W}/profiles/me/blocks`, T.jess, { section: 'story', title: 'What the GM knows', body: 'The letter.', visibility: 'dm' });
   await ok('PUT', `/api/worlds/${W}/profiles/me/blocks`, T.jess, { section: 'goals', title: 'Secret goal', body: 'Revenge on Varn.', visibility: 'me' });
   const titles = async (tok: string) => (await ok('GET', `/api/worlds/${W}/profiles/${ID.jess}`, tok)).blocks.map((b: any) => b.title).sort();
-  assert.deepEqual(await titles(T.jess), ['Backstory', 'Secret goal', 'What the DM knows']);
-  assert.deepEqual(await titles(T.dm), ['Backstory', 'What the DM knows']);
+  assert.deepEqual(await titles(T.jess), ['Backstory', 'Secret goal', 'What the GM knows']);
+  assert.deepEqual(await titles(T.dm), ['Backstory', 'What the GM knows']);
   assert.deepEqual(await titles(T.tom), ['Backstory']);
 
   const p = await ok('POST', `/api/worlds/${W}/people`, T.dm, { name: 'Odda', role: 'Harbourmaster', kind: 'neutral' });
@@ -332,7 +332,7 @@ test('TestPeople_ProfileBlocksAndPrivateNotes', async () => {
 test('TestWhiteboard_VersionsAndWipe', async () => {
   const a = await ok('PUT', `/api/worlds/${W}/whiteboard`, T.jess, { baseVersion: 0, doc: { shapes: [{ t: 'line' }] } });
   assert.equal((await call('PUT', `/api/worlds/${W}/whiteboard`, T.tom, { baseVersion: 0, doc: { shapes: [] } })).status, 409);
-  assert.equal((await call('POST', `/api/worlds/${W}/whiteboard/wipe`, T.tom, { confirm: true })).status, 403, 'wipe is DM-only by default');
+  assert.equal((await call('POST', `/api/worlds/${W}/whiteboard/wipe`, T.tom, { confirm: true })).status, 403, 'wipe is GM-only by default');
   assert.equal((await call('POST', `/api/worlds/${W}/whiteboard/wipe`, T.dm, {})).status, 400, 'wipe needs confirm');
   await ok('POST', `/api/worlds/${W}/whiteboard/wipe`, T.dm, { confirm: true });
   assert.deepEqual((await ok('GET', `/api/worlds/${W}/whiteboard/history/${a.version}`, T.tom)).doc, { shapes: [{ t: 'line' }] });
@@ -354,7 +354,7 @@ test('TestEvents_PlayerStreamGetsNoDmEvents', async () => {
   })();
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'secret/Plot', body: 'The Widow is Ysolde.' });
   await ok('PATCH', `/api/worlds/${W}/live/combatants/${(await ok('GET', `/api/worlds/${W}/live/combat`, T.dm)).combatants[0].id}`, T.dm, { damage: 3 });
-  await ok('POST', `/api/worlds/${W}/requests`, T.jess, { kind: 'question', title: 'Is Odda lying?', body: 'DM only please', visibility: 'dm' });
+  await ok('POST', `/api/worlds/${W}/requests`, T.jess, { kind: 'question', title: 'Is Odda lying?', body: 'GM only please', visibility: 'dm' });
   await new Promise((res) => setTimeout(res, 150));
   ctl.abort();
   await pump;
@@ -393,7 +393,7 @@ test('TestMcpServer_ReadAndWriteTools', async () => {
   assert.ok(denied.body.error, 'read key cannot call write tools');
   const s = await rpc(rk, 'tools/call', { name: 'search_library', arguments: { query: 'poisoned' } });
   assert.equal(JSON.parse(s.body.result.content[0].text).length, 0, 'player AI search uses the party index');
-  const saved = await rpc(wk, 'tools/call', { name: 'save_page', arguments: { path: 'mcp/Note', markdown: 'From the DM AI.' } });
+  const saved = await rpc(wk, 'tools/call', { name: 'save_page', arguments: { path: 'mcp/Note', markdown: 'From the GM AI.' } });
   assert.equal(saved.body.result.isError, false);
   assert.equal(JSON.parse(saved.body.result.content[0].text).visibility, 'dm');
 });

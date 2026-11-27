@@ -28,7 +28,7 @@ after(() => k?.close());
 const SK = () => k.w('/source-keys');
 const MODEL = { 'X-Alexandria-Caller': 'model' };
 
-test('Audit_SourceKeys: the DM agent\'s live lookup does not name a classified page to the model', async () => {
+test('Audit_SourceKeys: the GM agent\'s live lookup does not name a classified page to the model', async () => {
   run(k.deps.db, "UPDATE pages SET visibility = 'classified', ai_body = NULL, ai_blocks = NULL, ai_properties = NULL, ai_frontmatter = NULL, player_body = NULL, broker_body = NULL WHERE id = ?", PG[5]);
   k.deps.library.touchClassified();
   const key = await k.ok('POST', SK(), k.T.dm, { sourceId: SRC, secret: TOKENS.dm, trust: 'per-user', uses: ['agent'], users: [k.ID.dm] });

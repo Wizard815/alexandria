@@ -149,7 +149,7 @@ test('CrawlMcp_TheListToolMakesTheIndexAndNoPageIsReadYet', async () => {
   assert.equal(depthOf(t, w.wid, 'The Harbour'), 'summary', 'an excerpt came with the list');
   assert.equal(depthOf(t, w.wid, 'Unmarked Note'), 'index', 'nothing but the title');
   assert.ok(!one<any>(t.deps.db, 'SELECT body FROM pages WHERE world_id = ? AND title = ?', w.wid, 'The Harbour').body.includes('HARBOURBODY'));
-  // Visibility fails closed: the list's own flag, and no flag means DM-only.
+  // Visibility fails closed: the list's own flag, and no flag means GM-only.
   const vis = (title: string) => one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', w.wid, title).visibility;
   assert.deepEqual(['The Harbour', 'The Vault', 'Unmarked Note'].map(vis), ['party', 'dm', 'dm']);
   const tok = await t.addPlayer(w.wid);
@@ -177,17 +177,17 @@ test('CrawlMcp_OpeningAPageReadsItThroughTheReadToolAndNothingDmOnlyReachesAPlay
   // Opened again: no second read.
   await getPage(t, w.wid, tok, pid(t, w.wid, 'The Harbour'));
   assert.equal(readCalls().length, 1);
-  // The DM-only page: asking for it may read it (that is how a page's visibility becomes known), but the player gets nothing of it.
+  // The GM-only page: asking for it may read it (that is how a page's visibility becomes known), but the player gets nothing of it.
   const vault = await getPage(t, w.wid, tok, pid(t, w.wid, 'The Vault'));
   assert.equal(vault.status, 404);
   assert.ok(!vault.text.includes('VAULTBODY'));
-  // The body is the DM's alone, in the page, in search and in the player copy.
+  // The body is the GM's alone, in the page, in search and in the player copy.
   const dm = await getPage(t, w.wid, t.admin, pid(t, w.wid, 'The Vault'));
   assert.ok(dm.text.includes('VAULTBODY'));
   assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', w.wid, 'The Vault').visibility, 'dm');
   assert.equal(one<any>(t.deps.db, 'SELECT player_body FROM pages WHERE world_id = ? AND title = ?', w.wid, 'The Vault').player_body, null);
   for (const q of ['VAULTBODY', 'dragon']) assert.ok(!(await t.call('GET', `/api/worlds/${w.wid}/library/search?q=${q}`, tok)).text.includes('VAULTBODY'));
-  // A page whose read has no visibility flag stays DM-only, read or not.
+  // A page whose read has no visibility flag stays GM-only, read or not.
   const note = await getPage(t, w.wid, t.admin, pid(t, w.wid, 'Unmarked Note'));
   assert.ok(note.text.includes('UNMARKEDBODY'));
   assert.equal(depthOf(t, w.wid, 'Unmarked Note'), 'full');
@@ -204,9 +204,9 @@ test('CrawlMcp_ASearchByTheDmReadsItsBestHitsAndAFailedReadLeavesTheIndexLine', 
   mcp.calls = [];
   const found = await t.call('GET', `/api/worlds/${w.wid}/library/search?q=Quay`, t.admin);
   assert.equal(found.status, 200);
-  assert.ok(readCalls().length >= 1, 'a DM search reads its top hits');
+  assert.ok(readCalls().length >= 1, 'a GM search reads its top hits');
   assert.equal(depthOf(t, w.wid, 'Second Quay'), 'full');
-  // The server is failing: the page opens as the index line, still DM-only for others, and nothing is thrown at the reader.
+  // The server is failing: the page opens as the index line, still GM-only for others, and nothing is thrown at the reader.
   mcp.failGet = true;
   const failed = await getPage(t, w.wid, t.admin, pid(t, w.wid, 'The Harbour'));
   assert.equal(failed.status, 200);

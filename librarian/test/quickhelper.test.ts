@@ -67,7 +67,7 @@ before(async () => {
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: '# Saltmarsh\nSaltmarsh is a fishing town ruled by a council of seven captains.\n\n> [!secret] DM\n> The council answers to the smuggler queen Velmira.\n' });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: '# Saltmarsh\nSaltmarsh is a fishing town ruled by a council of seven captains.\n\n> [!secret] GM\n> The council answers to the smuggler queen Velmira.\n' });
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Velmira', visibility: 'dm', markdown: '# Velmira\nVelmira keeps her treasury beneath the lighthouse in Saltmarsh.\n' });
   await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Rope of climbing', qty: 1, reason: 'Loot' });
   await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.tom, name: 'Wand of secrets', qty: 1, reason: 'Found it' });
@@ -115,11 +115,11 @@ test('TestQuickHelper_BriefHasOnlyWhatThePlayerMaySee', async () => {
   await ok('POST', Q(), T.jess, { task: 'ask', question: 'Is Saltmarsh near Velmira a good place to rest?' });
   const u = userText(last());
   assert.match(u, /seven captains/, 'a party page is used');
-  assert.ok(!/smuggler queen|treasury|lighthouse/i.test(u), 'DM-only text never reaches the small model');
+  assert.ok(!/smuggler queen|treasury|lighthouse/i.test(u), 'GM-only text never reaches the small model');
   const b = await ok('GET', `${Q()}/brief?task=ask&q=${encodeURIComponent('Saltmarsh')}`, T.jess);
   assert.ok(b.sections.some((s: any) => s.label === 'Library (shared with the party)'));
   assert.ok(b.lore.some((l: any) => l.title === 'Saltmarsh'));
-  // The DM can look at what a player's helper is given, as that player sees it.
+  // The GM can look at what a player's helper is given, as that player sees it.
   const dmView = await ok('GET', `${Q()}/brief?task=sheet&account=${ID.tom}`, T.dm);
   assert.match(JSON.stringify(dmView.sections), /Wand of secrets/);
   assert.equal((await call('GET', `${Q()}/brief?task=sheet`, T.dm)).status, 400);
@@ -254,7 +254,7 @@ test('TestQuickHelper_RecapUsesOnlyWhatThePlayerKnows', async () => {
   const r = await ok('POST', Q(), T.jess, { task: 'recap' });
   const u = userText(last());
   assert.match(u, /## The story so far[\s\S]*Into Saltmarsh/);
-  assert.ok(!/Velmira|smuggler queen|lighthouse/.test(u), 'an unpublished entry and DM pages stay out');
+  assert.ok(!/Velmira|smuggler queen|lighthouse/.test(u), 'an unpublished entry and GM pages stay out');
   assert.match(r.answer, /reached Saltmarsh/);
   assert.equal(r.handoff?.to, 'broker', 'what it does not know is offered to the broker');
   assert.match(r.handoff.reason, /does not know/);

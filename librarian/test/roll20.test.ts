@@ -142,7 +142,7 @@ test('Roll20_MarkerMap: conditions to markers and back, custom names, the rest l
   assert.deepEqual(conditionsFromMarkers([], ['Concentrating'], markerMap({})), ['Concentrating']);
 });
 
-test('Roll20_Keys: only the DM makes a key; a bad or replaced key is refused', async () => {
+test('Roll20_Keys: only the GM makes a key; a bad or replaced key is refused', async () => {
   assert.equal((await call('POST', `/api/worlds/${W}/roll20/key`, T.jess)).status, 403);
   assert.equal((await call('GET', `/api/worlds/${W}/roll20`, T.jess)).status, 403);
   const first = (await ok('POST', `/api/worlds/${W}/roll20/key`, T.dm)).key;
@@ -150,7 +150,7 @@ test('Roll20_Keys: only the DM makes a key; a bad or replaced key is refused', a
   KEY = (await ok('POST', `/api/worlds/${W}/roll20/key`, T.dm)).key;
   assert.equal((await call('POST', '/api/roll20/bridge/sync', first, {})).status, 401);
   assert.equal((await call('POST', '/api/roll20/bridge/sync', 'alx_r20_nope', {})).status, 401);
-  assert.equal((await call('POST', '/api/roll20/bridge/sync', T.dm, {})).status, 401, 'a DM session is not a bridge key');
+  assert.equal((await call('POST', '/api/roll20/bridge/sync', T.dm, {})).status, 401, 'a GM session is not a bridge key');
   const st = await ok('GET', `/api/worlds/${W}/roll20`, T.dm);
   assert.equal(st.key.prefix, KEY.slice(0, 12));
   assert.equal(st.online, false);
@@ -182,7 +182,7 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   assert.deepEqual((await g.sync()).pushes, []);
 
   // Damage and a condition in Alexandria → the character's HP and every token's markers in Roll20.
-  // (This game has a custom marker set with a Concentrating marker; the DM maps the condition to it.)
+  // (This game has a custom marker set with a Concentrating marker; the GM maps the condition to it.)
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { roll20Markers: { Concentrating: 'Concentrating' } });
   await ok('POST', `/api/worlds/${W}/sheet/${ID.jess}/vitals`, T.dm, { damage: 5, conditions: ['Poisoned', 'Inspired', 'Concentrating'] });
   const s1 = await g.sync();
@@ -229,7 +229,7 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   assert.match(chat[0].roll.note, /Longsword/);
   assert.match(chat[0].roll.note, /1d8\+3 = 7/);
 
-  // Table chat rolls go to Roll20 when the DM turns that on; the one that came from Roll20 does not go back.
+  // Table chat rolls go to Roll20 when the GM turns that on; the one that came from Roll20 does not go back.
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { roll20RollsOut: true });
   await ok('POST', `/api/worlds/${W}/sessionchat/chat/table`, T.tom, { body: '/roll 1d20+2 perception' });
   const before = g.sb.chat.length;
@@ -243,7 +243,7 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   assert.equal(chat.length, 2, 'the Mod does not report its own lines as rolls');
   assert.equal((await g.sync()).rolls.length, 0);
 
-  // Handouts: players need the page's player copy; the DM copy goes to the GM notes.
+  // Handouts: players need the page's player copy; the GM copy goes to the GM notes.
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'Handouts/Plot', markdown: '# Plot\nThe twist.' });
   const port = await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'Places/Port', visibility: 'party', markdown: '# Port\nFish and [[Plot]].\n\n> [!secret]\n> Smugglers.\n' });
   assert.equal((await call('POST', `/api/worlds/${W}/roll20/handout`, T.dm, { page: 'Plot', players: true })).status, 409);
@@ -254,7 +254,7 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   const ho = g.sb.api.findObjs({ _type: 'handout', name: 'Port' })[0];
   assert.ok(ho, 'handout made');
   assert.equal(ho.get('inplayerjournals'), 'all');
-  assert.match(ho.get('notes'), /Fish and \(hidden\)/, 'the player copy does not name the DM-only page it links');
+  assert.match(ho.get('notes'), /Fish and \(hidden\)/, 'the player copy does not name the GM-only page it links');
   assert.doesNotMatch(ho.get('notes'), /Smugglers/);
   assert.match(ho.get('gmnotes'), /Smugglers/);
   const crier = g.sb.chat.find((m: any) => m.who === 'Town crier');

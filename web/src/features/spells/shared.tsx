@@ -9,7 +9,7 @@ export interface Spell {
   components: { v: boolean; s: boolean; m: boolean }; componentsText: string; material: string; materialCost: boolean; materialConsumed: boolean;
   duration: string; concentration: boolean; damageTypes: string[]; saves: string[]; attack: string; text?: string; source: string; builtin: boolean;
   attribution: string; line: string; manaCost: number; known: boolean; how?: string;
-  // DM only
+  // GM only
   kind?: string; public?: boolean; manaOverride?: number | null; dmNotes?: string;
 }
 export interface Stub { id: string; name: string; level: number; school: string; line: string }
@@ -93,7 +93,7 @@ export function SpellCard({ s, mana, actions }: { s: Spell; mana?: Mana; actions
       </div>
       <SpellFacts s={s} />
       {s.text !== undefined ? <Markdown text={s.text} /> : null}
-      {s.dmNotes ? <div className="note"><strong>DM notes.</strong> {s.dmNotes}</div> : null}
+      {s.dmNotes ? <div className="note"><strong>GM notes.</strong> {s.dmNotes}</div> : null}
       {actions}
       <p className="tiny faint">{s.source}{s.attribution ? ` · ${s.attribution}` : ''}</p>
     </article>

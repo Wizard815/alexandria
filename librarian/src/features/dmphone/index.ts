@@ -1,8 +1,8 @@
-// DM phone assistant (PLAN §15): one small summary for the phone's "Now" tab
+// GM phone assistant (PLAN §15): one small summary for the phone's "Now" tab
 // and its tab badges, so the phone makes one request instead of eight.
 // Everything else the phone does uses the existing endpoints.
 //
-// GET /api/worlds/:world/dmphone/summary?next=2   (DM only)
+// GET /api/worlds/:world/dmphone/summary?next=2   (GM only)
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
@@ -70,7 +70,7 @@ const feature: Feature = {
         at: new Date().toISOString(),
       });
     });
-    // The newest recording session with its last lines, DM view (asides marked by audience 'dm').
+    // The newest recording session with its last lines, GM view (asides marked by audience 'dm').
     r.get('/transcript', requireDM, (req, res) => {
       const w = ctx(res).world.id;
       const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 40) || 40));

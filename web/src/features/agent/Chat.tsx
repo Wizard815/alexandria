@@ -1,9 +1,9 @@
 // One conversation with the assistant. The reply streams in as it is written
 // (live 'agent' events, with the chat polled as a fallback), can be stopped,
-// quotes its sources as links to library pages, and (for the DM) shows
+// quotes its sources as links to library pages, and (for the GM) shows
 // actions waiting for approval right under the message that proposed them.
 // The same component runs the desktop panel, the pop-out window and, with
-// `phone`, the DM phone's Ask tab (big targets, quick prompts, hold-to-talk),
+// `phone`, the GM phone's Ask tab (big targets, quick prompts, hold-to-talk),
 // so every feature lands in both.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -45,7 +45,7 @@ const QUICK: Record<'dm' | 'player', Quick[]> = {
   ],
 };
 
-/** Something the DM's phone adds to every message (the combatant picked on the Now tab). `get` reads it fresh at send time. */
+/** Something the GM's phone adds to every message (the combatant picked on the Now tab). `get` reads it fresh at send time. */
 export interface ChatContext { label: string; get: () => Promise<string | undefined>; drop: () => void }
 
 export interface ChatProps {
@@ -54,7 +54,7 @@ export interface ChatProps {
   mode?: 'helper';
   /** Chats about one template (its id): created with it and listed apart from the main chats. */
   template?: string;
-  /** The DM phone's layout: big targets, a pinned input, quick prompts and hold-to-talk. */
+  /** The GM phone's layout: big targets, a pinned input, quick prompts and hold-to-talk. */
   phone?: boolean;
   /** Phone: shown at the top of the chat (the session summary). */
   header?: ReactNode;
@@ -81,7 +81,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   const [live, setLive] = useState<Live | null>(null);
   const [model, setModel] = useState<boolean | null>(null);
   const [alwaysAsk, setAlwaysAsk] = useState<string[]>([]);
-  // The tools the DM let run without a card (agentAutoApprove), kept live by the settings event.
+  // The tools the GM let run without a card (agentAutoApprove), kept live by the settings event.
   const trusted: string[] = Array.isArray((info.settings as any)?.agentAutoApprove) ? (info.settings as any).agentAutoApprove : [];
   // Auto mode: the world's setting (kept live by the settings event). `autoNow` shows a tap at once, until the server's answer arrives.
   const [autoNow, setAutoNow] = useState<boolean | null>(null);
@@ -118,7 +118,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   // The list asked for (the broker's or the helper's; main chats or one template's) and what a new chat is made with.
   const listPath = (tpl?: string) => { const q = new URLSearchParams(); if (mode) q.set('mode', mode); if (tpl) q.set('template', tpl); const t = q.toString(); return `/agent/chats${t ? `?${t}` : ''}`; };
   const newBody = (folder?: string) => ({ ...(mode ? { mode } : {}), ...(template ? { template } : {}), ...(folder ? { folder } : {}) });
-  // Folders outside a session, recent chats during one (or whichever the DM picked).
+  // Folders outside a session, recent chats during one (or whichever the GM picked).
   const [view, setViewState] = useState<ChatView>(rememberedView);
   const setView = (v: ChatView) => { setViewState(v); rememberView(v); };
   const sess = useLoad<any>(() => w.call('GET', '/sessionchat/current'), [w], ['chat-session']);
@@ -156,7 +156,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     // The main chat also lists every template chat, in the tree's own Templates branch (never mixed in with the rest).
     if (!template) w.call<{ chats: ChatRow[] }>('GET', listPath('only')).then((r) => setTplList((r.chats ?? []).filter((c) => !!c.template))).catch(() => {});
   }, [w, mode, template]);
-  // Template names for that branch (the DM's templates; built-in starters are named from their id).
+  // Template names for that branch (the GM's templates; built-in starters are named from their id).
   useEffect(() => {
     if (template || !isDM || harness !== 'dm' || !tplList.length) return;
     let alive = true;
@@ -178,7 +178,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     return () => window.removeEventListener(OPEN_CHAT, h);
   }, [open, harness]);
 
-  // Read a finished reply aloud (DM only, if switched on). What was already in the chat when it opened is never read.
+  // Read a finished reply aloud (GM only, if switched on). What was already in the chat when it opened is never read.
   useEffect(() => {
     if (!chat) return;
     const done = chat.messages.filter((m) => m.role === 'assistant' && m.status === 'done' && m.text.trim());
@@ -191,7 +191,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   }, [chat, aloud, isDM, harness, phone, info.id, client]);
   useEffect(() => { if (!aloud) setAloudNote(''); }, [aloud]);
 
-  // The title of the page that is attached, and whether a fight is running (DM only: only the DM's assistant is given it).
+  // The title of the page that is attached, and whether a fight is running (GM only: only the GM's assistant is given it).
   useEffect(() => {
     setDropPage(false);
     setPageTitle('');
@@ -264,7 +264,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     return () => clearInterval(t);
   }, [chat?.busy, chat?.id, load]);
   useEffect(() => { if (!chat?.busy) setLive(null); }, [chat?.busy]);
-  // Follow the reply while the DM is at the bottom; scrolled up to read, leave them there and offer a way back.
+  // Follow the reply while the GM is at the bottom; scrolled up to read, leave them there and offer a way back.
   const onScroll = () => { const el = log.current; if (!el) return; const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80; sticky.current = near; setAway(!near); };
   const toEnd = () => { sticky.current = true; setAway(false); end.current?.scrollIntoView?.({ block: 'end' }); };
   useEffect(() => { if (sticky.current) end.current?.scrollIntoView?.({ block: 'end' }); }, [chat?.messages.length, chat?.actions.length, chat?.actions.map((a) => a.status).join(), live?.text.length]);

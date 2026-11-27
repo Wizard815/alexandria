@@ -1,5 +1,5 @@
 // Chats between people in a world. Only members of a chat can read it - the
-// DM included: a DM is not in a player chat unless someone adds them.
+// GM included: a GM is not in a player chat unless someone adds them.
 // Chats delete themselves after the world's messageDays unless the person
 // who started the chat presses Keep.
 import { Router } from 'express';

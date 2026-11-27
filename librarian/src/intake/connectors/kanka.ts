@@ -1,8 +1,8 @@
 // Kanka, through its API (token + campaign) or the mcp-kanka server.
-// Private entities are DM-only. Posts are added as sections: shared posts
+// Private entities are GM-only. Posts are added as sections: shared posts
 // (visibility all or members, no deny permission) stay visible, every other
 // post becomes a secret block. Private attributes, and all attributes of an
-// entity with is_attributes_private, go in a DM-only property group.
+// entity with is_attributes_private, go in a GM-only property group.
 import type { CalendarDefinition, Connector, ConnectorContext, SyncItem, SyncRecord, TimelineGroup } from '../connector.ts';
 import { ConfigError } from '../connector.ts';
 import { type Block, type Entry, type Inline, type PropertyGroup, markdownToBlocks } from '../model.ts';
@@ -24,7 +24,7 @@ const TYPES: [string, string, string | null][] = [
 // visibility_id (https://app.kanka.io/api-docs/1.0/misc/visibilities): 1 all,
 // 2 admin, 3 admin-self, 4 self, 5 members. The posts page numbers 2-4
 // differently (2 self, 3 admin, 4 self-admin); either way only 1 and 5 reach
-// players, and any other or missing value stays DM-only.
+// players, and any other or missing value stays GM-only.
 const PLAYER_VISIBLE = new Set([1, 5]);
 // Post permission entries: 0 read, 1 update, 2 deny. A deny (or anything
 // unknown) means not every player can read the post.
@@ -100,7 +100,7 @@ function textOf(v: unknown): Inline[] {
 /**
  * Property groups of one Kanka entity. Private attributes, every attribute when
  * `is_attributes_private` is not false, private races and families, and
- * personality traits players can't see all go in DM-only groups.
+ * personality traits players can't see all go in GM-only groups.
  */
 export function kankaProperties(e: any, type: string, lookup: (module: string, id: unknown) => string | undefined): PropertyGroup[] {
   const facts: { key: string; value: Inline[] }[] = [];
@@ -314,7 +314,7 @@ async function* kankaApiSync(cfg: any, ctx: ConnectorContext, tiered = false): A
     const flags = new Map<string, boolean>();
     try {
       for await (const data of pages(`${camp}/entities`)) for (const x of data) if (typeof x.is_attributes_private === 'boolean') flags.set(String(x.id), x.is_attributes_private);
-    } catch (err: any) { ctx.log(`Could not read attribute privacy: ${err.message}. Attributes stay DM-only.`); }
+    } catch (err: any) { ctx.log(`Could not read attribute privacy: ${err.message}. Attributes stay GM-only.`); }
     for (const { e } of rows) if (typeof e.is_attributes_private !== 'boolean' && flags.has(String(e.entity_id))) e.is_attributes_private = flags.get(String(e.entity_id));
   }
   const kc = kankaLookups(cache);
@@ -501,7 +501,7 @@ export function kankaCalendar(e: any): CalendarDefinition {
 export const kankaApi: Connector = {
   id: 'kanka-api',
   label: 'Kanka (API token)',
-  description: 'Reads a Kanka campaign with a personal API token, with its relations, timelines, calendars and map markers. Private entities, posts, attributes and relations stay DM-only.',
+  description: 'Reads a Kanka campaign with a personal API token, with its relations, timelines, calendars and map markers. Private entities, posts, attributes and relations stay GM-only.',
   aliases: ['kanka'],
   capabilities: ['pages', 'properties', 'tags', 'images', 'relations', 'timelines', 'maps', 'calendars', 'items', 'characters'],
   fields: [
@@ -571,7 +571,7 @@ async function* kankaMcpSync(cfg: any, ctx: ConnectorContext): AsyncIterable<Ent
         // Older mcp-kanka builds reported admin-only posts as visible, so posts
         // are secret unless the admin trusts this server's post visibility.
         blocks: e ? [...kankaBlocks(e.entry), ...postBlocks(e.posts ?? [], (p) => trust && p.is_hidden === false)] : [],
-        // Not loaded, or no explicit is_hidden=false: DM-only.
+        // Not loaded, or no explicit is_hidden=false: GM-only.
         visibility: e && e.is_hidden === false && ctx.shareVisible ? 'party' : 'dm', sourceShared: !!e && e.is_hidden === false,
         url: /^\d+$/.test(String(cfg.campaignId ?? '')) && /^https?:\/\/\S+$/.test(appBase) ? `${appBase}/w/${cfg.campaignId}/entities/${id}` : null,
         position: mcpPos.get(String(id)) ?? null,
@@ -594,7 +594,7 @@ export const kankaMcp: Connector = {
     { key: 'token', label: 'MCP token', type: 'password', secret: true, showIf: { transport: 'http' } },
     { key: 'campaignId', label: 'Campaign id', type: 'text', help: 'The number in your campaign’s address. Only used for the "Open in Kanka" button.' },
     { key: 'appUrl', label: 'Kanka app address', type: 'url', placeholder: 'https://app.kanka.io', help: 'Only change this for a self-hosted Kanka.' },
-    { key: 'trustPostVisibility', label: 'Trust post visibility', type: 'boolean', help: 'Only with mcp-kanka that includes the admin-post fix (a4bbb02). Off: every post is DM-only.' },
+    { key: 'trustPostVisibility', label: 'Trust post visibility', type: 'boolean', help: 'Only with mcp-kanka that includes the admin-post fix (a4bbb02). Off: every post is GM-only.' },
   ],
   validate(cfg) {
     if ((cfg.transport ?? (cfg.url ? 'http' : 'stdio')) === 'stdio') { if (!/^[\w-]{1,40}$/.test(String(cfg.server ?? ''))) throw new ConfigError('Pick the local server name from ALX_MCP_STDIO'); }

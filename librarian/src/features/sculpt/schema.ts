@@ -88,7 +88,7 @@ export function readTemplate(b: any): TemplateIn {
   if (ifs !== 0 || eachs !== 0) throw bad('Every {{#if}} and {{#each}} needs its {{/if}} or {{/each}}');
   for (const m of body.matchAll(/\{\{\s*(?:gen|dice|pick):[^{}]*\$([a-z_][a-z0-9_.]*)/gi)) if (!seen.has(m[1]) && !CTX.has(m[1])) throw bad(`The body refers to $${m[1]}, which is not a field`);
   for (const f of fields) for (const e of [f.gen, f.fallback]) for (const m of (e ?? '').matchAll(/\$([a-z_][a-z0-9_.]*)/gi)) if (!seen.has(m[1]) && !CTX.has(m[1].replace(/\.$/, ''))) throw bad(`Field "${f.key}" refers to $${m[1]}, which is not a field`);
-  if (perspective === 'player' && (fields.some((f) => f.dmOnly) || /\{\{#dm\}\}/.test(body))) throw bad('A player-perspective template cannot have DM-only fields or {{#dm}} sections');
+  if (perspective === 'player' && (fields.some((f) => f.dmOnly) || /\{\{#dm\}\}/.test(body))) throw bad('A player-perspective template cannot have GM-only fields or {{#dm}} sections');
 
   const t = b.target && typeof b.target === 'object' ? b.target : { kind: 'none' };
   const vis = t.visibility === 'party' ? 'party' : 'dm';

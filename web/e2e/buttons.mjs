@@ -1,4 +1,4 @@
-// Button crawler. Signs in to the seeded demo world and, for every DM page and
+// Button crawler. Signs in to the seeded demo world and, for every GM page and
 // every player page, at desktop and phone width:
 //   - clicks every visible button, link, tab and switch (skipping destructive ones),
 //   - fills and submits every form with sample values,
@@ -12,7 +12,7 @@ import { chromium, root, startScript, tmpDir, signIn, DM_ROUTES, PLAYER_ROUTES, 
 const PORT = Number(process.env.BTN_PORT || 8198);
 const base = `http://127.0.0.1:${PORT}`;
 const W = `${base}/w/saltreach`;
-const PASS = { dm: 'dungeon master 123', jess: 'player pass 123' };
+const PASS = { dm: 'game master 123', jess: 'player pass 123' };
 const t0 = Date.now();
 
 const { srv, out } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('btn'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
@@ -31,7 +31,7 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   const { ctx, page } = await signIn(browser, base, user, PASS[user], viewport, mobile);
   await ctx.addInitScript(INIT);
   await ctx.addInitScript((v) => { try { localStorage.setItem('alx.thoughts.prefs', v); } catch { /* blocked */ } }, THOUGHTS_FOLDED);
-  // The DM crawl runs at the same time and sends quick events from the Table and the Quick events page; on a player they pop up
+  // The GM crawl runs at the same time and sends quick events from the Table and the Quick events page; on a player they pop up
   // as a modal over whatever page is under test. The player crawl tests pages, so it sees no quick events (tablenight.mjs tests the prompt).
   if (user !== 'dm') await ctx.route(/\/api\/worlds\/[^/]+\/quick-events(\?.*)?$/, (r) => (r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.continue()));
   let reqs = 0, dialogs = 0, downloads = 0, popups = 0;

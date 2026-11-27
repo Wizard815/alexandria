@@ -1,5 +1,5 @@
 // Suggest an edit, ask about a page, or suggest a new page. Becomes a
-// request the DM answers; the player picks who else can see it.
+// request the GM answers; the player picks who else can see it.
 import { useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import { Modal, Field, VisibilityPicker, ErrorBox, useAction } from '../../ui/index.tsx';
@@ -19,7 +19,7 @@ export function AskModal({ kind, page, onClose, onSent }: { kind: 'edit' | 'ques
     onSent();
   });
   return (
-    <Modal title={k === 'edit' ? 'Suggest an edit' : k === 'new' ? 'Suggest a new page' : 'Ask the DM'} onClose={onClose}>
+    <Modal title={k === 'edit' ? 'Suggest an edit' : k === 'new' ? 'Suggest a new page' : 'Ask the GM'} onClose={onClose}>
       <div className="tabs" role="radiogroup" aria-label="Kind">
         {(canEdit ? (['edit', 'question'] as const) : (['question', 'new'] as const)).map((x) => (
           <button key={x} type="button" role="radio" aria-checked={k === x} className={`btn small${k === x ? ' on' : ''}`} onClick={() => setK(x)}>
@@ -33,7 +33,7 @@ export function AskModal({ kind, page, onClose, onSent }: { kind: 'edit' | 'ques
       </Field>
       <div className="stack tight">
         <span className="small" style={{ fontWeight: 500 }}>Who can see this request</span>
-        <VisibilityPicker value={vis} onChange={setVis} options={['dm', 'party']} labels={{ dm: 'Only the DM', party: 'The party can see it too' }} />
+        <VisibilityPicker value={vis} onChange={setVis} options={['dm', 'party']} labels={{ dm: 'Only the GM', party: 'The party can see it too' }} />
       </div>
       <ErrorBox error={act.error} />
       <div className="row end">

@@ -1,5 +1,5 @@
 // What is stored, not just what is served (docs/SECURITY.md): classified text
-// lives only in the DM columns of a page and its DM search index; no other
+// lives only in the GM columns of a page and its GM search index; no other
 // table, index or file holds it. And when a page's level changes, every copy,
 // index and file follows at once.
 import { test, before, after } from 'node:test';
@@ -53,7 +53,7 @@ test('TestSecurityState_ClassifiedTextLivesOnlyInPagesAndTheDmIndex', () => {
   assert.ok(probes.length >= 10);
   const found: string[] = [];
   for (const t of tablesOf()) {
-    // A page's DM columns and the DM search index (and the internals of it) are where it may be.
+    // A page's GM columns and the GM search index (and the internals of it) are where it may be.
     if (t === 'pages' || /^fts_dm/.test(t)) continue;
     let rows: any[];
     try { rows = all<any>(deps.db, `SELECT * FROM "${t}"`); } catch { continue; }
@@ -62,7 +62,7 @@ test('TestSecurityState_ClassifiedTextLivesOnlyInPagesAndTheDmIndex', () => {
       for (const { m, p } of probes) if (hay.includes(p)) found.push(`table ${t} holds "${m.id}"`);
     }
   }
-  // In pages: only the plain (DM) columns.
+  // In pages: only the plain (GM) columns.
   const pageRows = all<any>(deps.db, 'SELECT * FROM pages');
   assert.ok(pageRows.length > 15);
   for (const row of pageRows) {
@@ -80,8 +80,8 @@ test('TestSecurityState_ClassifiedTextLivesOnlyInPagesAndTheDmIndex', () => {
       if (n) found.push(`${t} finds "${m.id}"`);
     }
   }
-  // The DM index does have it: the check above can find things.
-  assert.ok(one<any>(deps.db, 'SELECT count(*) AS n FROM fts_dm WHERE fts_dm MATCH ?', `"${probes[0].p}"`)!.n > 0, 'the DM index holds classified pages');
+  // The GM index does have it: the check above can find things.
+  assert.ok(one<any>(deps.db, 'SELECT count(*) AS n FROM fts_dm WHERE fts_dm MATCH ?', `"${probes[0].p}"`)!.n > 0, 'the GM index holds classified pages');
   assert.deepEqual(found, []);
 });
 
@@ -98,8 +98,8 @@ test('TestSecurityState_FilesOnDiskFollowTheSameRules', () => {
     const playerFacing = area === 'party' || area === '_api';
     for (const m of Object.values(markers)) {
       if (m.re || !text.includes(m.token.toLowerCase())) continue;
-      if (sub[0] === 'libfiles') continue; // library files: the DM's uploads, served only through the per-file level check (see libfiles.test.ts and the crawl)
-      if (area === 'vault' && sub[0] === 'worlds') continue; // the DM's own Markdown vault
+      if (sub[0] === 'libfiles') continue; // library files: the GM's uploads, served only through the per-file level check (see libfiles.test.ts and the crawl)
+      if (area === 'vault' && sub[0] === 'worlds') continue; // the GM's own Markdown vault
       if (m.id === 'w2_public' && sub[1] === 'elsewhere') continue; // that world's own players
       if (!m.ai || (playerFacing && !m.seen.includes('jess')) || !playerFacing) bad.push(`${f.slice(dataDir.length)} holds "${m.id}"`);
     }
@@ -120,7 +120,7 @@ test('TestSecurityState_UnsharingAPageTakesItBackEverywhere', async () => {
   const partyFile = path.join(dataDir, 'worlds', slug, 'party', pg.path);
   const apiFile = path.join(dataDir, 'worlds', slug, '_api', pg.path.replace(/\.md$/, '.json'));
   assert.ok(fs.existsSync(partyFile) && fs.existsSync(apiFile));
-  // The page had been embedded for players: a stale chunk of its player copy must not be served once it is DM-only.
+  // The page had been embedded for players: a stale chunk of its player copy must not be served once it is GM-only.
   deps.db.prepare("INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, 'party', 0, ?, ?)").run(S.W, pg.id, `The captains meet ${m}`, new Uint8Array(new Float32Array([0.5, 0.5, 0.5]).buffer));
   assert.equal((await level(pg.id, 'dm')).status, 200);
   const sem = await asJess('/library/search?q=captains&semantic=1');
@@ -162,7 +162,7 @@ test('TestSecurityState_AWithdrawnPageDisappearsFromCardsAndLinks', async () => 
 });
 
 test('TestSecurityState_BrokerLevelAnswersWaitForTheDm', async () => {
-  // A broker-level page can be sold, but not before the DM has read the answer.
+  // A broker-level page can be sold, but not before the GM has read the answer.
   const q = 'Who sells fog charts to the harbour council?';
   await call('PATCH', `${W()}/settings`, S.T.dm, { brokerEnabled: true });
   const quote = await call('POST', `${W()}/broker/quote`, S.T.jess, { question: q, length: 'full' });
@@ -176,9 +176,9 @@ test('TestSecurityState_BrokerLevelAnswersWaitForTheDm', async () => {
   const mine = async () => (await call('GET', `${W()}/broker`, S.T.jess)).text;
   const gets = [ask.text, await mine(), (await call('GET', `${W()}/broker/${id}`, S.T.jess)).text];
   const dmView = await call('GET', `${W()}/broker`, S.T.dm);
-  assert.ok(dmView.text.includes(id), 'the DM sees the request');
+  assert.ok(dmView.text.includes(id), 'the GM sees the request');
   // While it waits, the answer is not in anything the player can read, however long it takes.
-  for (const g of gets) assert.ok(!g.includes(text), 'a broker-level answer is held for the DM');
+  for (const g of gets) assert.ok(!g.includes(text), 'a broker-level answer is held for the GM');
   for (const t of ['jess']) assert.deepEqual(leaksFor(t as any, gets.join('')).map((m) => m.id), []);
 });
 
@@ -200,24 +200,24 @@ test('TestSecurityState_SculptingForPlayersNeverUsesDmPages', async () => {
 });
 
 test('TestSecurityState_ClassifyingAPageRemovesItFromEveryCopyAndIndex', async () => {
-  const pg = S.pages.dm; // a DM page: models may read it
+  const pg = S.pages.dm; // a GM page: models may read it
   const m = tok('dm_page');
   const asModel = (u: string) => call('GET', `${W()}${u}`, S.T.dm, undefined, { 'X-Alexandria-Caller': 'model' });
   assert.ok((await asModel(`/library/pages/${pg.id}`)).text.includes(m));
   assert.ok((await asModel(`/library/search?q=smuggler`)).text.toLowerCase().includes('smuggler'));
-  // Pretend it was embedded: a chunk of its text for the DM scope.
+  // Pretend it was embedded: a chunk of its text for the GM scope.
   deps.db.prepare("INSERT INTO search_chunks (world_id, page_id, scope, idx, text, vec) VALUES (?, ?, 'dm', 0, ?, ?)").run(S.W, pg.id, `chunk ${m}`, new Uint8Array(new Float32Array([0.5, 0.5, 0.5]).buffer));
   assert.equal((await level(pg.id, 'classified')).status, 200);
   assert.equal((await asModel(`/library/pages/${pg.id}`)).status, 404, 'a model can no longer read it');
   assert.ok(!(await asModel('/library/pages')).text.includes(pg.id));
   assert.ok(!(await asModel(`/library/search?q=smuggler`)).text.includes(m));
-  assert.equal((await call('GET', `${W()}/library/pages/${pg.id}`, S.T.dm)).status, 200, 'the DM still reads it in the app');
+  assert.equal((await call('GET', `${W()}/library/pages/${pg.id}`, S.T.dm)).status, 200, 'the GM still reads it in the app');
   assert.equal(one<any>(deps.db, 'SELECT count(*) AS n FROM search_chunks WHERE page_id = ?', pg.id)!.n, 0, 'its embedded chunks are gone');
   const row = one<any>(deps.db, 'SELECT ai_body, ai_blocks, ai_properties, ai_frontmatter, player_body, broker_body FROM pages WHERE id = ?', pg.id)!;
   assert.deepEqual(Object.values(row), [null, null, null, null, null, null]);
   // And the guard now knows its text.
   assert.ok(deps.library.classifiedGrams().size > 0);
-  // Back to DM-only: models read it again and the guard forgets it.
+  // Back to GM-only: models read it again and the guard forgets it.
   const grams = deps.library.classifiedGrams().size;
   assert.equal((await level(pg.id, 'dm')).status, 200);
   assert.ok((await asModel(`/library/pages/${pg.id}`)).text.includes(m));

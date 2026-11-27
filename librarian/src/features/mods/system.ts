@@ -1,7 +1,7 @@
 // Data systems (house rules kit 2): the blocks that let a rule be a whole
 // system without code. A rule keeps its own lists (records), changes them with
 // actions (create, set, add, remove, each with who may run it), moves numbers
-// on rests, sessions or a DM prompt (timers), asks each player to choose (a DM
+// on rests, sessions or a GM prompt (timers), asks each player to choose (a GM
 // prompt such as "Downtime day"), and shows them (views). Every change is
 // logged. Pure: the checks only; recstore.ts keeps the data. See docs/MODS.md.
 
@@ -26,7 +26,7 @@ export interface RecordAction {
   ask: string[];
   /** Fixed values (may be "$option"). */
   set: Record<string, unknown>;
-  /** add: the number field and how much ("ask" lets the caller say, e.g. the DM adds or takes days). */
+  /** add: the number field and how much ("ask" lets the caller say, e.g. the GM adds or takes days). */
   field?: string; amount?: Num | 'ask';
   /** create: copy fields from the record a ref field points at, { myField: 'theirField' } (a task's goal from its activity's days). */
   copy?: { via: string; fields: Record<string, string> };
@@ -199,7 +199,7 @@ export function checkSystem(o: any, ctx: Ctx): System {
       else {
         const ra = recAct(String(c.action ?? ''));
         if (!ra) err(`${cat}.action "${c.action}" is not a record action of this rule`);
-        else if (ra.by === 'dm') err(`${cat}.action "${ra.id}" is the DM's; a player answers a prompt`);
+        else if (ra.by === 'dm') err(`${cat}.action "${ra.id}" is the GM's; a player answers a prompt`);
         ch.action = String(c.action ?? '');
       }
       return ch;
@@ -234,7 +234,7 @@ export function checkSystem(o: any, ctx: Ctx): System {
     const kid = typeof v.record === 'string' ? v.record : '';
     const k = kindOf(kid);
     if (!k) err(`${at}.record "${kid}" is not a record kind of this rule`);
-    const place = PLACES.includes(v.place) ? v.place as ViewPlace : (err(`${at}.place must be one of ${PLACES.join(', ')} (dm: a tab on the DM's House rules page, sheet: a card on the player's home, player: the player's House rules page)`), 'dm' as ViewPlace);
+    const place = PLACES.includes(v.place) ? v.place as ViewPlace : (err(`${at}.place must be one of ${PLACES.join(', ')} (dm: a tab on the GM's House rules page, sheet: a card on the player's home, player: the player's House rules page)`), 'dm' as ViewPlace);
     const columns = list(v.columns, `${at}.columns`, 8).filter((c: unknown) => (typeof c === 'string' && (k?.fields[c] || ['player', 'createdAt', 'updatedAt'].includes(c)) ? true : (err(`${at}.columns: "${String(c)}" is not a field of ${kid}`), false)));
     const actions = list(v.actions, `${at}.actions`, 8).filter((a: unknown) => { const ra = recAct(String(a)); if (!ra) { err(`${at}.actions: "${String(a)}" is not a record action of this rule`); return false; } if (ra.record !== kid) { err(`${at}.actions: "${ra.id}" works on ${ra.record}, not ${kid}`); return false; } return true; });
     sys.views.push({ id: typeof v.id === 'string' && SLUG.test(v.id) ? v.id : `view-${i + 1}`, title: text(v.title, `${at}.title`, 40, true), record: kid, place, columns: columns.length ? columns : k ? [k.title] : [], where: k ? values(kid, v.where, `${at}.where`) : {}, actions, groupByPlayer: v.groupByPlayer === true });

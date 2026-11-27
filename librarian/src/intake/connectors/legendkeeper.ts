@@ -100,7 +100,7 @@ function lkLinkRef(uri: string): string | null {
   return m ? mentionRef(m[1], m[2]) : null;
 }
 
-/** Image properties (a portrait in the sidebar or an infobox) as image blocks; a hidden one is wrapped as a DM-only secret. */
+/** Image properties (a portrait in the sidebar or an infobox) as image blocks; a hidden one is wrapped as a GM-only secret. */
 export function lkImageBlocks(props: any[] = []): Block[] {
   const out: Block[] = [];
   for (const g of Array.isArray(props) ? props : []) {
@@ -143,7 +143,7 @@ function propertyRows(g: any) {
 
 /**
  * LegendKeeper PropertyBlocks (sidebar `properties`, infobox `rows`) to groups.
- * `isHidden` marks a GM-only property; anything but an explicit false is DM-only.
+ * `isHidden` marks a GM-only property; anything but an explicit false is GM-only.
  */
 export function lkGroups(props: any[] = []): PropertyGroup[] {
   const out: PropertyGroup[] = [];
@@ -522,7 +522,7 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
 }
 
 async function* lkCalendars(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncItem> {
-  // Calendars belong to the project. LegendKeeper has no hidden flag for them, so they stay DM-only.
+  // Calendars belong to the project. LegendKeeper has no hidden flag for them, so they stay GM-only.
   try {
     const j = await t.get('/calendars');
     for (const c of Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : []) {
@@ -549,7 +549,7 @@ async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, 
  * Tier 1: the resource list (100 a call), the calendars, and the timelines.
  * Every page of the tree exists at once with its title, type, tags, parent,
  * folder path and updated time. Permissions are in the resource detail only,
- * so a page at index depth is DM-only until its details are read (fail closed).
+ * so a page at index depth is GM-only until its details are read (fail closed).
  */
 async function* lkIndex(t: Transport, ctx: ConnectorContext, cfg: Record<string, any> = {}): AsyncIterable<SyncItem> {
   const all = await lkListResources(t, ctx);
@@ -581,7 +581,7 @@ async function* lkIndex(t: Transport, ctx: ConnectorContext, cfg: Record<string,
         blocks: indexBlocks({ title: idn.title, type, tags, folder }),
         position: positions.has(String(r.id)) ? positions.get(String(r.id))! + (idn.first ? 0 : 0.5) : null,
         url: lkUrl(cfg, String(r.id), String(d.id)),
-        // Who may read it is in the detail (permissions): until it is read, DM only.
+        // Who may read it is in the detail (permissions): until it is read, GM only.
         visibility: 'dm', restricted,
         updatedAt: r.updatedAt ?? null, sourceUpdatedAt: r.updatedAt ?? null, depth: 'index',
       };
@@ -651,7 +651,7 @@ async function lkList(t: Transport, path: string, paged = true): Promise<any[]> 
   return out;
 }
 
-/** A map document as one block: its image and its pins. Hidden pins, and pins under hidden folders or on hidden pages, are marked DM-only. */
+/** A map document as one block: its image and its pins. Hidden pins, and pins under hidden folders or on hidden pages, are marked GM-only. */
 /** [[minLat, minLng], [maxLat, maxLng]] when it is four finite numbers that span something. */
 function lkBounds(b: any): [[number, number], [number, number]] | null {
   const n = Array.isArray(b) ? b.flat().map(Number) : [];
@@ -667,7 +667,7 @@ async function lkMapBlock(t: Transport, ctx: ConnectorContext, r: any, doc: any,
     return {
       name: String(f.name ?? ref ?? 'Pin'), lat: Number(f.pos[0]), lng: Number(f.pos[1]),
       ...(f.iconGlyph ? { type: String(f.iconGlyph) } : {}), ...(/^#[0-9a-f]{6}$/i.test(String(f.iconColor ?? '')) ? { color: String(f.iconColor) } : {}), ...(ref ? { ref } : {}),
-      // Hidden pin, or a pin for a page that is hidden: DM-only. Unknown stays DM-only.
+      // Hidden pin, or a pin for a page that is hidden: GM-only. Unknown stays GM-only.
       ...(hiddenFeature(f) || (ref && hiddenResource(ref)) ? { dm: true } : {}),
     };
   });

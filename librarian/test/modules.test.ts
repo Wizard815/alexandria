@@ -1,5 +1,5 @@
 // Game modules: built-ins, order on clashes, rules search ranking, keyword
-// matching (longest, whole words, never DM-only titles for players), and the
+// matching (longest, whole words, never GM-only titles for players), and the
 // zip / folder / JSON / git / API importers.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -140,7 +140,7 @@ test('Modules: the 2024 SRD is on by default, with its attribution', async () =>
   assert.ok(conds.total >= 14, 'all conditions are bundled');
 });
 
-test('Modules: only a DM changes which modules are on', async () => {
+test('Modules: only a GM changes which modules are on', async () => {
   assert.equal((await call('PUT', `${M()}/enabled`, T.jess, { ids: ['dnd-2014'] })).status, 403);
   assert.equal((await call('PUT', `${M()}/enabled`, T.dm, { ids: ['nope'] })).status, 400);
   assert.equal((await call('POST', `${M()}/import/preview`, T.jess, { type: 'json', json: {} })).status, 403);
@@ -176,7 +176,7 @@ test('Modules: rules search ranks the right rule first, with citations', async (
   const top = async (q: string, n = 1) => ((await ok('GET', `${M()}/rules/search?q=${encodeURIComponent(q)}&limit=${n}`, T.jess)).results as any[]);
   const g = (await top('How does grappling work?'))[0];
   assert.equal(g.term, 'Grapple');
-  assert.match(g.citation, /D&D 2024 \(SRD 5\.2\): Grapple/);
+  assert.match(g.citation, /5e 2024 \(SRD 5\.2\): Grapple/);
   assert.match(g.passage, /Grappled condition/);
   assert.equal((await top('cover'))[0].term, 'Cover');
   assert.equal((await top('what are death saves'))[0].term, 'Death Saving Throw');
@@ -221,9 +221,9 @@ test('Modules: match finds the longest whole-word phrase, case-insensitively', a
   await ok('DELETE', `${M()}/imported/ash`, T.dm);
 });
 
-test('Modules: players never match DM-only page titles, aliases or cards', async () => {
+test('Modules: players never match GM-only page titles, aliases or cards', async () => {
   const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
-  const pub = await page('places/Saltmarsh', 'party', '---\naliases: [The Marsh Town]\n---\n# Saltmarsh\nA fishing town.\n\n> [!secret] DM\n> The council answers to Velmira.\n');
+  const pub = await page('places/Saltmarsh', 'party', '---\naliases: [The Marsh Town]\n---\n# Saltmarsh\nA fishing town.\n\n> [!secret] GM\n> The council answers to Velmira.\n');
   const secret = await page('dm/Velmira the Smuggler', 'dm', '---\naliases: [Queen of Salt]\n---\n# Velmira the Smuggler\nKeeps her treasury beneath the lighthouse.\n');
   const text = 'In Saltmarsh the Marsh Town folk whisper of Velmira the Smuggler, the Queen of Salt. Velmira the Smuggler waits.';
   const dm = (await call('POST', `${M()}/match`, T.dm, { text })).body as any[];
@@ -235,7 +235,7 @@ test('Modules: players never match DM-only page titles, aliases or cards', async
   assert.equal(pl[0].id, pub);
   const flat = JSON.stringify(pl);
   for (const w of ['Velmira', 'Smuggler', 'Queen of Salt', secret]) assert.ok(!flat.includes(w), `leaked ${w}`);
-  // The player's card never carries DM text; a DM-only card is a 404.
+  // The player's card never carries GM text; a GM-only card is a 404.
   assert.equal((await call('GET', `${M()}/card/library/${secret}`, T.jess)).status, 404);
   const pc = await ok('GET', `${M()}/card/library/${pub}`, T.jess);
   assert.match(pc.text, /fishing town/);

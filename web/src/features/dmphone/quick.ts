@@ -1,4 +1,4 @@
-// The DM's one-tap prompts for the Ask tab: what is worth a single tap in the middle of a fight. Editable, and kept
+// The GM's one-tap prompts for the Ask tab: what is worth a single tap in the middle of a fight. Editable, and kept
 // per browser (and world) in localStorage, which can be blocked: then they still work for the page's life.
 import { useCallback, useState } from 'react';
 import { lsGet, lsSet } from './hooks.ts';

@@ -1,10 +1,10 @@
 // Real-run check of a BUILT Alexandria (the Docker container, or the container behind nginx).
-// Starts from an EMPTY data folder: first-run setup, DM and players, live sync, phone sign-in,
+// Starts from an EMPTY data folder: first-run setup, GM and players, live sync, phone sign-in,
 // the PWA manifest, the microphone picker and the models page. Drives Chromium with fake devices.
 //
 //   BASE=http://127.0.0.1:18090 SHOTS=/tmp/shots node web/e2e/container.mjs
 //   IGNORE_CERT=1   (optional) accept a self-signed certificate (a local nginx test)
-//   HOST_MAP='dnd.example.com=127.0.0.1'   (optional) resolve that name to that address, e.g. BASE=http://dnd.example.com through nginx
+//   HOST_MAP='table.example.com=127.0.0.1'   (optional) resolve that name to that address, e.g. BASE=http://table.example.com through nginx
 //
 // It creates accounts named admin / dm / ann / bo; run it against a throwaway data folder only.
 import fs from 'node:fs';
@@ -51,15 +51,15 @@ try {
   await admin.waitForURL('**/admin/worlds');
   note('setup done');
 
-  // 2. A DM account and a world with that DM.
+  // 2. A GM account and a world with that GM.
   await admin.goto(BASE + '/admin/accounts');
   await admin.getByRole('button', { name: 'Add account' }).click();
   await admin.getByLabel('Username', { exact: true }).fill('dm');
-  await admin.getByLabel('Display name').fill('The DM');
+  await admin.getByLabel('Display name').fill('The GM');
   await shot(admin, '02-add-account');
   const [resp] = await Promise.all([admin.waitForResponse((r) => /\/api\/admin\/accounts$/.test(r.url()) && r.request().method() === 'POST'), admin.getByRole('button', { name: 'Add', exact: true }).click()]);
   const resetCode = (await resp.json()).resetCode;
-  check(!!resetCode, 'admin got a one-time reset code for the new DM account');
+  check(!!resetCode, 'admin got a one-time reset code for the new GM account');
   // With a second account the table sign-in no longer opens the admin pages: admins use /admin/login.
   await admin.goto(BASE + '/admin/worlds');
   await admin.waitForURL('**/admin/login');
@@ -71,7 +71,7 @@ try {
   await admin.goto(BASE + '/admin/worlds');
   await admin.getByRole('button', { name: 'New empty world' }).click();
   await admin.getByLabel('Name', { exact: true }).fill('Saltreach');
-  await admin.getByLabel('Dungeon Master').selectOption({ label: 'The DM (dm)' });
+  await admin.getByLabel('Game Master').selectOption({ label: 'The GM (dm)' });
   await admin.getByRole('button', { name: 'Create world' }).click();
   await admin.getByText('Saltreach').first().waitFor();
   for (const p of ['', '/accounts', '/worlds', '/sources', '/keys', '/audit', '/models', '/connections']) {
@@ -140,8 +140,8 @@ try {
   }
   await adminCtx.close();
 
-  // 3. The DM signs in and opens the DM screen.
-  const { ctx: dmCtx, page: dm } = await open('DM', { viewport: { width: 1366, height: 900 } });
+  // 3. The GM signs in and opens the GM screen.
+  const { ctx: dmCtx, page: dm } = await open('GM', { viewport: { width: 1366, height: 900 } });
   await dm.goto(BASE + '/reset');
   await dm.getByLabel('Username', { exact: true }).fill('dm');
   await dm.getByLabel('Reset code').fill(resetCode);
@@ -151,7 +151,7 @@ try {
   await dm.waitForURL(/\/w\/saltreach\/dm/);
   await dm.waitForTimeout(1500);
   await shot(dm, '03-dm-screen');
-  check(true, 'DM signed in and sees the DM screen');
+  check(true, 'GM signed in and sees the GM screen');
 
   // 4. Invites: one code for a phone, one link for another phone.
   await dm.goto(BASE + '/w/saltreach/dm/settings');
@@ -208,7 +208,7 @@ try {
   check(true, 'Ann is still signed in after reopening the app');
   await again.close();
 
-  // 7. Live sync: DM puts a text card on the stage; both phones see it without reloading.
+  // 7. Live sync: GM puts a text card on the stage; both phones see it without reloading.
   await ann.goto(BASE + '/w/saltreach/live');
   await bo.goto(BASE + '/w/saltreach/live');
   await dm.goto(BASE + '/w/saltreach/dm/stage');
@@ -220,7 +220,7 @@ try {
   await dm.getByRole('button', { name: 'Add card' }).click();
   await ann.getByText('The tide bell rings').first().waitFor({ timeout: 10000 });
   await bo.getByText('The tide bell rings').first().waitFor({ timeout: 10000 });
-  check(true, 'DM stage card reached both phones live (no reload)');
+  check(true, 'GM stage card reached both phones live (no reload)');
   await shot(ann, '08-phone-live-card');
 
   // 8. SSE reconnect: drop the phone offline and back; a second card still arrives.
@@ -256,12 +256,12 @@ try {
   await badCtx.close();
 
   if (secure) {
-  // 10. Microphones: the DM audio page lists the fake devices; the assistant mic picker remembers a choice.
+  // 10. Microphones: the GM audio page lists the fake devices; the assistant mic picker remembers a choice.
   await dm.goto(BASE + '/w/saltreach/dm/audio');
   await dm.waitForTimeout(1500);
   await shot(dm, '09-dm-audio-mics');
   const audioText = await dm.locator('main').innerText();
-  check(/microphone|fake|default/i.test(audioText), 'DM audio page lists microphones');
+  check(/microphone|fake|default/i.test(audioText), 'GM audio page lists microphones');
   const devs = await dm.evaluate(async () => { const a = await navigator.mediaDevices.enumerateDevices(); return { inputs: a.filter((d) => d.kind === 'audioinput').length, outputs: a.filter((d) => d.kind === 'audiooutput').length }; });
   check(devs.inputs > 0, `fake input devices present (${devs.inputs} in, ${devs.outputs} out)`);
   await dm.goto(BASE + '/w/saltreach/dm/sound');

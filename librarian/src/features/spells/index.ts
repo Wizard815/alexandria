@@ -4,10 +4,10 @@
 // docs/SPELLS.md.
 //
 // Who sees what (fails closed):
-//   - a player reads a spell's card only when they know it or the DM made it public;
-//   - DM notes on spells and recipes, drafts, and recipes the DM hides never reach a player
+//   - a player reads a spell's card only when they know it or the GM made it public;
+//   - GM notes on spells and recipes, drafts, and recipes the GM hides never reach a player
 //     (a hidden recipe is at most an anonymous "???");
-//   - a player's sheet, mana, log and requests reach that player and the DM only.
+//   - a player's sheet, mana, log and requests reach that player and the GM only.
 import { Router, type Response } from 'express';
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
@@ -43,7 +43,7 @@ const settingsOf = (db: DB, worldId: string): WorldSettings => ({ ...DEFAULT_SET
 
 // ---- shapes ----------------------------------------------------------------------------------------------
 
-/** A spell as a viewer gets it. Only the DM gets notes, the public flag and the source of a cost. */
+/** A spell as a viewer gets it. Only the GM gets notes, the public flag and the source of a cost. */
 function spellOut(s: WorldSpell, dm: boolean, r: ManaRules, known = false) {
   const base = {
     id: s.id, name: s.name, level: s.level, school: s.school, classes: s.classes, castingTime: s.castingTime, ritual: s.ritual, range: s.range,
@@ -100,7 +100,7 @@ function routes(d: Deps) {
     return out;
   }
 
-  /** The account a request is about: `me`, or (for the DM) any player. Players may only name themselves. */
+  /** The account a request is about: `me`, or (for the GM) any player. Players may only name themselves. */
   function who(res: Response, raw: unknown): string {
     const v = String(raw ?? 'me');
     const aid = v === 'me' ? me(res) : v;
@@ -109,7 +109,7 @@ function routes(d: Deps) {
     return aid;
   }
 
-  /** What a viewer may read of the catalog: all for the DM; for anyone else, the spells they know and the public ones. */
+  /** What a viewer may read of the catalog: all for the GM; for anyone else, the spells they know and the public ones. */
   function visibleCatalog(res: Response): { list: WorldSpell[]; known: Set<string> } {
     const list = catalog(db, W(res), publicSrd(S(res)));
     if (isDM(res)) return { list, known: new Set() };
@@ -163,7 +163,7 @@ function routes(d: Deps) {
     res.json(spellOut(s, isDM(res), R(res), known));
   });
 
-  // ---- the DM's own spells, settings per spell, import and export ----
+  // ---- the GM's own spells, settings per spell, import and export ----
   const changed = (res: Response) => d.hub.emit(W(res), 'spells', {}, everyone);
 
   r.post('/s', requireDM, (req, res) => {
@@ -273,7 +273,7 @@ function routes(d: Deps) {
     const aid = who(res, req.params.aid);
     const b = req.body ?? {};
     const dm = isDM(res);
-    if (!dm && featureSetting<boolean>(S(res), 'spellPlayerStats') === false) throw new HttpError(403, 'The DM keeps your ability scores in this world');
+    if (!dm && featureSetting<boolean>(S(res), 'spellPlayerStats') === false) throw new HttpError(403, 'The GM keeps your ability scores in this world');
     const patch: Parameters<typeof saveCharacter>[3] = {};
     if (b.class !== undefined) patch.class = String(b.class ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
     if (b.level !== undefined) {
@@ -297,7 +297,7 @@ function routes(d: Deps) {
       patch.castingAbility = b.castingAbility || '';
     }
     if (b.manaMax !== undefined) {
-      if (!dm) throw new HttpError(403, 'Only the DM sets a mana maximum by hand');
+      if (!dm) throw new HttpError(403, 'Only the GM sets a mana maximum by hand');
       const n = b.manaMax === null || b.manaMax === '' ? null : Number(b.manaMax);
       if (n !== null && (!Number.isInteger(n) || n < 0 || n > 9999)) throw new HttpError(400, 'The mana maximum must be 0 to 9999, or empty for the formula');
       patch.manaMax = n;
@@ -312,7 +312,7 @@ function routes(d: Deps) {
     const aid = who(res, req.params.aid);
     const s = findSpell(db, W(res), String(req.body?.spellId ?? req.body?.spell ?? ''));
     if (!s) throw new HttpError(404, 'Spell not found');
-    if (addKnown(db, W(res), aid, s.id, 'dm')) logEntry(db, W(res), aid, 'learn', me(res), { spellId: s.id, note: `Given by the DM: ${s.name}` });
+    if (addKnown(db, W(res), aid, s.id, 'dm')) logEntry(db, W(res), aid, 'learn', me(res), { spellId: s.id, note: `Given by the GM: ${s.name}` });
     emitChar(d, W(res), aid);
     res.json({ ok: true, spellId: s.id });
   });
@@ -321,7 +321,7 @@ function routes(d: Deps) {
     const aid = who(res, req.params.aid);
     const sid = String(req.params.sid);
     if (!run(db, 'DELETE FROM spells_known WHERE world_id = ? AND account_id = ? AND spell_id = ?', W(res), aid, sid)) throw new HttpError(404, 'Not a known spell');
-    logEntry(db, W(res), aid, 'forget', me(res), { spellId: sid, note: `Removed by the DM: ${spellById(db, W(res), sid)?.name ?? sid}` });
+    logEntry(db, W(res), aid, 'forget', me(res), { spellId: sid, note: `Removed by the GM: ${spellById(db, W(res), sid)?.name ?? sid}` });
     emitChar(d, W(res), aid);
     res.json({ ok: true });
   });
@@ -340,7 +340,7 @@ function routes(d: Deps) {
     else next = cur + Number(b.delta);
     if (!Number.isInteger(next) || next < -9999 || next > 99999) throw new HttpError(400, 'Send delta (a whole number), set (the new amount) or full: true');
     saveCharacter(db, W(res), aid, { mana: next });
-    logEntry(db, W(res), aid, 'adjust', me(res), { amount: next - cur, manaAfter: next, note: String(b.note ?? '').slice(0, 200) || 'Adjusted by the DM' });
+    logEntry(db, W(res), aid, 'adjust', me(res), { amount: next - cur, manaAfter: next, note: String(b.note ?? '').slice(0, 200) || 'Adjusted by the GM' });
     audit(db, W(res), me(res), 'spells.mana', `${aid} ${cur} -> ${next}`);
     emitChar(d, W(res), aid);
     res.json(charOut(db, W(res), character(db, W(res), aid), rules));
@@ -558,7 +558,7 @@ function routes(d: Deps) {
     const manaNow = poolNow(c, max);
     const el = eligibility(db, W(res), rc, c, known, nameOf(res), { on: rules.on, now: manaNow });
     if (el.status === 'learned') throw new HttpError(409, 'Already known');
-    // The DM may approve anyway (force): what is there is used up and mana does not go below zero.
+    // The GM may approve anyway (force): what is there is used up and mana does not go below zero.
     if (el.status !== 'ready' && !force) throw new HttpError(409, `Not ready: ${el.missing.map(missingText).join('; ')}`);
     const consumed: { name: string; qty: number }[] = [];
     for (const it of rc.items.filter((x) => x.consumed)) {
@@ -573,7 +573,7 @@ function routes(d: Deps) {
         const snap = (q: number) => JSON.stringify({ owner: row.owner, name: row.name, qty: q, weight: row.weight ?? null, note: row.note ?? '', dm_note: row.dm_note ?? '', link: row.link ?? null, image: row.image ?? null });
         if (after <= 0) run(db, 'DELETE FROM items WHERE id = ?', row.id);
         else run(db, 'UPDATE items SET qty = ?, updated_at = ?, updated_by = ? WHERE id = ?', after, now(), by, row.id);
-        // The owner is told, as for any change the DM makes to their things.
+        // The owner is told, as for any change the GM makes to their things.
         if (by !== aid) run(db, `INSERT INTO item_changes (id, world_id, item_id, owner, kind, before_json, after_json, reason, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'alert')`,
           id('chg_'), W(res), row.id, aid, after <= 0 ? 'remove' : 'edit', snap(Number(row.qty)), after <= 0 ? null : snap(after), `Used up learning ${nameOf(res)(rc.resultId)}`, by, now());
         if (after <= 0) d.hub.emit(W(res), 'item-removed', { id: row.id }, dmAnd(aid));
@@ -599,7 +599,7 @@ function routes(d: Deps) {
     const rc = recipeById(db, W(res), String(b.recipeId ?? ''));
     if (!rc || (!isDM(res) && (rc.draft || rc.visibility !== 'visible'))) throw new HttpError(404, 'Recipe not found');
     if (rc.draft) throw new HttpError(409, 'Approve the draft recipe first');
-    if (one(db, "SELECT 1 FROM spells_learn WHERE world_id = ? AND account_id = ? AND recipe_id = ? AND status = 'pending'", W(res), aid, rc.id)) throw new HttpError(409, 'Already asked; waiting for the DM');
+    if (one(db, "SELECT 1 FROM spells_learn WHERE world_id = ? AND account_id = ? AND recipe_id = ? AND status = 'pending'", W(res), aid, rc.id)) throw new HttpError(409, 'Already asked; waiting for the GM');
     const rules = R(res);
     const c = character(db, W(res), aid);
     const el = eligibility(db, W(res), rc, c, knownIds(db, W(res), aid), nameOf(res), { on: rules.on, now: poolNow(c, poolMax(c, rules)) });
@@ -706,7 +706,7 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'list_spells',
-      description: "Search the world's spell list (the Codex: SRD 5.2.1 spells plus the DM's homebrew and imports) by name and filters. Returns each spell's id, level, school, casting time, range, components and mana cost. Players get only spells they know or the DM made public.",
+      description: "Search the world's spell list (the Codex: SRD 5.2.1 spells plus the GM's homebrew and imports) by name and filters. Returns each spell's id, level, school, casting time, range, components and mana cost. Players get only spells they know or the GM made public.",
       props: {
         query: { type: 'string', description: 'Words in the name' },
         level: { type: 'string', description: 'A level (0 for cantrips), a list like 1,2 or a range like 1-3' },
@@ -727,13 +727,13 @@ const feature: Feature = {
     },
     {
       name: 'list_spell_recipes', dmOnly: true,
-      description: 'DM: the spell crafting recipes of this world (result spell, prerequisite spells, items, minimum ability scores and level, mana to learn, who sees it, drafts and DM notes), and their tier.',
+      description: 'GM: the spell crafting recipes of this world (result spell, prerequisite spells, items, minimum ability scores and level, mana to learn, who sees it, drafts and GM notes), and their tier.',
       props: {},
       call: () => ({ method: 'GET', path: '/spells/recipes' }),
     },
     {
       name: 'draft_spell_recipe', write: true,
-      description: 'DM: suggest a spell crafting recipe: combining 1 to 5 known spells (and optionally items, minimum ability scores, a minimum level, a mana cost) teaches the result spell, e.g. Fire Bolt + Burning Hands -> Scorching Ray. Spells by name or id from list_spells. It is saved as a draft that players never see until the DM approves it in the recipe editor.',
+      description: 'GM: suggest a spell crafting recipe: combining 1 to 5 known spells (and optionally items, minimum ability scores, a minimum level, a mana cost) teaches the result spell, e.g. Fire Bolt + Burning Hands -> Scorching Ray. Spells by name or id from list_spells. It is saved as a draft that players never see until the GM approves it in the recipe editor.',
       props: {
         result: { type: 'string', description: 'The spell learned' },
         prereqs: { type: 'array', items: { type: 'string' }, description: '1 to 5 spells the character must know' },
@@ -741,7 +741,7 @@ const feature: Feature = {
         stats: { type: 'object', description: 'Minimum ability scores, e.g. {"int": 13}' },
         minLevel: { type: 'integer' }, manaCost: { type: 'integer', description: 'Mana spent to learn it' },
         visibility: { type: 'string', enum: ['visible', 'hidden'], description: 'Players see the recipe, or only "???"' },
-        dmNotes: { type: 'string', description: 'Why, for the DM only' },
+        dmNotes: { type: 'string', description: 'Why, for the GM only' },
       },
       required: ['result', 'prereqs'],
       call: (a) => ({ method: 'POST', path: '/spells/recipes', body: { result: a.result, prereqs: a.prereqs, items: a.items, stats: a.stats, minLevel: a.minLevel, manaCost: a.manaCost, visibility: a.visibility, dmNotes: a.dmNotes, draft: true, createdBy: 'assistant' } }),

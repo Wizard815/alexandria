@@ -1,4 +1,4 @@
-// The DM's stage: a staging column (prepared, not shown), the live board
+// The GM's stage: a staging column (prepared, not shown), the live board
 // (what the table sees) and an "add a card" panel.
 import { uploadPicture } from '../../lib/upload.ts';
 import { useState } from 'react';
@@ -74,7 +74,7 @@ function AddCard({ onDone }: { onDone: () => void }) {
         <Field label="Person from People" help="Players see the player view; the person must be shared with the party to be shown.">
           <select className="input" value={ref} onChange={(e) => setRef(e.target.value)}>
             <option value="">Choose…</option>
-            {pick.data?.people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` (${p.role})` : ''}{p.visibility !== 'party' ? ' – DM only' : ''}</option>)}
+            {pick.data?.people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` (${p.role})` : ''}{p.visibility !== 'party' ? ' – GM only' : ''}</option>)}
           </select>
         </Field>
       )}
@@ -82,7 +82,7 @@ function AddCard({ onDone }: { onDone: () => void }) {
         <div className="stack tight">
           <Field label={kind === 'shop' ? 'Shop page (a Sculpted shop, or any page with an item list)' : 'Library page'}><input value={q} placeholder="Search pages…" onChange={(e) => setQ(e.target.value)} /></Field>
           <select className="input" size={5} value={ref} onChange={(e) => setRef(e.target.value)} aria-label="Pages">
-            {pick.data?.pages.map((p) => <option key={p.id} value={p.id}>{p.title}{p.visibility !== 'party' ? ' – DM only' : ''}</option>)}
+            {pick.data?.pages.map((p) => <option key={p.id} value={p.id}>{p.title}{p.visibility !== 'party' ? ' – GM only' : ''}</option>)}
           </select>
           {kind === 'shop' && <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={buy} onChange={(e) => setBuy(e.target.checked)} /> Players can send a buy request</label>}
         </div>

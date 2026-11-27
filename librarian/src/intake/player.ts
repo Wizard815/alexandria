@@ -1,12 +1,12 @@
 // The leak guard for structured pages. Same rules as policy.ts uses for
 // Markdown, applied to blocks, and fail closed: a block kind it does not know
-// is removed from every copy but the DM's, so a new source format can never
+// is removed from every copy but the GM's, so a new source format can never
 // leak.
 //
 // One filter serves every copy (see core/levels.ts): `blocksFor(blocks,
 // audience, hidden)` keeps the blocks whose secrecy level the audience may
 // read. The player copy is the party level only; the broker copy adds broker
-// content; the AI copy adds everything except classified; the DM copy is
+// content; the AI copy adds everything except classified; the GM copy is
 // everything. `playerBlocks` / `playerProperties` are the player copy.
 import type { Block, Inline, Mention, PropertyGroup } from './model.ts';
 import { type Audience, AUDIENCE_MAX, RANK, type Level, blockLevel, groupLevel, headingLevel, keyLevel, maxLevel } from '../core/levels.ts';
@@ -26,7 +26,7 @@ function inlineFor(c: Inline[] | undefined, hidden: IsHidden): Inline[] {
   });
 }
 
-/** Blocks the audience may read. The DM audience gets everything unchanged. */
+/** Blocks the audience may read. The GM audience gets everything unchanged. */
 export function blocksFor(blocks: Block[], audience: Audience, hidden: IsHidden): Block[] {
   if (audience === 'dm') return blocks;
   return filterList(blocks, audience, hidden);
@@ -35,7 +35,7 @@ export function blocksFor(blocks: Block[], audience: Audience, hidden: IsHidden)
 function filterList(blocks: Block[], aud: Audience, hidden: IsHidden): Block[] {
   const max = AUDIENCE_MAX[aud];
   const out: Block[] = [];
-  // Open heading sections (Broker, Classified, DM notes ...): everything under one is at least its level.
+  // Open heading sections (Broker, Classified, GM notes ...): everything under one is at least its level.
   const sections: { depth: number; level: Level }[] = [];
   for (const b of blocks) {
     if (b.kind === 'heading') {

@@ -28,7 +28,7 @@ test('AiQueue_AtMostMaxConcurrentAtOnceAndTheMostUrgentGoFirst', async () => {
     while (order.length < 5 || release.length) { const r = release.shift(); if (r) r(); await new Promise((x) => setTimeout(x, 5)); }
     await Promise.all(all);
     assert.equal(peak, 2);
-    assert.deepEqual(order.slice(2), ['dm', 'player', 'bg3'], 'waiting requests go DM first, then players, then background');
+    assert.deepEqual(order.slice(2), ['dm', 'player', 'bg3'], 'waiting requests go GM first, then players, then background');
   } finally { setJobResolver(null); }
   void msgs;
 });

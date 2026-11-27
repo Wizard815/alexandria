@@ -77,7 +77,7 @@ const feature: Feature = {
     sttAssetRoutes(app, d);
     // When the final transcript is done (or undone), the summaries are made again from its lines and the hand-off follows.
     watchFinals(d);
-    // The DM changed where speech to text runs: tell every recording device at once ('stt-mode'), so it loads or frees its model
+    // The GM changed where speech to text runs: tell every recording device at once ('stt-mode'), so it loads or frees its model
     // without waiting for its next recording. The mode is no secret (players read it in /audio/status); nothing else is sent.
     const lastMode = new Map<string, string>();
     d.hub.tap((worldId, type) => {
@@ -186,7 +186,7 @@ const feature: Feature = {
       res.json({ mode: eng.sttMode(c.world.id), assets: sttAssetsFor(d, c.world.id, me(res)) });
     });
 
-    // The vocabulary prompt for a device's own speech model: names every player may read (never a DM-only or classified title).
+    // The vocabulary prompt for a device's own speech model: names every player may read (never a GM-only or classified title).
     r.get('/hint', (_req, res) => {
       const c = ctx(res);
       res.json({ hint: featureSetting(settings(res), 'transcriptHint') === 'off' ? '' : eng.hint(c.world.id) });
@@ -262,7 +262,7 @@ const feature: Feature = {
       eng.scheduleRefine(s.id);
       scheduleBuild(d, eng, s.id);
       // The last lines go into the running summary once the recording ends (after the chunks are flushed). Then the
-      // hand-off for the DM's review: with Minerva on, "Last session" for the status doc (which the next session reads);
+      // hand-off for the GM's review: with Minerva on, "Last session" for the status doc (which the next session reads);
       // with Minerva off, a "Summary ready" card on Recordings. When the final transcript is done, both are made again
       // from its lines (handoff.ts).
       setTimeout(() => { void afterRecording(d, c.world.id, s.id).catch((e) => console.error('audio: hand-off failed', e)); }, Number(d.env.ALX_AUDIO_HANDOFF_DELAY_MS ?? 5_000)).unref();
@@ -273,7 +273,7 @@ const feature: Feature = {
     r.post('/sessions/:sid/chunks', express.raw({ type: ['audio/*', 'video/webm', 'application/octet-stream'], limit: MAX_CHUNK }), async (req, res) => {
       const c = ctx(res);
       const s = sessionOf(res, String(req.params.sid));
-      // A last chunk may arrive a moment after the DM stops the session.
+      // A last chunk may arrive a moment after the GM stops the session.
       if (s.stopped_at && Date.now() - Date.parse(s.stopped_at) > 60_000) throw new HttpError(409, 'This recording session has ended');
       const mic = one<MicRow>(db, 'SELECT * FROM audio_mics WHERE id = ? AND world_id = ?', String(req.query.mic ?? ''), c.world.id);
       if (!mic || mic.account_id !== me(res)) throw new HttpError(403, 'That mic is not yours');
@@ -349,7 +349,7 @@ const feature: Feature = {
           if (!m || (m.account_id !== me(res) && !isDM(res))) throw new HttpError(403, 'That mic is not yours');
           micId = m.id;
         } else if (kind !== 'aside') throw new HttpError(400, 'micId is required');
-        if (kind === 'aside' && !isDM(res)) throw new HttpError(403, 'Only the DM can mark an aside');
+        if (kind === 'aside' && !isDM(res)) throw new HttpError(403, 'Only the GM can mark an aside');
         rows.push([id('hld_'), s.id, micId, kind, start, end]);
         from = Math.min(from, start);
         to = Math.max(to, end);
@@ -361,13 +361,13 @@ const feature: Feature = {
     });
 
     // ---- the transcript ------------------------------------------------------------------
-    // The running summary of a session: the DM's (every line they can read) or, for anyone else, the players' one.
+    // The running summary of a session: the GM's (every line they can read) or, for anyone else, the players' one.
     r.get('/sessions/:sid/summary', (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
       res.json(getSummary(d, s.id, isDM(res) ? 'dm' : 'party'));
     });
-    // Where the session's summary went (Minerva's review queue, or a card here), for the DM. Never for a player: it is the
-    // DM's summary, asides included.
+    // Where the session's summary went (Minerva's review queue, or a card here), for the GM. Never for a player: it is the
+    // GM's summary, asides included.
     r.get('/sessions/:sid/handoff', requireDM, (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
       res.json(handoffView(d, ctx(res).world.id, s.id));
@@ -378,7 +378,7 @@ const feature: Feature = {
       const text = typeof req.body?.text === 'string' ? req.body.text : undefined;
       res.json(decideHandoff(d, ctx(res).world.id, s.id, String(req.params.id), action, me(res), text));
     });
-    // Minerva's quiet rules checks for the DM: the calls that looked off (all=1 for every check made).
+    // Minerva's quiet rules checks for the GM: the calls that looked off (all=1 for every check made).
     r.get('/sessions/:sid/rule-notes', requireDM, (req, res) => {
       const s = sessionOf(res, String(req.params.sid));
       res.json({ notes: ruleNotes(d, s.id, { onlyFlags: req.query.all !== '1' }) });
@@ -395,9 +395,9 @@ const feature: Feature = {
       const s = sessionOf(res, String(req.params.sid));
       const since = req.query.since === undefined ? '' : String(req.query.since);
       const dm = isDM(res);
-      // The DM can read the live version the final transcript replaced.
+      // The GM can read the live version the final transcript replaced.
       if (req.query.version === 'live') {
-        if (!dm) throw new HttpError(403, 'Only the DM can read the live version');
+        if (!dm) throw new HttpError(403, 'Only the GM can read the live version');
         const nm0 = eng.nameOf(c.world.id);
         return res.json({ session: sessionOut(s), version: 'live', lines: eng.liveLines(s.id).sort((a, b) => a.start_ms - b.start_ms).map((l) => lineView(l, true, nm0)) });
       }
@@ -451,8 +451,8 @@ const feature: Feature = {
 
   mcpTools: [
     { name: 'recording_status', description: 'Is a session being recorded, since when, and has each player agreed to the recording?', props: {}, call: () => ({ method: 'GET', path: '/audio/status' }) },
-    { name: 'start_recording', write: true, description: 'DM: start recording the game session (the transcript the session log is drafted from). Players must have agreed to the recording consent; check recording_status first.', props: { name: { type: 'string', description: 'Session name, e.g. Session 21' } }, call: (a) => ({ method: 'POST', path: '/audio/sessions', body: { name: a.name } }) },
-    { name: 'stop_recording', write: true, description: 'DM: stop the recording that is running.', props: {}, call: () => ({ method: 'POST', path: '/audio/sessions/current/stop', body: {} }) },
+    { name: 'start_recording', write: true, description: 'GM: start recording the game session (the transcript the session log is drafted from). Players must have agreed to the recording consent; check recording_status first.', props: { name: { type: 'string', description: 'Session name, e.g. Session 21' } }, call: (a) => ({ method: 'POST', path: '/audio/sessions', body: { name: a.name } }) },
+    { name: 'stop_recording', write: true, description: 'GM: stop the recording that is running.', props: {}, call: () => ({ method: 'POST', path: '/audio/sessions/current/stop', body: {} }) },
   ],
 
   start: (d: Deps) => {

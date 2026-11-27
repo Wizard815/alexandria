@@ -27,7 +27,7 @@ export interface GlobalHit {
   snippet: string;
   /** The same passage as escaped HTML with <mark> around matches. Safe for innerHTML. */
   snippetHtml: string;
-  /** Path under /w/:world/ (the DM's pages are under dm/). */
+  /** Path under /w/:world/ (the GM's pages are under dm/). */
   link: string;
   /** Larger is better; comparable across kinds. */
   score: number;
@@ -69,7 +69,7 @@ const clipText = (s: string, n = 160) => (s.length > n ? s.slice(0, n - 1) + 'â€
 
 // ---- kinds -------------------------------------------------------------------
 
-/** The index a viewer searches: players the party index, a model the AI copy, the DM their own screen. */
+/** The index a viewer searches: players the party index, a model the AI copy, the GM their own screen. */
 export const scopeFor = (v: Viewer): 'dm' | 'party' | 'ai' | 'broker' => (v.role !== 'dm' ? 'party' : v.audience === 'ai' ? 'ai' : v.audience === 'broker' ? 'broker' : 'dm');
 
 async function pages(d: Deps, worldId: string, v: Viewer, q: string, limit: number, semantic: boolean): Promise<GlobalHit[]> {
@@ -166,7 +166,7 @@ function items(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[]
   const nm = names(d.db, worldId);
   const out: { hit: Omit<GlobalHit, 'score' | 'kind'>; rel: number; exact?: boolean }[] = [];
   for (const r of rows) {
-    // dm_note is the DM's: it is only ever read for the DM.
+    // dm_note is the GM's: it is only ever read for the GM.
     const rel = scoreFields(p, [{ text: r.name, weight: 10, fuzzy: true }, { text: r.note ?? '', weight: 2 }, { text: dm ? r.dm_note ?? '' : '', weight: 1 }]);
     if (!rel) continue;
     const owner = r.owner === 'party' ? 'Party stash' : nm[r.owner] ?? 'Someone';

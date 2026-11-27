@@ -113,12 +113,12 @@ test('TestConnectorsDocs_LegendKeeperRestSyncPermissionsAndRetry', async () => {
   assert.equal(out.status, 'ok', out.error);
   assert.ok(seen.includes('/api/v3/projects/proj1/resources?limit=100&cursor=opaque'), 'cursor paging');
   assert.ok(limited, '429 was retried after Retry-After');
-  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Port Town', 'World'], 'No Access on an ancestor or for one player keeps a page DM-only');
+  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Port Town', 'World'], 'No Access on an ancestor or for one player keeps a page GM-only');
   assert.equal(lib.list('w', dm).length, 4);
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pg = JSON.stringify(lib.get('w', town.id, player));
-  assert.ok(pg.includes('deep') && !pg.includes('Old Mags') && !pg.includes('Smuggling'), 'hidden sidebar property stays DM-only');
-  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('Old Mags'), 'the DM still sees it');
+  assert.ok(pg.includes('deep') && !pg.includes('Old Mags') && !pg.includes('Smuggling'), 'hidden sidebar property stays GM-only');
+  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('Old Mags'), 'the GM still sees it');
 });
 
 // ---------- Kanka ----------
@@ -142,11 +142,11 @@ test('TestConnectorsDocs_KankaAttributesTraitsAndPrivateLinks', () => {
   const pp = JSON.stringify(playerProperties(shared, () => false));
   for (const kept of ['Captain', 'kanka:30', 'kanka:340', 'Red', 'STR']) assert.ok(pp.includes(kept), kept);
   for (const leak of ['kanka:20', 'Drowning', '500gp', 'Section']) assert.ok(!pp.includes(leak), leak);
-  // is_attributes_private (or no flag at all) makes every attribute DM-only.
+  // is_attributes_private (or no flag at all) makes every attribute GM-only.
   for (const flag of [true, undefined]) {
     const props = kankaProperties({ ...base, is_attributes_private: flag }, 'character', lookup);
     assert.ok(!JSON.stringify(playerProperties(props, () => false)).includes('14'), `is_attributes_private=${flag}`);
-    assert.ok(JSON.stringify(props).includes('14'), 'kept for the DM');
+    assert.ok(JSON.stringify(props).includes('14'), 'kept for the GM');
   }
 });
 
@@ -206,5 +206,5 @@ test('TestConnectorsDocs_KankaApiSyncFollowsDocs', async () => {
   for (const leak of ['Admin only', 'Self admin', 'Just me', 'New value', 'No visibility', 'Denied to a role', 'Traitor', 'Gold']) assert.ok(!all.includes(leak), leak);
   assert.deepEqual(pg.tags, ['Sailor'], 'private tag names are not shown');
   const dmAll = JSON.stringify(lib.get('w', mira.id, dm));
-  assert.ok(dmAll.includes('Admin only') && dmAll.includes('Gold'), 'the DM sees posts and attributes');
+  assert.ok(dmAll.includes('Admin only') && dmAll.includes('Gold'), 'the GM sees posts and attributes');
 });

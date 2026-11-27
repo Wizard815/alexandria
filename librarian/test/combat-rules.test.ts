@@ -248,7 +248,7 @@ test('Combat_Initiative: Dexterity is read from the module text table, with nega
   assert.equal(dexModifier({ text: '', data: { abilities: { dex: 15 } } }), 2);
 });
 
-test('Combat_Agent: the damage tool result carries the concentration save for the DM', async () => {
+test('Combat_Agent: the damage tool result carries the concentration save for the GM', async () => {
   const id = await add({ name: 'Cleric Oran', initiative: 6, hp: 40, maxHp: 40 });
   await patch(id, { concentration: 'Spirit Guardians' });
   const tools = await harnessTools('dm');

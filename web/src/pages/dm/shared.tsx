@@ -1,4 +1,4 @@
-// Helpers shared by the DM screens.
+// Helpers shared by the GM screens.
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useWorld } from '../../lib/world.tsx';
@@ -31,13 +31,13 @@ export function healthPreview(hp: number | null, max: number | null, mode: strin
   return '“Unhurt”';
 }
 
-/** Link to another DM screen. */
+/** Link to another GM screen. */
 export function DMLink({ to, children, className }: { to: string; children: ReactNode; className?: string }) {
   const { info } = useWorld();
   return <Link to={`/w/${info.slug}/dm/${to}`} className={className}>{children}</Link>;
 }
 
-/** Player members only (not DMs or guests). */
+/** Player members only (not GMs or guests). */
 export function usePlayers() {
   const { members } = useWorld();
   return members.filter((m) => m.role === 'player');

@@ -7,7 +7,7 @@ import { randomInt } from 'node:crypto';
 export const MAX_TOOLS = 16;
 /** Offered to the player harness for every message. */
 export const CORE_TOOLS = ['search_library', 'read_page'];
-/** Offered to the DM harness for every message: the tools of a DM's working day. `more_tools` is the harness's own meta tool. */
+/** Offered to the GM harness for every message: the tools of a GM's working day. `more_tools` is the harness's own meta tool. */
 export const DM_CORE_TOOLS = ['search_library', 'read_page', 'save_page', 'context_for', 'who_is', 'memory_log', 'status_update', 'get_combat', 'lookup_rule', 'more_tools'];
 
 interface Category { re: RegExp; tools: string[] }
@@ -119,7 +119,7 @@ export const offerableTools = (): Set<string> => new Set([...CORE_TOOLS, ...DM_C
 
 /**
  * At most `max` tool names for this message, from the ones a harness may use
- * (`available`). The DM gets a fixed core (DM_CORE_TOOLS) then the matching
+ * (`available`). The GM gets a fixed core (DM_CORE_TOOLS) then the matching
  * categories, most specific first, and never the player-only `my_*` tools; a
  * player gets search_library and read_page then the categories. A tool that is
  * not offered but exists is still run if the model asks for it, and
@@ -205,7 +205,7 @@ const title = (w: string) => w.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
  * A command that needs no model: rolling dice, the date, next turn, adding
  * creatures, "who's up", damage and healing by name. Null if it is something
  * else (and the model should answer). Writes are only planned here: the agent
- * still asks the DM to confirm them. `dm` is false for a player, who only
+ * still asks the GM to confirm them. `dm` is false for a player, who only
  * gets dice and the date.
  */
 export function fastPlan(raw: string, dm: boolean, rng: (n: number) => number = (n) => randomInt(1, n + 1)): FastPlan | null {

@@ -137,10 +137,10 @@ function Worlds() {
             {me.worlds.map((w) => (
               <Link key={w.id} className="list-item" to={w.role === 'dm' ? `/w/${w.slug}/dm` : `/w/${w.slug}`}>
                 <span className="grow"><strong>{w.name}</strong>{w.character_name && <span className="muted"> · {w.character_name}</span>}</span>
-                <span className={`chip ${w.role === 'dm' ? 'red' : 'teal'}`}>{w.role === 'dm' ? 'Dungeon Master' : w.role === 'player' ? 'Player' : 'Guest'}</span>
+                <span className={`chip ${w.role === 'dm' ? 'red' : 'teal'}`}>{w.role === 'dm' ? 'Game Master' : w.role === 'player' ? 'Player' : 'Guest'}</span>
               </Link>
             ))}
-            {!me.worlds.length && <div className="empty">You are not in a world yet. Ask your DM for an invite code{me.account.is_admin ? ', or make a world in Library admin' : ''}.</div>}
+            {!me.worlds.length && <div className="empty">You are not in a world yet. Ask your GM for an invite code{me.account.is_admin ? ', or make a world in Library admin' : ''}.</div>}
           </div>
         </div>
         <div className="row">

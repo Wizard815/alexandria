@@ -1,18 +1,18 @@
 // The Shop: an item database per world (seeded from the SRD, imported from
-// JSON, CSV or game modules, and the DM's own items), shops that stock it,
+// JSON, CSV or game modules, and the GM's own items), shops that stock it,
 // a shop generator, and buying and selling for players. See docs/SHOPS.md.
 //
 // Players only ever get playerShop()/playerLine() (shops.ts): shops that are
 // not hidden, open shops' visible lines, and the keeper's public card. The
-// item database, DM notes, the haggle note, hidden lines and the keeper's
-// secret are DM-only. Guests get nothing (403).
+// item database, GM notes, the haggle note, hidden lines and the keeper's
+// secret are GM-only. Guests get nothing (403).
 //
 // Buying follows the broker's rules: the player picks their own coin or the
 // party pouch, the server checks spendable() (coin promised to debits waiting
-// for the DM is not available) and takes coin, stock and the item in one
+// for the GM is not available) and takes coin, stock and the item in one
 // transaction. A party-pouch payment reads "Shop purchase (paid by X from the
 // party pouch)" in the log the whole party sees. With the world setting
-// shopApproval on, a purchase waits for the DM (the coin is held by a pending
+// shopApproval on, a purchase waits for the GM (the coin is held by a pending
 // debit and the stock is reserved).
 import { Router, type Response } from 'express';
 import type { Feature } from '../types.ts';
@@ -80,7 +80,7 @@ function routes(d: Deps) {
   const getNow = (w: string) => getClock(db, w).minutes;
 
   // ---- live events ----
-  /** A shop changed. Players hear about shops they can see (or could see until now); the DM about all. */
+  /** A shop changed. Players hear about shops they can see (or could see until now); the GM about all. */
   const shopEvent = (w: string, s: Pick<ShopRow, 'id' | 'status'>, wasVisible = false) =>
     d.hub.emit(w, 'shop', { id: s.id }, (v) => v.role === 'dm' || (v.role === 'player' && (playerVisible(s) || wasVisible)));
   const coinChanged = (w: string, owner: string, by: string, note?: string) => {
@@ -119,7 +119,7 @@ function routes(d: Deps) {
     res.json({ approval: c.approval, sellBack: c.sellBack, sellPct: c.sellPct, partyPay: c.partyPay, coins: c.coins, haggle: c.haggle, repEffect: c.repEffect, kinds: SHOP_KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] })), sizes: SIZES, ...(isDM(res) ? { model: hasJob(d, 'chat'), types: I.ITEM_TYPES, rarities: I.ITEM_RARITIES } : {}) });
   });
 
-  // ================= the item database (DM only) =================
+  // ================= the item database (GM only) =================
 
   r.get('/items', requireDM, (req, res) => {
     seed(res);
@@ -449,7 +449,7 @@ function routes(d: Deps) {
     res.status(201).json({ keeper: k });
   });
 
-  /** The shopkeeper as a DM-level library page (look and voice in the open, the secret in a secret callout); links it. */
+  /** The shopkeeper as a GM-level library page (look and voice in the open, the secret in a secret callout); links it. */
   function keeperPage(res: Response, sid: string) {
     const s = one<ShopRow>(db, 'SELECT * FROM shops WHERE id = ?', sid)!;
     const k = keeperOf(s);
@@ -478,7 +478,7 @@ function routes(d: Deps) {
     const lines = (v.stock as any[]).map((l) => `- **${l.name}**${l.rarity !== 'mundane' ? ` (${l.rarity})` : ''}: ${l.priceCp === null ? 'ask' : priceText(l.priceCp, c.coins)}${l.unlimited ? '' : l.qty === 0 ? ', sold out' : `, ${l.qty} left`}`);
     const text = [v.keeper ? `${v.keeper.name}, ${v.keeper.role || 'shopkeeper'}. ${v.keeper.look}` : '', v.description, '', ...lines].filter((x, i) => x || i === 2).join('\n').trim();
     const hit = firstLeak(makeCtx(d, W(res), false, {}), text);
-    if (hit) throw new HttpError(409, 'Not sent: the text repeats words from DM-only notes.');
+    if (hit) throw new HttpError(409, 'Not sent: the text repeats words from GM-only notes.');
     const card = await selfCall(req, W(res), 'POST', '/stage/cards', { kind: 'text', title: `${s.name} (${KIND_LABEL[s.kind as keyof typeof KIND_LABEL] ?? s.kind})`, text: text || 'Nothing on the shelves.', show: req.body?.show === true });
     audit(db, W(res), me(res), 'shop.stage', s.name);
     res.status(201).json({ ok: true, cardId: card.id, shown: req.body?.show === true });
@@ -491,12 +491,12 @@ function routes(d: Deps) {
     const w = W(res);
     res.json({
       self: { cp: balance(db, w, me(res)), available: spendable(db, w, me(res)) },
-      party: { cp: c.partyPurse ? balance(db, w, 'party') : null, available: c.partyPurse ? spendable(db, w, 'party') : null, allowed: c.partyPay, reason: !c.partyPurse ? 'The party pouch is off in this world.' : !c.partyPay ? 'Your DM has turned off paying shops from the party pouch.' : null },
+      party: { cp: c.partyPurse ? balance(db, w, 'party') : null, available: c.partyPurse ? spendable(db, w, 'party') : null, allowed: c.partyPay, reason: !c.partyPurse ? 'The party pouch is off in this world.' : !c.partyPay ? 'Your GM has turned off paying shops from the party pouch.' : null },
       default: 'self',
     });
   });
 
-  /** Put bought things in an inventory: onto a line of the same name, else a new line. Never copies any DM note. */
+  /** Put bought things in an inventory: onto a line of the same name, else a new line. Never copies any GM note. */
   function deliver(w: string, owner: string, it: I.ItemRow, qty: number, by: string): { id: string; name: string; qty: number } {
     const ex = one<any>(db, `SELECT id, qty FROM items WHERE world_id = ? AND owner = ? AND name = ? AND status = 'approved' AND dm_note = '' AND image IS NULL LIMIT 1`, w, owner, it.name);
     if (ex) {
@@ -529,7 +529,7 @@ function routes(d: Deps) {
     let from: 'self' | 'party';
     if (b.from === 'party') {
       if (!c.partyPurse) throw new HttpError(400, 'The party pouch is off in this world, so it cannot pay');
-      if (!c.partyPay) throw new HttpError(403, 'Your DM has turned off paying shops from the party pouch. Pay from your own coin.');
+      if (!c.partyPay) throw new HttpError(403, 'Your GM has turned off paying shops from the party pouch. Pay from your own coin.');
       from = 'party';
     } else if (b.from === undefined || b.from === null || b.from === '' || b.from === 'self' || b.from === 'me') from = 'self';
     else throw new HttpError(400, 'from must be "self" (your own coin) or "party" (the party pouch)');
@@ -543,7 +543,7 @@ function routes(d: Deps) {
       if (!st || (st.hidden && !isDM(res))) throw new HttpError(404, 'That is not for sale here');
       const it = one<I.ItemRow>(db, 'SELECT * FROM shop_items WHERE id = ?', st.item_id)!;
       const list = unitPrice(s, st, it, townPctOf(db, s));
-      if (list === null) throw new HttpError(409, `${it.name} has no price: ask the shopkeeper (the DM)`);
+      if (list === null) throw new HttpError(409, `${it.name} has no price: ask the shopkeeper (the GM)`);
       if (st.qty !== null && st.qty < qty) throw new HttpError(409, st.qty === 0 ? `${it.name} is sold out` : `Only ${st.qty} ${it.name} left`);
       // This buyer's price: their reputation with the keeper, and their best deal on this line (used up by this purchase).
       M.settleDeals(db, w);
@@ -583,7 +583,7 @@ function routes(d: Deps) {
     res.status(c.approval ? 202 : 201).json({ order: orderOut(res, out.order), pending: c.approval, item: out.delivered });
   });
 
-  // Sell back: a request at the shop's (or the world's) percentage of the item's price; the DM approves.
+  // Sell back: a request at the shop's (or the world's) percentage of the item's price; the GM approves.
   r.post('/shops/:sid/sell', (req, res) => {
     const w = W(res);
     const c = cfg(res);
@@ -639,7 +639,7 @@ function routes(d: Deps) {
     });
   }
 
-  // The DM decides a pending purchase or sale: { action: approve | reject, priceCp? (a sale's total) }.
+  // The GM decides a pending purchase or sale: { action: approve | reject, priceCp? (a sale's total) }.
   r.post('/orders/:oid', requireDM, (req, res) => {
     const w = W(res);
     const o = one<any>(db, `SELECT * FROM shop_orders WHERE id = ? AND world_id = ?`, String(req.params.oid), w);
@@ -778,7 +778,7 @@ function routes(d: Deps) {
 
   // ================= what a keeper remembers: reputation and deals =================
 
-  /** The DM's view of a keeper's memory: every player they know, with reputation, money spent and sold, haggles, and deals. */
+  /** The GM's view of a keeper's memory: every player they know, with reputation, money spent and sold, haggles, and deals. */
   r.get('/shops/:sid/memory', requireDM, (req, res) => {
     const s = shopFor(res, String(req.params.sid));
     const w = W(res);
@@ -800,7 +800,7 @@ function routes(d: Deps) {
     });
   });
 
-  // The DM sets how a keeper sees a player: { rep (-100..100), note }.
+  // The GM sets how a keeper sees a player: { rep (-100..100), note }.
   r.put('/shops/:sid/memory/:aid', requireDM, (req, res) => {
     const s = shopFor(res, String(req.params.sid));
     const aid = String(req.params.aid);
@@ -813,7 +813,7 @@ function routes(d: Deps) {
     res.json({ accountId: aid, rep: r.rep, standing: M.standing(r.rep), note: r.note });
   });
 
-  // The DM gives a player a deal: { accountId, stockId (blank: the whole shop), pct, days (blank: until used), note }.
+  // The GM gives a player a deal: { accountId, stockId (blank: the whole shop), pct, days (blank: until used), note }.
   r.post('/shops/:sid/deals', requireDM, (req, res) => {
     const s = shopFor(res, String(req.params.sid));
     const b = req.body ?? {};
@@ -918,13 +918,13 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'search_items', dmOnly: true,
-      description: "Search the world's item database (what shops can stock: the SRD's generic items plus the DM's own and imported ones) by words, type (weapon, armor, shield, ammunition, gear, tool, potion, scroll, ring, rod, staff, wand, wondrous item, mount, food, other) and rarity (mundane, common, uncommon, rare, very rare, legendary, artifact, varies). Each item has an id, a cost in copper and DM notes.",
+      description: "Search the world's item database (what shops can stock: the SRD's generic items plus the GM's own and imported ones) by words, type (weapon, armor, shield, ammunition, gear, tool, potion, scroll, ring, rod, staff, wand, wondrous item, mount, food, other) and rarity (mundane, common, uncommon, rare, very rare, legendary, artifact, varies). Each item has an id, a cost in copper and GM notes.",
       props: { q: S('Words in the name, category or properties'), type: S('Item type'), rarity: S('Rarity'), limit: N('How many (default 20)') },
       call: (a) => ({ method: 'GET', path: `/shop/items${qs({ q: a.q, type: a.type, rarity: a.rarity, limit: a.limit ?? 20 })}` }),
     },
     {
       name: 'list_shops',
-      description: "List the world's shops. The DM sees every shop with its status (hidden, closed, open), keeper and markup; a player sees the shops that are not hidden.",
+      description: "List the world's shops. The GM sees every shop with its status (hidden, closed, open), keeper and markup; a player sees the shops that are not hidden.",
       props: {},
       call: () => ({ method: 'GET', path: '/shop/shops' }),
     },
@@ -936,15 +936,15 @@ const feature: Feature = {
     },
     {
       name: 'create_item', write: true,
-      description: "Add a custom item to the world's item database. cost is a price like \"15 gp\" or \"2 sp\". dm_notes stay DM-only.",
-      props: { name: S('Item name'), type: S('weapon, armor, shield, ammunition, gear, tool, potion, scroll, ring, rod, staff, wand, wondrous item, mount, food or other'), rarity: S('mundane, common, uncommon, rare, very rare, legendary or artifact'), cost: S('Price, e.g. "250 gp"'), weight: { type: 'number', description: 'Weight in pounds' }, description: S('What it is and does'), properties: S('Short stats, e.g. "Damage: 1d8 slashing; Versatile"'), attunement: B('Requires attunement'), tags: { type: 'array', items: { type: 'string' } }, dm_notes: S('DM-only notes') },
+      description: "Add a custom item to the world's item database. cost is a price like \"15 gp\" or \"2 sp\". dm_notes stay GM-only.",
+      props: { name: S('Item name'), type: S('weapon, armor, shield, ammunition, gear, tool, potion, scroll, ring, rod, staff, wand, wondrous item, mount, food or other'), rarity: S('mundane, common, uncommon, rare, very rare, legendary or artifact'), cost: S('Price, e.g. "250 gp"'), weight: { type: 'number', description: 'Weight in pounds' }, description: S('What it is and does'), properties: S('Short stats, e.g. "Damage: 1d8 slashing; Versatile"'), attunement: B('Requires attunement'), tags: { type: 'array', items: { type: 'string' } }, dm_notes: S('GM-only notes') },
       required: ['name'],
       call: (a) => ({ method: 'POST', path: '/shop/items', body: { name: a.name, type: a.type, rarity: a.rarity, cost: a.cost, weight: a.weight, description: a.description, properties: a.properties, attunement: a.attunement, tags: a.tags, dmNotes: a.dm_notes } }),
     },
     {
       name: 'edit_item', write: true,
       description: 'Change an item in the item database (only the fields given). Find its id with search_items. Shops that stock it update at once.',
-      props: { item: S('Item id'), name: S('New name'), type: S('Type'), rarity: S('Rarity'), cost: S('Price, e.g. "250 gp"'), weight: { type: 'number' }, description: S('Description'), properties: S('Properties'), attunement: B('Requires attunement'), tags: { type: 'array', items: { type: 'string' } }, dm_notes: S('DM-only notes') },
+      props: { item: S('Item id'), name: S('New name'), type: S('Type'), rarity: S('Rarity'), cost: S('Price, e.g. "250 gp"'), weight: { type: 'number' }, description: S('Description'), properties: S('Properties'), attunement: B('Requires attunement'), tags: { type: 'array', items: { type: 'string' } }, dm_notes: S('GM-only notes') },
       required: ['item'],
       call: (a) => ({ method: 'PATCH', path: `/shop/items/${enc(String(a.item ?? ''))}`, body: Object.fromEntries(Object.entries({ name: a.name, type: a.type, rarity: a.rarity, cost: a.cost, weight: a.weight, description: a.description, properties: a.properties, attunement: a.attunement, tags: a.tags, dmNotes: a.dm_notes }).filter(([, v]) => v !== undefined)) }),
     },
@@ -956,8 +956,8 @@ const feature: Feature = {
     },
     {
       name: 'create_shopkeeper', write: true,
-      description: "Make a shopkeeper with the NPC generator (name, race, look, voice, personality, and a DM-only secret). With a shop id it becomes that shop's keeper; with save_page it is also saved as a DM-only NPC page in the library.",
-      props: { shop: S('Optional shop id to give the keeper to'), kind: S('Shop kind, for the keeper\'s trade'), race: S('Optional race'), gender: S('male, female or any'), seed: S('Optional seed'), save_page: B('Also save a DM-only NPC page (needs a shop)') },
+      description: "Make a shopkeeper with the NPC generator (name, race, look, voice, personality, and a GM-only secret). With a shop id it becomes that shop's keeper; with save_page it is also saved as a GM-only NPC page in the library.",
+      props: { shop: S('Optional shop id to give the keeper to'), kind: S('Shop kind, for the keeper\'s trade'), race: S('Optional race'), gender: S('male, female or any'), seed: S('Optional seed'), save_page: B('Also save a GM-only NPC page (needs a shop)') },
       call: (a) => ({ method: 'POST', path: '/shop/keeper', body: { shopId: a.shop, kind: a.kind, race: a.race, gender: a.gender, seed: a.seed, savePage: a.save_page === true } }),
     },
     {
@@ -978,7 +978,7 @@ const feature: Feature = {
     {
       name: 'set_town', write: true,
       description: "Create a town (no id) or change one (with its id from list_towns): name, size (hamlet, village, town, city, metropolis) and price_pct, the town's price level in percent (e.g. 25 for a siege-inflated town, -10 for a cheap market town). Every shop in the town follows it at once.",
-      props: { town: S('Town id to change; leave out to create one'), name: S('Town name'), size: S('Settlement size', { enum: [...SIZES] }), price_pct: N('Price level in percent, -90 to 500'), description: S('What players read about its market'), dm_notes: S('DM-only notes') },
+      props: { town: S('Town id to change; leave out to create one'), name: S('Town name'), size: S('Settlement size', { enum: [...SIZES] }), price_pct: N('Price level in percent, -90 to 500'), description: S('What players read about its market'), dm_notes: S('GM-only notes') },
       call: (a) => {
         const body = Object.fromEntries(Object.entries({ name: a.name, size: a.size, pricePct: a.price_pct, description: a.description, dmNotes: a.dm_notes }).filter(([, v]) => v !== undefined));
         return a.town ? { method: 'PATCH', path: `/shop/towns/${enc(String(a.town))}`, body } : { method: 'POST', path: '/shop/towns', body: { name: 'New town', ...body } };
@@ -993,7 +993,7 @@ const feature: Feature = {
     {
       name: 'give_shop_deal', write: true,
       description: 'Give a player a deal at a shop: pct percent off one stock line (stock_id) or everything (no stock_id), for some game days or until used.',
-      props: { shop: S('Shop id'), player: S('Player account id'), pct: N('Percent off, 1-90'), stock_id: S('Optional stock line id'), days: N('Optional game days it lasts'), note: S('Why (DM only)') },
+      props: { shop: S('Shop id'), player: S('Player account id'), pct: N('Percent off, 1-90'), stock_id: S('Optional stock line id'), days: N('Optional game days it lasts'), note: S('Why (GM only)') },
       required: ['shop', 'player', 'pct'],
       call: (a) => ({ method: 'POST', path: `/shop/shops/${enc(String(a.shop ?? ''))}/deals`, body: { accountId: a.player, pct: a.pct, stockId: a.stock_id, days: a.days, note: a.note } }),
     },

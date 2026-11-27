@@ -16,14 +16,14 @@
 //   POST   /api/admin/models/:job/warm            a tiny request so the model is loaded
 //   GET    /api/admin/models/lifecycle            game night: phase, why it is live, held models, per provider backend (probed once, cached), per job policy
 //   PUT    /api/admin/models/lifecycle            { graceMinutes, policies: { chat: 'hold' | 'ondemand' } }
-//   POST   /api/admin/models/game-night/start     the DM's "Start game night" (also what the Start test button does)
+//   POST   /api/admin/models/game-night/start     the GM's "Start game night" (also what the Start test button does)
 //   POST   /api/admin/models/game-night/end       { now: true } skips the grace period
 //   POST   /api/admin/models/providers/:id/detect probe the backend type again (PUT a provider with { backend } to override)
 //   POST   /api/admin/models/unload-all           "Release models now": each job model on a backend that can unload
 //   GET    /api/admin/models/vram                 per Argos provider: GET /api/pool + /running, the job-model budget, the config snippets
-//   GET    /api/admin/models/queue                running and waiting per model, and the DM-first setting
-//   PUT    /api/admin/models/dm-first             { preempt, reserve, holdPlayers }: how hard the DM's requests go first (core/ai.ts)
-//   GET    /api/worlds/:world/models/ready        DM only: which local jobs are ready (for the table page card)
+//   GET    /api/admin/models/queue                running and waiting per model, and the GM-first setting
+//   PUT    /api/admin/models/dm-first             { preempt, reserve, holdPlayers }: how hard the GM's requests go first (core/ai.ts)
+//   GET    /api/worlds/:world/models/ready        GM only: which local jobs are ready (for the table page card)
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts'; // type only: a runtime import would deadlock the registry's top-level await
@@ -47,13 +47,13 @@ interface Row {
 }
 
 const USES: Record<Job, string> = {
-  chat: 'DM agent, player Ask, broker answers, summaries',
+  chat: 'GM agent, player Ask, broker answers, summaries',
   audit: 'Question routing and spoiler checks (small model)',
   audio: 'Speech to text',
   voice: 'Text to speech',
   extra: 'Embeddings for search and matching',
   rerank: 'Optional: reorders the top search results (stays out of the way when slow)',
-  dm: 'The DM’s assistant. Not set: the Chat model',
+  dm: 'The GM’s assistant. Not set: the Chat model',
   player: 'What players ask: the broker and their helper. Not set: the Chat model',
   bible: 'Reading pages for the story bible. Not set: the Chat model',
   helper: 'The players’ quick helper: a small model (4B or less) for rules, turn options and sheet summaries. Not set: the Players model',
@@ -93,7 +93,7 @@ function fromSaved(d: Deps, job: Job): JobConfig | null {
 
 // Set when the feature loads. A null answer makes jobConfig() use the environment.
 setJobResolver((d, job) => fromSaved(d, job));
-/** How hard the DM's requests go first (core/ai.ts, the queue), saved in Admin → Models → GPU & queue. */
+/** How hard the GM's requests go first (core/ai.ts, the queue), saved in Admin → Models → GPU & queue. */
 export function getDmFirst(db: DB): DmFirst {
   try { return normalizeDmFirst(JSON.parse(metaGet(db, 'dm_first') ?? 'null')); } catch { return DM_FIRST_DEFAULTS; }
 }
@@ -244,7 +244,7 @@ const feature: Feature = {
   },
   // Listening for session start and end is the only thing this does (no routes).
   appRoutes: (_app, d) => { attachSessionEvents(d); },
-  // The table page card: which local jobs are ready. DM only; job names and states, nothing from the world.
+  // The table page card: which local jobs are ready. GM only; job names and states, nothing from the world.
   worldMount: 'models',
   worldRoutes: (d) => {
     const r = Router();

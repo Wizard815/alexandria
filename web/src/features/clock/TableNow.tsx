@@ -1,4 +1,4 @@
-// The world clock at the top of the DM's Table: the date, the hour and its light, the moons, and one-tap time moves.
+// The world clock at the top of the GM's Table: the date, the hour and its light, the moons, and one-tap time moves.
 import { useState, type FormEvent } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, useAction } from '../../ui/index.tsx';

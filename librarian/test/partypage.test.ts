@@ -1,4 +1,4 @@
-// The DM's Players page data (a card per player, then the party) and the player's Mine / Party summary.
+// The GM's Players page data (a card per player, then the party) and the player's Mine / Party summary.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

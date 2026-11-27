@@ -1,4 +1,4 @@
-// Quick generators: a popup the DM opens from a small floating button or
+// Quick generators: a popup the GM opens from a small floating button or
 // Alt+G. Names, items and gold, rolled by the server from tables (no model).
 // A bottom sheet on phones. The last choices are remembered on this device.
 import { useCallback, useEffect, useState } from 'react';

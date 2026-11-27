@@ -7,7 +7,7 @@ import { useNet, sinceText } from '../lib/net.ts';
 import { panelForPath, popOutPanel } from '../features/screens/names.ts';
 
 export function PageHead({ title, lead, children, popout = true }: { title: ReactNode; lead?: ReactNode; children?: ReactNode; popout?: boolean }) {
-  // A DM page that has a panel gets a pop-out button, so it can move to another monitor.
+  // A GM page that has a panel gets a pop-out button, so it can move to another monitor.
   const panel = panelForPath(useLocation().pathname);
   const pop = popout && panel && (
     <button type="button" className="btn small ghost" data-testid="popout" title="Pop out into its own window (for another monitor)" aria-label={`Pop ${panel.name} out into its own window`}
@@ -93,7 +93,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   );
 }
 
-const VIS_LABEL: Record<string, string> = { dm: 'DM only', party: 'Party', me: 'Only me' };
+const VIS_LABEL: Record<string, string> = { dm: 'GM only', party: 'Party', me: 'Only me' };
 export function VisChip({ v }: { v: string }) {
   return <span className={`chip ${v === 'party' ? 'teal' : v === 'me' ? '' : 'red'}`}>{VIS_LABEL[v] ?? v}</span>;
 }

@@ -1,6 +1,6 @@
 # Quickstart: from a fresh Linux server to a table
 
-Short and exact. Ubuntu 22.04 or 24.04 is assumed. Replace `dnd.example.com`
+Short and exact. Ubuntu 22.04 or 24.04 is assumed. Replace `table.example.com`
 with your own domain everywhere. For more detail see [HOSTING.md](HOSTING.md).
 
 ## 1. Install Docker and get the code
@@ -22,9 +22,9 @@ Docker Compose reads this file (`env_file`). The settings that matter:
 
 | Variable | Set it to | Why |
 |---|---|---|
-| `ALX_PUBLIC_URL` | `https://dnd.example.com` | The address people use. Goes into invite links and AI-connection settings. |
+| `ALX_PUBLIC_URL` | `https://table.example.com` | The address people use. Goes into invite links and AI-connection settings. |
 | `ALX_TRUST_PROXY` | `1` | Required behind nginx, so client IPs and `https` are read from its headers. (The nginx override sets it too.) |
-| `ALX_ADMIN_TABLE_LOGIN` | `1` (optional) | Lets one person be both DM and admin on a small server: the table sign-in then also opens the admin pages. Otherwise admins use `/admin/login`. |
+| `ALX_ADMIN_TABLE_LOGIN` | `1` (optional) | Lets one person be both GM and admin on a small server: the table sign-in then also opens the admin pages. Otherwise admins use `/admin/login`. |
 | `ALX_ADMIN_ALLOW` | e.g. `192.168.0.0/16,127.0.0.1/32` (optional) | Only these networks may use the admin pages. |
 | `MODEL_BASE_URL`, `MODEL_API_KEY` | an OpenAI-compatible endpoint | The AI features. `http://argos:8080/v1` for Argos on the `ai_net` network (see `docker-compose.override.example.yml`). Or `LOCAL_LLM_URL=http://host.docker.internal:11434` for Ollama / LM Studio on this machine. |
 | `ALX_MODEL_<JOB>_URL`, `_MODEL`, `_KEY` | per job (`CHAT`, `AUDIT`, `AUDIO`, `VOICE`, `EXTRA`) | A different model per job. Easier: do it in the Models page (step 9), which wins over these. |
@@ -57,7 +57,7 @@ Point the DNS name at the server and open ports 80 and 443.
 ```bash
 sudo apt install -y nginx certbot python3-certbot-nginx
 sudo cp deploy/nginx/alexandria.conf /etc/nginx/sites-available/alexandria.conf
-sudo sed -i 's/dnd.example.com/YOUR.DOMAIN/g' /etc/nginx/sites-available/alexandria.conf
+sudo sed -i 's/table.example.com/YOUR.DOMAIN/g' /etc/nginx/sites-available/alexandria.conf
 sudo certbot certonly --nginx -d YOUR.DOMAIN         # needs port 80 free for a moment
 sudo ln -s /etc/nginx/sites-available/alexandria.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
@@ -76,21 +76,21 @@ from a timer).
 Open `https://YOUR.DOMAIN`. It asks for the admin account (the first account
 is always the admin). Then:
 
-1. **Library admin → Accounts → Add account** for the DM. You get a one-time
-   reset code; the DM opens `/reset`, enters it with the username and
-   chooses a password. (If one person is both DM and admin, skip this: use
-   your admin account as the DM in the next step and set
+1. **Library admin → Accounts → Add account** for the GM. You get a one-time
+   reset code; the GM opens `/reset`, enters it with the username and
+   chooses a password. (If one person is both GM and admin, skip this: use
+   your admin account as the GM in the next step and set
    `ALX_ADMIN_TABLE_LOGIN=1` in `librarian/.env`.)
-2. **Library admin → Worlds → New empty world:** a name and the DM.
+2. **Library admin → Worlds → New empty world:** a name and the GM.
 3. Admin sign-in is separate from the table sign-in once there is a second
    account: admins sign in at `https://YOUR.DOMAIN/admin/login`.
 
-## 6. Add the DM and the players
+## 6. Add the GM and the players
 
-As the DM: **World settings → Invite players → Make an invite code**. Send
+As the GM: **World settings → Invite players → Make an invite code**. Send
 the link (`https://YOUR.DOMAIN/join?code=…`) or the code. The player opens
 it on a phone or computer, picks a username and password, and is in. A code
-works once and expires. The DM then opens **The table** (the DM screen).
+works once and expires. The GM then opens **The table** (the GM screen).
 
 ## 7. Connect LegendKeeper
 
@@ -103,7 +103,7 @@ Library admin → **Connections → New connection → LegendKeeper (API key)**:
 
 Press **Test**: a wrong or missing key gives a plain message. Then
 **World sources → add a source** for the world and press **Sync**. Pages
-stay DM-only until they are known to be safe for players.
+stay GM-only until they are known to be safe for players.
 
 ## 8. Link Argos (your models)
 
@@ -127,24 +127,24 @@ job you changed.
 **Keep Argos (and Ollama, whisper, Kokoro) private.** Bind them to `127.0.0.1` or the Docker network, and never forward their ports on your
 router. A model server that can be reached from the internet can be used by anyone, and it bypasses Alexandria's sign-in and the guard that
 keeps classified text from models. Set Argos `apiKeys` and `ARGOS_API_KEY` (in `librarian/.env`) so the Models page and the container
-authenticate to it. The `/v1` gateway Alexandria itself offers is for the DM and the admin only (see `docs/SECURITY.md`).
+authenticate to it. The `/v1` gateway Alexandria itself offers is for the GM and the admin only (see `docs/SECURITY.md`).
 
 **RAM:** give the container 2 GB (4 GB for a big library with embeddings). See `docs/HOSTING.md`.
 
 ## 9. Choose the microphone and the speakers
 
-- **DM, Audio setup** (`/w/<world>/dm/audio`): the list of microphones
+- **GM, Audio setup** (`/w/<world>/dm/audio`): the list of microphones
   this computer has. Switch on the one(s) to record, then **Start recording**.
   The browser asks for microphone permission once. This needs **https** (or
   localhost).
-- **DM, Sound board → Speakers:** pick the output device for music, ambience,
+- **GM, Sound board → Speakers:** pick the output device for music, ambience,
   effects and the read-aloud voice (Chrome and Edge can choose outputs;
   Firefox and Safari play on the default output).
 - **Assistant, microphone button (slider icon next to it):** the microphone
   used for dictation. Remembered per browser.
 - **Players, Audio:** each player picks their own microphone and agrees to
   recording on their own device.
-- **DM, Recordings** (`/w/<world>/dm/recordings`): after a session stops the
+- **GM, Recordings** (`/w/<world>/dm/recordings`): after a session stops the
   audio is joined in the background (ffmpeg is in the Docker image). Play the
   full recording or any microphone, click a transcript line to jump there,
   download files, and choose per session how long the audio is kept (blank
@@ -159,7 +159,7 @@ in like the website.
 
 | Device | Install | Get it | First run |
 |---|---|---|---|
-| Ubuntu / Linux (DM) | the tar.gz | `Alexandria-AlphaV1-linux-x86_64.tar.gz` | `tar xzf` it, `cd` in, `./install.sh`, start **Alexandria** from the menu. Needs `sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0`. Enter `https://YOUR.DOMAIN`. |
+| Ubuntu / Linux (GM) | the tar.gz | `Alexandria-AlphaV1-linux-x86_64.tar.gz` | `tar xzf` it, `cd` in, `./install.sh`, start **Alexandria** from the menu. Needs `sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0`. Enter `https://YOUR.DOMAIN`. |
 | Windows | the setup program | `Alexandria-AlphaV1-windows-x64-setup.exe` | Run it. Windows SmartScreen may warn about an unknown publisher (the app is not code-signed): **More info → Run anyway**. Enter the server address. |
 | macOS | the disk image | `Alexandria-AlphaV1-macos-universal.dmg` | Open it, drag Alexandria to Applications. It is not notarised, so the first start is blocked: **right-click the app → Open → Open**, or **System Settings → Privacy & Security → Open Anyway**. Enter the server address. |
 | Android phone | the APK | `Alexandria-AlphaV1-android.apk` | Download it on the phone and open it; allow "install unknown apps" for your browser/file manager when asked. Enter the server address. Allow the microphone when asked. Updates must be signed with the same key (a release with a different key means uninstalling first). |

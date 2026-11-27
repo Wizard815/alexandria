@@ -1,4 +1,4 @@
-/* The DM's Table (pages/dm/Table.tsx): a band for right now, the play column, the side column, the world row. */
+/* The GM's Table (pages/dm/Table.tsx): a band for right now, the play column, the side column, the world row. */
 .tb-page { display: flex; flex-direction: column; gap: 14px; }
 .tb-pick { gap: 8px; }
 .tb-pick-zone { min-width: 96px; text-transform: uppercase; letter-spacing: 0.06em; }

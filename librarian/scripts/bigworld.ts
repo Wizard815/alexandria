@@ -7,7 +7,7 @@
 // build   ~3000 library pages with links and pictures, 700 LegendKeeper resources read through the
 //         intake path (a fake LegendKeeper), 20 000 transcript lines, 50 MB of uploads, a game module.
 // bench   starts the real server on that data (with the fake services), measures the time to /health,
-//         then the latency of the calls players and the DM make all the time, first on an idle server
+//         then the latency of the calls players and the GM make all the time, first on an idle server
 //         and then while each heavy admin job runs: a full crawl, a re-index, a module import, a big
 //         upload, the session summary and rules check. Also the event loop delay and memory.
 //
@@ -110,7 +110,7 @@ async function build() {
   t0 = performance.now();
   const sessions = 8;
   const per = Math.ceil(N.lines / sessions);
-  const speakers = ['Dungeon Master', 'Jess', 'Ari', 'Bo', 'Cass'];
+  const speakers = ['Game Master', 'Jess', 'Ari', 'Bo', 'Cass'];
   const words = ['Fireball', 'grappled', 'the warden', 'opportunity attack', 'roll initiative', 'the gate', 'a shield', 'counterspell', 'the oath', 'prone'];
   const dmAcct = setup.account.id as string;
   deps.db.exec('BEGIN');
@@ -209,9 +209,9 @@ async function bench() {
     const probes: { name: string; run: () => Promise<number> }[] = [
       { name: 'health', run: () => timed(() => get('/health', admin)) },
       { name: 'world info', run: () => timed(() => get(w, player)) },
-      { name: 'library tree (DM)', run: () => timed(() => get(`${w}/library/pages`, admin)) },
+      { name: 'library tree (GM)', run: () => timed(() => get(`${w}/library/pages`, admin)) },
       { name: 'library tree (player)', run: () => timed(() => get(`${w}/library/pages`, player)) },
-      { name: 'page read (DM)', run: () => timed(() => get(`${w}/library/pages/${ids[Math.floor(Math.random() * ids.length)]}`, admin)) },
+      { name: 'page read (GM)', run: () => timed(() => get(`${w}/library/pages/${ids[Math.floor(Math.random() * ids.length)]}`, admin)) },
       { name: 'page read (player)', run: () => timed(() => get(`${w}/library/pages/${pids[Math.floor(Math.random() * pids.length)]}`, player)) },
       { name: 'search', run: () => timed(() => get(`${w}/search?q=${['warden', 'ember crown', 'river', 'oath'][Math.floor(Math.random() * 4)]}&limit=20`, player)) },
       { name: 'library search', run: () => timed(() => get(`${w}/library/search?q=lantern`, admin)) },
@@ -329,7 +329,7 @@ async function bench() {
     });
 
     await post(`/__perf/session?open=0&id=${meta.session}`, admin);
-    await scenario('DM overview + embedding status polled (admin page open)', async () => {
+    await scenario('GM overview + embedding status polled (admin page open)', async () => {
       let n = 0;
       let finished = false;
       void (async () => { while (n++ < 12) { await get(`/api/admin/worlds/${wid}/overview`, admin); await get(`${w}/search/status`, admin); await sleep(250); } finished = true; })();
@@ -343,7 +343,7 @@ async function bench() {
     fs.rmSync(work, { recursive: true, force: true });
   }
   if (outFile) fs.writeFileSync(outFile, JSON.stringify(results, null, 2));
-  console.log('\nsummary (api = player and DM calls made while the job ran)');
+  console.log('\nsummary (api = player and GM calls made while the job ran)');
   console.log('scenario'.padEnd(58), 'job ms'.padStart(8), 'p50'.padStart(7), 'p95'.padStart(8), 'max'.padStart(8), 'loop p99'.padStart(9), 'loop max'.padStart(9), 'rss MB'.padStart(7));
   for (const [k, s] of Object.entries<any>(results.scenarios)) console.log(k.padEnd(58), String(s.jobMs).padStart(8), String(s.api.p50).padStart(7), String(s.api.p95).padStart(8), String(s.api.max).padStart(8), String(s.loop.p99).padStart(9), String(s.loop.max).padStart(9), String(s.mem.peakRssMb).padStart(7));
   console.log('startup', JSON.stringify(results.startup));

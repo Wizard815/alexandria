@@ -1,7 +1,7 @@
 // The player sheet: modules each player arranges (private ones hidden from the
-// DM too), HP, temporary HP and conditions with every change logged, the
+// GM too), HP, temporary HP and conditions with every change logged, the
 // combat tracker and the sheet kept in step both ways, players changing
-// their own mana (through the spells feature, logged there), the DM's party
+// their own mana (through the spells feature, logged there), the GM's party
 // status bar, and recently seen people and places from published summaries.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -68,7 +68,7 @@ test('Sheet_ModulesValidate: types, one of each live module, sizes and private o
   assert.deepEqual(m[2].data.entries[0], { id: 'e0', label: 'Inspiration', value: 1, max: 1 });
 });
 
-test('Sheet_Layout: a new sheet has the default modules; the player arranges it; private modules hide from the DM', async () => {
+test('Sheet_Layout: a new sheet has the default modules; the player arranges it; private modules hide from the GM', async () => {
   const fresh = await ok('GET', `${SH()}/me`, T.jess);
   assert.deepEqual(fresh.modules.map((m: any) => m.type), ['vitals', 'mana', 'counters', 'dm', 'notes', 'inventory', 'contacts', 'recent']);
   assert.equal(fresh.name, 'Jessamine');
@@ -82,7 +82,7 @@ test('Sheet_Layout: a new sheet has the default modules; the player arranges it;
   assert.equal(mine.modules.length, 3);
   assert.equal(mine.modules[1].data.entries[0].name, 'Captain Vex');
   const dmView = await ok('GET', `${SH()}/${ID.jess}`, T.dm);
-  assert.deepEqual(dmView.modules.map((m: any) => m.id), ['vitals', 'allies'], 'the DM does not see private modules');
+  assert.deepEqual(dmView.modules.map((m: any) => m.id), ['vitals', 'allies'], 'the GM does not see private modules');
   assert.ok(!JSON.stringify(dmView).includes('crown'));
   assert.equal((await call('GET', `${SH()}/${ID.jess}`, T.tom)).status, 404, 'other players cannot read it');
   assert.equal((await call('POST', `${SH()}/${ID.jess}/vitals`, T.tom, { damage: 1 })).status, 404, 'nor change it');
@@ -103,7 +103,7 @@ test('Sheet_Vitals: damage goes through temporary HP first, healing stops at max
   assert.ok(hpLines.some((x: any) => x.before === 20 && x.after === 17 && x.amount === -3 && x.note === 'Goblin arrow' && x.source === 'sheet'));
   assert.ok(log.some((x: any) => x.kind === 'temp' && x.before === 5 && x.after === 0));
   assert.ok(log.some((x: any) => x.kind === 'conditions' && /Poisoned, Prone/.test(x.note)));
-  // The DM's change is marked as the DM's.
+  // The GM's change is marked as the GM's.
   await ok('POST', `${SH()}/${ID.jess}/vitals`, T.dm, { damage: 2 });
   const dmLog = (await ok('GET', `${SH()}/log?account=${ID.jess}`, T.dm)).log;
   assert.equal(dmLog[0].source, 'dm');
@@ -137,7 +137,7 @@ test('Sheet_Combat: a player joins combat with their sheet HP, and changes flow 
   await ok('DELETE', `/api/worlds/${W}/live/combatants/${cb.id}`, T.dm);
 });
 
-test('Sheet_Mana: players change their own mana within the pool, logged in the spells log; the DM sees it in the status bar', async () => {
+test('Sheet_Mana: players change their own mana within the pool, logged in the spells log; the GM sees it in the status bar', async () => {
   assert.equal((await call('POST', `${SH()}/me/mana`, T.jess, { delta: 1 })).status, 409, 'mana is off');
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellMana: true });
   await ok('PUT', `/api/worlds/${W}/spells/characters/${ID.jess}`, T.dm, { level: 3, manaMax: 10 });
@@ -152,8 +152,8 @@ test('Sheet_Mana: players change their own mana within the pool, logged in the s
   const jess = (await ok('GET', `${SH()}/party`, T.dm)).players.find((p: any) => p.accountId === ID.jess);
   assert.deepEqual(jess.mana, { on: true, now: 10, max: 10 });
   assert.equal(jess.name, 'Jessamine');
-  assert.equal((await call('GET', `${SH()}/party`, T.jess)).status, 403, 'the status bar is the DM’s');
-  // The MANA setting spellManaPlayerEdit: off stops players, never the DM.
+  assert.equal((await call('GET', `${SH()}/party`, T.jess)).status, 403, 'the status bar is the GM’s');
+  // The MANA setting spellManaPlayerEdit: off stops players, never the GM.
   const row = deps.db.prepare('SELECT settings FROM worlds WHERE id = ?').get(W) as any;
   run(deps.db, 'UPDATE worlds SET settings = ? WHERE id = ?', JSON.stringify({ ...JSON.parse(row.settings), spellManaPlayerEdit: false }), W);
   assert.equal((await call('POST', `${SH()}/me/mana`, T.jess, { delta: -1 })).status, 403);
@@ -173,12 +173,12 @@ test('Sheet_Recent: people and places named in published summaries, only what th
   assert.ok(rec.people.find((p: any) => p.name === 'Mira Vane').personId);
   assert.deepEqual(rec.places.map((p: any) => p.name), ['Bramblegate']);
   assert.equal(rec.places[0].session, 1);
-  // The DM asking for a player's list gets that player's list, not the DM's.
+  // The GM asking for a player's list gets that player's list, not the GM's.
   const asDm = await ok('GET', `${SH()}/${ID.jess}/recent`, T.dm);
   assert.deepEqual(asDm.places.map((p: any) => p.name), ['Bramblegate']);
 });
 
-test('Sheet_DmNotes: the DM leaves notes and goals for one player; only that player and the DM see them; the player ticks goals', async () => {
+test('Sheet_DmNotes: the GM leaves notes and goals for one player; only that player and the GM see them; the player ticks goals', async () => {
   const made = await ok('POST', `${SH()}/${ID.jess}/dm-notes`, T.dm, { kind: 'goal', text: 'Find out who lights the lamp' });
   await ok('POST', `${SH()}/${ID.jess}/dm-notes`, T.dm, { text: 'You dream of a drowned bell.' });
   const gid = made.fromDm.find((x: any) => x.kind === 'goal').id;
@@ -207,7 +207,7 @@ test('Sheet_ContactsLinks: a person on the sheet can link a library page; recent
   assert.equal(rec.factions[0].session, 2);
 });
 
-test('Sheet_Rerolls: the house rule is off until the DM turns it on; the DM gives re-rolls, the player spends them, all logged', async () => {
+test('Sheet_Rerolls: the house rule is off until the GM turns it on; the GM gives re-rolls, the player spends them, all logged', async () => {
   assert.equal((await ok('GET', `${SH()}/me`, T.jess)).rerolls.on, false);
   assert.equal((await call('POST', `${SH()}/${ID.jess}/rerolls`, T.dm, { kind: 'personal', delta: 1 })).status, 409, 'off by default');
   await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { sheetRerolls: true, sheetRerollCap: 2 });
@@ -223,6 +223,6 @@ test('Sheet_Rerolls: the house rule is off until the DM turns it on; the DM give
   assert.equal(party.players.find((p: any) => p.accountId === ID.jess).rerolls.dm, 1);
   const log = (await ok('GET', `${SH()}/log?account=${ID.jess}`, T.dm)).log.filter((x: any) => x.kind === 'reroll');
   assert.equal(log.length, 3);
-  assert.match(log[2].note, /DM re-roll given · Great speech/);
-  assert.match(log[0].note, /DM re-roll used/);
+  assert.match(log[2].note, /GM re-roll given · Great speech/);
+  assert.match(log[0].note, /GM re-roll used/);
 });

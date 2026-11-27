@@ -6,7 +6,7 @@
 //   copied to the other. Each link remembers the last numbers both sides
 //   agreed on (last_*); Alexandria pushes only what changed here since then,
 //   so a change that came from Foundry is never sent back to it.
-// - Conditions ↔ actor status effects, through a name map the DM can edit.
+// - Conditions ↔ actor status effects, through a name map the GM can edit.
 //   Conditions with no status, and statuses with no condition, are left alone.
 // - Tokens on a linked scene are map marks (kind 'token') on the Alexandria
 //   map the scene is linked to. Fog hides them from players like any mark.
@@ -38,7 +38,7 @@ export const DEFAULT_STATUSES: Record<string, string> = {
   Dead: 'dead',
 };
 
-/** The DM's map (setting foundryStatuses) over the defaults; an empty id turns a default off. */
+/** The GM's map (setting foundryStatuses) over the defaults; an empty id turns a default off. */
 export function statusMap(custom: unknown): Record<string, string> {
   const out: Record<string, string> = { ...DEFAULT_STATUSES };
   if (custom && typeof custom === 'object') {
@@ -145,7 +145,7 @@ export function guessAccount(db: DB, worldId: string, name: string, owners: stri
   return null;
 }
 
-/** One line in the DM's Foundry activity list (newest 100 kept). */
+/** One line in the GM's Foundry activity list (newest 100 kept). */
 export function activity(db: DB, worldId: string, dir: 'in' | 'out', text: string) {
   run(db, 'INSERT INTO foundry_activity (world_id, dir, text, at) VALUES (?, ?, ?, ?)', worldId, dir, text.slice(0, 300), now());
   run(db, 'DELETE FROM foundry_activity WHERE world_id = ? AND id NOT IN (SELECT id FROM foundry_activity WHERE world_id = ? ORDER BY id DESC LIMIT 100)', worldId, worldId);

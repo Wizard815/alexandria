@@ -1,7 +1,7 @@
 // Party & inventory: each player's pack and coin, the party's shared
-// pack and purse, and who is at the table. DM notes on items stay DM-only.
-// Players' proposed changes show inline to approve; the DM's own changes to
-// someone else's things need a reason and alert the owner, unless the DM
+// pack and purse, and who is at the table. GM notes on items stay GM-only.
+// Players' proposed changes show inline to approve; the GM's own changes to
+// someone else's things need a reason and alert the owner, unless the GM
 // ticks "Don't tell" (a secret for the story; off by default). Players' free
 // gives (coin and items between them and the party) show in a log here.
 // Items can carry a picture.
@@ -16,7 +16,7 @@ import { ItemHover } from '../../features/itemcards/index.tsx';
 import { PagePicker } from '../../features/itemcards/PagePicker.tsx';
 import { type Item, GiveCoinModal, ImageField, ImageViewer, ItemImage, MoveItemModal, QuietToggle, TransfersList } from '../inventory/giving.tsx';
 
-/** "Why" for a DM change, when Settings ask for one. */
+/** "Why" for a GM change, when Settings ask for one. */
 function useReason() {
   const { info } = useWorld();
   const need = extra(info.settings).dmChangeReason;
@@ -36,7 +36,7 @@ export default function DMParty() {
   const [tab, setTab] = useState<'cards' | 'details' | 'log'>('cards');
   return (
     <div className="page wide">
-      <PageHead title="Players" lead={info.settings.dmEditsInventory ? 'Each player’s gold and pack, then the party’s. Your changes are logged and players see them.' : 'Each player’s gold and pack, then the party’s. DM edits to packs are off in Settings.'} />
+      <PageHead title="Players" lead={info.settings.dmEditsInventory ? 'Each player’s gold and pack, then the party’s. Your changes are logged and players see them.' : 'Each player’s gold and pack, then the party’s. GM edits to packs are off in Settings.'} />
       <Tabs label="Players page" value={tab} onChange={setTab} items={[['cards', 'Players and party'], ['details', 'Details and approvals'], ['log', 'Gives and moves']]} />
       {tab === 'cards' && <PlayersCards />}
       {tab === 'details' && <PartyDetails />}
@@ -146,7 +146,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
                     </td>
                     <td data-label="Qty">{it.qty}</td>
                     {weightOn && <td data-label="Wt">{it.weight ?? '—'}</td>}
-                    <td className="small"><span>{it.note}</span>{it.dm_note && <><br /><span style={{ color: 'var(--danger-text)' }}>DM: {it.dm_note}</span></>}<br /><span className="tiny faint">{nameOf(it.updated_by)} · {when(it.updated_at)}</span></td>
+                    <td className="small"><span>{it.note}</span>{it.dm_note && <><br /><span style={{ color: 'var(--danger-text)' }}>GM: {it.dm_note}</span></>}<br /><span className="tiny faint">{nameOf(it.updated_by)} · {when(it.updated_at)}</span></td>
                     <td><span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>{!readOnly && <button type="button" className="btn small" onClick={() => setEditing(it.id)}>Edit</button>}{!readOnly && it.status !== 'pending' && !it.pendingChange && <button type="button" className="btn small ghost" onClick={() => setMoving(it)}>Move…</button>}</span></td>
                   </tr>
                 ))}
@@ -165,7 +165,7 @@ function Items({ owner, onDecided }: { owner: string; onDecided: () => Promise<v
           </div>
           <div className="grid">
             <Field label="Note" help={owner === 'party' ? 'The party sees this' : 'The player sees this'}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-            <Field label="DM note" help="Only you see this (e.g. it's cursed)"><input value={dmNote} onChange={(e) => setDmNote(e.target.value)} /></Field>
+            <Field label="GM note" help="Only you see this (e.g. it's cursed)"><input value={dmNote} onChange={(e) => setDmNote(e.target.value)} /></Field>
           </div>
           <PagePicker value={pageId} onChange={setPageId} />
           <ImageField value={image} name={name} onChange={setImage} />
@@ -213,7 +213,7 @@ function EditRow({ it, weightOn, players, ask, onDone }: { it: any; weightOn: bo
           </div>
           <div className="grid">
             <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-            <Field label="DM note"><input value={dmNote} onChange={(e) => setDmNote(e.target.value)} /></Field>
+            <Field label="GM note"><input value={dmNote} onChange={(e) => setDmNote(e.target.value)} /></Field>
           </div>
           <PagePicker value={pageId} onChange={setPageId} />
           <ImageField value={image} name={name} onChange={setImage} />

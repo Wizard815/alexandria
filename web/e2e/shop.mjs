@@ -1,6 +1,6 @@
-// The Shop end to end: the DM generates a shop in the browser and opens it to players; a player on a phone
+// The Shop end to end: the GM generates a shop in the browser and opens it to players; a player on a phone
 // sees it (and never a hidden shop), buys with their own coin, and their coin and Inventory update live in
-// another tab with no reload; a DM price change and closing the shop reach the phone live too.
+// another tab with no reload; a GM price change and closing the shop reach the phone live too.
 // Run from web/: npm run build && node e2e/shop.mjs   (SHOP_PORT, default 8851)
 import path from 'node:path';
 import { chromium, root, startScript, tmpDir, quiet } from './lib.mjs';
@@ -14,7 +14,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('shop'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tokDM = await login('dm', 'dungeon master 123');
+const tokDM = await login('dm', 'game master 123');
 const tokJess = await login('jess', 'player pass 123');
 const world = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokDM } })).json())[0];
 const api = async (tok, method, p, body) => {
@@ -49,8 +49,8 @@ async function signIn(user, pass, viewport, mobile) {
 }
 
 try {
-  // 1. The DM generates a blacksmith in the browser and saves it open.
-  const { page: dm } = await signIn('dm', 'dungeon master 123', { width: 1366, height: 900 });
+  // 1. The GM generates a blacksmith in the browser and saves it open.
+  const { page: dm } = await signIn('dm', 'game master 123', { width: 1366, height: 900 });
   await dm.goto(`${W}/dm/shops?tab=generate`);
   await dm.getByTestId('gen-kind').selectOption('blacksmith');
   await dm.getByTestId('gen-size').selectOption('city');
@@ -63,8 +63,8 @@ try {
   await dm.getByTestId('gen-save').click();
   await dm.getByTestId('shop-status-open').waitFor({ timeout: 10000 });
   check(await dm.getByTestId('shop-status-open').getAttribute('aria-pressed') === 'true', 'the saved shop is open');
-  check((await dm.getByTestId('dm-stock-line').count()) >= 5, 'the DM sees the stock lines');
-  note('DM generated and opened a shop');
+  check((await dm.getByTestId('dm-stock-line').count()) >= 5, 'the GM sees the stock lines');
+  note('GM generated and opened a shop');
 
   // 2. A player on a phone: the open shop is there, the hidden one is not.
   const { ctx: pctx, page: pl } = await signIn('jess', 'player pass 123', { width: 390, height: 844 }, true);
@@ -113,7 +113,7 @@ try {
   const qtyAfter = (await lines.nth(pickIdx).getByTestId('shop-qty').innerText()).trim();
   check(qtyAfter !== qtyBefore || qtyBefore === 'plenty', `the stock went down on the phone (${qtyBefore} -> ${qtyAfter})`);
 
-  // 4. The DM changes a price: the phone shows it live.
+  // 4. The GM changes a price: the phone shows it live.
   const dmShop = (await api(tokDM, 'GET', '/shop/shops')).shops.find((s) => s.name === draftName);
   const full = await api(tokDM, 'GET', `/shop/shops/${dmShop.id}`);
   const target = full.stock.find((l) => l.name === itemName);
@@ -121,13 +121,13 @@ try {
   const live = await pl.getByTestId('shop-price').filter({ hasText: '12 gp 3 sp 4 cp' }).first().waitFor({ timeout: 8000 }).then(() => true, () => false);
   check(live, 'the new price reached the phone live');
 
-  // 5. The DM hides the shop in the browser: it vanishes from the phone.
+  // 5. The GM hides the shop in the browser: it vanishes from the phone.
   await dm.getByTestId('shop-status-hidden').click();
   const gone = await pl.waitForFunction((name) => !document.body.innerText.includes(name), draftName, { timeout: 8000 }).then(() => true, () => false);
   check(gone, 'hiding the shop took it off the phone live');
   note('price change and hiding reached the phone live');
 
-  // 6. A town, then the DM sends the (hidden) shop to Jess: it opens, pops up on her phone, and she haggles.
+  // 6. A town, then the GM sends the (hidden) shop to Jess: it opens, pops up on her phone, and she haggles.
   const town = await api(tokDM, 'POST', '/shop/towns', { name: 'Harrowgate', pricePct: 25, description: 'A city under siege.' });
   await api(tokDM, 'PATCH', `/shop/shops/${dmShop.id}`, { townId: town.id, barterPct: 20 });
   await pl.goto(`${W}/shop`);

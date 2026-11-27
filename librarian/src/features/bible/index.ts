@@ -3,10 +3,10 @@
 // whoever asks from the pages they may open right now.
 //
 //   GET  /api/worlds/:world/bible?subject=&kind=&q=&limit=   the bible for the caller
-//   GET  /api/worlds/:world/bible/status                      (DM) extraction progress per scope
-//   POST /api/worlds/:world/bible/refresh                     (DM) extract what is stale now
-//   POST /api/worlds/:world/bible/rebuild                     (DM) forget every fact and read it all again (one bulk pass, a job)
-//   POST /api/worlds/:world/bible/read-now   {all?: true}     (DM) read 25 pages now, or everything waiting in one bulk pass
+//   GET  /api/worlds/:world/bible/status                      (GM) extraction progress per scope
+//   POST /api/worlds/:world/bible/refresh                     (GM) extract what is stale now
+//   POST /api/worlds/:world/bible/rebuild                     (GM) forget every fact and read it all again (one bulk pass, a job)
+//   POST /api/worlds/:world/bible/read-now   {all?: true}     (GM) read 25 pages now, or everything waiting in one bulk pass
 //   MCP  story_bible
 //
 // Extraction is incremental (only pages whose copy changed), budgeted and runs
@@ -27,7 +27,7 @@ import { auditBible } from './audit.ts';
 import { BIBLE_RUNS, bibleRuns, mayRead, worldsToRead } from './when.ts';
 import { BULK_KIND, bulkRunning, startBulkBuild } from '../search/bulkbuild.ts';
 
-// A "read now" the DM started, by world, and the background reader's own stop button.
+// A "read now" the GM started, by world, and the background reader's own stop button.
 const manual = new Map<string, AbortController>();
 let stopRunning: (worldId: string) => void = () => {};
 
@@ -96,7 +96,7 @@ const feature: Feature = {
       run(d.db, 'DELETE FROM bible_facts WHERE world_id = ?', w);
       run(d.db, 'DELETE FROM bible_state WHERE world_id = ?', w);
       const cov = bibleCoverage(d, w);
-      // Read again in one bulk pass (a job), whatever "when it reads" says: the DM asked for it.
+      // Read again in one bulk pass (a job), whatever "when it reads" says: the GM asked for it.
       res.json({ ok: true, ...cov, started: startBulkBuild(d, w, { bible: true }) });
     });
 

@@ -36,7 +36,7 @@ export interface ActionDef {
   title: string;
   group: string;
   description: string;
-  /** Who may run it. Everything not listed for players is DM-only. */
+  /** Who may run it. Everything not listed for players is GM-only. */
   roles: Role[];
   args: ArgSpec[];
   run(rc: Runner, a: Record<string, any>): Promise<unknown>;

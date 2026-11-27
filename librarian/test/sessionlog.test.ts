@@ -67,9 +67,9 @@ before(async () => {
   T.jess = j.token; ID.jess = j.account.id;
 
   await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Crown', visibility: 'dm', markdown: `# Crown\n${PAGE_SECRET}\n` });
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `# Saltmarsh\nA fishing town.\n\n> [!secret] DM\n> The mayor poisons the wells with nightshade every single winter solstice.\n` });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `# Saltmarsh\nA fishing town.\n\n> [!secret] GM\n> The mayor poisons the wells with nightshade every single winter solstice.\n` });
 
-  // A recorded session: a players' line, a DM-only line and an aside line.
+  // A recorded session: a players' line, a GM-only line and an aside line.
   run(deps.db, "INSERT INTO audio_sessions (id, world_id, name, started_at, stopped_at) VALUES ('as1', ?, 'Table', '2026-01-01T18:00:00.000Z', '2026-01-01T21:00:00.000Z')", W);
   run(deps.db, "INSERT INTO audio_mics (id, world_id, account_id, device_id, label, mode, players_transcript, aside, room, created_at) VALUES ('mic_a', ?, ?, 'd1', 'Aside mic', 'always', 0, 1, 0, '2026-01-01T00:00:00.000Z')", W, ID.dm);
   const line = (n: number, text: string, audience: string, sources = '[]') => run(deps.db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', `l${n}`, 'as1', W, n * 10000, n * 10000 + 5000, 'Someone', text, audience, '2026-01-01T18:00:00.000Z');
@@ -90,9 +90,9 @@ test('SessionLog: a draft without a model uses only the players\' lines', async 
   for (const h of ['## Recap', '## Key moments', '## Loot & coin', '## People met', '## Open threads']) assert.ok(d.markdown.includes(h), h);
   assert.ok(d.markdown.includes('Captain Aldous'));
   assert.ok(d.markdown.includes('Bandit purse'));
-  assert.ok(!d.markdown.includes('vampire'), 'DM line in summary');
+  assert.ok(!d.markdown.includes('vampire'), 'GM line in summary');
   assert.ok(!d.markdown.includes('smuggled crate'), 'aside line in summary');
-  assert.ok(d.dmNotes.includes('vampire'), 'DM notes keep the DM lines');
+  assert.ok(d.dmNotes.includes('vampire'), 'GM notes keep the GM lines');
   assert.ok(d.dmNotes.includes('(aside)'));
 });
 
@@ -120,7 +120,7 @@ test('SessionLog: with a model, a summary and a date proposal; revising makes a 
   assert.equal(r.status, 503);
 });
 
-test('SessionLog: nothing moves until the DM accepts; accepting moves the clock and adds a travel event', async () => {
+test('SessionLog: nothing moves until the GM accepts; accepting moves the clock and adds a travel event', async () => {
   const before = await ok('GET', `/api/worlds/${W}/clock`, T.dm);
   const d = await ok('GET', `${SL()}/drafts/${draftId}`, T.dm);
   assert.equal((await ok('GET', `/api/worlds/${W}/clock`, T.dm)).minutes, before.minutes);
@@ -139,7 +139,7 @@ test('SessionLog: nothing moves until the DM accepts; accepting moves the clock 
   assert.ok(d.id);
 });
 
-test('SessionLog: publish blocks DM-only overlaps; asides never publish, even with force', async () => {
+test('SessionLog: publish blocks GM-only overlaps; asides never publish, even with force', async () => {
   await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: `## Recap\nWe learned that ${PAGE_SECRET.toLowerCase()}\n` });
   const blocked = await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {});
   assert.equal(blocked.status, 409);
@@ -151,7 +151,7 @@ test('SessionLog: publish blocks DM-only overlaps; asides never publish, even wi
   assert.equal((await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {})).status, 409, 'secret block');
 
   await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: `## Recap\nThe baron: ${DM_LINE}.\n` });
-  assert.equal((await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {})).status, 409, 'DM line');
+  assert.equal((await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, {})).status, 409, 'GM line');
 
   await ok('PUT', `${SL()}/drafts/${draftId}`, T.dm, { markdown: `## Recap\nWe heard ${ASIDE_LINE}.\n` });
   const a = await call('POST', `${SL()}/drafts/${draftId}/publish`, T.dm, { force: true });
@@ -161,7 +161,7 @@ test('SessionLog: publish blocks DM-only overlaps; asides never publish, even wi
   assert.equal((await ok('GET', SL(), T.dm)).length, 0);
 });
 
-test('SessionLog: players never see drafts or DM notes; a published entry reaches them with a live event', async () => {
+test('SessionLog: players never see drafts or GM notes; a published entry reaches them with a live event', async () => {
   for (const p of [`${SL()}/drafts`, `${SL()}/drafts/${draftId}`, `${SL()}/drafts/${draftId}/leakcheck`]) assert.equal((await call('GET', p, T.jess)).status, 403, p);
   assert.equal((await call('POST', `${SL()}/drafts`, T.jess, { audioSessionId: 'as1' })).status, 403);
   assert.deepEqual(await ok('GET', SL(), T.jess), []);
@@ -193,7 +193,7 @@ test('SessionLog: players never see drafts or DM notes; a published entry reache
   const events = await ok('GET', `/api/worlds/${W}/clock/events?from=0&to=99999999`, T.jess);
   assert.ok((Array.isArray(events) ? events : events.events).some((e: any) => e.kind === 'session'));
 
-  // Unpublish hides it from players, and the DM can republish it under the same number.
+  // Unpublish hides it from players, and the GM can republish it under the same number.
   await ok('POST', `${SL()}/${pub.id}/unpublish`, T.dm);
   assert.deepEqual(await ok('GET', SL(), T.jess), []);
   assert.equal((await call('GET', `${SL()}/${pub.id}`, T.jess)).status, 404);
@@ -202,7 +202,7 @@ test('SessionLog: players never see drafts or DM notes; a published entry reache
   assert.equal((await ok('GET', SL(), T.jess)).length, 1);
 });
 
-test('SessionLog: MCP tools: players read the log, only the DM write key drafts', async () => {
+test('SessionLog: MCP tools: players read the log, only the GM write key drafts', async () => {
   const dk = await ok('POST', '/api/keys', T.dm, { scope: 'scribe', worldId: W, label: 'dm ai', access: 'write' });
   const pk = await ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });
   const rpc = async (key: string, method: string, params?: unknown) => JSON.stringify((await call('POST', '/mcp', key, { jsonrpc: '2.0', id: 1, method, params })).body);
@@ -220,7 +220,7 @@ test('SessionLog: the assistant may only accept a date change a draft actually p
   assert.equal(r.status, 409, JSON.stringify(r.body));
   assert.match(String(r.body?.error), /nothing to accept/);
   const given = await ok('POST', `${SL()}/drafts/${draftId}/date`, T.dm, { accept: true, minutes: 1440, requireProposal: true });
-  assert.equal(given.dateStatus, 'accepted', 'a time the DM gave is set');
+  assert.equal(given.dateStatus, 'accepted', 'a time the GM gave is set');
   const tool = (await import('../src/features/sessionlog/index.ts')).default.mcpTools!.find((t) => t.name === 'decide_session_date')!;
   assert.equal((tool.call({ draftId: 'x', accept: true }) as any).body.requireProposal, true, 'the tool always asks for a real proposal');
 });

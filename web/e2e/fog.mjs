@@ -1,5 +1,5 @@
-// End-to-end test of fog of war and the table display, on the demo world: the DM turns fog on from the Map page and shows the
-// map on the table; from the side screen's fog panel the DM reveals a room, and the table screen (and a player's own Map page)
+// End-to-end test of fog of war and the table display, on the demo world: the GM turns fog on from the Map page and shows the
+// map on the table; from the side screen's fog panel the GM reveals a room, and the table screen (and a player's own Map page)
 // update live. A party pin inside fog is never in the table screen, whatever the page does; the picture never shows before its
 // fog is drawn.
 // Run from web/: npm run build && node e2e/fog.mjs   (FOG_PORT)
@@ -51,7 +51,7 @@ const drag = async (page, loc, [x0, y0], [x1, y1]) => {
 };
 
 try {
-  const { ctx, page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1400, height: 900 }, false, /\/w\/saltreach/);
+  const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 }, false, /\/w\/saltreach/);
   watch(page, 'dm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
@@ -76,18 +76,18 @@ try {
   const PIC = `lib:${up.json.id}`;
   await api('POST', '/map/world/marks', { kind: 'pin', x: 15, y: 70, label: 'Open Pin', visibility: 'party' });
   await api('POST', '/map/world/marks', { kind: 'pin', x: 80, y: 20, label: SECRET, visibility: 'party' });
-  // Make the cave the DM's own pick on the Map page too, so the DM page and the table agree.
+  // Make the cave the GM's own pick on the Map page too, so the GM page and the table agree.
   await page.evaluate(({ id, pic }) => { localStorage.setItem(`alx.mapbg.${id}`, JSON.stringify({ world: pic })); }, { id: (await api('GET', '')).json.id, pic: PIC });
 
-  // ---- 1. the DM's Map page: fog is off until turned on, then everything is fogged ---------------------------------------
+  // ---- 1. the GM's Map page: fog is off until turned on, then everything is fogged ---------------------------------------
   await page.goto(`${W}/dm/map`);
   await page.getByTestId('map-fog').waitFor({ timeout: 8000 });
-  check(await shows(page.getByText(SECRET).first(), 3000) || (await page.locator('[data-mark]').count()) >= 2, 'dm map: the DM sees both pins with fog off');
+  check(await shows(page.getByText(SECRET).first(), 3000) || (await page.locator('[data-mark]').count()) >= 2, 'dm map: the GM sees both pins with fog off');
   check((await page.getByTestId('fog-canvas').count()) === 0, 'dm map: no fog canvas while fog is off');
   await page.getByTestId('fog-toggle').click();
   await page.getByTestId('fog-canvas').waitFor({ timeout: 8000 });
   const tinted = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid=fog-canvas]')).opacity);
-  check(Number(tinted) < 1, `dm map: the DM sees fog as a tint (opacity ${tinted})`);
+  check(Number(tinted) < 1, `dm map: the GM sees fog as a tint (opacity ${tinted})`);
   check((await alphaAt(page, '', 0.5, 0.5)) === 255, 'dm map: turning fog on starts fully fogged');
   await page.getByTestId('show-on-table').click();
   await settle(page, 500);
@@ -119,7 +119,7 @@ try {
   await settle(table, 800);
   await waitAlpha(table, '[data-testid=table-map]', 0.8, 0.2, 'fogged');
   const picShown = await table.evaluate(() => /url\(/.test(document.querySelector('[data-testid=table-map]').style.background));
-  check(picShown, 'table: the DM\'s picture is on the table');
+  check(picShown, 'table: the GM\'s picture is on the table');
   await settle(table, 800);
   await table.evaluate(() => { window.__stop = true; });
   const tableHtml = async () => table.evaluate(() => document.documentElement.outerHTML + document.body.innerText);
@@ -151,7 +151,7 @@ try {
   await panel.getByTestId('fog-map').waitFor({ timeout: 8000 });
   await panel.locator('[data-testid=fog-canvas]').waitFor({ timeout: 8000 });
   await waitAlpha(side, '[data-testid=side-panel-fog]', 0.8, 0.2, 'fogged');
-  check(Number(await side.evaluate(() => getComputedStyle(document.querySelector('[data-testid=side-panel-fog] [data-testid=fog-canvas]')).opacity)) < 1, 'side: fog is a tint for the DM');
+  check(Number(await side.evaluate(() => getComputedStyle(document.querySelector('[data-testid=side-panel-fog] [data-testid=fog-canvas]')).opacity)) < 1, 'side: fog is a tint for the GM');
   check(await panel.getByText('Fog on').isVisible(), 'side: the panel shows the same map with fog on');
   // Circle brush at the pin's spot.
   await panel.getByTestId('fog-size').fill('0.1');

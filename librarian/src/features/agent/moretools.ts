@@ -16,7 +16,7 @@ const STOP = new Set('a an the and or of to in on at for with from by is are do 
 const stem = (w: string) => w.replace(/(ing|ed|es|s)$/, '');
 const tokens = (s: string): string[] => (s.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((w) => w.length > 1 && !STOP.has(w)).map(stem);
 
-/** Tools matching a few words, best first (name hits count most). `my_*` tools are for players, never listed for the DM. */
+/** Tools matching a few words, best first (name hits count most). `my_*` tools are for players, never listed for the GM. */
 export function matchTools(tools: McpTool[], query: string, dm: boolean, max = 6): McpTool[] {
   const q = tokens(query);
   if (!q.length) return [];

@@ -1,5 +1,5 @@
 // Live updates over Server-Sent Events. Every event carries an audience
-// check that runs per subscriber on the server, so a DM-only event is never
+// check that runs per subscriber on the server, so a GM-only event is never
 // written to a player's stream.
 import type { Response } from 'express';
 import type { Viewer } from './policy.ts';
@@ -71,7 +71,7 @@ export class EventHub {
       const data = view(s.viewer);
       if (data !== null && data !== undefined) s.res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
     }
-    // Server-side listeners (taps) see the DM's view: they run inside the
+    // Server-side listeners (taps) see the GM's view: they run inside the
     // librarian and never forward data to a viewer (see tap()).
     if (this.taps.size) {
       let dmView: unknown;

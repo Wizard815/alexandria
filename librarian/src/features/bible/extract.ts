@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS bible_state (
 const PROMPT_VERSION = 'bible1';
 const MAX_TEXT = 6000;
 const MAX_FACTS = 30;
-/** Scopes are taken in turn, a few pages each (the party's copy, then the DM's, in each turn), so none waits for the others to finish. */
+/** Scopes are taken in turn, a few pages each (the party's copy, then the GM's, in each turn), so none waits for the others to finish. */
 const ORDER: VecScope[] = ['party', 'dm', 'lifted', 'broker'];
 const PER_TURN = 3;
 
@@ -142,7 +142,7 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
   let read = 0;
   const stopped = () => !!opts.signal?.aborted || bad >= 2;
 
-  // Pages in scope turns (a few of the party's copy, then the DM's, ...), each page taken once per pass.
+  // Pages in scope turns (a few of the party's copy, then the GM's, ...), each page taken once per pass.
   const taken = new Set<string>();
   let settled = 0;
   const buf: Pending[] = [];

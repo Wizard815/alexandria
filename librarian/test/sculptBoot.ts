@@ -1,4 +1,4 @@
-// A booted app with a world, a DM, a player and a fake chat model, shared by the sculpt tests.
+// A booted app with a world, a GM, a player and a fake chat model, shared by the sculpt tests.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -58,7 +58,7 @@ export async function boot(withModel: boolean, opts: { modelUp?: boolean } = {})
   const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
   const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] DM\n> ${DM_SECRET}.\n`);
+  await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] GM\n> ${DM_SECRET}.\n`);
   void opts;
   const S = `/api/worlds/${W}/sculpt`;
   return { made, model, T, W, S, call, ok, base };

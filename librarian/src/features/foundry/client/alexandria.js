@@ -285,7 +285,7 @@ export class Bridge {
       return;
     }
     if (it.kind === 'fetchScene') {
-      // A scene's picture to Alexandria (the DM asked to bring it in).
+      // A scene's picture to Alexandria (the GM asked to bring it in).
       const sc = game.scenes.get(it.sceneId);
       const src = sc?.background?.src;
       if (!src) return;
@@ -364,8 +364,8 @@ function startBridge() {
 if (typeof Hooks !== 'undefined') {
   Hooks.once('init', () => {
     const restart = () => { if (game.ready) void startBridge(); };
-    game.settings.register(ID, 'url', { name: 'Alexandria address', hint: 'Where your Alexandria server is, e.g. http://192.168.1.20:8787 (from DM → Setup → Foundry in Alexandria).', scope: 'client', config: true, type: String, default: '', onChange: restart });
-    game.settings.register(ID, 'key', { name: 'Bridge key', hint: 'The key from DM → Setup → Foundry in Alexandria. It stays in this browser; players never get it.', scope: 'client', config: true, type: String, default: '', onChange: restart });
+    game.settings.register(ID, 'url', { name: 'Alexandria address', hint: 'Where your Alexandria server is, e.g. http://192.168.1.20:8787 (from GM → Setup → Foundry in Alexandria).', scope: 'client', config: true, type: String, default: '', onChange: restart });
+    game.settings.register(ID, 'key', { name: 'Bridge key', hint: 'The key from GM → Setup → Foundry in Alexandria. It stays in this browser; players never get it.', scope: 'client', config: true, type: String, default: '', onChange: restart });
   });
   Hooks.once('ready', () => {
     void startBridge();

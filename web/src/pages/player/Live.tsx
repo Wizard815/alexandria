@@ -1,5 +1,5 @@
 // The live session for a player: who is here, the party pouch, my coin,
-// and combat as the DM lets me see it. No health numbers, ever.
+// and combat as the GM lets me see it. No health numbers, ever.
 import '../combat.css';
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -48,7 +48,7 @@ export default function PlayerLive() {
             <StageBoard embedded />
             {!stageCombat && <CombatPanel c={d.combat} />}
             <section className="card" aria-label="Session chat"><ChatPanel /></section>
-            {d.captions && <div className="note">Live captions are in the transcript panel (the CC button at the bottom right) while the DM is recording.</div>}
+            {d.captions && <div className="note">Live captions are in the transcript panel (the CC button at the bottom right) while the GM is recording.</div>}
           </div>
           <aside className="col-1 stack loose">
             <section className="card" aria-labelledby="here-h">
@@ -72,7 +72,7 @@ export default function PlayerLive() {
                   {d.here.map((h) => (
                     <li key={h.account_id} className="row" style={{ gap: 8 }}>
                       <span className="live-dot" aria-hidden="true" />
-                      <span className="grow"><strong style={{ fontWeight: 500 }}>{h.character_name || h.display_name}</strong>{h.role === 'dm' && <span className="chip red" style={{ marginLeft: 6 }}>DM</span>}</span>
+                      <span className="grow"><strong style={{ fontWeight: 500 }}>{h.character_name || h.display_name}</strong>{h.role === 'dm' && <span className="chip red" style={{ marginLeft: 6 }}>GM</span>}</span>
                       <span className="tiny muted">{h.location}</span>
                     </li>
                   ))}
@@ -88,7 +88,7 @@ export default function PlayerLive() {
                   <ul className="stack tight small" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                     {d.purse.recent.slice(0, 8).map((e) => (
                       <li key={e.id} className="row between" style={{ gap: 6, opacity: e.status === 'pending' ? 0.7 : 1 }}>
-                        <span className="grow">{e.note || (e.amount_cp > 0 ? 'Added' : 'Spent')}{e.session_label && <span className="faint"> · {e.session_label}</span>}{e.status === 'pending' && <span className="chip teal" style={{ marginLeft: 6 }}>Waiting for the DM</span>}</span>
+                        <span className="grow">{e.note || (e.amount_cp > 0 ? 'Added' : 'Spent')}{e.session_label && <span className="faint"> · {e.session_label}</span>}{e.status === 'pending' && <span className="chip teal" style={{ marginLeft: 6 }}>Waiting for the GM</span>}</span>
                         <span style={{ color: e.amount_cp >= 0 ? 'var(--ok-text)' : 'var(--danger-text)', fontVariantNumeric: 'tabular-nums' }}>{e.amount_cp >= 0 ? '+' : ''}{coins(e.amount_cp, mode)}</span>
                       </li>
                     ))}
@@ -109,7 +109,7 @@ export default function PlayerLive() {
 
 export function CombatPanel({ c, compact = false }: { c: CombatView; compact?: boolean }) {
   if (!c.active) {
-    return compact ? null : <section className="card"><h2>No fight right now</h2><p className="muted">When the DM starts combat, the turn order shows here.</p></section>;
+    return compact ? null : <section className="card"><h2>No fight right now</h2><p className="muted">When the GM starts combat, the turn order shows here.</p></section>;
   }
   const body = (
     <>
@@ -140,8 +140,8 @@ export function CombatPanel({ c, compact = false }: { c: CombatView; compact?: b
             ))}
           </ol>
         ) : <Empty>No one in the turn order yet.</Empty>
-      ) : <p className="muted small">The DM keeps the turn order hidden in this world. You'll see “Your turn” when it's yours.</p>}
-      {!compact && <span className="tiny faint">You see the turn order, conditions, and how hurt foes look, as far as the DM allows. Your HP stays in your sheet.</span>}
+      ) : <p className="muted small">The GM keeps the turn order hidden in this world. You'll see “Your turn” when it's yours.</p>}
+      {!compact && <span className="tiny faint">You see the turn order, conditions, and how hurt foes look, as far as the GM allows. Your HP stays in your sheet.</span>}
     </>
   );
   // On the stage the card already has a title and frame.

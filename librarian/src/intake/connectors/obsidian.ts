@@ -4,11 +4,11 @@
 //                     Before each read `ob sync` brings the remote vault (shared vaults too) into a folder under
 //                     ALX_VAULTS_DIR, which is then read like any vault. WorldLore writes go into that folder and
 //                     `ob sync` sends them back (only in two-way mode).
-//   obsidian-rest     The "Local REST API" community plugin running in the DM's Obsidian (GET/PUT/DELETE /vault/...).
+//   obsidian-rest     The "Local REST API" community plugin running in the GM's Obsidian (GET/PUT/DELETE /vault/...).
 //   obsidian-publish  A site published with Obsidian Publish, read the way a browser reads it (public pages only).
 //
 // Every page goes through the same Markdown rules as a vault: frontmatter, [[links]], > [!secret] callouts,
-// %% comments %%, DM headings and visibility.
+// %% comments %%, GM headings and visibility.
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -20,7 +20,7 @@ import { markdownEntry, markdownFolder, setMarkdownPositions, vaultDir } from '.
 import { markdownWrite } from './markdown-write.ts';
 
 const run = promisify(execFile);
-const vaultNameField = { key: 'vaultName', label: 'Obsidian vault name', type: 'text' as const, help: 'The name Obsidian shows for this vault. With it, each page gets an "Open file" button that opens the note in Obsidian on the DM’s computer.' };
+const vaultNameField = { key: 'vaultName', label: 'Obsidian vault name', type: 'text' as const, help: 'The name Obsidian shows for this vault. With it, each page gets an "Open file" button that opens the note in Obsidian on the GM’s computer.' };
 const shareField = { key: 'defaultShared', label: 'Pages without a visibility are shared', type: 'boolean' as const, help: 'Off (safer): only pages with visibility: party in their frontmatter are shared.' };
 const mdPath = (p: string) => /\.md$/i.test(p) && !p.split('/').some((s) => !s || s === '..' || s.startsWith('.'));
 
@@ -53,7 +53,7 @@ async function obReady(cfg: Record<string, any>, ctx: ConnectorContext, dir: str
     ctx.log(`Linking ${dir} to the Obsidian Sync vault "${cfg.vault}"`);
     await ob(ctx, ['sync-setup', '--vault', String(cfg.vault), '--path', dir, '--device-name', 'Alexandria', ...(cfg.e2eePassword ? ['--password', String(cfg.e2eePassword)] : [])], 120_000);
   }
-  // Read-only unless the DM chose two-way: the server never changes the vault by itself.
+  // Read-only unless the GM chose two-way: the server never changes the vault by itself.
   await ob(ctx, ['sync-config', '--path', dir, '--mode', cfg.twoWay === true ? 'bidirectional' : 'pull-only'], 60_000);
 }
 
@@ -308,7 +308,7 @@ export const obsidianPublish: Connector = {
   capabilities: ['pages', 'properties', 'tags', 'relations'],
   fields: [
     { key: 'site', label: 'Site', type: 'text', required: true, help: 'Its address (https://publish.obsidian.md/<name>, or your own domain), or just <name>.' },
-    { key: 'private', label: 'Keep it DM-only', type: 'boolean', default: false, help: 'On: nothing from this site reaches players (for a site you keep for yourself).' },
+    { key: 'private', label: 'Keep it GM-only', type: 'boolean', default: false, help: 'On: nothing from this site reaches players (for a site you keep for yourself).' },
   ],
   validate(cfg) {
     const s = String(cfg.site ?? '').trim();
@@ -329,7 +329,7 @@ export const obsidianPublish: Connector = {
       await ctx.calls?.take();
       const r = await ctx.fetch(`https://${info.host}/access/${info.uid}/${encPath(f)}`, { signal: ctx.signal });
       if (!r.ok) { ctx.log(`Skipped ${f}: ${r.status}`); continue; }
-      // Published means public: shared unless the DM keeps the site DM-only. Secret callouts and DM headings are still kept back.
+      // Published means public: shared unless the GM keeps the site GM-only. Secret callouts and GM headings are still kept back.
       const e = markdownEntry(f, await r.text(), cfg.private !== true && ctx.shareVisible ? 'party' : 'dm');
       e.url = `${siteUrl(cfg)}/${encPath(f.replace(/\.md$/i, ''))}`;
       entries.push(e);

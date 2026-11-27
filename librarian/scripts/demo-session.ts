@@ -1,6 +1,6 @@
-// A whole game night, played through the real API as the DM and three players,
+// A whole game night, played through the real API as the GM and three players,
 // on the seeded demo world and its fake models. It checks that every action
-// took effect (API state) and that no player view ever holds DM-only, broker or
+// took effect (API state) and that no player view ever holds GM-only, broker or
 // classified text, then prints a timeline with timings.
 //
 //   node --experimental-strip-types librarian/scripts/demo-session.ts            # starts the demo in-process
@@ -82,7 +82,7 @@ async function step<X>(name: string, fn: () => Promise<X>, note?: (x: X) => stri
 // ---- who is who -------------------------------------------------------------
 
 const ADMIN = { username: 'admin', password: 'library admin 123' };
-const DMLOGIN = { username: 'dm', password: 'dungeon master 123' };
+const DMLOGIN = { username: 'dm', password: 'game master 123' };
 const PLAYERS = [['jess', 'Jessamine'], ['tom', 'Tomas'], ['ana', 'Anselm']] as const;
 
 const login = async (u: { username: string; password: string }) => (await api('POST', '/api/auth/login', undefined, u)).token as string;
@@ -104,7 +104,7 @@ const { jess, tom, ana } = { jess: asP('jess'), tom: asP('tom'), ana: asP('ana')
 
 // ---- no leaks in a player's view -------------------------------------------------
 
-// Text that only the DM, the broker or the classified level knows (the demo's seeds, and what this script adds).
+// Text that only the GM, the broker or the classified level knows (the demo's seeds, and what this script adds).
 const SECRETS = [
   'Velmira', 'on her payroll', 'Drowned King', 'lost crown', 'treasury beneath the dark lighthouse', 'Who owes Velmira', 'unlisted cargoes', 'Not even the Information broker',
   'three cargoes a month', 'DMSECRET', 'smugglers\' tunnels', 'abyssal',
@@ -128,11 +128,11 @@ async function noLeaks(label: string) {
   stats.leakScans++;
 }
 
-// ---- the DM agent --------------------------------------------------------------------
+// ---- the GM agent --------------------------------------------------------------------
 
 let chatId = '';
 interface Turn { reply: string; actions: any[] }
-/** One message to the DM's agent. FAKE_CALL lines make the fake model call those tools with those arguments. Waits for the answer. */
+/** One message to the GM's agent. FAKE_CALL lines make the fake model call those tools with those arguments. Waits for the answer. */
 async function say(text: string): Promise<Turn> {
   stats.agentMessages++;
   if (!chatId) chatId = (await dm('POST', '/agent/chats', { title: 'Game night' })).id;
@@ -143,7 +143,7 @@ async function say(text: string): Promise<Turn> {
   return { reply: last.text as string, actions: c.actions.filter((a: any) => a.status === 'pending') };
 }
 const call = (tool: string, args: Record<string, unknown> = {}) => `FAKE_CALL ${tool} ${JSON.stringify(args)}`;
-/** The DM approves what the agent proposed; each must run. */
+/** The GM approves what the agent proposed; each must run. */
 async function approve(actions: any[], expect: string[]): Promise<any[]> {
   check(actions.length === expect.length, `expected ${expect.length} proposals (${expect.join(', ')}), got ${actions.map((a) => a.tool).join(', ') || 'none'}`);
   const out: any[] = [];
@@ -165,8 +165,8 @@ async function agentRead(text: string) { const t = await say(text); check(t.acti
 console.log(`\nA game night in ${world.name} (${base})\n`);
 
 // ---- 1. start the session ---------------------------------------------------------------
-// A control: the scan below only means something if the DM can see the secrets it looks for.
-check(JSON.stringify(await dm('GET', '/people')).includes('Velmira') && JSON.stringify(await dm('GET', '/library/pages')).includes('Drowned King'), 'the DM sees the secrets the leak scan looks for');
+// A control: the scan below only means something if the GM can see the secrets it looks for.
+check(JSON.stringify(await dm('GET', '/people')).includes('Velmira') && JSON.stringify(await dm('GET', '/library/pages')).includes('Drowned King'), 'the GM sees the secrets the leak scan looks for');
 const rec = await step('Start the session: models warm, recording starts, players consent', async () => {
   // The previous night's table chat is still open in the seeded demo.
   if ((await dm('GET', '/sessionchat/current')).session) await dm('POST', '/sessionchat/sessions/end', {});
@@ -224,7 +224,7 @@ await step('Send it to the players, read it aloud, put it on the stage, set musi
   const now = await jess('GET', '/sound/now');
   check(now.music && now.ambience, 'players hear the music and the ambience');
   const dmNow = await dm('GET', '/sound/now');
-  check(dmNow.music?.id === now.music.id, 'the DM and the players play the same track');
+  check(dmNow.music?.id === now.music.id, 'the GM and the players play the same track');
 }, () => '5 actions');
 await noLeaks('scene');
 
@@ -241,23 +241,23 @@ await step('Players chat in the table and party chats; the agent answers the tab
   void read;
   const table = await tom('GET', '/sessionchat/chat/table');
   const lines = JSON.stringify(table);
-  check(lines.includes('We take the ferry') && lines.includes('Two silver a head'), 'the table chat holds the players and the DM');
+  check(lines.includes('We take the ferry') && lines.includes('Two silver a head'), 'the table chat holds the players and the GM');
   const dmParty = await raw('GET', `${W}/sessionchat/chat/party`, dmTok);
-  check(dmParty.status >= 400 || !dmParty.text.includes('Keep your voices down'), 'the DM cannot read the party chat');
+  check(dmParty.status >= 400 || !dmParty.text.includes('Keep your voices down'), 'the GM cannot read the party chat');
   const party = await jess('GET', '/sessionchat/chat/party');
   check(JSON.stringify(party).includes('I have the rope') && !JSON.stringify(party).includes('Two silver a head'), 'the party chat is the players only');
 });
 await noLeaks('chat');
 
 // ---- 4. the broker ----------------------------------------------------------------------
-const brokerOut = await step('A player asks the broker: one normal question, one spoiler question for the DM', async () => {
+const brokerOut = await step('A player asks the broker: one normal question, one spoiler question for the GM', async () => {
   const q1 = await jess('POST', '/broker/quote', { question: 'How much is the Greywater Ferry?' });
   const a1 = await jess('POST', '/broker/ask', { quoteId: q1.quoteId });
   const q2 = await tom('POST', '/broker/quote', { question: 'Who does the harbour council secretly answer to?' });
   const a2 = await tom('POST', '/broker/ask', { quoteId: q2.quoteId });
   return { normal: a1.request ?? a1, spoiler: a2.request ?? a2, q1, q2 };
 }, (x) => `normal: ${x.normal.status}, spoiler: ${x.spoiler.status}`);
-await step('The spoiler question reaches the DM, who prices it; the player pays and gets the DM\'s answer', async () => {
+await step('The spoiler question reaches the GM, who prices it; the player pays and gets the GM\'s answer', async () => {
   const mine = await tom('GET', '/broker');
   const req = (mine.requests ?? mine).find((r: any) => /secretly answer/.test(r.question));
   check(req, 'the player sees the question in their list');
@@ -266,16 +266,16 @@ await step('The spoiler question reaches the DM, who prices it; the player pays 
   void list;
   const dmList = await dm('GET', '/broker');
   const dmReq = (dmList.requests ?? dmList).find((r: any) => r.id === req.id);
-  check(dmReq && dmReq.status === 'pricing', `the DM sees it waiting for a price (status ${dmReq?.status})`);
+  check(dmReq && dmReq.status === 'pricing', `the GM sees it waiting for a price (status ${dmReq?.status})`);
   const DM_ANSWER = 'A rumour on the quay: the council\'s coin comes from a ship that never docks.';
   await agentDo(call('broker_answer', { id: req.id, answer: DM_ANSWER, costCp: 150, waitAmount: 0, waitUnit: 'minutes', clock: 'game' }), ['broker_answer']);
   const offered = (await tom('GET', '/broker')).requests.find((r: any) => r.id === req.id);
-  check(offered.status === 'offered' && offered.cost_cp === 150 || offered.costCp === 150, `the player is offered the DM's price (${JSON.stringify(offered).slice(0, 200)})`);
+  check(offered.status === 'offered' && offered.cost_cp === 150 || offered.costCp === 150, `the player is offered the GM's price (${JSON.stringify(offered).slice(0, 200)})`);
   const before = (await tom('GET', '/live/ledger?owner=me')).cp;
   await tom('POST', `/broker/${req.id}/accept`, {});
   const done = await until('the answer', async () => { const r = (await tom('GET', '/broker')).requests.find((x: any) => x.id === req.id); return r && r.status === 'answered' ? r : null; });
-  check(done.answer === DM_ANSWER, 'the player gets exactly the DM\'s answer');
-  check((await tom('GET', '/live/ledger?owner=me')).cp === before - 150, 'the player paid the DM\'s price');
+  check(done.answer === DM_ANSWER, 'the player gets exactly the GM\'s answer');
+  check((await tom('GET', '/live/ledger?owner=me')).cp === before - 150, 'the player paid the GM\'s price');
   // Nobody else sees tom's bought answer.
   check(!JSON.stringify(await jess('GET', '/broker')).includes('ship that never docks'), 'another player does not see it');
 });
@@ -294,7 +294,7 @@ await step('Combat: the agent adds monsters from a statblock (approved), players
   check(gob.hp > 0 && gob.ac && gob.statblock_page, 'the goblin has hp, ac and its statblock page');
 }, () => '3 monsters + 3 players');
 
-await step('The DM sets combat tools to auto-approve, then runs rounds: damage, conditions, next turn', async () => {
+await step('The GM sets combat tools to auto-approve, then runs rounds: damage, conditions, next turn', async () => {
   await dm('PATCH', '/settings', { agentAutoApprove: ['damage_combatant', 'heal_combatant', 'set_conditions', 'next_turn'] });
   const c0 = await dm('GET', '/live/combat');
   const g1 = c0.combatants.find((x: any) => x.name === 'Goblin Warrior');
@@ -332,7 +332,7 @@ await step('Players see the combat card and the stage card, with monster health 
   check(card, 'players see the combat card on the stage');
   check(!/Lurking|"hp"|"ac"/.test(JSON.stringify(card)), 'the stage combat card holds no hidden creature or exact numbers');
   const dmStage = await dm('GET', '/stage');
-  check(dmStage.cards.some((c: any) => c.kind === 'combat'), 'the DM sees it too');
+  check(dmStage.cards.some((c: any) => c.kind === 'combat'), 'the GM sees it too');
 });
 await noLeaks('combat');
 
@@ -376,9 +376,9 @@ await step('A trade between two players, a player\'s request approved, a give fr
   await jess('POST', `/sessionchat/trades/${offer.id}/accept`, { itemId: arrows.id });
   check((await inv('jess', P.jess.token)).some((i) => /potion/i.test(i.name)), 'jess has the potion');
   check((await inv('tom', P.tom.token)).some((i) => /arrow/i.test(i.name) && i.qty >= 5), 'tom has the arrows');
-  // Ana asks for an item; it waits for the DM, who approves it through the agent.
+  // Ana asks for an item; it waits for the GM, who approves it through the agent.
   const ask = await ana('POST', '/inventory', { owner: 'me', name: 'Silvered dagger', qty: 1, reason: 'Bought from the smith' });
-  check(ask.pending, 'the request waits for the DM');
+  check(ask.pending, 'the request waits for the GM');
   const mineNow = (await inv('ana', P.ana.token)).find((i) => /dagger/i.test(i.name));
   check(!mineNow || mineNow.pending || mineNow.status === 'pending', `it is not hers yet (${JSON.stringify(mineNow)})`);
   check(!(await jess('GET', '/inventory?owner=party').then((x) => JSON.stringify(x))).includes('dagger'), 'nobody else sees the request');
@@ -386,16 +386,16 @@ await step('A trade between two players, a player\'s request approved, a give fr
   void waiting;
   const ap = await dm('GET', '/approvals');
   const change = ap.items.find((c: any) => /dagger/i.test(JSON.stringify(c)));
-  check(change, 'the DM sees it in the approvals');
+  check(change, 'the GM sees it in the approvals');
   await agentDo(call('decide_approval', { id: change.id, action: 'approve' }), ['decide_approval']);
   const hers = (await inv('ana', P.ana.token)).find((i) => /dagger/i.test(i.name));
   check(hers && !hers.pending && hers.status !== 'pending', 'now it is hers');
-  // The DM hands one of the stash items to a player.
+  // The GM hands one of the stash items to a player.
   const stash = (await dm('GET', '/inventory?owner=party')); const it = (stash.items ?? stash).find((i: any) => /From the goblins/.test(i.note ?? ''));
   await agentDo(call('move_item', { itemId: it.id, to: P.ana.id, reason: 'Ana takes the find' }), ['move_item']);
   check((await inv('ana', P.ana.token)).some((i) => i.name === it.name), 'the item moved to Ana');
   const transfers = await dm('GET', '/inventory/transfers');
-  check((transfers.transfers ?? transfers).length >= 2, 'the DM sees the transfers');
+  check((transfers.transfers ?? transfers).length >= 2, 'the GM sees the transfers');
 });
 await noLeaks('trade');
 
@@ -411,7 +411,7 @@ await step('Travel and a long rest on the world clock', async () => {
   const mine = await jess('GET', '/clock');
   check(mine.label === after.label, 'players see the same date');
   const events = await jess('GET', '/clock/events');
-  check(!JSON.stringify(events).includes("Velmira's shipment"), 'players do not see the DM-only event');
+  check(!JSON.stringify(events).includes("Velmira's shipment"), 'players do not see the GM-only event');
   return after.label as string;
 }, (label) => label);
 await noLeaks('clock');
@@ -436,7 +436,7 @@ const transcript = await step('The session is spoken and recorded, then the agen
   check(!st.recording, 'the recording has stopped');
   const lines = await until('the transcript', async () => { const l = await dm('GET', `/audio/sessions/${rec.id}/lines`); const arr = l.lines ?? l; const j = JSON.stringify(arr); return j.includes('Greywater') && j.includes('healing potion') && j.includes('DMSECRET') ? arr : null; }, 10_000);
   const seen = JSON.stringify(await jess('GET', `/audio/sessions/${rec.id}/lines`));
-  check(seen.includes('Greywater') && !seen.includes('DMSECRET'), 'players read the table transcript and never the DM aside');
+  check(seen.includes('Greywater') && !seen.includes('DMSECRET'), 'players read the table transcript and never the GM aside');
   check((await jess('GET', '/audio/status')).recording === false, 'players see that the recording stopped');
   return lines.length as number;
 }, (n) => `${n} transcript lines`);
@@ -450,7 +450,7 @@ await step('The session log is drafted from the transcript, the date change acce
   void body;
   const full = await dm('GET', `/sessionlog/drafts/${draftId}`);
   check(full.markdown?.includes('Greywater') || full.markdown?.length > 40, 'the draft is built from the transcript');
-  check(!full.markdown.includes('DMSECRET'), 'the draft holds nothing from the DM aside');
+  check(!full.markdown.includes('DMSECRET'), 'the draft holds nothing from the GM aside');
   const before = (await dm('GET', '/clock')).minutes;
   await agentDo(call('decide_session_date', { draftId, accept: true, minutes: 2 * 1440, reason: 'Two days on the coast road and at the lighthouse' }), ['decide_session_date']);
   const accepted = await dm('GET', `/sessionlog/drafts/${draftId}`);
@@ -463,7 +463,7 @@ await step('Players see the published log and the world date', async () => {
     const log = await api('GET', `${W}/sessionlog`, p.token);
     const entry = log.find((e: any) => /lighthouse/i.test(e.title));
     check(entry, `${who} sees the published log`);
-    check(!JSON.stringify(log).includes('DMSECRET'), `${who}'s log has no DM aside`);
+    check(!JSON.stringify(log).includes('DMSECRET'), `${who}'s log has no GM aside`);
     const full = await api('GET', `${W}/sessionlog/${entry.id}`, p.token);
     check(full.summary && full.worldTo, `${who} can read the entry and its in-world dates`);
   }
@@ -479,5 +479,5 @@ const total = Math.round(performance.now() - t0);
 console.log(`
 Game night finished in ${(total / 1000).toFixed(1)} s: ${timeline.length} steps passed.
   ${stats.assertions} checks, ${stats.leakScans} leak scans over ${stats.leakViews} player screens, none leaked.
-  DM agent: ${stats.agentMessages} messages, ${stats.approvals} approvals. Other DM calls: ${stats.dmCalls}. Player calls: ${stats.playerCalls}.`);
+  GM agent: ${stats.agentMessages} messages, ${stats.approvals} approvals. Other GM calls: ${stats.dmCalls}. Player calls: ${stats.playerCalls}.`);
 process.exit(0);

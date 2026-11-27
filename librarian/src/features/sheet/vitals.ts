@@ -1,8 +1,8 @@
 // A character's health on their sheet: HP, max HP, temporary HP and
 // conditions, kept between sessions. The combat tracker's row for the same
 // player and the sheet stay in step: a change on either side is copied to the
-// other and written to the sheet log, so the DM can see every change, who
-// made it and where (the sheet, the combat tracker, the DM).
+// other and written to the sheet log, so the GM can see every change, who
+// made it and where (the sheet, the combat tracker, the GM).
 import { type DB, all, one, run } from '../../core/db.ts';
 import { applyDamage, applyHeal, gainTempHp, syncDeathTags, type DeathSaves, type Effect } from '../../core/combatRules.ts';
 import { id, now, parseJson } from '../../core/util.ts';
@@ -51,7 +51,7 @@ const combatantOf = (db: DB, worldId: string, accountId: string) =>
   one<any>(db, 'SELECT * FROM combatants WHERE world_id = ? AND account_id = ? ORDER BY rowid LIMIT 1', worldId, accountId);
 
 /**
- * Applies a change made on the sheet (by the player or the DM). When the
+ * Applies a change made on the sheet (by the player or the GM). When the
  * player is in the combat tracker, damage and healing follow its rules there
  * too (death saves, Stable/Dead tags) and the tracker row gets the new numbers.
  * Returns what changed and whether the tracker needs a push.
@@ -85,7 +85,7 @@ export function changeVitals(db: DB, worldId: string, accountId: string, ch: Vit
   logDiff(db, worldId, accountId, before, after, note, source, by);
   let combat = false;
   if (cb && (after.hp !== cb.hp || after.maxHp !== cb.max_hp || after.tempHp !== (cb.temp_hp ?? 0) || ch.damage !== undefined || ch.heal !== undefined || ch.hp !== undefined)) {
-    // Out of the tracker the sheet keeps no death saves; in it they follow the rules as for the DM's own changes.
+    // Out of the tracker the sheet keeps no death saves; in it they follow the rules as for the GM's own changes.
     const eff = syncDeathTags(parseJson<Effect[]>(cb.effects, []), deathSaves);
     run(db, 'UPDATE combatants SET hp = ?, max_hp = ?, temp_hp = ?, death_saves = ?, effects = ? WHERE id = ?', after.hp, after.maxHp, after.tempHp, deathSaves ? JSON.stringify(deathSaves) : null, JSON.stringify(eff), cb.id);
     combat = true;

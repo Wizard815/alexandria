@@ -124,7 +124,7 @@ export default function peopleRoutes(d: Deps) {
     res.status(201).json(x);
   });
 
-  // Each player's own note on a person. Nobody else, DM included, reads it.
+  // Each player's own note on a person. Nobody else, GM included, reads it.
   r.put('/people/:pid/note', requirePlayerOrDM, (req, res) => {
     const p = person(res, String(req.params.pid));
     const body = str(req.body?.body, 'body', { max: 10_000, optional: true });

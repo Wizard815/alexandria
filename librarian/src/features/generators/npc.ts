@@ -1,6 +1,6 @@
 // NPC generator. A race-correct name (quickgen), a look, a voice and mannerism,
 // a want, a secret, a hook and a tie to something real in the world (a place or
-// faction the DM can see: never classified), from tables of our own. Every field
+// faction the GM can see: never classified), from tables of our own. Every field
 // can be locked while the rest is rerolled. Optionally a quick statblock.
 import { genNames, RACES, type Race } from '../quickgen/api.ts';
 import { chance, int, makeRng, pick, seedOf, type Rng } from '../quickgen/rng.ts';
@@ -125,7 +125,7 @@ export function genNpc(o: NpcOpts = {}): NpcResult {
   const secret = chance(r, 0.75) ? pick(r, role.secret) : pick(r, SECRET_ANY);
   const hook = chance(r, 0.75) ? pick(r, role.hook) : pick(r, HOOK_ANY);
 
-  // tie to the world: a place or a faction the DM can see (never classified); none when the world has neither
+  // tie to the world: a place or a faction the GM can see (never classified); none when the world has neither
   const lockedTie = lockStr(locks, 'tie');
   const pool: Tie[] = [...(o.world?.places ?? []), ...(o.world?.factions ?? [])];
   let tie: NpcResult['tie'] = null;

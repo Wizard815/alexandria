@@ -1,7 +1,7 @@
 // End-to-end test of video on the players' screen: a tiny WebM is recorded in the browser (MediaRecorder on a canvas, nothing
 // binary checked in), uploaded to the library, loaded as a mixed folder slideshow, and played on the screen: the slideshow
 // moves on when the video ends, sound is on by default, the "Click to start" overlay shows when the browser blocks sound (and
-// is gone when autoplay is allowed), DM-only files can be shown and shared from the DM page, and Range requests work.
+// is gone when autoplay is allowed), GM-only files can be shown and shared from the GM page, and Range requests work.
 // Run from web/: npm run build && node e2e/screenvideo.mjs   (SCREENVIDEO_PORT)
 import path from 'node:path';
 import { chromium, root, startScript, tmpDir, signIn, quiet } from './lib.mjs';
@@ -53,7 +53,7 @@ const recordWebm = (page, ms, hue) => page.evaluate(async ({ ms, hue }) => {
 }, { ms, hue });
 
 try {
-  const { ctx, page } = await signIn(open, base, 'dm', 'dungeon master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
+  const { ctx, page } = await signIn(open, base, 'dm', 'game master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
   watch(page, 'dm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
@@ -121,24 +121,24 @@ try {
   note('per-item sound and loop reach the screen');
   await tv.close();
 
-  // ---- DM-only video: shown by the DM's choice, then shared from the DM page ----
+  // ---- GM-only video: shown by the GM's choice, then shared from the GM page ----
   const sec = (await api('GET', '/screen/media/sources')).json.files.find((f) => f.name === 'secret.webm');
-  check(sec && sec.shared === false && sec.blocked === false, 'the DM-only video is listed as not shared');
+  check(sec && sec.shared === false && sec.blocked === false, 'the GM-only video is listed as not shared');
   await api('POST', '/screen/media/clear', {});
   const shown = await api('POST', '/screen/media/items', { kind: 'video', ref: sec.id, play: true, loopVideo: true });
-  check(shown.status === 201, `a DM-only video can be queued: ${shown.status}`);
+  check(shown.status === 201, `a GM-only video can be queued: ${shown.status}`);
   await page.goto(`${W}/dm/screen-players`);
-  check(await shows(page.getByRole('button', { name: /^Share secret.webm with the party$/ })), 'the DM page offers Share with party for a DM-only file');
+  check(await shows(page.getByRole('button', { name: /^Share secret.webm with the party$/ })), 'the GM page offers Share with party for a GM-only file');
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: /^Share secret.webm with the party$/ }).click();
   await page.getByRole('button', { name: /^Share secret.webm with the party$/ }).waitFor({ state: 'detached', timeout: 8000 }).catch(() => problems.push('the Share button should go once the file is shared'));
   check((await api('GET', '/screen/media/sources')).json.files.find((f) => f.id === sec.id)?.shared === true, 'the file is shared after the button');
-  check(await shows(page.locator('.psc video').first()), 'the DM page shows a video thumbnail');
-  note('DM-only video shown, then shared from the DM page');
+  check(await shows(page.locator('.psc video').first()), 'the GM page shows a video thumbnail');
+  note('GM-only video shown, then shared from the GM page');
   await api('POST', '/screen/media/clear', {});
 
   // ---- the browser's normal policy: one click unlocks sound ----
-  // A fresh browser context with the DM's token already stored: no click has happened on this page, as on a TV that was just switched on.
+  // A fresh browser context with the GM's token already stored: no click has happened on this page, as on a TV that was just switched on.
   const ctx2 = await normal.newContext({ viewport: { width: 1280, height: 800 } });
   await ctx2.addInitScript((t) => { try { localStorage.setItem('alx.token', t); } catch { /* blocked */ } }, token);
   const tv2 = await ctx2.newPage();

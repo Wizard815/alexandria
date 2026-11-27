@@ -1,4 +1,4 @@
-// The DM assistant drives the Foundry connection with a REAL chat model (OpenRouter, Hy4 Flash by default): it reads
+// The GM assistant drives the Foundry connection with a REAL chat model (OpenRouter, Hy4 Flash by default): it reads
 // the connection, moves a token (approved like any change) and posts a chat line, against a stand-in Foundry world
 // running the real module. Skipped unless FOUNDRY_REAL=1 (it spends a few cents). Run from web/:
 //   NODE_USE_ENV_PROXY=1 FOUNDRY_REAL=1 node e2e/foundry-real.mjs
@@ -34,7 +34,7 @@ try {
   const admin = (await j('POST', '/api/admin-auth/login', null, { username: 'admin', password: 'library admin 123' })).x.token;
   const prov = (await j('POST', '/api/admin/models/providers', admin, { name: 'OpenRouter', kind: 'openai-compatible', baseUrl: OR, apiKey: KEY, location: 'cloud' })).x;
   await j('PUT', '/api/admin/models', admin, { jobs: { chat: { providerId: prov.provider?.id ?? prov.id, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } } } });
-  const tok = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'dungeon master 123' })).x.token;
+  const tok = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'game master 123' })).x.token;
   const WID = (await j('GET', '/api/worlds', tok)).x[0].id;
   const P = `/api/worlds/${WID}`;
   const key = (await j('POST', `${P}/foundry/key`, tok, {})).x.key;

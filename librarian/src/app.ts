@@ -213,7 +213,7 @@ export function createApp(opts: AppOptions = {}) {
 }
 
 /**
- * Model calls made while answering the DM of a world (a generator, a statblock, the assistant's tools) go before the
+ * Model calls made while answering the GM of a world (a generator, a statblock, the assistant's tools) go before the
  * players' (core/ai.ts, the queue). Work that sets its own priority (background passes, tracked jobs) keeps it.
  */
 function dmGoesFirst(_req: Request, res: Response, next: NextFunction) {

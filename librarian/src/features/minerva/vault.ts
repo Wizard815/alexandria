@@ -128,7 +128,7 @@ function defaultType(rel: string): string {
   return 'note';
 }
 
-/** What a new page is at when nobody said: dm/ is dm; a player's own pages and their session records are party; the rest fail closed to dm until the DM opens them. */
+/** What a new page is at when nobody said: dm/ is dm; a player's own pages and their session records are party; the rest fail closed to dm until the GM opens them. */
 function defaultLevel(rel: string, type: string): Level {
   if (rel.startsWith('players/')) return 'party';
   if (rel.startsWith('chronicle/') && (type === 'session' || type === 'arc')) return 'party';
@@ -188,7 +188,7 @@ export function appendToSection(body: string, heading: string, text: string): st
   return setSection(body, heading, s && s.text && !/^_.*_$/.test(s.text.trim()) ? `${s.text}\n${text.trim()}` : text);
 }
 
-/** A secret block for a note only the DM may read. */
+/** A secret block for a note only the GM may read. */
 export const secretBlock = (text: string): string => `> [!secret]\n${text.trim().split('\n').map((l) => `> ${l}`).join('\n')}`;
 
 /** The vault page as an Obsidian file. */

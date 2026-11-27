@@ -50,7 +50,7 @@ export type Block =
   | { kind: 'image'; url: string; alt?: string; width?: number; caption?: Inline[] }
   | { kind: 'infobox'; layout?: string; width?: number; groups: PropertyGroup[] }
   | { kind: 'collection'; title?: string; filter?: unknown }
-  /** A map with pins (LegendKeeper map documents). `dm` pins and pins that link to DM-only pages never reach players. */
+  /** A map with pins (LegendKeeper map documents). `dm` pins and pins that link to GM-only pages never reach players. */
   | { kind: 'map'; title?: string; image?: string; width?: number; height?: number; /** The coordinate frame pins are in: [[minLat, minLng], [maxLat, maxLng]]. */ bounds?: [[number, number], [number, number]]; pins: MapPin[] }
   | { kind: 'unsupported'; sourceKind: string };
 
@@ -87,7 +87,7 @@ export interface Entry {
   depth?: 'index' | 'summary' | 'full';
   /** What the source's list says about when this changed (it can differ from `updatedAt`, which may come from a detail). Change detection compares it. Defaults to `updatedAt`. */
   sourceUpdatedAt?: string | null;
-  /** The list itself says this page is not for players (a hidden page or folder). A page already held at a deeper depth is made DM-only at once, without waiting for its details. */
+  /** The list itself says this page is not for players (a hidden page or folder). A page already held at a deeper depth is made GM-only at once, without waiting for its details. */
   restricted?: boolean;
   /** Read in full: the source itself says this page is shared (not private or hidden), whatever the source's default visibility lets through. Lets the default be changed later without reading the page again. Missing: the source said nothing (fail closed). */
   sourceShared?: boolean;
@@ -328,7 +328,7 @@ export function blocksText(blocks: Block[]): string {
   return blocksToMarkdown(blocks, (m) => m.text ?? m.name ?? '').replace(/[*_`>#|[\]]/g, ' ').replace(/[ \t]+/g, ' ');
 }
 
-/** The one line a page at index depth has for a body: what the list gave, so search, the agent and embeddings have something to work with. DM-only until the page is read. */
+/** The one line a page at index depth has for a body: what the list gave, so search, the agent and embeddings have something to work with. GM-only until the page is read. */
 export function indexBlocks(e: { title: string; type?: string | null; tags?: string[]; folder?: string[]; summary?: string | null }): Block[] {
   const where = (e.folder ?? []).filter(Boolean);
   const bits = [`${e.title}${e.type && e.type !== 'page' ? ` (${e.type})` : ''}${where.length ? `, in ${where.join(' / ')}` : ''}.`];

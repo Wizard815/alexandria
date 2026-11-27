@@ -4,12 +4,12 @@
 //
 //   scope 'dm'      chunks of the AI copy (pages.ai_body: everything but
 //                   classified, which is never embedded or sent to the
-//                   embeddings model); read by a DM and by every model
+//                   embeddings model); read by a GM and by every model
 //   scope 'broker'  chunks of the broker copy; read by the information broker
-//   scope 'party'   chunks of the player copy (pages.player_body); DM text is
+//   scope 'party'   chunks of the player copy (pages.player_body); GM text is
 //                   never embedded into this scope
 //   scope 'lifted'  the player copy of pages that are not party-level but that
-//                   some account may open (own source key, DM grant, share);
+//                   some account may open (own source key, GM grant, share);
 //                   a player reads the rows of pages they may open right now
 //
 // A query is filtered by who asks (reachOf) and every hit is checked against
@@ -89,7 +89,7 @@ export const CHUNK_CHARS = 500;
  */
 const tagged = (cfg: JobConfig) => { const pre = embedPrefix(cfg, 'document'); return `${cfg.model}${pre ? `|p:${hashOf(pre).slice(0, 8)}` : ''}|lv1`; };
 const MAX_CHUNKS_PER_PAGE = 40;
-/** Scopes are taken in turn, a few pages each (the party's copy, then the DM's, in each turn), so no scope waits for the others to finish. */
+/** Scopes are taken in turn, a few pages each (the party's copy, then the GM's, in each turn), so no scope waits for the others to finish. */
 const ORDER: VecScope[] = ['party', 'dm', 'lifted', 'broker'];
 const PER_TURN = 3;
 
@@ -195,7 +195,7 @@ export async function syncEmbeddings(d: Deps, opts: { maxPages?: number; worldId
     for (const r of out) taken.add(`${r.id}|${scope}`);
     return out;
   };
-  // Pages are picked in scope turns (a few of the party's copy, then the DM's, ...) so no scope waits for the others,
+  // Pages are picked in scope turns (a few of the party's copy, then the GM's, ...) so no scope waits for the others,
   // and packed into requests of up to `batch` chunks. Picking is synchronous: each worker takes the next request when it is free.
   const picked: Item[] = [];
   const leaders = new Map<string, Item>();
@@ -343,7 +343,7 @@ export function embeddingCoverage(d: Deps, worldId: string) {
   const { scopes, pages } = scopeAndPageCoverage(d, worldId, 'search_chunk_state', cfg ? tagged(cfg) : null);
   return {
     configured: !!cfg, model: cfg?.model ?? null, location: cfg?.location ?? null, ...stats, scopes,
-    // Distinct pages (a page with a DM copy and a party copy counts once); `scopes` counts copies, one scope at a time.
+    // Distinct pages (a page with a GM copy and a party copy counts once); `scopes` counts copies, one scope at a time.
     pages: cfg ? pages : { eligible: 0, indexed: 0, pending: 0 },
     chunks: stats.dmChunks + stats.partyChunks + stats.brokerChunks + stats.liftedChunks,
     // "Indexing N of M": copies (a page counts once per copy it has), with an estimate from the recent pace.

@@ -1,6 +1,6 @@
 // Recordings: a stopped session's chunks become plain files on the server (full
 // mix, one track per mic, Transcript.md, session.json); raw chunks go only after
-// the files are verified; retention is per session; the audio routes are DM-only
+// the files are verified; retention is per session; the audio routes are GM-only
 // except a player's own mic tracks; Range works; no path can be steered.
 // Needs ffmpeg for the build tests (they skip with a message without it).
 import { test, before, after } from 'node:test';
@@ -188,7 +188,7 @@ test('Recordings_build: stop builds a readable folder, aligned tracks, and then 
   const md = fs.readFileSync(path.join(folder, 'Transcript.md'), 'utf8');
   assert.match(md, /I open the door/);
   assert.match(md, /duke is the lich/);
-  assert.match(md, /DM only/);
+  assert.match(md, /GM only/);
   // verified, so the raw chunks are gone (from disk and the table) and the transcript stays
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM audio_chunks WHERE session_id = ? AND file IS NOT NULL', sid).n, 0);
   assert.ok(!fs.existsSync(path.join(tmp, 'data', 'audio', W, sid)));
@@ -328,7 +328,7 @@ test('Recordings_retention: raw chunks of a never-built session still go when it
 
 // ---- who may hear what ---------------------------------------------------------------------------
 
-test('Recordings_access: DM-only list; a player gets only their own track; the full mix and others are 403', needFfmpeg, async () => {
+test('Recordings_access: GM-only list; a player gets only their own track; the full mix and others are 403', needFfmpeg, async () => {
   const sid = await recorded('Access');
   await built(sid);
   for (const who of ['jess', 'tom', 'zed']) assert.equal((await call('GET', `${A()}/recordings`, T[who])).status, 403, `${who} cannot list every recording`);
@@ -340,7 +340,7 @@ test('Recordings_access: DM-only list; a player gets only their own track; the f
   const tomT = detail.tracks.find((t: any) => t.label === 'Tom phone');
   assert.equal(detail.tracks.length, 4);
   const file = (t: any) => `${A()}/recordings/tracks/${t.id}/file`;
-  // the DM hears everything
+  // the GM hears everything
   for (const t of detail.tracks) { const r = await call('GET', file(t), T.dm); assert.equal(r.status, 200); assert.equal(r.headers.get('content-type'), 'audio/mpeg'); assert.ok(r.buf.length > 1000); }
   // Jess: her own, nothing else
   const mine = await call('GET', file(jessT), T.jess);
@@ -369,7 +369,7 @@ test('Recordings_access: DM-only list; a player gets only their own track; the f
   assert.equal((await call('GET', forged(full, 'dm'))).status, 200);
   assert.equal((await call('GET', `/api/media/recording/${jUrl.split('/').pop()}x`)).status, 404, 'a bad signature');
   assert.equal((await call('GET', `/api/media/recording/${mintTicket({ w: W, k: 'sound', f: full.id, a: ID.dm })}`)).status, 404, 'a ticket for something else');
-  // players' transcript: no DM-only lines (the existing filter); the DM sees them
+  // players' transcript: no GM-only lines (the existing filter); the GM sees them
   const pl = (await ok('GET', `${A()}/sessions/${sid}/lines`, T.jess)).lines.map((l: any) => l.text);
   assert.deepEqual(pl, ['I open the door', 'We follow Tom']);
   assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.dm)).lines.length, 3);
@@ -398,11 +398,11 @@ function unzip(buf: Buffer): Map<string, Buffer> {
   return out;
 }
 
-test('Recordings_zip: Download all streams one zip: the DM gets everything, a player only their own and the players\' side', needFfmpeg, async () => {
+test('Recordings_zip: Download all streams one zip: the GM gets everything, a player only their own and the players\' side', needFfmpeg, async () => {
   const sid = await recorded('Zipped');
   await built(sid);
   run(deps.db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, 'party', ?, 'PARTY-SUMMARY the door opens', '', 1, ?)", sid, W, new Date().toISOString());
-  run(deps.db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, 'dm', ?, 'DM-SUMMARY the duke is the lich', '', 1, ?)", sid, W, new Date().toISOString());
+  run(deps.db, "INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, 'dm', ?, 'GM-SUMMARY the duke is the lich', '', 1, ?)", sid, W, new Date().toISOString());
   run(deps.db, "INSERT INTO audio_handoffs (id, session_id, world_id, status, text, source, created_at, updated_at, decided_at) VALUES ('ah_a', ?, ?, 'approved', 'APPROVED-SUMMARY of the night', 'live', ?, ?, ?)", sid, W, new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
   run(deps.db, "INSERT INTO audio_handoffs (id, session_id, world_id, status, text, source, created_at, updated_at) VALUES ('ah_p', ?, ?, 'pending', 'PENDING-SUMMARY not yet approved', 'final', ?, ?)", sid, W, new Date(Date.now() + 1000).toISOString(), new Date().toISOString());
   const detail = await ok('GET', `${A()}/recordings/${sid}`, T.dm);
@@ -414,16 +414,16 @@ test('Recordings_zip: Download all streams one zip: the DM gets everything, a pl
   assert.equal(r.headers.get('content-length'), null, 'streamed, not buffered');
   const files = unzip(r.buf);
   const names = [...files.keys()].map((k) => k.split('/').slice(1).join('/')).sort();
-  for (const t of detail.tracks) assert.ok(names.includes(t.file), `the DM's zip has ${t.file}`);
-  for (const want of ['Transcript.md', 'Summary.md', 'session.json']) assert.ok(names.includes(want), `the DM's zip has ${want}`);
+  for (const t of detail.tracks) assert.ok(names.includes(t.file), `the GM's zip has ${t.file}`);
+  for (const want of ['Transcript.md', 'Summary.md', 'session.json']) assert.ok(names.includes(want), `the GM's zip has ${want}`);
   const get = (m: Map<string, Buffer>, n: string) => [...m.entries()].find(([k]) => k.endsWith('/' + n))?.[1]?.toString('utf8') ?? '';
-  assert.ok(get(files, 'Transcript.md').includes('the duke is the lich'), 'the DM transcript has DM lines');
+  assert.ok(get(files, 'Transcript.md').includes('the duke is the lich'), 'the GM transcript has GM lines');
   assert.ok(get(files, 'Summary.md').includes('APPROVED-SUMMARY') && !get(files, 'Summary.md').includes('PENDING'), 'only the approved summary');
   assert.equal(JSON.parse(get(files, 'session.json')).sessionId, sid);
   const fullT = detail.tracks.find((t: any) => t.kind === 'full');
   assert.equal([...files.entries()].find(([k]) => k.endsWith('/' + fullT.file))![1].length, fullT.bytes, 'the full mix, byte for byte');
 
-  // Jess: her own track, the players' transcript and summary; nothing of the DM's.
+  // Jess: her own track, the players' transcript and summary; nothing of the GM's.
   const jl = (await ok('GET', `${A()}/recordings/mine`, T.jess)).sessions.find((s: any) => s.id === sid);
   assert.ok(jl.zipUrl);
   const jz = unzip((await call('GET', jl.zipUrl)).buf);
@@ -431,7 +431,7 @@ test('Recordings_zip: Download all streams one zip: the DM gets everything, a pl
   const jessFile = detail.tracks.find((t: any) => t.label === 'Jess phone').file;
   assert.deepEqual(jn, [jessFile, 'Summary (players).md', 'Transcript (players).md'].sort());
   const all = [...jz.values()].map((b) => b.toString('latin1')).join('\n');
-  for (const secret of ['the duke is the lich', 'DM-SUMMARY', 'APPROVED-SUMMARY', 'PENDING-SUMMARY', 'Tom phone', 'sessionId']) assert.ok(!all.includes(secret), `a player's zip never holds "${secret}"`);
+  for (const secret of ['the duke is the lich', 'GM-SUMMARY', 'APPROVED-SUMMARY', 'PENDING-SUMMARY', 'Tom phone', 'sessionId']) assert.ok(!all.includes(secret), `a player's zip never holds "${secret}"`);
   assert.ok(get(jz, 'Transcript (players).md').includes('I open the door'));
   assert.ok(get(jz, 'Summary (players).md').includes('PARTY-SUMMARY'));
 

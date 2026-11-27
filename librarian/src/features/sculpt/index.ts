@@ -196,10 +196,10 @@ function routes(d: Deps) {
   });
 
   // ---- saving ----
-  /** Check the text players would see, for a DM template too: a page shared with the party, the stage, a message. */
+  /** Check the text players would see, for a GM template too: a page shared with the party, the stage, a message. */
   const requirePublicClean = (rc: RenderCtx, tpl: Tpl, v: Values) => {
     const hit = firstLeak(rc, publicText(renderParts(tpl, v, rc)));
-    if (hit) throw new HttpError(409, 'Not shared: the text repeats words from DM-only notes.');
+    if (hit) throw new HttpError(409, 'Not shared: the text repeats words from GM-only notes.');
   };
   const rememberPage = (w: string, pageId: string) => {
     const body = one<any>(d.db, 'SELECT body FROM pages WHERE id = ?', pageId)?.body ?? '';
@@ -209,7 +209,7 @@ function routes(d: Deps) {
   const saveTo = async (res: any, tpl: Tpl, values: Values, override: any, rc: RenderCtx, extra: { md?: string; title?: string } = {}) => {
     const w = W(res);
     const cleaned = cleanForPlayer(d, w, tpl, values, rc);
-    if (cleaned.leaks.length) throw new HttpError(409, `Not saved: ${cleaned.leaks.map((l) => l.key).join(', ')} repeats words from DM-only notes.`);
+    if (cleaned.leaks.length) throw new HttpError(409, `Not saved: ${cleaned.leaks.map((l) => l.key).join(', ')} repeats words from GM-only notes.`);
     const v = cleaned.values;
     const md = extra.md ?? renderMd(renderParts(tpl, v, rc));
     const base = tpl.target;
@@ -305,7 +305,7 @@ function routes(d: Deps) {
       try {
         const cleaned = results.map((v) => cleanForPlayer(d, w, tpl, v, rc));
         const bad1 = cleaned.find((c) => c.leaks.length);
-        if (bad1) throw new HttpError(409, 'Blocked: the text repeats words from DM-only notes.');
+        if (bad1) throw new HttpError(409, 'Blocked: the text repeats words from GM-only notes.');
         pub = publicOf(tpl, [], cleaned.map((c) => c.values), rc);
       } catch (e: any) { pubError = e instanceof HttpError ? e.message : String(e?.message ?? e); }
     }
@@ -440,14 +440,14 @@ function routes(d: Deps) {
     if (tpl.perspective !== 'player') throw new HttpError(422, 'Only player-perspective templates can be sent to players');
     const rc = rcFor(res, tpl, contextIn(req.body?.context));
     const c = cleanForPlayer(d, W(res), tpl, valuesOf(req.body?.values), rc);
-    if (c.leaks.length) throw new HttpError(409, 'Not sent: the text repeats words from DM-only notes.');
+    if (c.leaks.length) throw new HttpError(409, 'Not sent: the text repeats words from GM-only notes.');
     const body = publicText(renderParts(tpl, c.values, rc));
     if (!body) throw new HttpError(422, 'There is nothing to send yet');
     const title = (c.values.location || tpl.name).slice(0, 100);
     res.status(201).json({ ok: true, threadId: sendMessage(res, title, body) });
   });
 
-  /** Add a sculpted statblock to the combat tracker (through the live API, with the DM's own token). */
+  /** Add a sculpted statblock to the combat tracker (through the live API, with the GM's own token). */
   r.post('/combat', async (req, res) => {
     const tpl = asTpl(find(res, req.body?.templateId));
     const values = valuesOf(req.body?.values);
@@ -488,7 +488,7 @@ const feature: Feature = {
   worldRoutes: routes,
   mcpTools: [{
     name: 'sculpt', write: true,
-    description: 'DM: make something from a template (an NPC, a shop, a statblock, an encounter, a rumour table, a trap, loot, a letter ...). Give a template name or id (see list_templates; do not use it for a plain NPC, monster or loot request: use generate, generate_names or generate_coins unless the DM names a template) and any values you have ("make me a rumour table for Saltmarsh": template "Rumour table", values {place: "Saltmarsh"}); the blanks are filled to fit the world. count makes several at once in one go (6 rumours, 10 tavern names). outputs picks what happens with the result: page, stage (shown to players: only the player-safe parts), combat (adds monsters to initiative), send (player templates), broker. DM-only parts become secret blocks and never reach the stage, players or the broker.',
+    description: 'GM: make something from a template (an NPC, a shop, a statblock, an encounter, a rumour table, a trap, loot, a letter ...). Give a template name or id (see list_templates; do not use it for a plain NPC, monster or loot request: use generate, generate_names or generate_coins unless the GM names a template) and any values you have ("make me a rumour table for Saltmarsh": template "Rumour table", values {place: "Saltmarsh"}); the blanks are filled to fit the world. count makes several at once in one go (6 rumours, 10 tavern names). outputs picks what happens with the result: page, stage (shown to players: only the player-safe parts), combat (adds monsters to initiative), send (player templates), broker. GM-only parts become secret blocks and never reach the stage, players or the broker.',
     props: {
       template: { type: 'string', description: 'Template name or id, e.g. "NPC for quick RP"' },
       values: { type: 'object', description: 'Field values you already know, by field key' },
@@ -503,18 +503,18 @@ const feature: Feature = {
     call: (a) => ({ method: 'POST', path: '/sculpt/run', body: { template: a.template, values: a.values ?? {}, lock: a.lock, only: a.only, count: a.count, context: a.context, outputs: a.outputs, save: !!a.save } }),
   }, {
     name: 'send_scene', write: true,
-    description: "DM: send a player-perspective scene (template 'Scene, player perspective', with the values sculpt gave back) to every player as a message. Refused if it repeats DM-only notes.",
+    description: "GM: send a player-perspective scene (template 'Scene, player perspective', with the values sculpt gave back) to every player as a message. Refused if it repeats GM-only notes.",
     props: { template: { type: 'string', description: "A player-perspective template name or id; leave it out for the standard 'Scene, player perspective'" }, values: { type: 'object', description: 'The filled fields (location, time, weather, mood, description)' } },
     required: ['values'],
     call: (a) => ({ method: 'POST', path: '/sculpt/send', body: { templateId: a.template, values: a.values } }),
   }, {
     name: 'sculpt_templates', dmOnly: true,
-    description: 'DM: the sculpting templates for this world, with their fields.',
+    description: 'GM: the sculpting templates for this world, with their fields.',
     props: {},
     call: () => ({ method: 'GET', path: '/sculpt/templates' }),
   }, {
     name: 'create_template', write: true,
-    description: 'DM: draft a new sculpting template; the DM approves it before it is saved. Give name, description, perspective (dm or player), category (Combat, NPCs, Places, Loot, Story or Prep), fields (each: key lowercase_with_underscores, label, type text|longtext|number|select|list|name|item|coins|page|statblock|dice|table|rollTable, options for select, optional gen like "gen:name.human" or "dice:2d6" or "pick:a|b|c", dmOnly, hint) and body (text using {{field_key}}, {{#if key}}...{{/if}}, {{#each key}}...{{/each}}, {{#dm}}...{{/dm}} for DM-only parts, {{gen:...}}, {{dice:...}}, {{pick:a|b}}). Check list_templates first so you do not duplicate one. For a one-off NPC use generate (kind npc), not a template.',
+    description: 'GM: draft a new sculpting template; the GM approves it before it is saved. Give name, description, perspective (dm or player), category (Combat, NPCs, Places, Loot, Story or Prep), fields (each: key lowercase_with_underscores, label, type text|longtext|number|select|list|name|item|coins|page|statblock|dice|table|rollTable, options for select, optional gen like "gen:name.human" or "dice:2d6" or "pick:a|b|c", dmOnly, hint) and body (text using {{field_key}}, {{#if key}}...{{/if}}, {{#each key}}...{{/each}}, {{#dm}}...{{/dm}} for GM-only parts, {{gen:...}}, {{dice:...}}, {{pick:a|b}}). Check list_templates first so you do not duplicate one. For a one-off NPC use generate (kind npc), not a template.',
     props: {
       name: { type: 'string' }, description: { type: 'string' },
       perspective: { type: 'string', enum: ['dm', 'player'] }, category: { type: 'string', enum: [...CATEGORIES] },
@@ -527,7 +527,7 @@ const feature: Feature = {
     call: (a) => ({ method: 'POST', path: '/sculpt/templates', body: { name: a.name, description: a.description, perspective: a.perspective, category: a.category, fields: a.fields, body: a.body, target: a.target, outputs: a.outputs } }),
   }, {
     name: 'list_templates', dmOnly: true,
-    description: 'DM: find a sculpting template by what you need ("rumour", "trap", "encounter"). Returns a short list: name, category, what it does and its field keys, so you can call sculpt with partial values.',
+    description: 'GM: find a sculpting template by what you need ("rumour", "trap", "encounter"). Returns a short list: name, category, what it does and its field keys, so you can call sculpt with partial values.',
     props: {
       query: { type: 'string', description: 'Words to look for in the name, description or fields' },
       category: { type: 'string', description: 'Combat, NPCs, Places, Loot, Story or Prep' },

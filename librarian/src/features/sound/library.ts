@@ -133,7 +133,7 @@ export function scan(dataDir: string | null): Index {
   return idx;
 }
 
-/** Apply the DM's own spots (they beat moods.yaml and folder names). */
+/** Apply the GM's own spots (they beat moods.yaml and folder names). */
 export function withOverrides(tracks: Track[], over: Map<string, { x: number; y: number }>): Track[] {
   return tracks.map((t) => (over.has(t.id) ? { ...t, mood: { ...over.get(t.id)!, src: 'dm' as const } } : t));
 }

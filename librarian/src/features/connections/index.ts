@@ -13,9 +13,9 @@
 //   PUT               /api/admin/connections/:id/endpoints (the reviewed endpoint list)
 //   GET               /api/admin/connections/tiers/world/:world (each source's tiers: index, details, budget)
 //   PATCH             /api/admin/connections/tiers/:source (background budget, pause, fetch everything, spread the first scan, the connection's calls-per-minute/second limits)
-//   GET               /api/worlds/:world/world-sources   (DM: the sources; players: nothing)
-//   GET               /api/worlds/:world/world-sources/depths (DM: pages not yet read in full)
-//   GET               /api/worlds/:world/world-sources/status (DM: why players see nothing, a refused key, a wait for the site)
+//   GET               /api/worlds/:world/world-sources   (GM: the sources; players: nothing)
+//   GET               /api/worlds/:world/world-sources/depths (GM: pages not yet read in full)
+//   GET               /api/worlds/:world/world-sources/status (GM: why players see nothing, a refused key, a wait for the site)
 //   MCP               world_sources
 //
 // The world pages (overview, crawl, re-index) are in routes/sources.ts.
@@ -167,7 +167,7 @@ const feature: Feature = {
 
     // ---- generic API: find the endpoints and guess the fields -------------------------------------
     // Looks for an OpenAPI or Swagger spec; without one, one sample call to the base URL and to each list URL given.
-    // Nothing is saved: the answer is a table of endpoints (role, mapping, confidence) for the DM to review.
+    // Nothing is saved: the answer is a table of endpoints (role, mapping, confidence) for the GM to review.
     r.post('/api-discover', async (req, res) => {
       const b = req.body ?? {};
       let token = typeof b.token === 'string' && b.token !== SECRET_MASK ? b.token : undefined;
@@ -211,7 +211,7 @@ const feature: Feature = {
       } catch (e: any) { throw new HttpError(400, `Could not list the server's tools: ${String(e.message).slice(0, 200)}`); } finally { made.close(); }
     });
 
-    // The DM's reviewed list: each endpoint's role and mapping, or "unused". Saved on the connection; a preset can be made from it.
+    // The GM's reviewed list: each endpoint's role and mapping, or "unused". Saved on the connection; a preset can be made from it.
     r.put('/:cid/endpoints', (req, res) => {
       const row = getConnection(d.db, String(req.params.cid));
       if (!row || row.kind !== 'api') throw new HttpError(404, 'Generic API connection not found');
@@ -394,12 +394,12 @@ const feature: Feature = {
         }),
       });
     });
-    // Why players may see nothing, a key the site refuses for content, a wait for the site: for the DM's library and the world page.
+    // Why players may see nothing, a key the site refuses for content, a wait for the site: for the GM's library and the world page.
     r.get('/status', (_req, res) => {
       if (!isDM(res)) return res.json({ pages: 0, levels: { party: 0, broker: 0, dm: 0, classified: 0 }, dmOnly: null, refused: [], waiting: null });
       res.json(worldStatus(d, ctx(res).world.id));
     });
-    // Pages not yet read in full: for the DM's depth badge.
+    // Pages not yet read in full: for the GM's depth badge.
     r.get('/depths', (_req, res) => {
       if (!isDM(res)) return res.json({ depths: {} });
       res.json({ depths: depthsOf(d.db, ctx(res).world.id) });
@@ -421,7 +421,7 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'world_sources', dmOnly: true,
-      description: "DM: where this world's library comes from: each source (name, kind of app, connection), its audience (DM only, shared with players, or following the source's own flags), the schedule and when it last synced.",
+      description: "GM: where this world's library comes from: each source (name, kind of app, connection), its audience (GM only, shared with players, or following the source's own flags), the schedule and when it last synced.",
       props: {}, call: () => ({ method: 'GET', path: '/world-sources' }),
     },
   ],

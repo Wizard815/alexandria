@@ -1,5 +1,5 @@
-// The DM agent and the player harness: tools over loopback with the caller's
-// own token, pending writes the DM confirms, the leak check, combat tools and
+// The GM agent and the player harness: tools over loopback with the caller's
+// own token, pending writes the GM confirms, the leak check, combat tools and
 // statblocks. The chat model is an in-test fake fetch (never a real model).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -71,9 +71,9 @@ async function boot(withModel: boolean): Promise<Env> {
     ID[name] = j.account.id;
   }
   const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  const saltmarsh = await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
+  const saltmarsh = await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
   const velmira = await page('dm/Velmira', 'dm', `# Velmira\n${SECRET}.\n`);
-  // A session with one line for everyone and one DM-only aside.
+  // A session with one line for everyone and one GM-only aside.
   run(made.deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at) VALUES (?, ?, ?, ?)', 'as_1', W, 'Session 1', new Date().toISOString());
   run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_1', 'as_1', ?, 0, 1000, 'Narrator', ?, 'players', ?)`, W, OPEN_LINE, new Date().toISOString());
   run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_2', 'as_1', ?, 2000, 3000, 'Whisper', ?, 'dm', ?)`, W, DM_LINE, new Date().toISOString());
@@ -102,7 +102,7 @@ const A = (e: Env) => `/api/worlds/${e.W}/agent`;
 const env = await boot(true);
 const bare = await boot(false);
 
-test('Agent: the DM harness runs a read tool and answers with a citation', async () => {
+test('Agent: the GM harness runs a read tool and answers with a citation', async () => {
   const e = env;
   e.model.seen.length = 0;
   e.model.queue.push(() => toolCall('read_page', { page: e.ID.velmira }), () => say('Velmira keeps her treasury under the lighthouse (dm/Velmira).'));
@@ -112,9 +112,9 @@ test('Agent: the DM harness runs a read tool and answers with a citation', async
   assert.ok(reply.citations.some((c: any) => c.kind === 'page' && c.id === e.ID.velmira && c.path === 'dm/Velmira.md'), JSON.stringify(reply.citations));
   // Only the tools that fit are offered (16, plus up to 3 the words match), and the library search is always among them.
   assert.ok(toolNames(e.model.seen[0]).length <= MAX_TOOLS + 3 && toolNames(e.model.seen[0]).includes('search_library') && toolNames(e.model.seen[0]).includes('read_page'));
-  // The library matches for the question came with it (DM copies), so the model could answer in one round.
+  // The library matches for the question came with it (GM copies), so the model could answer in one round.
   assert.ok(e.model.seen[0].messages.at(-1).content.includes('Library matches'));
-  // The tool result the model got is the DM copy of the page.
+  // The tool result the model got is the GM copy of the page.
   assert.ok(e.model.seen[1].messages.some((m: any) => m.role === 'tool' && m.content.includes(SECRET)));
   assert.equal(chat.actions.length, 0);
   assert.ok(all<any>(e.deps.db, `SELECT * FROM audit WHERE world_id = ? AND action = 'agent.read'`, e.W).length >= 1);
@@ -124,7 +124,7 @@ test('Agent: it answers from the transcript with a citation', async () => {
   const e = env;
   e.model.queue.push(() => toolCall('search_transcript', { query: 'harbour' }), () => say('You arrived at the harbour as the evening bells rang.'));
   const { reply } = await ask(e, e.T.dm, 'What happened when we arrived?');
-  // The latest transcript (with the DM-only line) rides in the user message for a question about the session.
+  // The latest transcript (with the GM-only line) rides in the user message for a question about the session.
   assert.ok(e.model.seen.at(-2).messages.at(-1).content.includes(DM_LINE));
   assert.ok(reply.citations.some((c: any) => c.kind === 'transcript' && c.id === 'ln_1' && c.snippet.includes('harbour')), JSON.stringify(reply.citations));
 });
@@ -212,23 +212,23 @@ test('Agent: the player harness never lists or calls write tools', async () => {
   assert.ok(e.model.seen[1].messages.some((m: any) => m.role === 'tool' && /Unknown tool/.test(m.content)));
 });
 
-test('Agent: a player never gets DM text in the model input or in a tool result', async () => {
+test('Agent: a player never gets GM text in the model input or in a tool result', async () => {
   const e = env;
   e.model.seen.length = 0;
   e.model.queue.push(() => toolCall('read_page', { page: e.ID.velmira }), () => toolCall('search_library', { query: 'smuggler queen Velmira' }, 'c2'), () => toolCall('read_page', { page: e.ID.saltmarsh }, 'c3'), () => toolCall('search_transcript', { query: 'vault code' }, 'c4'), () => say('I do not know about that.'));
   const { reply } = await ask(e, e.T.jess, 'Who is the smuggler queen Velmira, and what happened at Saltmarsh?');
   assert.equal(reply.text, 'I do not know about that.');
   const everything = JSON.stringify(e.model.seen.map((r) => r.messages));
-  for (const secret of ['treasury beneath the lighthouse', 'secretly answers', DM_LINE, 'seven seven three nine']) assert.ok(!everything.includes(secret), `the model input held DM text: ${secret}`);
+  for (const secret of ['treasury beneath the lighthouse', 'secretly answers', DM_LINE, 'seven seven three nine']) assert.ok(!everything.includes(secret), `the model input held GM text: ${secret}`);
   // It did get what a player may read: the shared page, and the players' transcript.
   assert.ok(everything.includes('fishing town ruled by the harbour council'));
   assert.ok(everything.includes(OPEN_LINE));
-  // The DM-only page was a 404 to the player's own token.
+  // The GM-only page was a 404 to the player's own token.
   assert.ok(e.model.seen[1].messages.some((m: any) => m.role === 'tool' && /Error 404/.test(m.content)));
   assert.deepEqual(reply.citations.map((c: any) => c.id).filter((id: string) => id === e.ID.velmira), []);
 });
 
-test('Agent: the leak check blocks a player reply that echoes DM-only text', async () => {
+test('Agent: the leak check blocks a player reply that echoes GM-only text', async () => {
   const e = env;
   e.model.queue.push(() => say(`Well, ${SECRET}, so I hear.`));
   const { reply } = await ask(e, e.T.jess, 'Tell me something secret');
@@ -239,7 +239,7 @@ test('Agent: the leak check blocks a player reply that echoes DM-only text', asy
   assert.equal(leaks.leaks[0].accountId, e.ID.jess);
   assert.equal((await e.call('GET', `${A(e)}/leaks`, e.T.jess)).status, 403);
   assert.ok(all(e.deps.db, `SELECT 1 FROM audit WHERE world_id = ? AND action = 'agent.leak_blocked'`, e.W).length === 1);
-  // A DM-only transcript line is blocked too, and a secret block in a shared page.
+  // A GM-only transcript line is blocked too, and a secret block in a shared page.
   e.model.queue.push(() => say(`They whispered: ${DM_LINE}.`));
   assert.equal((await ask(e, e.T.jess, 'What was whispered?')).reply.text, "I can't answer that from what you know.");
   e.model.queue.push(() => say('The harbour council secretly answers to the smuggler queen Velmira, they say.'));
@@ -277,7 +277,7 @@ test('Agent: statblock from a module monster, without any model', async () => {
   const pg = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${r.page.id}`, e.T.dm);
   assert.equal(pg.visibility, 'dm');
   assert.ok(pg.body.includes('**AC** 15'));
-  // DM-only: a player cannot open or find it.
+  // GM-only: a player cannot open or find it.
   assert.equal((await e.call('GET', `/api/worlds/${e.W}/library/pages/${r.page.id}`, e.T.jess)).status, 404);
   assert.ok(!JSON.stringify((await e.ok('GET', `/api/worlds/${e.W}/library/pages`, e.T.jess))).includes('Goblin Warrior'));
   // Another copy gets its own page.
@@ -388,7 +388,7 @@ test('Agent: combat tools through MCP place a creature in initiative and read as
   for (const w of writes) assert.ok(!readNames.includes(w), `${w} listed for a read key`);
   assert.ok(readNames.includes('get_combat') && readNames.includes('search_transcript'));
   assert.ok((await rpc(readKey, 'add_combatant', { name: 'Nope', hp: 1, initiative: 1 })).error);
-  // The DM-only transcript line is not in a player's search.
+  // The GM-only transcript line is not in a player's search.
   const tr = await e.ok('GET', `${A(e)}/transcript?q=vault`, e.T.jess);
   assert.deepEqual(tr.lines, []);
 });
@@ -482,7 +482,7 @@ test('Agent: the system prompt is static and first, so a server can cache it; th
   assert.ok(!/World date|Library matches/.test(a.messages[0].content));
   assert.match(a.messages[0].content, /never invent/i);
   assert.match(a.messages[0].content, /\[Page title\]/);
-  assert.ok(b.messages.at(-1).content.includes('Velmira'), 'the DM sees the DM-only page match');
+  assert.ok(b.messages.at(-1).content.includes('Velmira'), 'the GM sees the GM-only page match');
   const p = e.model.seen.length;
   e.model.queue.push(() => say('Player.'));
   await ask(e, e.T.jess, 'Tell me about Saltmarsh');
@@ -490,7 +490,7 @@ test('Agent: the system prompt is static and first, so a server can cache it; th
   assert.match(e.model.seen[p].messages[0].content, /information broker/);
 });
 
-test('Agent: the combat state rides along for the DM only, while a fight is running', async () => {
+test('Agent: the combat state rides along for the GM only, while a fight is running', async () => {
   const e = env;
   const goblin = await e.ok('POST', `/api/worlds/${e.W}/live/combatants`, e.T.dm, { name: 'Prefetch Goblin', initiative: 12, hp: 7, maxHp: 7 });
   e.model.seen.length = 0;
@@ -708,7 +708,7 @@ test('Agent: Stop ends the answer and keeps what was shown', async () => {
   } finally { dm.close(); }
 });
 
-test('Agent: the player stream never sends a sentence that leaks DM-only text', async () => {
+test('Agent: the player stream never sends a sentence that leaks GM-only text', async () => {
   const e = env;
   const jess = await listen(e, e.T.jess);
   const dm = await listen(e, e.T.dm);
@@ -728,7 +728,7 @@ test('Agent: the player stream never sends a sentence that leaks DM-only text', 
     assert.equal(sent, 'Greetings, traveller. ');
     assert.ok(agentEvents(jess, 'replace').some((x) => x.chatId === id && x.text === "I can't answer that from what you know."), 'the screen is told to replace what it has');
     assert.equal(agentEvents(jess).filter((x) => JSON.stringify(x).includes('treasury')).length, 0);
-    // The DM hears about it, the player does not.
+    // The GM hears about it, the player does not.
     await dm.until((x) => x.type === 'agent' && x.data.kind === 'leak' && x.data.chatId === id);
     assert.ok(!agentEvents(jess, 'leak').length);
     assert.equal((await e.ok('GET', `${A(e)}/leaks`, e.T.dm)).leaks.filter((l: any) => l.chatId === id).length, 1);
@@ -823,10 +823,10 @@ test('Agent: a reply whose stream stops after a word with no finish is asked for
   assert.equal(reply.text, 'The vote is out to the table.');
 });
 
-test('Agent: a player\'s table helper is out of character, knows whose helper it is, reads only, and the DM can turn it off', async () => {
+test('Agent: a player\'s table helper is out of character, knows whose helper it is, reads only, and the GM can turn it off', async () => {
   const e = env;
   const h = await e.ok('POST', `${A(e)}/chats`, e.T.jess, { mode: 'helper' });
-  assert.equal((await e.ok('POST', `${A(e)}/chats`, e.T.dm, { mode: 'helper' })).id ? true : false, true, 'a DM chat ignores the mode');
+  assert.equal((await e.ok('POST', `${A(e)}/chats`, e.T.dm, { mode: 'helper' })).id ? true : false, true, 'a GM chat ignores the mode');
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Shield is a reaction: +5 AC until the start of your next turn.'));
   const r = await ask(e, e.T.jess, 'What does Shield do?', {}, h.id);
@@ -844,7 +844,7 @@ test('Agent: a player\'s table helper is out of character, knows whose helper it
 
 // ---- Auto mode and the approve path --------------------------------------------------------------------------------
 
-test('Agent: Auto mode is a DM-only world setting that applies to the very next action', async () => {
+test('Agent: Auto mode is a GM-only world setting that applies to the very next action', async () => {
   const e = env;
   const S = `/api/worlds/${e.W}/settings`;
   assert.equal((await e.call('PATCH', S, e.T.dm, { agentAuto: 'yes' })).status, 400, 'a non-boolean is refused');
@@ -858,11 +858,11 @@ test('Agent: Auto mode is a DM-only world setting that applies to the very next 
   assert.deepEqual(first.chat.actions.map((a: any) => a.status), ['pending']);
   await e.ok('POST', `${A(e)}/actions/${first.chat.actions[0].id}`, e.T.dm, { decision: 'approve' });
 
-  // Auto: the next change is applied with no card for it (a settled, automatic one is kept for the record), and the DM can read the mode.
+  // Auto: the next change is applied with no card for it (a settled, automatic one is kept for the record), and the GM can read the mode.
   await e.ok('PATCH', S, e.T.dm, { agentAuto: true });
   assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.dm)).auto, true);
   assert.equal((await e.ok('GET', S, e.T.dm)).agentAuto, true);
-  assert.equal((await e.ok('GET', S, e.T.jess)).agentAuto, undefined, 'players never see the DM-only mode');
+  assert.equal((await e.ok('GET', S, e.T.jess)).agentAuto, undefined, 'players never see the GM-only mode');
   e.model.queue.push(() => toolCall('add_combatant', { name: 'Auto Goblin B', hp: 7, initiative: 2 }), () => say('Added.'));
   const second = await ask(e, e.T.dm, 'Add Auto Goblin B');
   const auto = second.chat.actions.find((a: any) => a.args.name === 'Auto Goblin B');
@@ -889,7 +889,7 @@ test('Agent: flipping Auto on during a reply applies to the next tool call of th
   const e = env;
   const S = `/api/worlds/${e.W}/settings`;
   await e.ok('PATCH', S, e.T.dm, { agentAuto: false });
-  // Round 1 proposes (a card); the DM switches Auto on while the model is still "thinking"; round 2 applies with no card.
+  // Round 1 proposes (a card); the GM switches Auto on while the model is still "thinking"; round 2 applies with no card.
   e.model.queue.push(
     () => toolCall('add_combatant', { name: 'Mid Goblin A', hp: 5, initiative: 4 }, 'c1'),
     async () => { await e.ok('PATCH', S, e.T.dm, { agentAuto: true }); return toolCall('add_combatant', { name: 'Mid Goblin B', hp: 5, initiative: 3 }, 'c2'); },
@@ -1018,7 +1018,7 @@ test('Agent: the same change proposed twice is one card; a card can be edited be
   assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.dm, { args: { owner: 'party', name: 'X' } })).status, 409, 'a decided card cannot change');
 });
 
-test("Agent: Minerva's thoughts follow a run (DM only): the plan, the look-ups, the proposal and the end", async () => {
+test("Agent: Minerva's thoughts follow a run (GM only): the plan, the look-ups, the proposal and the end", async () => {
   const e = env;
   const { clearThoughts } = await import('../src/features/active/thoughts.ts');
   clearThoughts(e.deps, e.W);
@@ -1038,7 +1038,7 @@ test("Agent: Minerva's thoughts follow a run (DM only): the plan, the look-ups, 
   assert.equal((await e.call('GET', `/api/worlds/${e.W}/active/thoughts`, e.T.jess)).status, 403, 'players never see them');
 });
 
-test('Agent: a house rule the message is about gives the helper and the DM their own guidance, the exact calls and the tools', async () => {
+test('Agent: a house rule the message is about gives the helper and the GM their own guidance, the exact calls and the tools', async () => {
   const e = env;
   const M = `/api/worlds/${e.W}/mods`;
   const file = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '../../mods/examples/downtime-lite.alxmod.json'), 'utf8'));
@@ -1054,7 +1054,7 @@ test('Agent: a house rule the message is about gives the helper and the DM their
   const pctx = e.model.seen[0].messages.at(-1).content;
   assert.match(pctx, /House rule "Downtime lite" \(mod id agent-downtime\) is on/);
   assert.match(pctx, /Help the player choose downtime/);
-  assert.ok(!/open the Downtime day prompt/.test(pctx), 'no DM guidance for a player');
+  assert.ok(!/open the Downtime day prompt/.test(pctx), 'no GM guidance for a player');
   assert.match(pctx, /house_rule_my_record \{"mod":"agent-downtime","action":"start","values":\{"activity":<activity: the id of a activity>\}\}/);
   assert.match(pctx, new RegExp(`Carouse \\(id ${carouse.id}`));
   assert.ok(!/Their tasks/.test(pctx), "Tom's task is not Jess's");
@@ -1064,7 +1064,7 @@ test('Agent: a house rule the message is about gives the helper and the DM their
   await ask(e, e.T.dm, 'A day passes between adventures, run downtime');
   const dctx = e.model.seen[0].messages.at(-1).content;
   assert.match(dctx, /open the Downtime day prompt/);
-  assert.ok(!/Help the player choose downtime/.test(dctx), 'no player guidance for the DM');
+  assert.ok(!/Help the player choose downtime/.test(dctx), 'no player guidance for the GM');
   assert.match(dctx, /house_rule_prompt \{"mod":"agent-downtime","prompt":"downtime-day"\}/);
   assert.match(dctx, /tom: Carouse/);
   assert.ok(toolNames(e.model.seen[0]).includes('house_rule_prompt'));

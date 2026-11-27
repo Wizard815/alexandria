@@ -1,5 +1,5 @@
-// Live sync with several people at once: the DM and three players, each in their own browser, on different pages.
-// The DM changes things (and one player does); every open page must show it by itself, without a reload, within a
+// Live sync with several people at once: the GM and three players, each in their own browser, on different pages.
+// The GM changes things (and one player does); every open page must show it by itself, without a reload, within a
 // few seconds. Each check reports how long the change took to appear. Run: node e2e/live.mjs
 import { chromium, root, signIn, startScript, tmpDir } from './lib.mjs';
 
@@ -35,11 +35,11 @@ async function expectEverywhere(name, pages, text, act) {
 
 try {
   const view = { width: 1280, height: 800 };
-  const dm = await signIn(browser, base, 'dm', 'dungeon master 123', view);
+  const dm = await signIn(browser, base, 'dm', 'game master 123', view);
   const jess = await signIn(browser, base, 'jess', 'player pass 123', view);
   const tom = await signIn(browser, base, 'tom', 'player pass 123', { width: 390, height: 844 }, true);
   const ana = await signIn(browser, base, 'ana', 'player pass 123', view);
-  const T = { dm: await token('dm', 'dungeon master 123'), jess: await token('jess', 'player pass 123'), tom: await token('tom', 'player pass 123'), ana: await token('ana', 'player pass 123') };
+  const T = { dm: await token('dm', 'game master 123'), jess: await token('jess', 'player pass 123'), tom: await token('tom', 'player pass 123'), ana: await token('ana', 'player pass 123') };
   const members = await api(T.dm, 'GET', '/members');
   const acc = Object.fromEntries(members.map((m) => [m.display_name.toLowerCase(), m.id]));
 
@@ -50,23 +50,23 @@ try {
   await ana.page.goto(base + '/w/saltreach/inventory');
   await new Promise((r) => setTimeout(r, 2500));
 
-  console.log('combat: the DM adds a creature and starts the fight');
+  console.log('combat: the GM adds a creature and starts the fight');
   await expectEverywhere('combat', [['jess /live', jess.page], ['dm /combat', dm.page]], 'Sync Wolf', async () => {
     await api(T.dm, 'POST', '/live/combatants', { name: 'Sync Wolf', initiative: 15, hp: 11, maxHp: 11 });
     await api(T.dm, 'PUT', '/live/combat', { active: true });
   });
 
-  console.log('stage: the DM shows a card');
+  console.log('stage: the GM shows a card');
   await expectEverywhere('stage', [['tom /stage (phone)', tom.page]], 'Sync Lighthouse Card', async () => {
     await api(T.dm, 'POST', '/stage/cards', { kind: 'text', title: 'Sync Lighthouse Card', text: 'The lamp flickers.', show: true });
   });
 
-  console.log('inventory: the DM gives Ana an item');
+  console.log('inventory: the GM gives Ana an item');
   await expectEverywhere('inventory', [['ana /inventory', ana.page]], 'Sync Brass Compass', async () => {
     await api(T.dm, 'POST', '/inventory', { owner: acc.ana, name: 'Sync Brass Compass', qty: 1, reason: 'found on the pier' });
   });
 
-  console.log('clock: the DM moves the world clock (shown in every header)');
+  console.log('clock: the GM moves the world clock (shown in every header)');
   const before = (await api(T.dm, 'GET', '/clock')).label;
   await api(T.dm, 'POST', '/clock/advance', { minutes: 1440, reason: 'sync test' });
   const after = (await api(T.dm, 'GET', '/clock')).label;
@@ -74,7 +74,7 @@ try {
   if (before === after) fails.push('clock: the clock did not move');
   else await expectEverywhere('clock', [['jess', jess.page], ['tom (phone)', tom.page], ['ana', ana.page], ['dm', dm.page]], day, async () => {});
 
-  console.log('session chat: a player writes, the DM and another player see it');
+  console.log('session chat: a player writes, the GM and another player see it');
   try { await api(T.dm, 'POST', '/sessionchat/sessions/start', { title: 'Sync night' }); } catch { /* already running */ }
   await dm.page.goto(base + '/w/saltreach/dm/chat');
   await jess.page.goto(base + '/w/saltreach/chat');
@@ -84,24 +84,24 @@ try {
   });
 
   // A top-level page: one inside a folder is listed too, but the folder starts folded, so its title is not on screen.
-  console.log('library: the DM shares a new page; a player\'s library shows it');
+  console.log('library: the GM shares a new page; a player\'s library shows it');
   await ana.page.goto(base + '/w/saltreach/library');
   await new Promise((r) => setTimeout(r, 2000));
   await expectEverywhere('library', [['ana /library', ana.page]], 'Sync Harbour Chart', async () => {
     await api(T.dm, 'PUT', '/library/pages', { path: 'Sync Harbour Chart', visibility: 'party', markdown: '# Sync Harbour Chart\nThe safe channel.\n' });
   });
 
-  console.log('requests: a player asks the DM; the DM\'s approvals page shows it');
+  console.log('requests: a player asks the GM; the GM\'s approvals page shows it');
   await dm.page.goto(base + '/w/saltreach/dm/requests');
   await new Promise((r) => setTimeout(r, 2000));
   await expectEverywhere('requests', [['dm /requests', dm.page]], 'Sync: may I know the ferry guild', async () => {
     await api(T.jess, 'POST', '/requests', { kind: 'question', title: 'Sync: may I know the ferry guild', body: 'Jessamine grew up on the docks.' });
   });
 
-  console.log('privacy: a DM-only stage card never reaches a player page');
-  await api(T.dm, 'POST', '/stage/cards', { kind: 'text', title: 'Sync DM Only Note', text: 'hidden', show: false });
+  console.log('privacy: a GM-only stage card never reaches a player page');
+  await api(T.dm, 'POST', '/stage/cards', { kind: 'text', title: 'Sync GM Only Note', text: 'hidden', show: false });
   await new Promise((r) => setTimeout(r, 2500));
-  for (const [who, p] of [['jess', jess.page], ['tom', tom.page], ['ana', ana.page]]) if ((await p.evaluate(() => document.body.innerText)).includes('Sync DM Only Note')) fails.push(`privacy: ${who} saw a card that was never shown`);
+  for (const [who, p] of [['jess', jess.page], ['tom', tom.page], ['ana', ana.page]]) if ((await p.evaluate(() => document.body.innerText)).includes('Sync GM Only Note')) fails.push(`privacy: ${who} saw a card that was never shown`);
 } catch (e) {
   fails.push(`crashed: ${e.message}`);
 } finally {

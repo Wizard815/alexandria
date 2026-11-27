@@ -49,7 +49,7 @@ export function routes(d: Deps) {
     needMember(res);
     const w = W(res);
     const dm = isDM(res);
-    if (!dm && featureSetting<boolean>(settings(res), 'sourceKeysPlayers') === false) throw new HttpError(403, 'The DM has not opened source keys to players in this world');
+    if (!dm && featureSetting<boolean>(settings(res), 'sourceKeysPlayers') === false) throw new HttpError(403, 'The GM has not opened source keys to players in this world');
     limit(`add:${me(res)}`, 10, 60_000, 'tries to add a key');
     const src = one<SourceRow>(d.db, 'SELECT * FROM sources WHERE id = ? AND world_id = ?', str(req.body?.sourceId, 'sourceId', { max: 60 }), w);
     if (!src) throw new HttpError(404, 'Source not found in this world');
@@ -62,10 +62,10 @@ export function routes(d: Deps) {
     let uses = cleanUses(req.body?.uses ?? ['library', 'agent']).filter((u) => dm || u !== 'broker');
     let trust = claimed === 'blanket' ? 'blanket' : 'unsure';
     if (dm) {
-      // The DM chooses who may use the key, what for, and its trust.
+      // The GM chooses who may use the key, what for, and its trust.
       if (req.body?.users !== undefined) {
         const members = new Set(memberIds(d.db, w, ['dm', 'player']));
-        if (!Array.isArray(req.body.users) || req.body.users.some((u: unknown) => typeof u !== 'string' || !members.has(u))) throw new HttpError(400, 'users must be members of this world (the DM or a player)');
+        if (!Array.isArray(req.body.users) || req.body.users.some((u: unknown) => typeof u !== 'string' || !members.has(u))) throw new HttpError(400, 'users must be members of this world (the GM or a player)');
         users = [...new Set<string>(req.body.users)];
       }
       if (req.body?.uses === undefined) uses = ['agent'];
@@ -136,7 +136,7 @@ export function routes(d: Deps) {
 
   // ---- one key ------------------------------------------------------------------------------------
 
-  /** The DM may act on any key of this world; a player only on their own (anything else is "not found"). */
+  /** The GM may act on any key of this world; a player only on their own (anything else is "not found"). */
   const keyOf = (res: any, kid: string, ownOnly: boolean): KeyRow => {
     const k = getKey(d.db, W(res), kid);
     if (!k || (ownOnly && !isDM(res) && k.owner_id !== me(res))) throw new HttpError(404, 'Key not found');
@@ -155,7 +155,7 @@ export function routes(d: Deps) {
     if (b.trust !== undefined) { sets.push('trust = ?'); vals.push(oneOf(b.trust, 'trust', TRUSTS)); }
     if (b.users !== undefined) {
       const members = new Set(memberIds(d.db, w, ['dm', 'player']));
-      if (!Array.isArray(b.users) || b.users.some((u: unknown) => typeof u !== 'string' || !members.has(u))) throw new HttpError(400, 'users must be members of this world (the DM or a player)');
+      if (!Array.isArray(b.users) || b.users.some((u: unknown) => typeof u !== 'string' || !members.has(u))) throw new HttpError(400, 'users must be members of this world (the GM or a player)');
       sets.push('users = ?'); vals.push(JSON.stringify([...new Set<string>(b.users)]));
     }
     if (b.uses !== undefined) {
@@ -193,7 +193,7 @@ export function routes(d: Deps) {
     res.json(keyView(d.db, getKey(d.db, w, k.id)!, names(d.db, w), { dm: true }));
   });
 
-  // "Refresh my view": read what this key can see (rate limited; the DM may force it).
+  // "Refresh my view": read what this key can see (rate limited; the GM may force it).
   r.post('/:id/refresh', async (req, res) => {
     needMember(res);
     const w = W(res);

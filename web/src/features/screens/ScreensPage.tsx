@@ -1,4 +1,4 @@
-// The DM's Screens page: one card per display, an Open button for each, and (where the browser can) a choice of which physical
+// The GM's Screens page: one card per display, an Open button for each, and (where the browser can) a choice of which physical
 // monitor each one opens on.
 import { useEffect, useState } from 'react';
 import { PageHead } from '../../ui/index.tsx';
@@ -24,7 +24,7 @@ export default function ScreensPage() {
     setProblem('');
     try { setMonitors(await detectMonitors()); } catch { setProblem('The browser did not allow it. Allow “window management” for this site (the padlock by the address) and try again.'); }
   };
-  // If the DM already said yes on an earlier visit, pick the monitors up without asking again.
+  // If the GM already said yes on an earlier visit, pick the monitors up without asking again.
   useEffect(() => {
     if (!can) return;
     void (navigator.permissions as any)?.query?.({ name: 'window-management' }).then((s: any) => { if (s.state === 'granted') void find(); }).catch(() => {});
@@ -55,7 +55,7 @@ export default function ScreensPage() {
         <h2>A four-monitor table</h2>
         <ol className="small" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 4 }}>
           <li><strong>Main</strong> (landscape, in front of you): this app, the way you use it now.</li>
-          <li><strong>Side</strong> (portrait, to its right): the DM side screen, a stack of assistant, transcript, initiative and approvals.</li>
+          <li><strong>Side</strong> (portrait, to its right): the GM side screen, a stack of assistant, transcript, initiative and approvals.</li>
           <li><strong>TV</strong> (facing the players): the Players’ screen.</li>
           <li><strong>Table</strong> (face up, in the middle of everyone): the battle map and initiative.</li>
         </ol>

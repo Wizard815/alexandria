@@ -21,7 +21,7 @@ const ENTITIES = [
   { id: 4, entity_id: 104, name: 'No Flag', entity_type: 'note', entry: 'Missing is_hidden.' },
 ];
 const POSTS: Record<number, any[]> = {
-  101: [{ id: 9, name: 'Rumours', entry: 'Fish is cheap.', is_hidden: false }, { id: 10, name: 'DM notes', entry: 'The docks are cursed.', is_hidden: true }],
+  101: [{ id: 9, name: 'Rumours', entry: 'Fish is cheap.', is_hidden: false }, { id: 10, name: 'GM notes', entry: 'The docks are cursed.', is_hidden: true }],
   102: [{ id: 11, name: 'Admin post', entry: 'Secretly a spy.', is_hidden: false }],
 };
 
@@ -94,12 +94,12 @@ test('TestMcp_KankaImportFailsClosed', async () => {
     assert.ok(calls.every((t) => ['find_entities', 'get_entities'].includes(t)), 'only read tools were called');
 
     const titles = (await call('GET', `/api/worlds/${w.id}/library/pages`, p.token)).map((x: any) => x.title).sort();
-    assert.deepEqual(titles, ['Harbour Town', 'Harbourmaster'], 'hidden and unflagged entities are DM-only');
+    assert.deepEqual(titles, ['Harbour Town', 'Harbourmaster'], 'hidden and unflagged entities are GM-only');
     const town = (await call('GET', `/api/worlds/${w.id}/library/pages`, p.token)).find((x: any) => x.title === 'Harbour Town');
     const pg = await call('GET', `/api/worlds/${w.id}/library/pages/${town.id}`, p.token);
     assert.ok(pg.body.includes('[[Harbourmaster|the harbourmaster]]'));
     assert.deepEqual(pg.tags, ['coast']);
-    for (const leak of ['cursed', 'Fish is cheap']) assert.ok(!pg.body.includes(leak), `posts are DM-only by default: ${leak}`);
+    for (const leak of ['cursed', 'Fish is cheap']) assert.ok(!pg.body.includes(leak), `posts are GM-only by default: ${leak}`);
     const npc = (await call('GET', `/api/worlds/${w.id}/library/search?q=spy`, p.token));
     assert.equal(npc.length, 0);
     const dmBody = (await call('GET', `/api/worlds/${w.id}/library/pages/${town.id}`, a.token)).body;
@@ -141,7 +141,7 @@ test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
   const R = [
     { id: 'root1', name: 'World', parentId: null, isHidden: false, tags: [], documents: [{ id: 'd0', name: 'Main', type: 'page' }] },
     { id: 'town1', name: 'Port Town', parentId: 'root1', isHidden: false, tags: ['town'], iconGlyph: 'anchor', documents: [{ id: 'd1', name: 'Main', type: 'page' }] },
-    { id: 'dmfold', name: 'DM Folder', parentId: 'root1', isHidden: true, tags: ['dm'], documents: [] },
+    { id: 'dmfold', name: 'GM Folder', parentId: 'root1', isHidden: true, tags: ['dm'], documents: [] },
     { id: 'plot1', name: 'Secret Plot', parentId: 'dmfold', isHidden: false, tags: [], documents: [{ id: 'd2', name: 'Main', type: 'page' }] },
     { id: 'npc1', name: 'Visible NPC', parentId: 'root1', isHidden: false, tags: [], documents: [{ id: 'd3', name: 'Main', type: 'page' }, { id: 'd4', name: 'GM notes', type: 'page' }] },
     { id: 'map1', name: 'Map', parentId: 'root1', isHidden: false, tags: [], documents: [{ id: 'd5', name: 'Map', type: 'map' }] },
@@ -166,7 +166,7 @@ test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
       if (!m) return ok({});
       const r = R.find((x) => x.id === m[1])!;
       if (m[2]) return ok({ id: m[2], blocks: DOCS[m[2]] });
-      return ok({ ...r, permissions: {}, documents: r.documents.map((d) => ({ ...d, isHidden: d.id === 'd4' })), properties: r.id === 'town1' ? [{ kind: 'keyValue', title: 'Facts', isHidden: false, rows: [{ key: 'Ruler', content: [{ mention: { resourceId: 'plot1' } }] }, { key: 'DM notes', content: [{ text: 'bribed' }] }] }] : [], ancestors: [] });
+      return ok({ ...r, permissions: {}, documents: r.documents.map((d) => ({ ...d, isHidden: d.id === 'd4' })), properties: r.id === 'town1' ? [{ kind: 'keyValue', title: 'Facts', isHidden: false, rows: [{ key: 'Ruler', content: [{ mention: { resourceId: 'plot1' } }] }, { key: 'GM notes', content: [{ text: 'bribed' }] }] }] : [], ancestors: [] });
     },
     async listTools() { return []; },
     close() {},
@@ -181,17 +181,17 @@ test('TestMcp_LegendKeeperImportInheritsHiddenAndScrubsLinks', async () => {
   assert.equal(out.stats.pages, 6, 'pages, and the map document as a page of its own');
   assert.ok(calls.every(([t, a]) => t === 'api_request' && a.method === 'GET'));
   const player = { accountId: 'p', role: 'player' as const };
-  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Map', 'Port Town', 'Visible NPC', 'World'], 'hidden parent and hidden doc are DM-only');
+  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Map', 'Port Town', 'Visible NPC', 'World'], 'hidden parent and hidden doc are GM-only');
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pg = lib.get('w', town.id, player) as any;
   const all = JSON.stringify(pg);
   for (const leak of ['Smugglers', 'Secret Plot', 'bribed', 'futureWidget', 'plot1']) assert.ok(!all.includes(leak), leak);
   assert.ok(pg.body.includes('Fish market') && pg.body.includes('[[Visible NPC|the NPC]]') && pg.body.includes('(hidden)'));
   assert.deepEqual(pg.icon, { glyph: 'anchor' });
-  assert.deepEqual(pg.properties, [{ title: 'Facts', rows: [{ key: 'Ruler', value: [{ text: '(hidden)' }] }] }], 'DM rows and hidden links removed from facts');
+  assert.deepEqual(pg.properties, [{ title: 'Facts', rows: [{ key: 'Ruler', value: [{ text: '(hidden)' }] }] }], 'GM rows and hidden links removed from facts');
   assert.equal(Object.values(pg.links).length, 1, 'only the visible NPC is linkable');
   assert.equal(lib.search('w', 'plot', player).length, 0);
-  // The DM sees the whole page, secret block included.
+  // The GM sees the whole page, secret block included.
   const dmPage = lib.get('w', town.id, { accountId: 'a', role: 'dm' }) as any;
   assert.ok(dmPage.blocks.some((b: any) => b.kind === 'secret') && JSON.stringify(dmPage).includes('Smugglers'));
   // A second sync with a page gone removes it.

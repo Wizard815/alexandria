@@ -1,7 +1,7 @@
 // The market around the shops: towns with a price level, the keeper's purse,
 // what each keeper remembers about each player (reputation, what they spent
 // and sold, haggles won and lost), deals (a percentage off, from a haggle or
-// given by the DM) and sending a shop to a player's screen (an NPC walks up
+// given by the GM) and sending a shop to a player's screen (an NPC walks up
 // and says "come and see my wares"). See docs/SHOPS.md.
 //
 // Prices, in order: the item's cost, the town's price level, the shop's
@@ -171,7 +171,7 @@ export const dealOut = (x: DealRow, lineName?: string) => ({ id: x.id, stockId: 
 export interface PresentOpts { to: string[] | 'all'; open?: boolean; message?: string; by?: string | null }
 
 /**
- * Put a shop on players' screens: an NPC walks up and offers their wares. Used by the DM's "Send to player",
+ * Put a shop on players' screens: an NPC walks up and offers their wares. Used by the GM's "Send to player",
  * the present_shop agent tool, and other features (NPC encounters) from code. A hidden shop is refused unless
  * `open` is set, which opens it (players cannot buy from a shop they cannot see). Returns who it went to.
  */

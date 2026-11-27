@@ -1,4 +1,4 @@
-// Story events (quick events that happen to a player, by place), the new DM
+// Story events (quick events that happen to a player, by place), the new GM
 // template kinds (quick event, spell) and the built-in starter templates.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -74,7 +74,7 @@ test('TestStoryEvents_StartersAreValidAndTagged', () => {
     assert.ok(s.places?.length, `${s.id} has places`);
     for (const p of s.places!) assert.ok((PLACES as readonly string[]).includes(p), `${s.id}: ${p}`);
   }
-  // Every place the DM can pick has at least one built-in event.
+  // Every place the GM can pick has at least one built-in event.
   for (const p of PLACES) assert.ok(EVENT_STARTERS.some((s) => s.places!.includes(p)), `no starter for ${p}`);
   assert.deepEqual([...EVENT_PLACES], [...PLACES], 'the template spec and the encounter engine share one place list');
 });
@@ -120,7 +120,7 @@ test('TestStoryEvents_PickpocketKeepOrGiveBack', async () => {
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.status, 'done');
   assert.equal(coin(ID.jess), 50);
-  // The DM note never reaches the player; the DM sees it.
+  // The GM note never reaches the player; the GM sees it.
   assert.ok(!r.body.log.some((l: any) => l.who === 'secret'));
   assert.ok(!JSON.stringify(r.body).includes('Let a pickpocket get away'));
   const dmView = await ok('GET', `${P()}/${e.id}`, T.dm);
@@ -204,7 +204,7 @@ test('TestStoryEvents_CheckNeedsTheTypedTotal', async () => {
   const dmView = await ok('GET', `${P()}/${e.id}`, T.dm);
   assert.ok(dmView.log.some((l: any) => l.who === 'secret' && /DC 1[0-4] \(picked from 10–14\)/.test(l.text)));
   await ok('POST', `${P()}/${e.id}/end`, T.dm, {});
-  // A natural 1 with no total fails the chase; the DM sees it was a natural 1.
+  // A natural 1 with no total fails the chase; the GM sees it was a natural 1.
   await send({ accountIds: [ID.jess], templateId: 'builtin:ev-pickpocket' });
   const c = await openFor('jess');
   await choose(c.id, 'jess', { option: 0 });
@@ -334,7 +334,7 @@ test('TestTemplates_EventAndSpellKinds', () => {
   assert.deepEqual((sp.spec as any).schools, ['Evocation']);
   assert.match(guideText(sp as any), /Level 2 to 5/);
   assert.match(guideText(sp as any), /Spell lines: Frost/);
-  // Drafted without a model from the DM's words.
+  // Drafted without a model from the GM's words.
   const de = heuristicDraft('event', 'Things that happen in the forest and caves: thieves, finds');
   assert.deepEqual((de.template.spec as any).places, ['woods', 'cave']);
   const ds = heuristicDraft('spell', 'Frost spells for wizards, level 1 to 3, evocation');

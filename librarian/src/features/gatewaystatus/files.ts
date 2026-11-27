@@ -1,6 +1,6 @@
 // Files that came from sources or were added to the library, per world: what is held, how big, when it was fetched, how much disk it
-// takes. Names are shown only for files the admin may see: an admin who is not a world's DM sees the files its players may see by name,
-// and the rest only as counts and sizes ("a DM-only file").
+// takes. Names are shown only for files the admin may see: an admin who is not a world's GM sees the files its players may see by name,
+// and the rest only as counts and sizes ("a GM-only file").
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';

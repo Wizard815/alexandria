@@ -1,5 +1,5 @@
-// Library sharing for the DM: per-player shares of pages and files, folder rules, the classified block,
-// "send to players" (new from the DM) and that nothing reaches a player it was not meant for.
+// Library sharing for the GM: per-player shares of pages and files, folder rules, the classified block,
+// "send to players" (new from the GM) and that nothing reaches a player it was not meant for.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -56,7 +56,7 @@ async function boot() {
 test('TestLibShare_PagePerPlayerAndEveryone', async () => {
   const e = await boot();
   try {
-    const pg = await e.page('lore/Secret Cove.md', 'dm', 'The cove is hidden.\n\n> [!secret] DM\n> DMSECRET smugglers\n');
+    const pg = await e.page('lore/Secret Cove.md', 'dm', 'The cove is hidden.\n\n> [!secret] GM\n> DMSECRET smugglers\n');
     assert.deepEqual(await e.titles('jess'), []);
     const r = await e.share({ kind: 'page', id: pg.id, mode: 'players', players: [e.ID.jess] });
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -72,7 +72,7 @@ test('TestLibShare_PagePerPlayerAndEveryone', async () => {
     // Everyone
     await e.share({ kind: 'page', id: pg.id, mode: 'party' });
     assert.deepEqual(await e.titles('ana'), ['Secret Cove']);
-    // DM only again
+    // GM only again
     await e.share({ kind: 'page', id: pg.id, mode: 'dm' });
     for (const p of ['jess', 'tom', 'ana']) assert.deepEqual(await e.titles(p), []);
     assert.equal((await e.call('GET', `${e.lib}/pages/${pg.id}`, e.T.jess)).status, 404);
@@ -118,7 +118,7 @@ test('TestLibShare_ClassifiedAndBrokerCanNeverBeShared', async () => {
     assert.equal(dmClassifiedTag.visibility, 'classified');
     const rule = await e.share({ kind: 'folder', sourceId: '', path: 'Vault', mode: 'party', confirm: true });
     assert.equal(rule.status, 200, JSON.stringify(rule.body));
-    assert.deepEqual(await e.titles('jess'), ['Open Note'], 'only the DM-only page is lifted');
+    assert.deepEqual(await e.titles('jess'), ['Open Note'], 'only the GM-only page is lifted');
     const ids = new Map(all<any>(e.deps.db, 'SELECT id, title FROM pages').map((p) => [p.title, p.id]));
     for (const t of ['Classified Note', 'Broker Note', 'Tagged']) assert.equal((await e.call('GET', `${e.lib}/pages/${ids.get(t)}`, e.T.jess)).status, 404, t);
     // A page becoming classified later drops out of the rule at once.
@@ -187,7 +187,7 @@ test('TestLibShare_FolderRuleCoversPagesAddedAndMovedLater', async () => {
 test('TestLibShare_FileSharedToOnePlayerAndItsPageStaysHidden', async () => {
   const e = await boot();
   try {
-    const pg = await e.page('lore/DM Page.md', 'dm', 'DMPAGETEXT');
+    const pg = await e.page('lore/GM Page.md', 'dm', 'DMPAGETEXT');
     const f = await e.up(`page=${pg.id}&name=handout.png&level=dm`, PNG('h'));
     assert.equal(f.status, 201);
     const fileUrl = (who: string) => e.call('GET', `/api/worlds/${e.W}/files/${f.body.id}`, e.T[who]);
@@ -205,12 +205,12 @@ test('TestLibShare_FileSharedToOnePlayerAndItsPageStaysHidden', async () => {
     const url = list.files[0].url as string;
     assert.equal((await e.bytes(url)).status, 200);
     const tomList = await e.ok('GET', `/api/worlds/${e.W}/files/${f.body.id}/ticket`, e.T.dm);
-    assert.equal((await e.bytes(tomList.url)).status, 200, 'the DM reads it');
+    assert.equal((await e.bytes(tomList.url)).status, 200, 'the GM reads it');
     // Everyone, with the page.
     assert.equal((await e.share({ kind: 'file', id: f.body.id, mode: 'party', withPage: true })).status, 200);
     assert.equal((await fileUrl('tom')).status, 200);
     assert.equal((await e.call('GET', `${e.lib}/pages/${pg.id}`, e.T.tom)).status, 200);
-    // Back to DM only: file and page close again.
+    // Back to GM only: file and page close again.
     assert.equal((await e.share({ kind: 'file', id: f.body.id, mode: 'dm' })).status, 200);
     assert.equal((await fileUrl('jess')).status, 404);
     assert.equal((await e.bytes(url)).status, 404, 'a ticket already handed out stops working');
@@ -250,14 +250,14 @@ test('TestLibShare_SendToPlayersIsNewForThemOnly', async () => {
     assert.deepEqual((await e.ok('GET', `${e.ls}/new`, e.T.tom)).items, [], 'another player is not told');
     await e.ok('POST', `${e.ls}/seen`, e.T.jess, {});
     assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.jess)).newCount, 0);
-    assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.jess)).items.length, 1, 'it stays listed under From the DM');
+    assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.jess)).items.length, 1, 'it stays listed under From the GM');
     // Quiet share: nothing is recorded.
     await e.share({ kind: 'page', id: secret.id, mode: 'party' });
     assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.ana)).items.length, 0);
     // Unshared after sending: it disappears from the list (checked again on every read).
     await e.share({ kind: 'page', id: pg.id, mode: 'dm' });
     assert.equal((await e.ok('GET', `${e.ls}/new`, e.T.jess)).items.length, 0);
-    // The DM sees the send log with who it went to.
+    // The GM sees the send log with who it went to.
     const log = await e.ok('GET', `${e.ls}/new`, e.T.dm);
     assert.equal(log.items[0].toNames[0], 'Jess');
   } finally { e.close(); }
@@ -347,7 +347,7 @@ test('TestLibShare_TwoSourcesWithOneNameAreSharedApart', async () => {
     run(e.deps.db, `UPDATE pages SET source_id = 'src_one' WHERE id = ?`, a.id);
     run(e.deps.db, `UPDATE pages SET source_id = 'src_two' WHERE id = ?`, b.id);
     e.deps.library.changed(e.W);
-    // The DM's list carries the source id and type, so the tree keeps them apart.
+    // The GM's list carries the source id and type, so the tree keeps them apart.
     const list = await e.ok('GET', `${e.lib}/pages`, e.T.dm);
     assert.deepEqual(list.filter((p: any) => p.source === 'Wiki').map((p: any) => `${p.sourceId}:${p.sourceKind}`).sort(), ['src_one:kanka', 'src_two:obsidian']);
     assert.equal((await e.ok('GET', `${e.lib}/pages`, e.T.jess)).some((p: any) => 'sourceKind' in p || 'sourceId' in p), false, 'players get neither');
@@ -373,7 +373,7 @@ test('TestLibShare_LiveEventsNameOnlyPagesThePlayerCanOpenOrJustLost', async () 
     const idsFor = (v: any) => seen.filter((x) => x.aud(v)).flatMap((x) => [x.data?.id, x.data?.pageId]).filter(Boolean).sort();
     const gotAny = (v: any) => seen.filter((x) => x.aud(v)).length;
     try {
-      // A page shared to Jess: Jess hears its id, Tom hears no id at all, the DM hears it.
+      // A page shared to Jess: Jess hears its id, Tom hears no id at all, the GM hears it.
       await e.share({ kind: 'page', id: inn.id, mode: 'players', players: [e.ID.jess] });
       assert.deepEqual(idsFor(P('jess')), [inn.id, inn.id]);
       assert.deepEqual(idsFor(P('tom')), [], 'another player learns no page id');

@@ -107,7 +107,7 @@ export function opBlocks(html: unknown, lk: OpLookups): Block[] {
   return blocks;
 }
 
-/** The players may read it: Obsidian Portal says it is not GM-only (and a character is public or for friends). Anything unsure is the DM's. */
+/** The players may read it: Obsidian Portal says it is not GM-only (and a character is public or for friends). Anything unsure is the GM's. */
 export function opShared(x: any, character: boolean): boolean {
   if (x?.is_game_master_only !== false) return false;
   if (character) return x.visibility === 'public' || x.visibility === 'friends';
@@ -214,7 +214,7 @@ async function* opDetail(cfg: Record<string, any>, ctx: ConnectorContext, ids: s
 export const obsidianPortal: Connector = {
   id: 'obsidian-portal',
   label: 'Obsidian Portal',
-  description: 'Reads an Obsidian Portal campaign: wiki pages, the adventure log and characters. GM-only pages and GM info stay DM-only.',
+  description: 'Reads an Obsidian Portal campaign: wiki pages, the adventure log and characters. GM-only pages and GM info stay GM-only.',
   capabilities: ['pages', 'properties', 'tags', 'images', 'characters', 'relations'],
   fields: [
     { key: 'campaign', label: 'Campaign', type: 'text', required: true, help: 'Its name, slug or address (https://<campaign>.obsidianportal.com or …/campaigns/<slug>).' },

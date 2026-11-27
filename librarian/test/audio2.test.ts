@@ -144,7 +144,7 @@ test('Audio2_hint: built only from what players may read; short; no junk; dice w
   for (const w of ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'nat 20', 'advantage', 'disadvantage']) assert.ok(h.includes(w), `dice word ${w}`);
 });
 
-test('Audio2_hint: the speech model is never sent a DM-only title, and a chunk of quiet gets no prompt', async () => {
+test('Audio2_hint: the speech model is never sent a GM-only title, and a chunk of quiet gets no prompt', async () => {
   const sid = await newSession();
   asked.length = 0;
   await send('dm', sid, 'table', 0, 0, [seg('hello there everyone')], 0.5);
@@ -152,7 +152,7 @@ test('Audio2_hint: the speech model is never sent a DM-only title, and a chunk o
   assert.equal(asked.length, 2);
   assert.match(asked[0].prompt, /Saltmarsh/);
   assert.equal(asked[0].format, 'verbose_json');
-  assert.ok(!/Drowned|Lord of Brine|Tide Cult|Pale Vault/i.test(asked.map((a) => a.prompt).join('\n')), 'no DM-only title in any prompt');
+  assert.ok(!/Drowned|Lord of Brine|Tide Cult|Pale Vault/i.test(asked.map((a) => a.prompt).join('\n')), 'no GM-only title in any prompt');
   assert.equal(asked[1].prompt, '', 'a quiet chunk is sent no vocabulary');
 });
 
@@ -179,9 +179,9 @@ test('Audio2_hint: ranked by recency and how often the table said it; capped whe
   assert.ok(buildHint(deps.db, w2).startsWith('PersonZa') || buildHint(deps.db, w2).includes('PersonZa'), buildHint(deps.db, w2));
 });
 
-test('Audio2_leak: a DM-only title that turns up in a players line (hint echo) makes the line DM-only; players never read it', async () => {
+test('Audio2_leak: a GM-only title that turns up in a players line (hint echo) makes the line GM-only; players never read it', async () => {
   const sid = await newSession();
-  // The model "hears" the DM-only title that nobody said and no other mic heard.
+  // The model "hears" the GM-only title that nobody said and no other mic heard.
   await send('jess', sid, 'jess', 0, 0, [seg(`we sail to ${DM_TITLE} tonight`)], 0.6);
   await send('dm', sid, 'table', 0, 10_000, [seg('we sail to Saltmarsh tonight')], 0.6);
   const dmLines = await lines('dm', sid);
@@ -189,9 +189,9 @@ test('Audio2_leak: a DM-only title that turns up in a players line (hint echo) m
   assert.equal(bad.audience, 'dm', 'fail closed');
   assert.equal(dmLines.find((l) => l.text.includes('Saltmarsh'))!.audience, 'players');
   const seen = JSON.stringify(await lines('tom', sid));
-  assert.ok(!seen.includes('Drowned'), 'the player never gets the DM-only title');
+  assert.ok(!seen.includes('Drowned'), 'the player never gets the GM-only title');
   assert.ok(seen.includes('Saltmarsh'));
-  // Heard by two mics it was really said at the table: the DM can still make it public by hand, and it is not hidden by the rule.
+  // Heard by two mics it was really said at the table: the GM can still make it public by hand, and it is not hidden by the rule.
   const sid2 = await newSession();
   await send('jess', sid2, 'jess', 0, 0, [seg(`the ${DM_TITLE} rises`)], 0.6);
   await send('tom', sid2, 'tom', 0, 0, [seg(`the ${DM_TITLE} rises`)], 0.5);
@@ -204,15 +204,15 @@ test('Audio2_leak: dmOnlyTerms and containsTerm see titles and aliases of pages 
   assert.ok(containsTerm('the lord of brine speaks', t), 'aliases too');
   assert.ok(containsTerm('the Tide Cult Elders gather', t), 'broker pages');
   assert.ok(containsTerm('the pale vault chamber', t), 'classified pages');
-  assert.ok(!containsTerm('a trip to Saltmarsh', t), 'party titles are not DM-only');
+  assert.ok(!containsTerm('a trip to Saltmarsh', t), 'party titles are not GM-only');
 });
 
-test('Audio2_leak: the party\'s own names are never DM-only, even when Minerva files a DM-only page under one', async () => {
+test('Audio2_leak: the party\'s own names are never GM-only, even when Minerva files a GM-only page under one', async () => {
   await page('Minerva/codex/characters/pc/Jessamine.md', 'dm', '# Jessamine\nNotes on the PC.\n');
   await page('dm/Tomas Backstory.md', 'dm', '# Tomas\nHis secret past.\n');
   const t = dmOnlyTerms(deps.db, W);
   assert.ok(!containsTerm('Jessamine draws her sword', t), 'a PC codex page title');
-  assert.ok(!containsTerm('Tomas pays for the ale', t), 'a character name, even as a DM-only title');
+  assert.ok(!containsTerm('Tomas pays for the ale', t), 'a character name, even as a GM-only title');
   assert.ok(containsTerm(`under ${DM_TITLE} flag`, t), 'real secrets still count');
   const sid = await newSession();
   await send('jess', sid, 'jess', 0, 0, [seg('Jessamine and Tomas take the ring')], 0.6);
@@ -440,7 +440,7 @@ test('Audio2_crossmic: the same speech heard by mics whose chunks begin at diffe
 
 // ---- fix 10: the second listen -----------------------------------------------------------------------------
 
-test('Audio2_refine: off by default; when on, a bigger model re-listens in long windows and lines keep ids and DM-only flags', async () => {
+test('Audio2_refine: off by default; when on, a bigger model re-listens in long windows and lines keep ids and GM-only flags', async () => {
   const eng = engine(deps);
   const sid = await newSession();
   await send('dm', sid, 'table', 0, 0, [seg('the quik brown fox')]);
@@ -450,7 +450,7 @@ test('Audio2_refine: off by default; when on, a bigger model re-listens in long 
   const before = await lines('dm', sid);
   assert.equal(before.length, 3);
   assert.equal(await eng.refine(sid), 0, 'transcriptRefine is off by default');
-  // The first line was made DM-only by a rule once; refining must not loosen it.
+  // The first line was made GM-only by a rule once; refining must not loosen it.
   run(deps.db, "UPDATE audio_lines SET audience = 'dm' WHERE id = ?", before[0].id);
   await setting('transcriptRefine', 'on');
   const calls: { paths: string[]; trims: number[] }[] = [];
@@ -472,7 +472,7 @@ test('Audio2_refine: off by default; when on, a bigger model re-listens in long 
   assert.ok(after.some((l) => l.text === 'jumps over the lazy dog'));
   assert.ok(after.some((l) => l.text === 'a second speech here'));
   assert.equal(after.find((l) => l.id === before[0].id)!.audience, 'dm', 'never loosened');
-  assert.ok(!JSON.stringify(await lines('tom', sid)).includes('quick'), 'the DM-only line is still not the players');
+  assert.ok(!JSON.stringify(await lines('tom', sid)).includes('quick'), 'the GM-only line is still not the players');
 });
 
 // ---- the pure pieces -------------------------------------------------------------------------------------------

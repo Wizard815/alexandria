@@ -1,5 +1,5 @@
 // The classified guard and the background embedding job: a page the guard
-// refuses is not sent again every tick, a bare URL in the DM copy and the same
+// refuses is not sent again every tick, a bare URL in the GM copy and the same
 // URL as a link in the AI copy is not "classified text", scopes are read in
 // turn, progress is reported, and the fake embeddings make related pages.
 import { test, after } from 'node:test';
@@ -98,17 +98,17 @@ test('TestEmbeddings_RefusedPageIsNotSentAgainEveryTick', async () => {
 test('TestEmbeddings_ScopesAreReadInTurnAndProgressIsReported', async () => {
   forgetRefusals();
   const h = await boot();
-  for (let i = 0; i < 6; i++) await h.put(`Notes/DM ${i}`, 'dm', `# DM ${i}\n\nSomething only the DM knows about thing number ${i}.\n`);
+  for (let i = 0; i < 6; i++) await h.put(`Notes/GM ${i}`, 'dm', `# GM ${i}\n\nSomething only the GM knows about thing number ${i}.\n`);
   await h.put('Open/Party Page', 'party', '# Party Page\n\nEveryone may read this page about the harbour.\n');
   const before = embeddingCoverage(h.deps, h.world);
   assert.equal(before.progress.indexed, 0);
   assert.ok(before.progress.pending >= 7);
   assert.equal(before.progress.etaSeconds, null, 'no pace known yet');
-  // Four pages: the party copy and the DM copy take turns, so the DM's pages do not wait for the whole party backlog.
+  // Four pages: the party copy and the GM copy take turns, so the GM's pages do not wait for the whole party backlog.
   const r = await syncEmbeddings(h.deps, { worldId: h.world, maxPages: 4 });
   assert.equal(r.pages, 4);
   const cov = embeddingCoverage(h.deps, h.world);
-  assert.ok(cov.scopes.dm.indexed >= 3, 'the DM copy has its turn in the same round');
+  assert.ok(cov.scopes.dm.indexed >= 3, 'the GM copy has its turn in the same round');
   assert.ok(cov.scopes.party.indexed === 1, 'the party copy is not starved either');
   assert.ok(cov.scopes.dm.pending > 0 && cov.progress.pending > 0);
   assert.equal(cov.progress.indexed, cov.progress.eligible - cov.progress.pending);

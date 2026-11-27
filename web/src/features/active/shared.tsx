@@ -1,4 +1,4 @@
-// Active mode on the DM's screens: shared types and the loaders.
+// Active mode on the GM's screens: shared types and the loaders.
 import { useLoad, useWorld } from '../../lib/world.tsx';
 
 export type Setting = 'auto' | 'ask' | 'off' | 'draft';
@@ -13,7 +13,7 @@ export interface ActiveState {
 }
 
 export const CATEGORY_INFO: Record<string, { label: string; help: string }> = {
-  music: { label: 'Music and ambience', help: 'Mood music, weather and place sounds. Played on the DM device.' },
+  music: { label: 'Music and ambience', help: 'Mood music, weather and place sounds. Played on the GM device.' },
   sfx: { label: 'Sound effects', help: 'A door creaks, thunder rolls, the ogre roars.' },
   stage: { label: 'Stage: what players see', help: 'A map or handout on the table screen. Only pages players may already open.' },
   events: { label: 'Quick events', help: 'A Perception check or a save sent to the players.' },
@@ -26,7 +26,7 @@ export const CATEGORY_INFO: Record<string, { label: string; help: string }> = {
 
 export function useActive() {
   const { w, info } = useWorld();
-  // Active mode is the DM's: a player's page never asks (the server would answer 403 on every page load).
+  // Active mode is the GM's: a player's page never asks (the server would answer 403 on every page load).
   const dm = info?.role === 'dm';
   return useLoad<ActiveState | null>(() => (dm ? w.call<ActiveState>('GET', '/active') : Promise.resolve(null)), [w, dm], ['active', 'recording']);
 }
@@ -37,4 +37,4 @@ export function useActiveLog(limit = 100) {
 
 export const when = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 export const triggerText = (r: LogRow) => (r.trigger === 'line' ? `${r.speaker || 'table'}: "${r.cue}"` : r.trigger === 'wake' ? `Spoken: "${r.cue}"` : r.trigger === 'chat' ? (r.category === 'command' ? `Command: ${r.cue}` : 'Chat or macro') : r.trigger);
-export const seesText = (v: string) => (v === 'players' ? 'Players see it' : v === 'table' ? 'Heard at the table' : 'DM only');
+export const seesText = (v: string) => (v === 'players' ? 'Players see it' : v === 'table' ? 'Heard at the table' : 'GM only');

@@ -1,7 +1,7 @@
-// Generators hub (DM only): NPCs, monsters, taverns, maps and names from tables
+// Generators hub (GM only): NPCs, monsters, taverns, maps and names from tables
 // and code, made to fit this world, with no model needed. A model, when set,
 // only improves the text of a result. Players never reach any of it; a result
-// reaches them only when the DM saves it at party level or sends it to the stage.
+// reaches them only when the GM saves it at party level or sends it to the stage.
 //
 //   GET  /api/worlds/:world/generators/options            presets, flavours, kinds, the party level, whether a model is set
 //   POST /api/worlds/:world/generators/generate           { kind, preset, seed, options, locks, enrich } -> a result
@@ -10,7 +10,7 @@
 //   GET  /api/worlds/:world/generators/library            "My generated": saved generator pages
 //   GET  /api/worlds/:world/generators/bestiary           module monsters by CR and type
 //   GET  /api/worlds/:world/generators/names              quick names (any kind)
-//   MCP  generate, generate_map, save_generated (DM only)
+//   MCP  generate, generate_map, save_generated (GM only)
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { requireDM } from '../../core/auth.ts';
@@ -110,7 +110,7 @@ const feature: Feature = {
       const spec = specOf(req.body);
       const c = await context(res);
       const out = guard(() => generateOffline(c, spec));
-      // Text the model improved is carried in the locks the page sends back, so the saved page matches what the DM saw.
+      // Text the model improved is carried in the locks the page sends back, so the saved page matches what the GM saw.
       const saved = saveOut(d, W(res), me(res), out, { level: req.body?.level, path: typeof req.body?.path === 'string' ? req.body.path.slice(0, 300) : undefined });
       res.status(201).json({ ...saved, title: out.title, seed: out.seed });
     });
@@ -121,12 +121,12 @@ const feature: Feature = {
       const out = guard(() => generateOffline(c, spec));
       const text = publicText(out);
       const hit = firstLeak(makeCtx(d, W(res), false, {}), text);
-      if (hit) throw new HttpError(409, 'Not sent: the text repeats words from DM-only notes.');
+      if (hit) throw new HttpError(409, 'Not sent: the text repeats words from GM-only notes.');
       const show = req.body?.show === true;
       const to = Array.isArray(req.body?.to) ? req.body.to : undefined;
       const done: Record<string, unknown> = {};
       if (out.map_result) {
-        // The picture players get has none of the DM's marks.
+        // The picture players get has none of the GM's marks.
         const png = toPng(out.map_result.canvas, { dm: false });
         const up = await selfCall(req, W(res), 'POST', '/stage/images', { dataBase64: png.toString('base64') });
         const card = await selfCall(req, W(res), 'POST', '/stage/cards', { kind: 'image', ref: up.id, caption: out.title, show, to });
@@ -206,7 +206,7 @@ const feature: Feature = {
     },
     {
       name: 'save_generated', dmOnly: true, write: true,
-      description: 'Save a generated NPC, monster, tavern, map or list of names to the library as a DM-only page (a map also as a picture file the Map page can use). Pass the same kind, preset and seed you generated (with the seed, the result is identical). Always DM level; the DM can share it with the party later.',
+      description: 'Save a generated NPC, monster, tavern, map or list of names to the library as a GM-only page (a map also as a picture file the Map page can use). Pass the same kind, preset and seed you generated (with the seed, the result is identical). Always GM level; the GM can share it with the party later.',
       props: { kind: S('npc, monster, tavern, map or names', { enum: ['npc', 'monster', 'tavern', 'map', 'names'] }), preset: S('The preset used'), seed: S('The seed of the result to save'), race: S('NPC or names: race'), gender: S('male, female or any'), cr: S('Challenge rating'), level: N('Party level'), concept: S('Monster homebrew concept'), name_kind: S('Names kind'), flavour: S('Flavour'), size: S('Map size'), theme: S('Map theme'), map_kind: S('For kind map: dungeon, cave, castle, tavern, battlemap, city, region or forest'), statblock: B('NPC: include a statblock'), path: S('Optional page path') },
       call: (a) => ({ method: 'POST', path: '/generators/save', body: { kind: a.kind ?? 'npc', preset: a.preset ?? a.map_kind, seed: a.seed, level: 'dm', path: a.path, options: { race: a.race, gender: a.gender, cr: a.cr, partyLevel: a.level, concept: a.concept, nameKind: a.name_kind, flavour: a.flavour, size: a.size, theme: a.theme, statblock: a.statblock } } }),
     },

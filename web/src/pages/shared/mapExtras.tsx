@@ -22,7 +22,7 @@ export function SourcePins({ pins, selected, onPick, labels, active }: { pins: S
   return (
     <>
       {pins.map((p) => (
-        <button key={p.id} type="button" data-mark={active ? p.id : undefined} data-testid="source-pin" className="map-spin" aria-label={`${p.name}${p.dm ? ' (DM only)' : ''}`} title={`${p.name}${p.dm ? ' (DM only)' : ''}`} aria-pressed={selected === p.id}
+        <button key={p.id} type="button" data-mark={active ? p.id : undefined} data-testid="source-pin" className="map-spin" aria-label={`${p.name}${p.dm ? ' (GM only)' : ''}`} title={`${p.name}${p.dm ? ' (GM only)' : ''}`} aria-pressed={selected === p.id}
           style={{ left: `${p.x}%`, top: `${p.y}%`, pointerEvents: active ? 'auto' : 'none', zIndex: selected === p.id ? 3 : 1 }} onClick={(e) => { e.stopPropagation(); onPick(p); }}>
           <span className={`map-spin-dot${selected === p.id ? ' on' : ''}`}><Icon icon={{ glyph: p.icon ?? 'location-dot', color: p.color ?? undefined }} size={13} /></span>
           {(labels || selected === p.id) && <span className="map-spin-name">{p.name}</span>}

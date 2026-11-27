@@ -102,7 +102,7 @@ before(async () => {
     const k = name === 'visitor' ? 'guest' : name;
     T[k] = j.token; ID[k] = j.account.id;
   }
-  await put('lore/Whiskers', 'party', '# Whiskers\nA friendly kitten who purrs by the harbour.\nFACT: Whiskers | person | Whiskers is a kitten who lives at the harbour.\n\n> [!secret] DM\n> The kitten is a feline spy for the Zaxxar guild.\n> FACT: Zaxxar | faction | Zaxxar is a secret guild of cat spies.\n');
+  await put('lore/Whiskers', 'party', '# Whiskers\nA friendly kitten who purrs by the harbour.\nFACT: Whiskers | person | Whiskers is a kitten who lives at the harbour.\n\n> [!secret] GM\n> The kitten is a feline spy for the Zaxxar guild.\n> FACT: Zaxxar | faction | Zaxxar is a secret guild of cat spies.\n');
   await put('lore/Harbour', 'party', '# Harbour\nShips and boats sail in and out of the harbour all day.\nFACT: The Harbour | place | The harbour is ruled by seven captains.\n');
   await put('lore/Harbour Cats', 'party', '# Harbour Cats\nKittens and cats purr on every boat in the harbour.\nFACT: harbour | place | Cats ride the boats in the harbour.\n');
   await put('dm/Cat plot', 'dm', '# Feline plan\nThe cat Zaxxar steals gold from the temple.\nFACT: Zaxxar | faction | Zaxxar steals gold from the temple.\n');
@@ -134,15 +134,15 @@ test('TestMemory_ClassifiedIsNeverEmbeddedOrExtractedOrSent', () => {
 
 test('TestMemory_SemanticSearchIsFilteredByViewer', async () => {
   const ids = async (q: string, who: Parameters<typeof viewer>[0]) => (await semanticPages(deps, W, 'party', q, 20, viewer(who))).map((h) => h.id);
-  // "feline spy" lives in the DM copy only: a DM and a model find it, a player does not.
+  // "feline spy" lives in the GM copy only: a GM and a model find it, a player does not.
   assert.ok((await ids('feline', 'dm')).includes(PG['dm/Cat plot']));
   assert.ok((await ids('feline', 'ai')).includes(PG['dm/Cat plot']));
   assert.ok(!(await ids('feline', 'jess')).includes(PG['dm/Cat plot']));
   assert.ok((await ids('feline', 'jess')).includes(PG['lore/Whiskers']));
-  // The broker copy: broker page yes, DM-only page no.
+  // The broker copy: broker page yes, GM-only page no.
   assert.ok((await ids('sail gold', 'broker')).includes(PG['broker/Fog charts']));
   assert.ok(!(await ids('feline', 'broker')).includes(PG['dm/Cat plot']));
-  // Players never read the broker or DM pages; guests read party only.
+  // Players never read the broker or GM pages; guests read party only.
   for (const who of ['jess', 'tom', 'guest'] as const) { const got = await ids('sail gold', who); assert.ok(!got.includes(PG['broker/Fog charts']), who); }
   const hy = await hybridPages(deps, W, 'toxin', 'party', 10, viewer('jess'));
   assert.deepEqual(hy.map((h) => h.id), []);
@@ -178,7 +178,7 @@ test('TestMemory_RelatedPagesComeFromTheViewersOwnScope', async () => {
   // Sorted by percent, with a reason that is a passage of the related page.
   for (let i = 1; i < jess.related.length; i++) assert.ok(jess.related[i - 1].percent >= jess.related[i].percent);
   assert.ok(jess.related.every((r) => r.reason.length > 0 && r.matchedWith.length > 0));
-  // The DM's copy has more: the DM-only cat page is related and its text may be quoted to the DM.
+  // The GM's copy has more: the GM-only cat page is related and its text may be quoted to the GM.
   const dm = relatedPages(deps, W, viewer('dm'), PG['lore/Whiskers'], 20);
   assert.ok(dm.related.some((r) => r.id === PG['dm/Cat plot']));
   assert.ok(JSON.stringify(dm).includes('Zaxxar'));
@@ -211,11 +211,11 @@ test('TestMemory_BibleIsPerViewerGroupedAndCited', async () => {
   assert.equal(dm.scope, 'dm');
   assert.equal(jess.scope, 'party');
   assert.equal(broker.scope, 'broker');
-  // The DM bible has the DM-only guild, players do not; the DM bible does not hold classified facts.
+  // The GM bible has the GM-only guild, players do not; the GM bible does not hold classified facts.
   assert.ok(bibleText(dm).includes('Zaxxar steals gold'));
   assert.ok(!bibleText(jess).includes('Zaxxar') && !bibleText(tom).includes('Zaxxar'));
   assert.ok(!bibleText(dm).includes('CLASSIFIEDVAULTWORDS'));
-  // The broker bible has the broker page, not DM-only text.
+  // The broker bible has the broker page, not GM-only text.
   assert.ok(bibleText(broker).includes('fog charts') && !bibleText(broker).includes('Zaxxar'));
   // Duplicate subjects merge ("The Harbour" and "harbour"), each fact cites its page.
   const harbour = tom.subjects.filter((s) => s.key === normSubject('Harbour'));
@@ -258,7 +258,7 @@ test('TestMemory_UnsharingDeletesTheLiftedRowsAtOnce', async () => {
   assert.ok(!bibleText(await bible('jess')).includes('nightshade'));
   assert.ok(!(await semanticPages(deps, W, 'party', 'toxin', 20, viewer('jess'))).some((h) => h.id === PG['dm/Poison']));
   assert.throws(() => relatedPages(deps, W, viewer('jess'), PG['dm/Poison']), /not found/i);
-  // Back in the DM's own scope the page is still there.
+  // Back in the GM's own scope the page is still there.
   assert.ok(count(PG['dm/Poison'], 'dm') > 0);
 });
 
@@ -276,7 +276,7 @@ test('TestMemory_ALevelChangeDeletesPartyRowsAtOnce', async () => {
   await put('lore/Ledger', 'party', '# Ledger\nThe ledger of the harbour boats.\nFACT: Ledger | item | The ledger lists boats.\n');
   await index();
   assert.ok(rows(`SELECT text FROM search_chunks WHERE page_id = ? AND scope = 'party'`, PG['lore/Ledger']).some((r) => r.text.includes('ledger of the harbour')));
-  await put('lore/Ledger', 'party', '# Ledger\n> [!secret] DM\n> The ledger of the harbour boats.\nFACT: Ledger | item | The ledger lists boats.\n');
+  await put('lore/Ledger', 'party', '# Ledger\n> [!secret] GM\n> The ledger of the harbour boats.\nFACT: Ledger | item | The ledger lists boats.\n');
   assert.equal(count(PG['lore/Ledger'], 'party'), 0, 'a saved page drops the old party rows until it is read again');
 });
 
@@ -353,7 +353,7 @@ test('TestMemory_AdminSeesCoverageAndCanReembedAWorld', async () => {
   const w = cov.worlds.find((x: any) => x.id === W);
   for (const s of ['dm', 'broker', 'party', 'lifted']) assert.ok(w.embeddings.scopes[s] && w.bible.scopes[s], s);
   assert.ok(w.embeddings.scopes.party.chunks > 0 && w.bible.scopes.party.facts > 0);
-  assert.equal((await call('GET', '/api/admin/embeddings', T.dm)).status >= 400, true, 'not for a DM');
+  assert.equal((await call('GET', '/api/admin/embeddings', T.dm)).status >= 400, true, 'not for a GM');
   const re = await ok('POST', `/api/admin/embeddings/${W}/reembed`, T.admin);
   assert.equal(re.embeddings.chunks, 0);
   assert.ok(Object.values(re.bible.scopes).every((x: any) => x.facts === 0), 'every fact is forgotten');
@@ -364,7 +364,7 @@ test('TestMemory_AdminSeesCoverageAndCanReembedAWorld', async () => {
   assert.ok((await ok('GET', '/api/admin/embeddings', T.admin)).worlds.find((x: any) => x.id === W).embeddings.chunks > 0);
   assert.ok(rows('SELECT 1 FROM bible_facts WHERE world_id = ?', W).length > 0, 'the story bible was read again');
   await ok('POST', `/api/admin/embeddings/${W}/run`, T.admin);
-  // The DM's own re-embed and the player's refusal.
+  // The GM's own re-embed and the player's refusal.
   assert.equal((await call('POST', `/api/worlds/${W}/search/reembed`, T.jess)).status >= 400, true);
   assert.equal((await call('POST', `/api/worlds/${W}/bible/rebuild`, T.jess)).status >= 400, true);
   assert.equal((await call('POST', `/api/worlds/${W}/bible/refresh`, T.tom)).status >= 400, true);

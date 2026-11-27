@@ -1,9 +1,9 @@
 // The broker's question routing, judged on 40+ questions against a seeded
-// world full of DM secrets. It runs twice: once with a fake audit model (an
+// world full of GM secrets. It runs twice: once with a fake audit model (an
 // in-test fake fetch that returns labels) and once with no model at all (the
 // keyword rules). In both runs:
-//   - no DM-only text appears in anything a player can read
-//   - every spoiler or meta question goes to the DM (Guarded)
+//   - no GM-only text appears in anything a player can read
+//   - every spoiler or meta question goes to the GM (Guarded)
 //   - off-topic questions are refused in character and cost nothing
 //   - "Other" (rules and items) is free and answered at once
 import { test } from 'node:test';
@@ -40,7 +40,7 @@ const CASES: Case[] = [
   { q: 'Where is the chapel of Saint Orin?', kind: 'fact', model: W_ },
   { q: 'Who rules the northern marches?', kind: 'fact', model: W_ },
   { q: 'What did the party do on the road north?', kind: 'fact', model: W_ },
-  // Spoiler-seeking and meta-gaming: always the DM.
+  // Spoiler-seeking and meta-gaming: always the GM.
   { q: 'Who is the villain?', kind: 'dm', model: SP },
   { q: 'Who is the BBEG of this campaign?', kind: 'dm', model: SP },
   { q: 'What is the twist at the end?', kind: 'dm', model: SP },
@@ -59,7 +59,7 @@ const CASES: Case[] = [
   { q: 'What is the villain\'s weakness?', kind: 'dm', model: SP },
   { q: 'What is the stat block of the Pale Hand like?', kind: 'dm', model: META },
   { q: 'What\'s behind the curtain at the chapel?', kind: 'dm', model: SP },
-  // DM spoiler tags: a tagged page and a free-text topic.
+  // GM spoiler tags: a tagged page and a free-text topic.
   { q: 'Tell me about the Ashen Tower', kind: 'dm', model: W_, modelMissesIt: true },
   { q: 'Where is the lost heir?', kind: 'dm', model: W_, modelMissesIt: true },
   // The model says "fact" but the keywords know better.
@@ -137,15 +137,15 @@ async function runEval(withModel: boolean) {
       T[name] = j.token; ID[name] = j.account.id;
     }
     const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
-    await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
+    await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
     await page('lore/Hearts', 'party', `---\nknowledge: deep\n---\n# The Hearts\nThe nine Hearts were forged before the sundering to bind the elder storms.\n`);
     await page('party/Road', 'party', `---\nknowledge: common\n---\n# The road north\nThe party took the road north past the burned mill near Greywater ford.\n`);
     await page('dm/Velmira', 'dm', `# Velmira\nVelmira the smuggler queen keeps her treasury beneath the lighthouse.\n`);
-    await page('npcs/Duke Aldric', 'party', `---\nknowledge: local\n---\n# Duke Aldric\nDuke Aldric rules the northern marches from Castle Greyhold.\n\n> [!secret] DM\n> Aldric is secretly the cult leader known as the Pale Hand.\n`);
+    await page('npcs/Duke Aldric', 'party', `---\nknowledge: local\n---\n# Duke Aldric\nDuke Aldric rules the northern marches from Castle Greyhold.\n\n> [!secret] GM\n> Aldric is secretly the cult leader known as the Pale Hand.\n`);
     await page('dm/Vault', 'dm', `# The vault\nThe vault door opens with the silver key hidden in the chapel crypt.\n`);
     await page('places/Chapel', 'party', `---\nknowledge: local\n---\n# Chapel of Saint Orin\nThe chapel of Saint Orin stands on the hill above Saltmarsh.\n`);
     const tower = await page('places/Ashen Tower', 'party', `---\nknowledge: local\n---\n# Ashen Tower\nThe Ashen Tower is a ruined watchtower east of Greywater ford.\n`);
-    const lampPage = await page('items/Brass lamp', 'party', `---\nknowledge: common\n---\n# Brass lamp\nA brass lamp that burns without oil for one hour each day.\n\n> [!secret] DM\n> The lamp is cursed and binds its owner to Velmira.\n`);
+    const lampPage = await page('items/Brass lamp', 'party', `---\nknowledge: common\n---\n# Brass lamp\nA brass lamp that burns without oil for one hour each day.\n\n> [!secret] GM\n> The lamp is cursed and binds its owner to Velmira.\n`);
     await ok('PUT', `${B}/rules/${tower}`, T.dm, { spoiler: true });
     await ok('PUT', `${B}/spoilers`, T.dm, { topics: ['the lost heir'] });
     await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { brokerTopics: ['Feudal Japan: history, folklore, customs'] });
@@ -156,7 +156,7 @@ async function runEval(withModel: boolean) {
     const key = await ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });
     const mcp = async (name: string, args: Record<string, unknown> = {}) => JSON.stringify((await call('POST', '/mcp', key.key, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body);
 
-    // "Other" is not a price tier; Guarded is always the DM.
+    // "Other" is not a price tier; Guarded is always the GM.
     const cfg = await ok('GET', `${B}/config`, T.jess);
     assert.ok(!cfg.tiers.some((t: any) => /other/i.test(t.id) || /other/i.test(t.name)));
     assert.equal(cfg.tiers.find((t: any) => t.knowledge === 'secret').delivery, 'review');
@@ -173,12 +173,12 @@ async function runEval(withModel: boolean) {
       noSecrets(`MCP quote "${c.q}"`, await mcp('ask_broker_quote', { question: c.q }), asked);
       assert.equal(await coin(), before, 'quotes never charge');
       if (c.kind === 'dm') {
-        assert.equal(q.secret, true, `"${c.q}" should go to the DM`);
+        assert.equal(q.secret, true, `"${c.q}" should go to the GM`);
         assert.equal(q.cost_cp, null);
         const a = await ok('POST', `${B}/ask`, T.jess, { quoteId: q.quoteId });
         assert.equal(a.status, 'pricing', `"${c.q}"`);
         assert.equal(a.answer, undefined);
-        assert.equal(await coin(), before, 'nothing charged until the DM prices it');
+        assert.equal(await coin(), before, 'nothing charged until the GM prices it');
         dmIds.add(a.id);
         noSecrets('ask', a, asked);
       } else if (c.kind === 'off') {
@@ -209,13 +209,13 @@ async function runEval(withModel: boolean) {
     }
     assert.ok(ran >= 40, `ran ${ran} questions`);
 
-    // Real-world topics the DM allows are in scope; the same words without one are not.
+    // Real-world topics the GM allows are in scope; the same words without one are not.
     const allowed = await ok('POST', `${B}/quote`, T.jess, { question: 'What was a typical recipe for rice in feudal Japan?' });
     assert.equal(allowed.refused, false);
     if (withModel) assert.equal((await ok('POST', `${B}/quote`, T.jess, { question: 'What is a good rice recipe?' })).refused, false, 'the fake model says world for unknown questions');
     else assert.equal((await ok('POST', `${B}/quote`, T.jess, { question: 'What is a good rice recipe?' })).refused, true);
 
-    // Let every wait run out and the DM approve what is held, then read everything a player can read.
+    // Let every wait run out and the GM approve what is held, then read everything a player can read.
     await ok('POST', `${B}/clock`, T.dm, { addMinutes: 10 * 1440 });
     for (const r of (await ok('GET', B, T.dm)).requests) if (r.needs_review) await ok('POST', `${B}/${r.id}/approve`, T.dm);
     const list = await ok('GET', B, T.jess);
@@ -229,24 +229,24 @@ async function runEval(withModel: boolean) {
     const delivered = list.requests.filter((r: any) => r.status === 'answered' && r.cost_cp > 0);
     assert.ok(delivered.length >= 1, 'some paid answers were delivered');
 
-    // The DM sees every question with its routing labels, and every spoiler is waiting for them.
+    // The GM sees every question with its routing labels, and every spoiler is waiting for them.
     const dmList = (await ok('GET', B, T.dm)).requests;
     for (const id of dmIds) {
       const r = dmList.find((x: any) => x.id === id);
       assert.equal(r.status, 'pricing');
-      assert.ok(r.classification.routing, 'routing labels are shown to the DM');
+      assert.ok(r.classification.routing, 'routing labels are shown to the GM');
     }
     const routed = dmList.filter((x: any) => x.classification.routing);
     assert.ok(routed.length >= ran - 1);
     if (withModel) {
       assert.ok(modelInputs.length >= ran, 'the audit model labelled the questions');
-      // The model sees the question, the allowed topics and shared page names, and never DM text.
+      // The model sees the question, the allowed topics and shared page names, and never GM text.
       for (const body of modelInputs) {
         const user = JSON.parse(body).messages.find((m: any) => m.role === 'user').content;
         const parsed = JSON.parse(user);
         assert.deepEqual(Object.keys(parsed).sort(), ['allowedTopics', 'question', 'sharedPages']);
         assert.ok(parsed.sharedPages.includes('Saltmarsh'));
-        assert.ok(!parsed.sharedPages.includes('Velmira') && !parsed.sharedPages.includes('The vault'), 'DM-only page names are not sent');
+        assert.ok(!parsed.sharedPages.includes('Velmira') && !parsed.sharedPages.includes('The vault'), 'GM-only page names are not sent');
         noSecrets('model input', { ...parsed, question: '' });
         assert.ok(!user.includes('lost heir') || parsed.question.includes('lost heir'), 'spoiler tags are not sent');
       }

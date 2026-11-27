@@ -37,7 +37,7 @@ run(deps.db, `INSERT INTO sources (id, world_id, kind, name) VALUES ('src_gw', ?
 const key = insertKey(deps.db, { worldId: world, sourceId: 'src_gw', ownerId: player.id, label: 'Jess key', secret: SECRET, trust: 'per-user', claimed: 'per-user', users: [player.id], uses: ['library'], verified: true, probe: { verdict: 'per-user', note: HIDDEN } });
 run(deps.db, `INSERT INTO sourcekeys_escalations (id, world_id, account_id, question, origin, mode, status, hidden, answer, created_at) VALUES ('esc_gw', ?, ?, 'Who funds the guild?', 'direct', 'dm-question', 'open', ?, ?, ?)`,
   world, player.id, JSON.stringify({ reason: HIDDEN, items: [{ title: 't', source: 's', text: HIDDEN }] }), ANSWER, new Date().toISOString());
-run(deps.db, `INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, NULL, 'agent.leak_blocked', ?, ?)`, world, `chat 1: reply shared DM-only text ("${STOPPED}")`, new Date().toISOString());
+run(deps.db, `INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, NULL, 'agent.leak_blocked', ?, ?)`, world, `chat 1: reply shared GM-only text ("${STOPPED}")`, new Date().toISOString());
 run(deps.db, `INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, NULL, 'ai.classified_refused', ?, ?)`, world, `chat request refused: repeats classified text of page p1 ${STOPPED}`, new Date().toISOString());
 
 test('TestGateway_AdminSeesKeysAndQuestionsWithoutSecrets', async () => {

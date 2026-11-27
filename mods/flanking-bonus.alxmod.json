@@ -27,7 +27,7 @@
   "rules": [
     {
       "term": "Flanking (house rule)",
-      "text": "When you and an ally are on **opposite sides** of a creature and both can act, you each get a **bonus to attack rolls** against it (the DM sets it, +2 by default) instead of advantage. A creature that cannot be flanked (no front or back, or that sees all around) ignores it."
+      "text": "When you and an ally are on **opposite sides** of a creature and both can act, you each get a **bonus to attack rolls** against it (the GM sets it, +2 by default) instead of advantage. A creature that cannot be flanked (no front or back, or that sees all around) ignores it."
     }
   ],
   "assistant": {

@@ -88,7 +88,7 @@ test('TestIntakeRecords_KankaRelationsWithPrivateOnesHiddenFromPlayers', async (
   const mine = lib.relations('w', dm) as any[];
   assert.deepEqual(mine.map((r) => `${r.from_title}|${r.kind}|${r.to_title}|${r.visibility}`).sort(), [
     'Mira|Friends|Odo|party', 'Mira|Rival of|Odo|dm', 'Mira|Spies for|Velmira Secret|dm', 'Odo|Cousins|Mira|party', 'Odo|Owes a debt|Mira|dm',
-  ].sort(), 'the DM sees every imported relation, with who may see it');
+  ].sort(), 'the GM sees every imported relation, with who may see it');
   assert.equal(mine.find((r) => r.kind === 'Friends').attitude, 40);
   const seen = lib.relations('w', player) as any[];
   assert.deepEqual(seen.map((r) => r.kind).sort(), ['Cousins', 'Friends'], 'players get only shared relations between shared pages');
@@ -126,7 +126,7 @@ test('TestIntakeRecords_KankaTimelinesAndMarkersNeverLeakPrivateOnes', async () 
   const { db, lib } = world('kanka-api', { campaignId: '42', token: 'k'.repeat(24) });
   const out = await sync(db, lib, kankaFake().fake);
   assert.equal(out.status, 'ok', out.error);
-  // Timelines: a private timeline and a non-shared element stay DM-only.
+  // Timelines: a private timeline and a non-shared element stay GM-only.
   const dmTl = timelinesFor(db, 'w', dm);
   assert.equal(dmTl.length, 2);
   const pTl = timelinesFor(db, 'w', player);
@@ -138,7 +138,7 @@ test('TestIntakeRecords_KankaTimelinesAndMarkersNeverLeakPrivateOnes', async () 
   assert.ok(pj.includes('An uprising begins') && pj.includes('The age of rivers'));
   const quiet = pTl[0].groups[0].events.find((e: any) => e.name === 'Quiet Pact');
   assert.equal(quiet.page, null, 'an event linked to a private entity shows no link, and its page name is not given');
-  assert.ok(JSON.stringify(dmTl).includes('Secret Coup'), 'the DM sees all');
+  assert.ok(JSON.stringify(dmTl).includes('Secret Coup'), 'the GM sees all');
   // Markers.
   const dmM = markersFor(db, 'w', dm);
   assert.equal(dmM.length, 5);
@@ -207,7 +207,7 @@ test('TestIntakeRecords_LegendKeeperCalendarsTimelinesAndMaps', async () => {
   assert.ok(!urls.some((x) => /^\/resources\/(tpl|tplkid)/.test(x)), 'a template is never read');
   assert.ok(urls.includes('/resources/atlas/docs/dtl/lanes'), 'lanes are not paged by the API: no limit or cursor is sent');
   assert.ok(urls.some((x) => x.startsWith('/resources?limit=100')), 'resources are listed 100 at a time');
-  // Calendar: definition in the shared shape. LegendKeeper has no hidden flag for calendars, so DM-only.
+  // Calendar: definition in the shared shape. LegendKeeper has no hidden flag for calendars, so GM-only.
   const cal = all<any>(db, 'SELECT * FROM intake_calendars')[0];
   assert.equal(cal.visibility, 'dm');
   assert.equal(cal.current, null);
@@ -285,7 +285,7 @@ test('TestIntakeCapabilities_ConnectorsDeclareThemAndWorldsUnionThem', async () 
     assert.deepEqual(dmView.capabilities, ['pages', 'properties', 'tags', 'images', 'relations', 'timelines', 'maps', 'calendars', 'items', 'characters'], 'the union, in a fixed order');
     assert.equal(dmView.sources.length, 2);
     const pView = await t.ok('GET', `/api/worlds/${t.W}/intake/capabilities`, t.player);
-    assert.equal(pView.sources, undefined, 'source names are for the DM');
+    assert.equal(pView.sources, undefined, 'source names are for the GM');
   } finally { t.done(); }
 });
 
@@ -296,7 +296,7 @@ test('TestIntakePush_SecretNeverReachesThePlayerCopyAndKeysStayInTheirLane', asy
     const A = await mk('Tool A', true);
     const B = await mk('Tool B', true);
     const dmOnly = await mk('Tool C', false);
-    // Players can't make keys; the DM and admin can. The key is shown once.
+    // Players can't make keys; the GM and admin can. The key is shown once.
     assert.equal((await t.call('POST', `/api/worlds/${t.W}/intake/sources/${A}/keys`, t.player, { label: 'x' })).status, 403);
     const made = await t.ok('POST', `/api/worlds/${t.W}/intake/sources/${A}/keys`, t.dm, { label: 'my tool' });
     assert.match(made.key, /^alx_push_/);
@@ -316,14 +316,14 @@ test('TestIntakePush_SecretNeverReachesThePlayerCopyAndKeysStayInTheirLane', asy
           { kind: 'callout', variant: 'gm', children: [{ kind: 'paragraph', content: [{ text: 'GM callout twist' }] }] },
           { kind: 'futureWidget', payload: 'widget secret' },
         ] },
-      { externalId: 'npc-2', title: 'Private Pete', visibility: 'dm', blocks: [{ kind: 'paragraph', content: [{ text: 'Only the DM.' }] }] },
-      { externalId: 'md-1', title: 'Markdown Page', visibility: 'party', markdown: '# Hi\n\nOpen text.\n\n> [!secret] DM\n> md twist\n' },
+      { externalId: 'npc-2', title: 'Private Pete', visibility: 'dm', blocks: [{ kind: 'paragraph', content: [{ text: 'Only the GM.' }] }] },
+      { externalId: 'md-1', title: 'Markdown Page', visibility: 'party', markdown: '# Hi\n\nOpen text.\n\n> [!secret] GM\n> md twist\n' },
     ];
     const res = await t.ok('POST', url(A), made.key, { entries });
     assert.deepEqual([res.saved, res.shared, res.errors], [3, 2, []]);
 
     const pages = await t.ok('GET', `/api/worlds/${t.W}/library/pages`, t.player);
-    assert.deepEqual(pages.map((p: any) => p.title).sort(), ['Captain Odda', 'Markdown Page'], 'a DM-only entry is not listed');
+    assert.deepEqual(pages.map((p: any) => p.title).sort(), ['Captain Odda', 'Markdown Page'], 'a GM-only entry is not listed');
     const odda = pages.find((p: any) => p.title === 'Captain Odda');
     const page = await t.ok('GET', `/api/worlds/${t.W}/library/pages/${odda.id}`, t.player);
     const all = JSON.stringify(page);
@@ -333,7 +333,7 @@ test('TestIntakePush_SecretNeverReachesThePlayerCopyAndKeysStayInTheirLane', asy
     assert.ok(!JSON.stringify(await t.ok('GET', `/api/worlds/${t.W}/library/pages/${md.id}`, t.player)).includes('md twist'));
     const found = await t.ok('GET', `/api/worlds/${t.W}/library/search?q=Velmira`, t.player);
     assert.equal(found.length, 0, 'search finds nothing of the secret');
-    assert.ok(JSON.stringify(await t.ok('GET', `/api/worlds/${t.W}/library/pages/${odda.id}`, t.dm)).includes('Velmira'), 'the DM still sees it');
+    assert.ok(JSON.stringify(await t.ok('GET', `/api/worlds/${t.W}/library/pages/${odda.id}`, t.dm)).includes('Velmira'), 'the GM still sees it');
 
     // A source that does not share: "party" is ignored (fail closed).
     const r2 = await t.ok('POST', url(dmOnly), cKey.key, { entries: [{ externalId: 'x', title: 'Asked To Share', visibility: 'party', blocks: [] }] });

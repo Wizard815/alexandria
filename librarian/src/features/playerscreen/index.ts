@@ -1,24 +1,24 @@
 // The players' screen: a TV facing the table. It shows only what players may
 // see (stage cards shown to everyone, the spotlight, the combat tracker's
-// player view) plus a media state the DM controls (YouTube links, pictures,
+// player view) plus a media state the GM controls (YouTube links, pictures,
 // slideshows).
 //
 // GET .../screen/players builds everything for the anonymous PLAYER viewer,
-// whoever asks: the screen is opened on the DM's computer with the DM's
-// token, and a DM token must not widen what it shows. Nothing is filtered
-// out of a DM view; the DM view is never built. Pictures go through
+// whoever asks: the screen is opened on the GM's computer with the GM's
+// token, and a GM token must not widen what it shows. Nothing is filtered
+// out of a GM view; the GM view is never built. Pictures go through
 // /api/media/screen/<ticket>, which re-checks on every fetch that the picture
 // is on the board or in the visible media (hiding it takes it away).
 //
 // Media: a queue of items {youtube | image | video}, a mode (off, queue,
 // slideshow, focus), play/pause, loop and a slideshow interval. Writes are
-// DM-only. Videos are library files, served with Range support. A video
+// GM-only. Videos are library files, served with Range support. A video
 // ends the slide when it ends: the screen reports POST /media/ended
 // {id, version}; the server accepts it only for the item showing now, once
 // per version (stale or duplicate reports from other open screens change
 // nothing) and not within a second of the item coming up. An item can instead
-// play for N seconds or loop. A DM- or party-level library file may be shown
-// by the DM's choice (classified never); a file players cannot open in the
+// play for N seconds or loop. A GM- or party-level library file may be shown
+// by the GM's choice (classified never); a file players cannot open in the
 // library is served to the screen only while it is the current, visible item.
 // Players and the screen only receive the visible state: hidden items are
 // never sent, and only the current item is (no spoilers about what is next).
@@ -110,7 +110,7 @@ export function resolve(s: Pick<State, 'mode' | 'current_id' | 'focus_id'>, item
   return pool.find((i) => i.id === s.current_id) ?? pool[0] ?? null;
 }
 
-/** May this library file be put on the screen at all? Anything up to DM-only, by the DM's choice; classified never (file or page). */
+/** May this library file be put on the screen at all? Anything up to GM-only, by the GM's choice; classified never (file or page). */
 const showable = (d: Deps, f: { level: string; page_id: string; world_id: string }): boolean => {
   if (normLevel(f.level) === 'classified') return false;
   const pg = one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ? AND world_id = ?', f.page_id, f.world_id);
@@ -210,7 +210,7 @@ const feature: Feature = {
       }
       const f = one<any>(d.db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', t.f, t.w);
       if (!f || (f.family !== 'image' && f.family !== 'video')) throw new HttpError(404, 'Picture not found');
-      // A file players can open themselves is served while it is in the visible media. A file they cannot (the DM chose to
+      // A file players can open themselves is served while it is in the visible media. A file they cannot (the GM chose to
       // show it anyway) only while it is the item on screen right now, in a mode that is not off.
       const ok = mayRead(d, f, PLAYER)
         ? mayFetchScreenPicture(d, t.w, t.f)
@@ -277,7 +277,7 @@ const feature: Feature = {
       };
     }
 
-    /** The DM's whole picture, hidden items included. Thumbnails use the DM's own tickets for the ordinary file routes. */
+    /** The GM's whole picture, hidden items included. Thumbnails use the GM's own tickets for the ordinary file routes. */
     function dmMedia(wid: string, account: string) {
       const s = stateOf(d, wid);
       const items = itemsOf(d, wid);
@@ -289,7 +289,7 @@ const feature: Feature = {
           return {
             id: i.id, kind: i.kind, ref: i.ref, title: i.title, hidden: !!i.hidden,
             thumb: i.kind === 'image' || i.kind === 'video' ? `/api/media/${i.ref.startsWith('stg_') ? 'stage' : 'libfile'}/${mintTicket({ w: wid, k: i.ref.startsWith('stg_') ? 'stage' : 'libfile', f: i.ref, a: account })}` : i.kind === 'youtube' ? `https://img.youtube.com/vi/${i.ref}/mqdefault.jpg` : null,
-            // A library file players cannot open in the library: it shows on the screen only by the DM's choice, only while current.
+            // A library file players cannot open in the library: it shows on the screen only by the GM's choice, only while current.
             ...(f ? { dmOnly: !mayRead(d, f, PLAYER), blocked: !showable(d, f) } : {}),
             ...(i.kind === 'video' ? { sound: !!i.sound, loopVideo: !!i.loop_video, playSecs: i.play_secs } : {}),
           };
@@ -304,10 +304,10 @@ const feature: Feature = {
       res.json({ world: { name: c.world.name }, stage: board(c.world.id, acc), media: publicMedia(c.world.id, acc) });
     });
 
-    // ---- the DM's controls ----
+    // ---- the GM's controls ----
     r.get('/media', requireDM, (_req, res) => res.json(dmMedia(W(res), me(res))));
 
-    /** Where the DM can pick pictures and videos from: folders of library files (how many are shown-able, how many players can open) and the world's stage pictures. */
+    /** Where the GM can pick pictures and videos from: folders of library files (how many are shown-able, how many players can open) and the world's stage pictures. */
     r.get('/media/sources', requireDM, (_req, res) => {
       const w = W(res);
       const files = all<any>(db, `SELECT f.*, p.path AS page_path FROM libfiles_files f JOIN pages p ON p.id = f.page_id WHERE f.world_id = ? AND f.family IN ('image', 'video') ORDER BY p.path, f.name LIMIT 1000`, w);
@@ -328,7 +328,7 @@ const feature: Feature = {
       res.json({ folders: [...folders.values()].sort((a, b) => a.folder.localeCompare(b.folder)), files: list, stage });
     });
 
-    /** A picture or video the DM may put on the screen: a stage picture of this world, or a library picture/video (the DM's explicit choice, so DM-level files are fine; classified never). */
+    /** A picture or video the GM may put on the screen: a stage picture of this world, or a library picture/video (the GM's explicit choice, so GM-level files are fine; classified never). */
     const mediaRef = (w: string, raw: unknown): { ref: string; kind: 'image' | 'video'; name: string } => {
       const v = str(raw, 'ref', { max: 200 });
       if (/^stg_[\w-]+$/.test(v)) {
@@ -480,7 +480,7 @@ const feature: Feature = {
     });
 
     // Make a library picture or video open to the party: the file's level, and its page's when that page is only a file page
-    // (no text of its own). A page with text keeps its own level (that would publish the text): the DM opens it in the library.
+    // (no text of its own). A page with text keeps its own level (that would publish the text): the GM opens it in the library.
     r.post('/media/share', requireDM, (req, res) => {
       const w = W(res);
       const fid = str(req.body?.fileId, 'fileId', { max: 100 });
@@ -496,7 +496,7 @@ const feature: Feature = {
       const next = one<any>(db, 'SELECT * FROM libfiles_files WHERE id = ?', f.id)!;
       if (!mayRead(d, next, PLAYER)) {
         run(db, 'UPDATE libfiles_files SET level = ? WHERE id = ?', f.level, f.id);
-        throw new HttpError(409, 'Players still cannot open that file (its page is marked for the DM or the broker). Change that in the library.');
+        throw new HttpError(409, 'Players still cannot open that file (its page is marked for the GM or the broker). Change that in the library.');
       }
       audit(w, me(res), 'screen.share', `${f.name} party`);
       d.hub.emit(w, 'libfile', { pageId: f.page_id }, () => true);
@@ -568,7 +568,7 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'queue_media',
-      description: "DM: add something to the players' screen (the TV facing the table). Give a YouTube link as url, or a picture or video as ref (a library file id, never a classified one, or a stage picture id). Set play true to show it right now. Players only ever see what is queued here.",
+      description: "GM: add something to the players' screen (the TV facing the table). Give a YouTube link as url, or a picture or video as ref (a library file id, never a classified one, or a stage picture id). Set play true to show it right now. Players only ever see what is queued here.",
       write: true,
       props: {
         url: { type: 'string', description: 'A youtube.com or youtu.be link' },
@@ -580,7 +580,7 @@ const feature: Feature = {
     },
     {
       name: 'show_media',
-      description: "DM: control the players' screen media. action: off, queue, slideshow, next, previous, pause, resume, clear (empties the queue), or unfocus. To show one queued item alone, give itemId with action focus.",
+      description: "GM: control the players' screen media. action: off, queue, slideshow, next, previous, pause, resume, clear (empties the queue), or unfocus. To show one queued item alone, give itemId with action focus.",
       write: true,
       props: {
         action: { type: 'string', enum: ['off', 'queue', 'slideshow', 'next', 'previous', 'pause', 'resume', 'clear', 'focus', 'unfocus'] },

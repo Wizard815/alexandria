@@ -1,7 +1,7 @@
 // DownTime: the house rule switches it on, players start activities and pick
-// in a Downtime round, tiers set the length, the DM adds and takes time,
+// in a Downtime round, tiers set the length, the GM adds and takes time,
 // stops tasks midway and gives rewards, everything is logged with the world
-// date, the Codex link files a learn request, and DM-only parts stay hidden.
+// date, the Codex link files a learn request, and GM-only parts stay hidden.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -81,7 +81,7 @@ test('TestDowntime_RoundPickProgressAndLog', async () => {
   const research = await ok('POST', `${D()}/tasks`, T.jess, { activityId: 'Research lore' });
   assert.equal(research.tier, 'uncommon');
   assert.equal(research.needMin, 3 * 8 * 60);
-  // A player cannot start a round; the DM presses Downtime for 2 days.
+  // A player cannot start a round; the GM presses Downtime for 2 days.
   assert.equal((await call('POST', `${D()}/rounds`, T.jess, { days: 2 })).status, 403);
   const { round } = await ok('POST', `${D()}/rounds`, T.dm, { days: 2, note: 'Resting in Saltmarsh' });
   assert.equal(round.days, 2);
@@ -124,7 +124,7 @@ test('TestDowntime_RoundPickProgressAndLog', async () => {
 
 test('TestDowntime_TimeAddedLostRemovedAndRewards', async () => {
   const r1 = await task('jess', 'Research lore');
-  // The DM sets a hidden reward and a private note.
+  // The GM sets a hidden reward and a private note.
   await ok('PATCH', `${D()}/tasks/${r1.id}`, T.dm, { reward: { text: 'The map to the vault', gp: 5, item: 'Old map', hidden: true }, dmNote: 'SECRET-DOWNTIME-NOTE' });
   const seen = await task('jess', 'Research lore');
   assert.deepEqual(seen.reward, { hidden: true });
@@ -139,7 +139,7 @@ test('TestDowntime_TimeAddedLostRemovedAndRewards', async () => {
   const done = await task('jess', 'Research lore');
   assert.equal(done.status, 'done');
   assert.equal(done.rewardWaiting, true);
-  // The DM gives the reward: coin and the item.
+  // The GM gives the reward: coin and the item.
   await ok('POST', `${D()}/tasks/${r1.id}/reward`, T.dm, {});
   const after = await task('jess', 'Research lore');
   assert.ok(after.rewardGivenAt);
@@ -166,10 +166,10 @@ test('TestDowntime_PlayerMadeActivityNeedsTheDm', async () => {
   const t = await task('tom', 'Forge a dragon-bone blade');
   assert.equal(t.status, 'proposed');
   assert.equal(t.tier, 'legendary', 'word rule: dragon');
-  assert.equal(t.doneMin, 8 * 60, 'the day counts while the DM decides');
+  assert.equal(t.doneMin, 8 * 60, 'the day counts while the GM decides');
   assert.ok(p.round.mine);
   assert.equal((await call('PATCH', `${D()}/tasks/${t.id}`, T.tom, { status: 'active' })).status, 409);
-  // The DM approves it as rare, 2 days, with a reward.
+  // The GM approves it as rare, 2 days, with a reward.
   const a = await ok('PATCH', `${D()}/tasks/${t.id}`, T.dm, { approve: true, tier: 'rare', days: 2, reward: { item: 'Dragon-bone blade' } });
   assert.equal(a.status, 'active');
   assert.equal(a.needMin, 2 * 8 * 60);
@@ -235,13 +235,13 @@ test('TestDowntime_GroupTasksAreSharedApartFromPersonal', async () => {
   await ok('POST', `${D()}/tasks/${g.id}/reward`, T.dm);
   const led = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.tom);
   assert.ok(led.entries.some((e: any) => e.note === 'Downtime: Party training regimen' && e.amount_cp === 3000), 'the party pouch gets the coin');
-  // Players leave a group task; only the DM pauses or removes it.
+  // Players leave a group task; only the GM pauses or removes it.
   const fest = await ok('POST', `${D()}/tasks`, T.jess, { activityId: 'pre-group-festival' });
   assert.equal((await call('DELETE', `${D()}/tasks/${fest.id}`, T.jess)).status, 403);
   assert.equal((await call('PATCH', `${D()}/tasks/${fest.id}`, T.jess, { status: 'paused' })).status, 403);
   assert.deepEqual((await ok('POST', `${D()}/tasks/${fest.id}/leave`, T.jess)).members, []);
   assert.deepEqual((await ok('POST', `${D()}/tasks/${fest.id}/join`, T.tom)).members, [ID.tom]);
-  // The DM gives the whole party a new group task (no player), and a personal one stays personal.
+  // The GM gives the whole party a new group task (no player), and a personal one stays personal.
   const camp = await ok('POST', `${D()}/tasks`, T.dm, { group: true, activity: { name: 'Fortify the camp', tier: 'common' } });
   assert.equal(camp.accountId, 'party');
   assert.deepEqual(camp.members, []);

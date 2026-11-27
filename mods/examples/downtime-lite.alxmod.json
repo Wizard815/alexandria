@@ -4,7 +4,7 @@
   "name": "Downtime lite",
   "version": "1.0.0",
   "author": "Wizard",
-  "summary": "Downtime activities by tier. The DM presses Downtime when a day passes; each player keeps working, starts something or skips. A task is done when its days are in.",
+  "summary": "Downtime activities by tier. The GM presses Downtime when a day passes; each player keeps working, starts something or skips. A task is done when its days are in.",
   "alexandria": ">=0.1",
   "targets": { "builtFor": ["sheet"], "worksWith": ["chat"] },
   "records": {
@@ -54,7 +54,7 @@
     { "id": "activities", "title": "Activities", "record": "activity", "place": "dm", "columns": ["name", "tier", "days", "reward"] },
     { "id": "mine", "title": "My downtime", "record": "task", "place": "sheet", "columns": ["activity", "done", "goal"], "where": { "status": "open" }, "actions": ["drop"] }
   ],
-  "rules": [{ "term": "Downtime (house rule)", "text": "When a day passes between adventures the DM calls a downtime day. Keep working on a task, start a new activity, or skip. Each activity takes days by its tier; when the days are in, you get its reward." }],
+  "rules": [{ "term": "Downtime (house rule)", "text": "When a day passes between adventures the GM calls a downtime day. Keep working on a task, start a new activity, or skip. Each activity takes days by its tier; when the days are in, you get its reward." }],
   "assistant": {
     "words": [
       "downtime",

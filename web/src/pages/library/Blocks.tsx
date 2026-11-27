@@ -1,7 +1,7 @@
 // Renders the Alexandria page model (librarian/src/intake/model.ts) the way
 // LegendKeeper lays a page out: infobox sidebars floated right, callouts,
 // secrets, tables, toggles, mentions as links. The server already removed
-// everything a player may not see; DM-only styling here is only a label.
+// everything a player may not see; GM-only styling here is only a label.
 import type { ReactNode } from 'react';
 
 export interface Mention { ref?: string; name?: string; text?: string }
@@ -71,7 +71,7 @@ export function Facts({ groups, ctx }: { groups: PropertyGroup[]; ctx: RenderCtx
     <>
       {groups.map((g, i) => (
         <section key={i} className={`lib-facts${g.dm || g.level ? ' lib-dm' : ''}`} aria-label={g.title}>
-          <h3>{g.title}{g.level === 'broker' || g.level === 'classified' || titleLevel(g.title) ? <LevelChip level={g.level ?? titleLevel(g.title)} /> : g.dm && <span className="lib-dm-tag">DM only</span>}</h3>
+          <h3>{g.title}{g.level === 'broker' || g.level === 'classified' || titleLevel(g.title) ? <LevelChip level={g.level ?? titleLevel(g.title)} /> : g.dm && <span className="lib-dm-tag">GM only</span>}</h3>
           <dl>{g.rows.map((r, j) => <div key={j} className="lib-fact"><dt>{r.key}</dt><dd><Inlines c={r.value} ctx={ctx} /></dd></div>)}</dl>
         </section>
       ))}
@@ -104,9 +104,9 @@ function BlockView({ b, ctx }: { b: Block; ctx: RenderCtx }) {
         </tbody></table></div>
       );
     case 'secret':
-      // Only the DM ever receives these.
+      // Only the GM ever receives these.
       if (b.level === 'broker' || b.level === 'classified') return <aside className={`lvl-block lvl-${b.level}`} aria-label={b.level === 'classified' ? 'Classified: never shared with any AI' : 'Broker level'}><LevelChip level={b.level} />{b.level === 'classified' && <span className="tiny"> never shared with any AI</span>}{kids()}</aside>;
-      return <aside className="lib-secret" aria-label="Secret, DM only"><span className="lib-secret-tag"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> Secret · DM only</span>{kids()}</aside>;
+      return <aside className="lib-secret" aria-label="Secret, GM only"><span className="lib-secret-tag"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> Secret · GM only</span>{kids()}</aside>;
     case 'callout': {
       const v = String(b.variant ?? 'note').toLowerCase();
       const cl = titleLevel((b.title ?? []).map((c: any) => c.text ?? '').join('')) ?? (v === 'broker' || v === 'classified' ? v : null);
@@ -151,7 +151,7 @@ function BlockView({ b, ctx }: { b: Block; ctx: RenderCtx }) {
           {Array.isArray(b.pins) && b.pins.length > 0 && (
             <figcaption>
               <strong>{b.title ?? 'Map'}</strong> · {b.pins.length} pin{b.pins.length === 1 ? '' : 's'}
-              <ul>{b.pins.map((p: any, i: number) => <li key={i}>{p.name}{p.dm ? ' (DM only)' : ''}</li>)}</ul>
+              <ul>{b.pins.map((p: any, i: number) => <li key={i}>{p.name}{p.dm ? ' (GM only)' : ''}</li>)}</ul>
             </figcaption>
           )}
         </figure>

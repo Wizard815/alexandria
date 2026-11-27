@@ -1,4 +1,4 @@
-// Real-life game nights for this world. The DM sets days and times; everyone
+// Real-life game nights for this world. The GM sets days and times; everyone
 // RSVPs, talks about a day, or asks to move it. Calendar apps can subscribe.
 import { useMemo, useState, type FormEvent } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';

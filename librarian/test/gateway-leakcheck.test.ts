@@ -31,7 +31,7 @@ const mk = async (username: string) => (await call('POST', '/api/admin/accounts'
 const dm = await mk('dmitri');
 const jess = await mk('jess');
 const login = async (u: string) => (await call('POST', '/api/auth/login', undefined, { username: u, password: `${u} password 123` })).body.token as string;
-// Two worlds. The admin is the DM of the first and not a member of the second.
+// Two worlds. The admin is the GM of the first and not a member of the second.
 const wA = (await call('POST', '/api/admin/worlds', adminToken, { name: 'Alpha', dmAccountId: admin.account.id })).body.id as string;
 const wB = (await call('POST', '/api/admin/worlds', adminToken, { name: 'Beta', dmAccountId: dm.id })).body.id as string;
 for (const w of [wA, wB]) await call('PUT', `/api/admin/worlds/${w}/members/${jess.id}`, adminToken, { role: 'player' });
@@ -71,7 +71,7 @@ test('TestGatewayLeak_CleanWorldsFindNothingAndTheRunIsStored', async () => {
 });
 
 test('TestGatewayLeak_AFoundLeakIsStoredAsIdsAndKindsNotWords', async () => {
-  // A shared page whose title repeats a DM-only sentence: the library list would show it to every player.
+  // A shared page whose title repeats a GM-only sentence: the library list would show it to every player.
   const rumour = (await call('PUT', `/api/worlds/${wA}/library/pages`, adminToken, { path: 'Rumour', visibility: 'party', title: DM_TEXT, markdown: 'Gossip about nothing in particular.' })).body;
   const port = rumour;
   await call('POST', `${G}/leak-check/run`, adminToken);
@@ -95,13 +95,13 @@ test('TestGatewayWorlds_CardsHaveCountsAndSuggestionsWithoutHiddenTitles', async
   assert.equal(b.shares.total, 2);
   assert.equal(b.shares.withParty, 1);
   assert.equal(b.keys.total, 0);
-  // The admin is not Beta's DM: the party pair shows, the DM-only pair is only counted.
+  // The admin is not Beta's GM: the party pair shows, the GM-only pair is only counted.
   assert.equal(b.sameThing.pairs.length, 1);
   assert.equal(b.sameThing.pairs[0].a.title, 'Ysolde Varn');
   assert.equal(b.sameThing.hidden, 1);
   assert.ok(!r.text.includes('Vault Master'));
   assert.ok(!r.text.includes(NEVER));
-  // The admin is Alpha's DM, so Alpha's list is not hidden from them.
+  // The admin is Alpha's GM, so Alpha's list is not hidden from them.
   assert.equal(r.body.worlds.find((w: any) => w.id === wA).sameThing.hidden, 0);
 });
 
@@ -121,14 +121,14 @@ test('TestGatewayWorlds_LinkAndTrustDecisionsAreStored', async () => {
 test('TestGatewaySearch_ReadsPartyCopiesUnlessTheAdminIsTheDM', async () => {
   const hidden = await call('GET', `${G}/search?q=${NEVER}`, adminToken);
   assert.equal(hidden.status, 200);
-  assert.equal(hidden.body.results.length, 0, 'not the DM of Beta, so the DM-only page is not found');
+  assert.equal(hidden.body.results.length, 0, 'not the GM of Beta, so the GM-only page is not found');
   assert.ok(!hidden.text.includes('vault below'));
   const kesh = await call('GET', `${G}/search?q=Kesh`, adminToken);
   assert.ok(kesh.body.results.some((x: any) => x.title === 'Kesh' && x.world.id === wB));
   assert.equal(kesh.body.worlds.find((w: any) => w.id === wB).copy, 'party');
   assert.equal(kesh.body.worlds.find((w: any) => w.id === wA).copy, 'dm');
   const own = await call('GET', `${G}/search?q=baron+poisons`, adminToken);
-  assert.ok(own.body.results.some((x: any) => x.world.id === wA), 'their own world, as its DM');
+  assert.ok(own.body.results.some((x: any) => x.world.id === wA), 'their own world, as its GM');
   assert.equal((await call('GET', `${G}/search?q=Kesh&world=${wA}`, adminToken)).body.results.length, 0);
   assert.equal((await call('GET', `${G}/search?q=k`, adminToken)).status, 400);
 });

@@ -1,4 +1,4 @@
-// Every DM page a workspace pane can show. The core pages mirror the DM routes in App.tsx; the rest come from the feature
+// Every GM page a workspace pane can show. The core pages mirror the GM routes in App.tsx; the rest come from the feature
 // registry, so a new feature page is available in a pane as soon as it is in the menu (e2e/workspace.mjs opens every menu page).
 import { Navigate } from 'react-router-dom';
 import type { ReactNode } from 'react';

@@ -1,4 +1,4 @@
-// One persistent whiteboard per world, shared by the DM and players.
+// One persistent whiteboard per world, shared by the GM and players.
 // Saves carry the version they were based on, so two people drawing at once
 // do not silently overwrite each other. Every version is kept; a wipe needs
 // {"confirm": true} and is just another version you can go back to.
@@ -48,7 +48,7 @@ export default function whiteboardRoutes(d: Deps) {
 
   r.post('/wipe', requirePlayerOrDM, (req, res) => {
     const w = ctx(res).world.id;
-    if (settings(res).whiteboardWipe === 'dm' && !isDM(res)) throw new HttpError(403, 'Only the DM can wipe the board in this world');
+    if (settings(res).whiteboardWipe === 'dm' && !isDM(res)) throw new HttpError(403, 'Only the GM can wipe the board in this world');
     if (req.body?.confirm !== true) throw new HttpError(400, 'Send {"confirm": true} to wipe the board');
     const out = save(w, cur(w).version, '{"shapes":[]}', me(res));
     audit(db, w, me(res), 'whiteboard.wipe', `version ${out.version}`);

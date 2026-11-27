@@ -116,7 +116,7 @@ export function codexUpsert(d: Deps, worldId: string, a: UpsertArgs): UpsertResu
   const linkSession = a.session ? ` ([[session-${a.session}]])` : '';
   const plain = section === 'Appearances' || section === 'What changed' ? `- ${today()}: ${text}${linkSession}` : `- ${text}`;
   // What Minerva writes is her own analysis (hooks, plans, what an NPC wants). On a page players can open it goes in a secret block,
-  // which the players' copy of the page leaves out, unless the DM said it is for them to read.
+  // which the players' copy of the page leaves out, unless the GM said it is for them to read.
   const lineFor = (level: string) => (section === 'Secrets' || (level === 'party' && a.visible !== true) ? secretBlock(section === 'Secrets' ? text : plain.replace(/^-\s+/, '')) : plain);
   if (page) {
     const level = vaultLevel(page.fm);
@@ -208,7 +208,7 @@ export function mentionsOf(d: Deps, worldId: string, name: string, max = 12): st
   for (const s of sessions) {
     const n = /session-(\d+)/.exec(s.rel)?.[1] ?? '';
     for (const l of s.body.split('\n')) {
-      if (l.startsWith('>')) continue; // DM notes stay in the session page
+      if (l.startsWith('>')) continue; // GM notes stay in the session page
       if (re.test(l) && l.trim().length > name.length + 2) out.push(`- ${String(s.fm.updated ?? '')}: ${l.replace(/^\s*[-*]\s+/, '').trim().slice(0, 240)} ([[session-${n}]])`);
       if (out.length >= max) return out;
     }

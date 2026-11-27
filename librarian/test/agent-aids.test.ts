@@ -1,9 +1,9 @@
-// The aids the DM agent can be given, each with a scripted fake model: tool
+// The aids the GM agent can be given, each with a scripted fake model: tool
 // selection (keywords, all, core, embeddings, hybrid), concise descriptions,
 // hybrid library retrieval, the system prompt without its rules, the broker
 // router's examples and Active mode's scan examples. Every embedding-based
 // part must give back the plain behaviour when no embeddings model is set,
-// and a player's retrieval must never reach a DM-only page.
+// and a player's retrieval must never reach a GM-only page.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../src/app.ts';
@@ -60,7 +60,7 @@ function boot(extra: Record<string, string> = {}, withEmbeddings = true) {
   if (withEmbeddings) { env.ALX_MODEL_EXTRA_URL = 'http://fake.test/v1'; env.ALX_MODEL_EXTRA_MODEL = 'fake-embed'; }
   const made = createApp({ noScheduler: true, fetch: fake, env });
   const wid = 'w_aids';
-  run(made.deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_dm', 'dm', 'DM', 'x', 0, '2025-01-01')`);
+  run(made.deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_dm', 'dm', 'GM', 'x', 0, '2025-01-01')`);
   run(made.deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_p', 'pl', 'Player', 'x', 0, '2025-01-01')`);
   run(made.deps.db, `INSERT INTO worlds (id, slug, name, created_at) VALUES (?, 'aids', 'Aids', '2025-01-01')`, wid);
   const caller = (harness: 'dm' | 'player'): Caller => ({ worldId: wid, worldName: 'Aids', accountId: harness === 'dm' ? 'a_dm' : 'a_p', viewer: harness === 'dm' ? { accountId: 'a_dm', role: 'dm' } : { accountId: 'a_p', role: 'player' }, harness, token: 't', port: 0, settings: {} as any });
@@ -102,7 +102,7 @@ test('TestAgentTools_ModesOfferWhatTheyShould', async () => {
   const opts = (tools_: string) => agentOptions({ env: { ALX_AGENT_OPTS: JSON.stringify({ tools: tools_ }) } } as any);
   const kw = await chooseTools(h.deps, opts('keywords'), text, text, tools, names, true);
   const all = await chooseTools(h.deps, opts('all'), text, text, tools, names, true);
-  assert.equal(all.length, names.length, 'every DM tool');
+  assert.equal(all.length, names.length, 'every GM tool');
   const core = await chooseTools(h.deps, opts('core'), text, text, tools, names, true);
   assert.deepEqual([...core].sort(), DM_CORE_TOOLS.filter((n) => names.includes(n)).sort());
   const emb = await chooseTools(h.deps, opts('embed'), text, text, tools, names, true);
@@ -169,7 +169,7 @@ test('TestAgentRetrieval_PlayerNeverGetsADmOnlyPage', async () => {
   h.deps.library.save(h.wid, { path: 'Places/Quay', title: 'Quay', body: 'The wharf where boats tie up.', visibility: 'party' }, null);
   await syncEmbeddings(h.deps, { maxPages: 50 });
   const dm = await prefetchHybrid(h.deps, h.caller('dm'), 'which hidden mastermind is behind the docks', 5);
-  assert.ok(dm.some((x) => x.title === 'Smuggler Queen'), 'the DM harness can reach it');
+  assert.ok(dm.some((x) => x.title === 'Smuggler Queen'), 'the GM harness can reach it');
   const pl = await prefetchHybrid(h.deps, h.caller('player'), 'which hidden mastermind is behind the docks', 5);
   assert.ok(!pl.some((x) => x.title === 'Smuggler Queen'), 'the player harness cannot');
   assert.ok(!JSON.stringify(pl).includes('SECRETBRIBE'), 'nor its text');
@@ -179,7 +179,7 @@ test('TestAgentSystemPrompt_SkillsOffKeepsIdentityAndBrevity', () => {
   const on = systemPrompt({ harness: 'dm', worldName: 'W' }, '', {}, true);
   const off = systemPrompt({ harness: 'dm', worldName: 'W' }, '', {}, false);
   assert.ok(off.length < on.length / 3);
-  assert.match(off, /Dungeon Master/);
+  assert.match(off, /Game Master/);
   assert.match(off, /brief/i);
   assert.doesNotMatch(off, /How to work/);
   const lite = systemPrompt({ harness: 'dm', worldName: 'W' }, '', {}, 'lite');

@@ -1,7 +1,7 @@
-// End-to-end test of the player sheet and the DM's status bar: a player on a
+// End-to-end test of the player sheet and the GM's status bar: a player on a
 // phone sets their HP, takes damage, adds a condition and an enemy, spends
-// mana and adds a checklist and a counter; their private note never reaches the DM.
-// The DM's status bar shows the player's health, conditions and mana live,
+// mana and adds a checklist and a counter; their private note never reaches the GM.
+// The GM's status bar shows the player's health, conditions and mana live,
 // and opens the player's sheet and the change log.
 // Run from web/: npm run build && node e2e/sheet.mjs   (SHEET_PORT, default 19812)
 // SHEET_SHOTS=<dir> also saves screenshots there.
@@ -20,7 +20,7 @@ const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursiv
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('sheet'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'dungeon master 123');
+const dmLogin = await login('dm', 'game master 123');
 const jessLogin = await login('jess', 'player pass 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
@@ -125,8 +125,8 @@ try {
   await shot(pl, 'player-sheet');
   note('player: enemy, private note, counter');
 
-  // 5. The DM's status bar shows it; the sheet opens from it; the log has every change.
-  const { page: dm } = await signIn('dm', 'dungeon master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: 2 });
+  // 5. The GM's status bar shows it; the sheet opens from it; the log has every change.
+  const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: 2 });
   await dm.goto(`${W}/dm`);
   const bar = dm.getByTestId('party-status');
   await bar.waitFor({ timeout: 10000 });
@@ -134,44 +134,44 @@ try {
   await chip.getByText('19/24').waitFor({ timeout: 8000 });
   check((await chip.getAttribute('title'))?.includes('Poisoned'), 'the status bar names the condition');
   await shot(dm, 'dm-status-bar');
-  // Live: the player heals and the DM's bar follows without a reload.
+  // Live: the player heals and the GM's bar follows without a reload.
   await vit.getByLabel('Amount').fill('3');
   await vit.getByRole('button', { name: 'Heal', exact: true }).click();
   await chip.getByText('22/24').waitFor({ timeout: 8000 });
-  note('DM: status bar follows the player live (22/24)');
-  // The DM deals damage from the status bar's quick panel; the player's sheet follows.
+  note('GM: status bar follows the player live (22/24)');
+  // The GM deals damage from the status bar's quick panel; the player's sheet follows.
   await chip.click();
   const quick = dm.getByTestId('quick-sheet');
   await quick.getByLabel('Amount', { exact: true }).fill('2');
   await quick.getByRole('button', { name: 'Damage', exact: true }).click();
   await chip.getByText('20/24').waitFor({ timeout: 8000 });
   await vit.getByTestId('hp').getByText('20').waitFor({ timeout: 8000 });
-  note('DM: damage from the status bar reaches the player (20/24)');
-  // House rule: re-rolls. The DM turns it on, gives one for role play; the player spends it; the DM is told.
+  note('GM: damage from the status bar reaches the player (20/24)');
+  // House rule: re-rolls. The GM turns it on, gives one for role play; the player spends it; the GM is told.
   await api(dmLogin.token, 'PATCH', '/settings', { sheetRerolls: true });
   await quick.getByTestId('rerolls').waitFor({ timeout: 8000 });
   await quick.getByLabel('Reason').fill('Great speech');
-  await quick.getByRole('button', { name: 'Give a DM re-roll' }).click();
+  await quick.getByRole('button', { name: 'Give a GM re-roll' }).click();
   const prr = pl.getByTestId('mod-rerolls');
   await prr.waitFor({ timeout: 8000 });
-  await prr.getByRole('button', { name: 'Use a DM re-roll' }).click();
+  await prr.getByRole('button', { name: 'Use a GM re-roll' }).click();
   await dm.getByText('Jessamine used a dm re-roll').waitFor({ timeout: 8000 });
-  note('re-rolls: DM gives one, the player spends it, the DM is told');
+  note('re-rolls: GM gives one, the player spends it, the GM is told');
   await quick.getByRole('link', { name: 'Open the whole sheet' }).click();
   await dm.getByTestId('sheet').waitFor({ timeout: 8000 });
-  check(!(await dm.content()).includes('ZQX-PRIVATE-PLAN'), 'the private note never reaches the DM');
+  check(!(await dm.content()).includes('ZQX-PRIVATE-PLAN'), 'the private note never reaches the GM');
   await dm.getByText('Captain Vex').waitFor();
   // A secret goal for this player only.
   await dm.getByLabel('Text for the player').fill('Find out who lights the lamp');
   await dm.getByTestId('dm-note-add').click();
   await pl.getByTestId('from-dm').getByText('Find out who lights the lamp').waitFor({ timeout: 8000 });
-  note('player: sees the DM goal live');
+  note('player: sees the GM goal live');
   await dm.getByRole('button', { name: 'Log' }).click();
   const log = dm.getByTestId('sheet-log');
   await log.getByText('Overloaded a wand').waitFor({ timeout: 8000 });
   check(await log.getByText('24 → 19').count() > 0, 'the log shows the damage');
   await shot(dm, 'dm-player-sheet');
-  note('DM: sheet and log');
+  note('GM: sheet and log');
 } catch (e) {
   problems.push('crashed: ' + (e.stack || e));
 } finally {

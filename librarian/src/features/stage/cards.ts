@@ -1,7 +1,7 @@
 // What a stage card shows a given viewer. Every card is built from player
-// copies at the moment it is read; nothing the DM typed as a "preview" is
+// copies at the moment it is read; nothing the GM typed as a "preview" is
 // trusted, and a page or person that stops being shared simply disappears
-// from players' boards (fail closed). The DM sees the same player view of
+// from players' boards (fail closed). The GM sees the same player view of
 // pages, shops and people (that is what the table sees), and the full
 // combat tracker.
 import type { Deps } from '../../app.ts';
@@ -22,13 +22,13 @@ export interface CardRow {
   visibility: 'all' | 'players' | 'dm'; audience: string; options: string; shown_at: string | null; created_at: string; created_by: string;
 }
 
-/** A player as the pages and people see them: no DM, no account of its own. */
+/** A player as the pages and people see them: no GM, no account of its own. */
 export const PLAYER: Viewer = { accountId: '', role: 'player' };
 
 export const worldSettings = (db: Deps['db'], worldId: string): WorldSettings =>
   ({ ...DEFAULT_SETTINGS, ...parseJson(one<{ settings: string }>(db, 'SELECT settings FROM worlds WHERE id = ?', worldId)?.settings, {}) });
 
-/** Drop anything DM-only, whatever the copy says (defence in depth). */
+/** Drop anything GM-only, whatever the copy says (defence in depth). */
 function scrub(blocks: Block[]): Block[] {
   return blocks
     .filter((b) => b.kind !== 'secret' && !(b.kind === 'callout' && /secret|dm|gm/i.test(String((b as any).variant ?? ''))))
@@ -112,7 +112,7 @@ export const imageUrl = (ref: string | null, worldId: string, accountId: string)
 export const opts = (c: CardRow) => parseJson<Record<string, any>>(c.options, {});
 export const audienceOf = (c: CardRow) => parseJson<string[]>(c.audience, []);
 
-/** May this viewer have this card at all? (DM: always.) */
+/** May this viewer have this card at all? (GM: always.) */
 export function canHave(c: CardRow, v: Viewer): boolean {
   if (v.role === 'dm') return true;
   if (c.visibility === 'all') return true;
@@ -145,7 +145,7 @@ export function dataFor(d: Deps, c: CardRow, v: Viewer, s: WorldSettings): Recor
     }
     case 'person': {
       const p = one<any>(d.db, 'SELECT * FROM people WHERE id = ? AND world_id = ?', c.ref, w);
-      // A person the party has not met (DM-only) is never put in front of players.
+      // A person the party has not met (GM-only) is never put in front of players.
       if (!p || p.visibility !== 'party') return null;
       const quotes = all<any>(d.db, 'SELECT text, said FROM quotes WHERE person_id = ? AND visibility = ?', p.id, 'party').map((q) => ({ text: q.text, said: q.said }));
       const pg = pageView(d, w, p.page_id);

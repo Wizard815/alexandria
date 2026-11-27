@@ -18,13 +18,13 @@ export interface BrokerConfig {
   persona: { name: string; title: string; description: string; greeting: string; voice: string; portrait: string };
   tiers: Tier[];
   lengths: { id: string; name: string; multiplier: number }[];
-  /** Questions it can't answer: the DM prices them, or the broker turns them away. */
+  /** Questions it can't answer: the GM prices them, or the broker turns them away. */
   unknown?: 'dm' | 'refuse';
   payer: 'self' | 'party';
-  /** The party pouch is on and the DM lets players pay the broker from it. */
+  /** The party pouch is on and the GM lets players pay the broker from it. */
   partyPay?: boolean;
   clock: { minutes: number; label: string };
-  /** The world's site, only when the DM set one. */
+  /** The world's site, only when the GM set one. */
   site: { url: string; label: string } | null;
   /** Real-world topics the broker may talk about. */
   topics: string[];
@@ -35,11 +35,11 @@ export interface BrokerRequest {
   wait_clock: 'real' | 'game' | null; ready_at: string | null; ready_at_game: number | null; ready_at_game_label: string | null; game_now: number;
   created_at: string; delivered_at: string | null; reply: string | null;
   answer?: string; sources?: { id: string | null; title: string }[]; voice?: string; asker?: string; asker_name?: string;
-  /** DM only: who paid and from which purse. */
+  /** GM only: who paid and from which purse. */
   paid_by?: string | null; paid_by_name?: string | null; paid_from?: 'self' | 'party' | null;
-  /** DM only: how the question was judged. */
+  /** GM only: how the question was judged. */
   classification?: Classification;
-  /** DM only: a "DM reviews" answer waiting for approval. */
+  /** GM only: a "GM reviews" answer waiting for approval. */
   needs_review?: boolean;
 }
 export type Verdict = 'shared' | 'secret' | 'unknown';
@@ -93,9 +93,9 @@ const STATUS: Record<string, [string, string]> = {
   pricing: ['Asking around', 'teal'], offered: ['Price offered', 'gold'], waiting: ['Waiting', ''], answered: ['Answered', 'green'],
   refused: ['Refused', 'red'], refunded: ['Refunded', 'red'], declined: ['Declined', ''], noted: ['Turned away', ''],
   open: ['Open', 'gold'], paid: ['Paid', 'green'], expired: ['Expired', ''], withdrawn: ['Withdrawn', ''],
-  shared: ['Library', 'green'], secret: ['DM secret', 'red'], unknown: ['Unknown', 'teal'],
-  pending: ['Waiting for the DM', 'teal'], approved: ['Approved', 'green'], rejected: ['Rejected', 'red'],
-  alert: ['Changed by the DM', 'gold'], ok: ['Looks right', 'green'], disputed: ['Disputed', 'teal'], reverted: ['Undone', ''],
+  shared: ['Library', 'green'], secret: ['GM secret', 'red'], unknown: ['Unknown', 'teal'],
+  pending: ['Waiting for the GM', 'teal'], approved: ['Approved', 'green'], rejected: ['Rejected', 'red'],
+  alert: ['Changed by the GM', 'gold'], ok: ['Looks right', 'green'], disputed: ['Disputed', 'teal'], reverted: ['Undone', ''],
 };
 export function StatusChip({ s }: { s: string }) {
   const [label, tone] = STATUS[s] ?? [s, ''];
@@ -117,13 +117,13 @@ export function changeText(c: Change, nameOf: (id: string) => string): string {
   return `${name}: ${parts.join(', ') || 'edit'}`;
 }
 
-/** The player's own pending changes and the DM's alerts on their things. */
+/** The player's own pending changes and the GM's alerts on their things. */
 export function useMine() {
   const { w } = useWorld();
   return useLoad(() => w.call<Mine>('GET', '/approvals/mine'), [w], ['approval', 'item', 'coin']);
 }
 
-/** Alerts card: DM changes to my things, with "Looks right" / dispute. */
+/** Alerts card: GM changes to my things, with "Looks right" / dispute. */
 export function AlertsCard({ mine, reload, compact }: { mine: Mine | null; reload: () => Promise<void>; compact?: boolean }) {
   const { w, nameOf, info } = useWorld();
   const act = useAction();
@@ -147,7 +147,7 @@ export function AlertsCard({ mine, reload, compact }: { mine: Mine | null; reloa
               <Field label="What's wrong?"><input value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="I still had it after the fight" /></Field>
               <div className="row">
                 <button type="button" className="btn small" onClick={() => setDisputing(null)}>Cancel</button>
-                <button type="button" className="btn small primary" disabled={!note.trim() || act.busy} onClick={() => void act.run(async () => { await w.call('POST', `/approvals/${a.id}/dispute`, { note: note.trim() }); setDisputing(null); setNote(''); await reload(); })}>Send to the DM</button>
+                <button type="button" className="btn small primary" disabled={!note.trim() || act.busy} onClick={() => void act.run(async () => { await w.call('POST', `/approvals/${a.id}/dispute`, { note: note.trim() }); setDisputing(null); setNote(''); await reload(); })}>Send to the GM</button>
               </div>
             </div>
           ) : (
@@ -164,7 +164,7 @@ export function AlertsCard({ mine, reload, compact }: { mine: Mine | null; reloa
       {!compact && coinsWaiting.map((c) => (
         <div key={c.id} className="list-item row between"><span className="small">{c.note || 'Coin'}: {c.amount_cp > 0 ? '+' : ''}{coins(c.amount_cp, info.settings.coins)}</span><StatusChip s="pending" /></div>
       ))}
-      {compact && (itemsWaiting.length + coinsWaiting.length > 0) && <p className="small muted">{itemsWaiting.length + coinsWaiting.length} change{itemsWaiting.length + coinsWaiting.length === 1 ? '' : 's'} waiting for the DM.</p>}
+      {compact && (itemsWaiting.length + coinsWaiting.length > 0) && <p className="small muted">{itemsWaiting.length + coinsWaiting.length} change{itemsWaiting.length + coinsWaiting.length === 1 ? '' : 's'} waiting for the GM.</p>}
     </section>
   );
 }
@@ -196,7 +196,7 @@ export function BrokerTeaser() {
 export interface PayOptions { self: { cp: number; available?: number }; party: { cp: number | null; available?: number | null; allowed: boolean; reason: string | null }; default: 'self' | 'party' }
 export type PayFrom = 'self' | 'party';
 
-/** What a purse can spend now: its balance less coin promised to debits still waiting for the DM. */
+/** What a purse can spend now: its balance less coin promised to debits still waiting for the GM. */
 export const spendableOf = (opts: PayOptions, f: PayFrom): number => (f === 'self' ? opts.self.available ?? opts.self.cp : opts.party.available ?? opts.party.cp ?? 0);
 
 /** Both purses and whether the party pouch may pay; fresh whenever coin moves. */
@@ -213,7 +213,7 @@ export function PayChoice({ cost, value, onChange, opts }: { cost: number; value
   const { info } = useWorld();
   if (!opts) return null;
   const money = (cp: number) => coins(cp, info.settings.coins);
-  const short = (f: PayFrom) => { const have = spendableOf(opts, f); return have < cost ? `${money(cost - have)} short${have < (f === 'self' ? opts.self.cp : opts.party.cp ?? 0) ? ' (some is promised to requests waiting for the DM)' : ''}` : null; };
+  const short = (f: PayFrom) => { const have = spendableOf(opts, f); return have < cost ? `${money(cost - have)} short${have < (f === 'self' ? opts.self.cp : opts.party.cp ?? 0) ? ' (some is promised to requests waiting for the GM)' : ''}` : null; };
   const choices: { id: PayFrom; label: string; cp: number | null; off: string | null }[] = [
     { id: 'self', label: 'My coin', cp: opts.self.cp, off: short('self') },
     ...(opts.party.allowed ? [{ id: 'party' as PayFrom, label: 'Party pouch', cp: opts.party.cp, off: short('party') }] : []),

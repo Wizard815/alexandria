@@ -4,7 +4,7 @@
   "name": "Honor",
   "version": "1.0.0",
   "author": "Alexandria",
-  "summary": "An Honor score tracks how a character keeps their word and their code; the DM raises or lowers it.",
+  "summary": "An Honor score tracks how a character keeps their word and their code; the GM raises or lowers it.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": [],

@@ -5,10 +5,10 @@ import type { ComponentType, ReactNode } from 'react';
 import type { DMGroupId } from '../lib/dmnames.ts';
 
 export interface FeatureRoute { path: string; element: ReactNode }
-/** Where a block sits on the DM's Table: the band across the top (the world right now), the wide play column, the side
- * column (what needs the DM), or the world row at the bottom. */
+/** Where a block sits on the GM's Table: the band across the top (the world right now), the wide play column, the side
+ * column (what needs the GM), or the world row at the bottom. */
 export type TableZone = 'now' | 'main' | 'side' | 'world';
-/** A block on the DM's Table. The DM can hide any block; `order` sorts inside a zone (built-in blocks use 10, 20, 30…). */
+/** A block on the GM's Table. The GM can hide any block; `order` sorts inside a zone (built-in blocks use 10, 20, 30…). */
 export interface TableBlock { id: string; label: string; zone: TableZone; order?: number; component: ComponentType }
 export interface WebFeature {
   id: string;
@@ -18,27 +18,27 @@ export interface WebFeature {
   playerRoutes?: FeatureRoute[];
   /** Under /admin/<path>. */
   adminRoutes?: FeatureRoute[];
-  /** A page in the DM menu. Known routes take name, icon, description and group from lib/dmnames.ts; a new route gives its own. */
+  /** A page in the GM menu. Known routes take name, icon, description and group from lib/dmnames.ts; a new route gives its own. */
   dmNav?: { to: string; group?: DMGroupId; label?: string; icon?: string; desc?: string }[];
   /** icon: a Font Awesome solid name, e.g. 'fa-scroll'. */
   playerNav?: { to: string; label: string; icon: string }[];
   adminNav?: { to: string; label: string }[];
-  /** A section in the DM's World settings. */
+  /** A section in the GM's World settings. */
   settings?: { title: string; component: ComponentType };
-  /** Blocks on the DM's Table, each in a zone and hideable. */
+  /** Blocks on the GM's Table, each in a zone and hideable. */
   dmTable?: TableBlock[];
-  /** Extra cards on the DM's Table (a notice or status card, not hideable) and the player's home page. */
+  /** Extra cards on the GM's Table (a notice or status card, not hideable) and the player's home page. */
   dmHome?: ComponentType[];
   playerHome?: ComponentType[];
-  /** Shown on every DM and player page (e.g. the transcript island). */
+  /** Shown on every GM and player page (e.g. the transcript island). */
   overlay?: ComponentType;
   /** Shown in the top bar next to the world name (e.g. the world date). */
   topbar?: ComponentType;
-  /** A band across the top of every DM page, under the menu tabs (e.g. the party's health and mana). */
+  /** A band across the top of every GM page, under the menu tabs (e.g. the party's health and mana). */
   dmBand?: ComponentType;
   /** Extra buttons under a session chat message (e.g. Reroll on a roll, from house rules). */
   chatActions?: ComponentType<{ message: ChatActionMessage; channel: 'table' | 'party' }>[];
-  /** Tabs on the DM's House rules page for a system rule (shown while the rule `mod` is on), e.g. DownTime's activities. */
+  /** Tabs on the GM's House rules page for a system rule (shown while the rule `mod` is on), e.g. DownTime's activities. */
   houseRuleTabs?: { mod: string; title: string; component: ComponentType }[];
 }
 /** What a chat action sees of a message. */

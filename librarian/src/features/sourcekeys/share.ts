@@ -1,7 +1,7 @@
 // Sharing pages: /api/worlds/:world/library/pages/:id/share (mounted by routes/library.ts).
 //
 // What a player sees through their OWN key is theirs alone until they share it.
-// A player may share a page they can see; the DM may share any page that is
+// A player may share a page they can see; the GM may share any page that is
 // not broker or classified. Either way the recipient gets the SAME player copy
 // (marker levels stripped, never broker or classified), and sharing never lifts
 // a page above what the sharer could see. Shares are read live: unsharing, or
@@ -15,7 +15,7 @@ import { normLevel } from '../../core/levels.ts';
 import { ctx, isDM, me, memberIds, names } from '../../routes/_shared.ts';
 import { auditKey } from './store.ts';
 
-/** DM: every page share in the world, for the Sharing page. Titles only, never page text. */
+/** GM: every page share in the world, for the Sharing page. Titles only, never page text. */
 export function allShares(d: Deps, worldId: string) {
   const nm = names(d.db, worldId);
   return all<any>(d.db, `SELECT s.page_id, s.from_id, s.to_id, s.kind, s.created_at, p.title, p.folder FROM sourcekeys_shares s
@@ -36,11 +36,11 @@ export function shareRoutes(d: Deps) {
     } else if (normLevel(pg.visibility) === 'broker' || normLevel(pg.visibility) === 'classified') throw new HttpError(409, 'A broker or classified page cannot be shared with players');
     return pg;
   };
-  /** Why a DM's share of this page would not hold (library.ts liftedInfo skips it and pruneShares deletes it), so it is refused instead of vanishing. */
+  /** Why a GM's share of this page would not hold (library.ts liftedInfo skips it and pruneShares deletes it), so it is refused instead of vanishing. */
   const refuseDead = (pg: any, res: any) => {
     if (!isDM(res)) return;
     if (normLevel(pg.visibility) === 'party') throw new HttpError(409, 'Everyone can already see this page');
-    if (pg.marker_level != null && pg.marker_level !== 'party') throw new HttpError(409, 'This page is marked DM-only in its own title, tags or text. Remove that mark to share it.');
+    if (pg.marker_level != null && pg.marker_level !== 'party') throw new HttpError(409, 'This page is marked GM-only in its own title, tags or text. Remove that mark to share it.');
   };
   const rowsOf = (res: any, pageId: string) => {
     const nm = names(d.db, W(res));
@@ -78,7 +78,7 @@ export function shareRoutes(d: Deps) {
     res.status(201).json(rowsOf(res, pg.id));
   });
 
-  // Unshare: with `to` ("party" or a player's id) only that one; without, every share of this page that this person made (the DM may end any).
+  // Unshare: with `to` ("party" or a player's id) only that one; without, every share of this page that this person made (the GM may end any).
   r.delete('/', (req, res) => {
     if (ctx(res).viewer.role === 'guest') throw new HttpError(404, 'Page not found');
     const w = W(res);

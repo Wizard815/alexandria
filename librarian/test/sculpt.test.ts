@@ -51,7 +51,7 @@ async function boot(withModel: boolean) {
   const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
   const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] DM\n> ${DM_SECRET}.\n`);
+  await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] GM\n> ${DM_SECRET}.\n`);
   const S = `/api/worlds/${W}/sculpt`;
   return { made, model, T, W, S, call, ok };
 }
@@ -63,7 +63,7 @@ const bare = await boot(false);
 test('Sculpt: the built-in templates are seeded per world and cannot be deleted', async () => {
   const { templates } = await env.ok('GET', `${env.S}/templates`, env.T.dm);
   const names = templates.map((t: any) => t.name);
-  for (const n of ['Quick statblock', 'NPC for quick RP', 'Shop or store', 'Scene, DM perspective', 'Scene, player perspective', 'Tavern', 'Quest hook']) assert.ok(names.includes(n), n);
+  for (const n of ['Quick statblock', 'NPC for quick RP', 'Shop or store', 'Scene, GM perspective', 'Scene, player perspective', 'Tavern', 'Quest hook']) assert.ok(names.includes(n), n);
   assert.ok(templates.every((t: any) => t.builtin));
   assert.equal((await bare.ok('GET', `${bare.S}/templates`, bare.T.dm)).templates.length, templates.length);
   const id = templates[0].id;
@@ -86,7 +86,7 @@ test('Sculpt: one model call fills only the empty fields and keeps locked ones',
   assert.equal(r.values.voice, '', 'a locked empty field stays empty');
   assert.equal(r.values.wants, 'filled wants');
   assert.ok(r.filled.includes('secret') && !r.filled.includes('look') && !r.filled.includes('voice'));
-  assert.ok(r.md.includes('> [!secret] DM'));
+  assert.ok(r.md.includes('> [!secret] GM'));
   // The prompt names only the blank fields; the filled ones are context.
   const user = JSON.parse(env.model.calls[0].messages[1].content);
   assert.ok(!user.blank.some((f: any) => f.key === 'name' || f.key === 'look' || f.key === 'voice'));
@@ -126,13 +126,13 @@ test('Sculpt: a shop is stocked without the model and a quick statblock is check
   assert.ok(JSON.stringify(live).includes('Bog Ghoul'));
 });
 
-test('Sculpt: DM-only sections become secret blocks that players never see', async () => {
+test('Sculpt: GM-only sections become secret blocks that players never see', async () => {
   const id = await tplId(env, 'NPC for quick RP');
   const values = { name: 'Orrin Vale', race: 'Human', role: 'Ferryman', look: 'Stooped', voice: 'Slow', wants: 'Quiet', knows: 'The tides', secret: 'Orrin ferries stolen goods past the watch every moonless night', hook: 'He needs a courier' };
   const saved = await env.ok('POST', `${env.S}/save`, env.T.dm, { templateId: id, values, target: { visibility: 'party' } });
   assert.equal(saved.kind, 'person');
   const dmPage = await env.ok('GET', `/api/worlds/${env.W}/library/pages/${saved.pageId}`, env.T.dm);
-  assert.match(dmPage.body, /> \[!secret\] DM/);
+  assert.match(dmPage.body, /> \[!secret\] GM/);
   assert.match(dmPage.body, /stolen goods/);
   const pp = await env.ok('GET', `/api/worlds/${env.W}/library/pages/${saved.pageId}`, env.T.jess);
   assert.ok(!JSON.stringify(pp).includes('stolen goods'), 'the player copy has no secret');
@@ -149,7 +149,7 @@ test('Sculpt: DM-only sections become secret blocks that players never see', asy
   assert.ok(!JSON.stringify(sp).includes('late husband'));
 });
 
-test('Sculpt: the player-perspective scene never contains DM-only text, even when the model echoes it', async () => {
+test('Sculpt: the player-perspective scene never contains GM-only text, even when the model echoes it', async () => {
   const id = await tplId(env, 'Scene, player perspective');
   env.model.calls.length = 0;
   env.model.reply = (blank) => Object.fromEntries(blank.map((k) => [k, k === 'description' ? `You walk the quay. ${DM_SECRET}. Gulls wheel overhead.` : 'grey and damp']));
@@ -160,7 +160,7 @@ test('Sculpt: the player-perspective scene never contains DM-only text, even whe
   assert.ok(!r.md.includes('Velmira'));
   // The model saw player copies only.
   assert.equal(env.model.calls.length, 1);
-  assert.ok(!JSON.stringify(env.model.calls[0]).includes('Velmira'), 'no DM text in the model context');
+  assert.ok(!JSON.stringify(env.model.calls[0]).includes('Velmira'), 'no GM text in the model context');
   assert.ok(JSON.stringify(env.model.calls[0]).includes('gulls'), 'the player copy is used');
   // Saving, checking and sending refuse a leaking text typed by hand too.
   const leaky = { location: 'Saltmarsh', description: `${DM_SECRET}.` };
@@ -174,7 +174,7 @@ test('Sculpt: the player-perspective scene never contains DM-only text, even whe
   await env.ok('POST', `${env.S}/send`, env.T.dm, { templateId: id, values: clean });
   const threads = await env.ok('GET', `/api/worlds/${env.W}/messages`, env.T.jess);
   assert.ok(threads.some((t: any) => t.last?.includes('Lanterns')));
-  // DM templates cannot be sent.
+  // GM templates cannot be sent.
   assert.equal((await env.call('POST', `${env.S}/send`, env.T.dm, { templateId: await tplId(env, 'Tavern'), values: {} })).status, 422);
 });
 
@@ -184,10 +184,10 @@ test('Sculpt: a saved player-view scene can still be read aloud and sent, until 
   const saved = await env.ok('POST', `${env.S}/save`, env.T.dm, { templateId: id, values: vals });
   const pageId = saved.saved?.pageId ?? saved.pageId;
   assert.ok(pageId, JSON.stringify(saved));
-  // The saved page is DM-only, but its text passed the check: Read aloud (check) and Send still work.
+  // The saved page is GM-only, but its text passed the check: Read aloud (check) and Send still work.
   assert.equal((await env.ok('POST', `${env.S}/check`, env.T.dm, { templateId: id, values: vals })).ok, true);
   await env.ok('POST', `${env.S}/send`, env.T.dm, { templateId: id, values: vals });
-  // Once the DM edits that page, its text counts as DM-only again (fail closed).
+  // Once the GM edits that page, its text counts as GM-only again (fail closed).
   const pg = await env.ok('GET', `/api/worlds/${env.W}/library/pages/${pageId}`, env.T.dm);
   await env.ok('PUT', `/api/worlds/${env.W}/library/pages`, env.T.dm, { path: pg.path, visibility: 'dm', markdown: `# Edited\n${vals.description}\nThe mist hides the smugglers unloading crates at the old pier tonight.` });
   assert.equal((await env.ok('POST', `${env.S}/check`, env.T.dm, { templateId: id, values: vals })).ok, false);

@@ -1,5 +1,5 @@
-// The DM panels that can stand alone: in their own window (/w/:world/panel/:name) or stacked on the side screen. Each one is
-// the same component the DM page uses, so nothing is duplicated and both stay in step with live updates.
+// The GM panels that can stand alone: in their own window (/w/:world/panel/:name) or stacked on the side screen. Each one is
+// the same component the GM page uses, so nothing is duplicated and both stay in step with live updates.
 import type { ReactNode } from 'react';
 import DMCombat from '../../pages/dm/Combat.tsx';
 import DMApprovals from '../../pages/broker/DMApprovals.tsx';

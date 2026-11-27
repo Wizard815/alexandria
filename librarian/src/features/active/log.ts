@@ -1,4 +1,4 @@
-// The command log also records what the DM's assistant does in Assistant mode:
+// The command log also records what the GM's assistant does in Assistant mode:
 // each proposal, and what became of it (approved and run, rejected, run on
 // auto-approve). One row per action, in the same table as Active mode's.
 import type { Deps } from '../../app.ts';

@@ -1,9 +1,9 @@
 // End-to-end test of Templates & guides on the demo world (fake models; the fake models server also answers as a
-// SearXNG instance, so web research is stubbed and nothing leaves the machine). The DM turns web research on, makes a
+// SearXNG instance, so web research is stubbed and nothing leaves the machine). The GM turns web research on, makes a
 // "Towns" guide with the assistant (describe it, the assistant drafts it and asks a few questions, save), then asks
 // the assistant for a town: the chat shows "Using guide: Towns" and each step (library lore, neighbouring places, the
 // web search waiting as a card with its words, example pages). Approving the search brings the sources into the chat
-// and the assistant carries on with them. A DM-only name in a search is refused before anything is sent. The page
+// and the assistant carries on with them. A GM-only name in a search is refused before anything is sent. The page
 // works at phone width with no sideways scrolling, and players cannot open it.
 // Run from web/: npm run build && node e2e/templates.mjs
 import fs from 'node:fs';
@@ -20,7 +20,7 @@ const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--models-port', String(MODELS_PORT), '--data', path.join(tmpDir('templates'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tok = await login('dm', 'dungeon master 123');
+const tok = await login('dm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tok } })).json())[0].id;
 const api = async (m, p, b, t = tok) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t }, body: b ? JSON.stringify(b) : undefined }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
 
@@ -32,15 +32,15 @@ const watch = (page, who) => {
 
 try {
   await api('PATCH', '/settings', { agentAuto: false });
-  const { page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1400, height: 900 });
+  const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 });
   watch(page, 'desktop');
 
-  // ---- the page is in the DM menu ----
+  // ---- the page is in the GM menu ----
   await page.goto(`${W}/dm`);
   // The menu shows one area at a time: the guide lives under Prep.
-  await page.locator('[data-group=prep]').first().click().catch(() => problems.push('no Prep area in the DM menu'));
+  await page.locator('[data-group=prep]').first().click().catch(() => problems.push('no Prep area in the GM menu'));
   const link = page.locator('a[href$="/dm/templates"]').first();
-  await link.waitFor({ timeout: 15000 }).catch(() => problems.push('no Templates & guides entry in the DM menu'));
+  await link.waitFor({ timeout: 15000 }).catch(() => problems.push('no Templates & guides entry in the GM menu'));
   check(/Templates & guides/.test(await link.innerText().catch(() => '')), 'the menu entry should read "Templates & guides"');
   await page.goto(`${W}/dm/templates`);
   await page.getByRole('heading', { name: 'Templates & guides' }).waitFor({ timeout: 10000 });
@@ -99,14 +99,14 @@ try {
   await page.waitForFunction(() => { const g = [...document.querySelectorAll('[data-testid=ag-guide]')]; return g.length >= 2 && g.at(-1).querySelector('li[data-kind=web]')?.getAttribute('data-status') === 'done'; }, null, { timeout: 20000 }).catch(() => problems.push('the assistant did not carry on with the guide after the search'));
   note('approved: sources in the chat, and the assistant carried on with the guide');
 
-  // ---- a DM-only name never goes out ----
+  // ---- a GM-only name never goes out ----
   const searchesBefore = (await (await fetch(`http://127.0.0.1:${MODELS_PORT}/v1/models`)).ok);
   check(searchesBefore, 'the fake models server answers');
   const blocked = await api('POST', '/templates/web/search', { queries: ['Velmira smuggler queen'] });
-  check(blocked.status === 422 && /DM-only/.test(blocked.body.error ?? ''), `a DM-only name in a search should be refused (got ${blocked.status})`);
+  check(blocked.status === 422 && /GM-only/.test(blocked.body.error ?? ''), `a GM-only name in a search should be refused (got ${blocked.status})`);
   await box.fill('Make a town based on Velmira near Saltmarsh');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => [...document.querySelectorAll('[data-testid=ag-guide] li[data-kind=web]')].some((l) => l.getAttribute('data-status') === 'blocked'), null, { timeout: 15000 }).catch(() => problems.push('a search for a DM-only name should show as blocked'));
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-testid=ag-guide] li[data-kind=web]')].some((l) => l.getAttribute('data-status') === 'blocked'), null, { timeout: 15000 }).catch(() => problems.push('a search for a GM-only name should show as blocked'));
 
   // ---- share: export a file, change it, import it back as a new version ----
   await page.keyboard.press('Escape');
@@ -147,7 +147,7 @@ try {
   check((await api('GET', '/templates', undefined, ptok)).status === 403, 'a player must not read templates');
 
   // ---- phone width ----
-  const ph = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 390, height: 844 }, true);
+  const ph = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true);
   watch(ph.page, 'phone');
   await ph.page.goto(`${W}/dm/templates`);
   await ph.page.getByRole('heading', { name: 'Templates & guides' }).waitFor({ timeout: 10000 });

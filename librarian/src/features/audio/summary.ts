@@ -4,7 +4,7 @@
 // and a player's assistant can say what happened tonight.
 //
 // Two summaries per session, never mixed:
-//   dm     from every line the DM can read (asides included). DM only.
+//   dm     from every line the GM can read (asides included). GM only.
 //   party  from the lines players can read, nothing else. What a player's assistant is given.
 // A line holding classified content is left out before anything is sent to a model. The summary is folded forward:
 // the model gets the summary so far and the lines that came in since, and returns the new summary.
@@ -65,14 +65,14 @@ function system(audience: Audience): string {
     '**Right now**: one or two sentences: the scene, where the party is, what is going on.',
     '**Open threads**: bullets: questions, plans, promises, unfinished business.',
     'Facts only from the summary and the lines: never invent names, numbers or events. Keep names as they were spoken. Table talk that is not the game (food, jokes, real life) is left out.',
-    audience === 'party' ? 'This summary is for the players: only what they said, heard and saw.' : 'This summary is for the Dungeon Master.',
+    audience === 'party' ? 'This summary is for the players: only what they said, heard and saw.' : 'This summary is for the Game Master.',
   ].join('\n');
 }
 
 /**
  * Bring one session's summary up to date for one audience. `force` folds in whatever is new now (the session ended,
  * or someone asked); otherwise only when enough has come in. `rebuild` makes it again from every line the session has
- * now (the final transcript replaced the live lines, or the DM undid it): the old summary is kept unless the whole
+ * now (the final transcript replaced the live lines, or the GM undid it): the old summary is kept unless the whole
  * rebuild succeeds. Never throws for a model problem.
  */
 export async function updateSummary(d: Deps, worldId: string, sessionId: string, audience: Audience, opts: { force?: boolean; at?: number; rebuild?: boolean } = {}): Promise<{ ran: boolean; reason?: string; lines: number }> {

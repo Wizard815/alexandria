@@ -1,5 +1,5 @@
-// What the DM should know about a world's sources right now, in plain words: why players may see nothing, a key the site refuses for
-// page content, and a wait for the site. Counts and names only; DM routes and the admin overview use it, players never get it.
+// What the GM should know about a world's sources right now, in plain words: why players may see nothing, a key the site refuses for
+// page content, and a wait for the site. Counts and names only; GM routes and the admin overview use it, players never get it.
 import type { DB } from '../../core/db.ts';
 import { all } from '../../core/db.ts';
 import { effectiveConfig, normAudience } from '../../intake/connections.ts';
@@ -46,14 +46,14 @@ export function worldStatus(d: { db: DB }, worldId: string): WorldStatus {
     const seen = n(`SELECT COUNT(*) AS n FROM pages WHERE source_id = ? AND visibility = 'party'`);
     if (seen === total) continue;
     const audience = normAudience(s.audience);
-    if (audience === 'dm') { reasons.push({ sourceId: s.id, source: s.name, kind: 'audience', count: total, text: `${s.name}: its audience is "DM only", so all ${plural(total, 'page', 'pages')} stay with you.` }); continue; }
+    if (audience === 'dm') { reasons.push({ sourceId: s.id, source: s.name, kind: 'audience', count: total, text: `${s.name}: its audience is "GM only", so all ${plural(total, 'page', 'pages')} stay with you.` }); continue; }
     const unread = n(`SELECT COUNT(*) AS n FROM pages WHERE source_id = ? AND depth = 'index'`);
     if (unread) reasons.push({ sourceId: s.id, source: s.name, kind: 'unread', count: unread, text: `${s.name}: ${plural(unread, 'page is', 'pages are')} only listed so far. The source has not said who may read them until their details are read.` });
     const hidden = n(`SELECT COUNT(*) AS n FROM pages WHERE source_id = ? AND depth <> 'index' AND source_shared = 0`);
-    if (hidden) reasons.push({ sourceId: s.id, source: s.name, kind: 'hidden', count: hidden, text: `${s.name}: ${plural(hidden, 'page is', 'pages are')} hidden at the source, so they stay DM-only.` });
+    if (hidden) reasons.push({ sourceId: s.id, source: s.name, kind: 'hidden', count: hidden, text: `${s.name}: ${plural(hidden, 'page is', 'pages are')} hidden at the source, so they stay GM-only.` });
     if (s.default_visibility !== 'party' && audience === 'auto') {
       const shared = n(`SELECT COUNT(*) AS n FROM pages WHERE source_id = ? AND depth <> 'index' AND source_shared = 1 AND visibility <> 'party'`);
-      if (shared) reasons.push({ sourceId: s.id, source: s.name, kind: 'default', count: shared, text: `${s.name}: ${plural(shared, 'page is', 'pages are')} shared at the source, but its default visibility is "DM only".` });
+      if (shared) reasons.push({ sourceId: s.id, source: s.name, kind: 'default', count: shared, text: `${s.name}: ${plural(shared, 'page is', 'pages are')} shared at the source, but its default visibility is "GM only".` });
     }
     if (msg) reasons.push({ sourceId: s.id, source: s.name, kind: 'refused', count: 0, text: `${s.name}: ${msg}` });
   }

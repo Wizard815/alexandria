@@ -10,7 +10,7 @@ import { ensureSearchIndex, makeSnippet, parseQuery, ftsExpr, editDistance } fro
 function makeWorld() {
   const { app, deps } = createApp({ env: { ALX_ADMIN_TABLE_LOGIN: '1' }, noScheduler: true });
   const wid = 'w_search';
-  run(deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_dm', 'dm', 'DM', 'x', 0, '2025-01-01')`);
+  run(deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_dm', 'dm', 'GM', 'x', 0, '2025-01-01')`);
   run(deps.db, `INSERT INTO accounts (id, username, display_name, pass_hash, is_admin, created_at) VALUES ('a_p', 'pl', 'Player', 'x', 0, '2025-01-01')`);
   run(deps.db, `INSERT INTO worlds (id, slug, name, created_at) VALUES (?, 'search', 'Search', '2025-01-01')`, wid);
   return { app, deps, wid, dm: { accountId: 'a_dm', role: 'dm' as const }, pl: { accountId: 'a_p', role: 'player' as const } };
@@ -86,13 +86,13 @@ test('TestSearch_TypoToleranceOnTitlesAndAliases', () => {
   const L = deps.library;
   L.save(wid, { path: 's', title: 'Saltmarsh', body: 'A town.', visibility: 'party' }, null);
   L.save(wid, { path: 'm', title: 'Mira', body: 'A person.', frontmatter: { aliases: ['Brightwater'] }, visibility: 'party' }, null);
-  L.save(wid, { path: 'x', title: 'Hidden Keep', body: 'DM only.', visibility: 'dm' }, null);
+  L.save(wid, { path: 'x', title: 'Hidden Keep', body: 'GM only.', visibility: 'dm' }, null);
   assert.equal(L.search(wid, 'Saltmrsh', dm)[0].title, 'Saltmarsh');
   assert.equal(L.search(wid, 'saltmarhs', pl)[0].title, 'Saltmarsh', 'transposition');
   assert.equal(L.search(wid, 'Brigthwater', pl)[0].title, 'Mira');
   assert.equal(L.search(wid, 'Saltmrsh', dm)[0].matchedOn, 'fuzzy');
   assert.equal(L.search(wid, 'Saltmrsh', dm)[0].titleHtml, '<mark>Saltmarsh</mark>', 'the corrected word is marked');
-  assert.deepEqual(L.search(wid, 'Hiden Keep', pl), [], 'typos never reveal a DM page to a player');
+  assert.deepEqual(L.search(wid, 'Hiden Keep', pl), [], 'typos never reveal a GM page to a player');
   assert.equal(L.search(wid, 'Hiden Keep', dm)[0].title, 'Hidden Keep');
 });
 
@@ -133,46 +133,46 @@ test('TestSearch_SnippetIsAroundTheMatchEscapedAndMarked', () => {
 test('TestSearch_PlayersOnlySeePlayerCopies', () => {
   const { deps, wid, dm, pl } = makeWorld();
   const L = deps.library;
-  // DM-only page
+  // GM-only page
   L.save(wid, { path: 'Plot', title: 'The Plot', body: 'The vizier Zaxxar poisons the king.', visibility: 'dm' }, null);
   L.save(wid, { path: 'Cult', title: 'Hidden Cult', body: 'Moon worshippers.', visibility: 'dm' }, null);
-  // Shared Markdown page: callout secret, secret heading, DM comment, secret frontmatter alias.
+  // Shared Markdown page: callout secret, secret heading, GM comment, secret frontmatter alias.
   L.save(wid, {
     path: 'Port', title: 'Port Vale', visibility: 'party',
     frontmatter: { aliases: ['Fishtown', 'Hidden Cult'], secret: { aliases: ['Smugglerscove'] }, dm_aliases: ['Blackharbor'] },
     body: 'Fish and nets.\n\n> [!secret]\n> Cultists meet in the Kraken cellar.\n\n## Secrets\nThe mayor is Zaxxar.\n\n## Docks\nBoats arrive.\n\n%% Moonstone is buried here %%\n',
   }, null);
-  // Imported structured page: secret block, DM fact group, DM-only alias title
+  // Imported structured page: secret block, GM fact group, GM-only alias title
   run(deps.db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES ('s1', ?, 'api', 'Wiki', '{}', 'party')`, wid);
   L.saveEntry(wid, 's1', null, {
     externalId: 'e1', title: 'Imported Inn', visibility: 'party', aliases: ['The Prancing Pig', 'Hidden Cult'],
     blocks: [{ kind: 'paragraph', content: [{ text: 'A warm inn.' }] }, { kind: 'secret', children: [{ kind: 'paragraph', content: [{ text: 'Buried truth: Quillfeather.' }] }] }],
-    properties: [{ title: 'Public', rows: [{ key: 'Owner', value: [{ text: 'Brenna' }] }] }, { title: 'DM facts', dm: true, rows: [{ key: 'Real owner', value: [{ text: 'Vexmoor' }] }] }],
+    properties: [{ title: 'Public', rows: [{ key: 'Owner', value: [{ text: 'Brenna' }] }] }, { title: 'GM facts', dm: true, rows: [{ key: 'Real owner', value: [{ text: 'Vexmoor' }] }] }],
   }, null);
   L.rebuildPlayerCopies(wid);
 
   const dmFinds = (q: string) => L.search(wid, q, dm).length > 0;
   const plFinds = (q: string) => L.search(wid, q, pl).length > 0;
-  // The DM finds all of it ...
-  for (const q of ['Zaxxar', 'Kraken', 'Moonstone', 'Smugglerscove', 'Blackharbor', 'Quillfeather', 'Vexmoor']) assert.ok(dmFinds(q), `DM should find ${q}`);
+  // The GM finds all of it ...
+  for (const q of ['Zaxxar', 'Kraken', 'Moonstone', 'Smugglerscove', 'Blackharbor', 'Quillfeather', 'Vexmoor']) assert.ok(dmFinds(q), `GM should find ${q}`);
   // ... players none of it, by prefix, phrase or typo either.
-  for (const q of ['Zaxxar', 'Zaxx', 'Kraken cellar', '"Kraken cellar"', 'Moonstone', 'Smugglerscove', 'Smugglersco', 'Smuglerscove', 'Blackharbor', 'Quillfeather', 'Vexmoor', 'DM facts', 'Plot', 'vizier', 'cultists', 'Secrets', 'Hidden Cult', 'Moon worshippers']) {
+  for (const q of ['Zaxxar', 'Zaxx', 'Kraken cellar', '"Kraken cellar"', 'Moonstone', 'Smugglerscove', 'Smugglersco', 'Smuglerscove', 'Blackharbor', 'Quillfeather', 'Vexmoor', 'GM facts', 'Plot', 'vizier', 'cultists', 'Secrets', 'Hidden Cult', 'Moon worshippers']) {
     assert.deepEqual(L.search(wid, q, pl), [], `player must not find "${q}"`);
   }
-  // A loose query may match the public "Owner" fact, but never shows the DM fact's value.
+  // A loose query may match the public "Owner" fact, but never shows the GM fact's value.
   for (const h of L.search(wid, 'Real owner', pl)) assert.ok(!h.snippet.includes('Vexmoor') && !h.snippet.includes('Real'));
   // Their own copy is searchable, including a public alias and a public fact.
   assert.equal(L.search(wid, 'Fishtown', pl)[0].title, 'Port Vale');
   assert.equal(L.search(wid, 'Prancing', pl)[0].title, 'Imported Inn');
   assert.equal(L.search(wid, 'Brenna', pl)[0].title, 'Imported Inn');
   assert.ok(plFinds('boats'));
-  // Snippets for players never carry DM text, even for pages that contain it.
+  // Snippets for players never carry GM text, even for pages that contain it.
   for (const h of [...L.search(wid, 'fish', pl), ...L.search(wid, 'docks', pl), ...L.search(wid, 'inn', pl)]) {
     for (const bad of ['Zaxxar', 'Kraken', 'Moonstone', 'Quillfeather', 'Vexmoor', 'Cultists']) {
       assert.ok(!h.snippet.includes(bad) && !h.snippetHtml.includes(bad) && !h.title.includes(bad), `${bad} leaked in ${h.title}`);
     }
   }
-  // Excluding a DM-only word cannot be used to probe either: no difference in the player's results.
+  // Excluding a GM-only word cannot be used to probe either: no difference in the player's results.
   assert.deepEqual(ids(L.search(wid, 'fish -zaxxar', pl)), ids(L.search(wid, 'fish', pl)));
   // Hiding a page afterwards removes it from the player index.
   L.save(wid, { path: 'Port', title: 'Port Vale', visibility: 'dm', body: 'Fish and nets.' }, null);
@@ -196,7 +196,7 @@ test('TestSearch_MigratesAnOldIndexAndKeepsPlayerCopies', () => {
   const { deps, wid, dm, pl } = makeWorld();
   const L = deps.library;
   L.save(wid, { path: 'a', title: 'Shared page', body: 'Open words.\n\n> [!secret]\n> Hidden words.', visibility: 'party' }, null);
-  L.save(wid, { path: 'b', title: 'DM page', body: 'Private words.', visibility: 'dm' }, null);
+  L.save(wid, { path: 'b', title: 'GM page', body: 'Private words.', visibility: 'dm' }, null);
   // Put the database back the way an older version left it.
   deps.db.exec('DROP TABLE fts_dm; DROP TABLE fts_party; DROP TABLE page_names; DROP TABLE search_meta;');
   deps.db.exec('CREATE VIRTUAL TABLE fts_dm USING fts5(page_id UNINDEXED, world_id UNINDEXED, title, body);');
@@ -204,7 +204,7 @@ test('TestSearch_MigratesAnOldIndexAndKeepsPlayerCopies', () => {
   deps.db.exec(`INSERT INTO fts_party SELECT id, world_id, title, body FROM pages`); // an old index that leaks
   ensureSearchIndex(deps.db);
   assert.ok(String(one<any>(deps.db, `SELECT sql FROM sqlite_master WHERE name = 'fts_dm'`)!.sql).includes('headings'));
-  assert.equal(L.search(wid, 'private', dm)[0].title, 'DM page');
+  assert.equal(L.search(wid, 'private', dm)[0].title, 'GM page');
   assert.equal(L.search(wid, 'open', pl)[0].title, 'Shared page');
   assert.deepEqual(L.search(wid, 'private', pl), []);
   assert.deepEqual(L.search(wid, 'hidden', pl), [], 'rebuilt from the player copy, not the old index');
@@ -242,7 +242,7 @@ test('TestSearch_FastAt5000Pages', () => {
     }
   }
   assert.equal(L.search(wid, 'alias4321', pl).length, 1);
-  assert.equal(L.search(wid, 'alias4320', pl).length, 0, 'a DM page (4320 is divisible by 3) is invisible to players');
+  assert.equal(L.search(wid, 'alias4320', pl).length, 0, 'a GM page (4320 is divisible by 3) is invisible to players');
   assert.equal(L.search(wid, 'alias4320', dm).length, 1);
   assert.equal(all(deps.db, 'SELECT 1 FROM fts_party').length, all(deps.db, `SELECT 1 FROM pages WHERE visibility = 'party'`).length);
 });

@@ -1,5 +1,5 @@
 // The transcript itself (word bubbles, the "So far" summary, rule cards), apart from where it sits. The floating island
-// and the DM's pop-out / side-screen panel both show it, so the loading and live updates live here once.
+// and the GM's pop-out / side-screen panel both show it, so the loading and live updates live here once.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Markdown } from '../../ui/index.tsx';
 import { useAuth } from '../../lib/auth.tsx';
@@ -19,7 +19,7 @@ export function useRecordingSync() {
   useEffect(() => {
     void engine.refresh().catch(() => {});
     const offRec = on(['recording'], () => { void engine.refresh().catch(() => {}); });
-    // The DM changed where speech to text runs: a device that is recording switches now (loads or frees its model).
+    // The GM changed where speech to text runs: a device that is recording switches now (loads or frees its model).
     const offStt = on(['stt-mode'], (e) => { const m = (e.data as any)?.mode; if (m === 'server' || m === 'device' || m === 'auto') engine.sttModeChanged(m); });
     return () => { offRec(); offStt(); };
   }, [on, info.id, client.token]);
@@ -84,7 +84,7 @@ export function useTranscript(opts: { autoCards: boolean; wantSession?: string |
     });
     return () => { alive = false; };
   }, [lines, autoCards, st.recording, w]);
-  // Minerva flagged a rules call (DM only): the rule's card with her one-line note, kept until closed.
+  // Minerva flagged a rules call (GM only): the rule's card with her one-line note, kept until closed.
   useEffect(() => on(['rules-note'], (e) => {
     const n = e.data;
     if (!isDM || !n || (sid && n.sessionId !== sid)) return;
@@ -163,9 +163,9 @@ function Bubble({ l, isDM, onHover, onMark, found }: { l: Line; isDM: boolean; o
   const dmOnly = l.audience === 'dm';
   return (
     <div className={`au-bubble${dmOnly ? ' dm' : ''}${found ? ' found' : ''}`} data-line={l.id}>
-      <span className="au-who">{l.speaker || 'Someone'}{dmOnly && <em className="au-tag">DM only</em>}</span>
+      <span className="au-who">{l.speaker || 'Someone'}{dmOnly && <em className="au-tag">GM only</em>}</span>
       <span className="au-text"><Highlighted text={l.text} matches={matches} onHover={onHover} /></span>
-      {isDM && !dmOnly && <button type="button" className="au-mini" onClick={() => onMark(l, 'dm')} title="Hide this line from the players">Make DM-only</button>}
+      {isDM && !dmOnly && <button type="button" className="au-mini" onClick={() => onMark(l, 'dm')} title="Hide this line from the players">Make GM-only</button>}
       {isDM && dmOnly && l.override === 'dm' && <button type="button" className="au-mini" onClick={() => onMark(l, 'auto')} title="Let the rules decide again">Undo</button>}
     </div>
   );

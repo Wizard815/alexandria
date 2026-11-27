@@ -1,4 +1,4 @@
-// The running session summary: folded forward as lines come in, two summaries per session (the DM's from every
+// The running session summary: folded forward as lines come in, two summaries per session (the GM's from every
 // line, the players' from player lines only), never a classified line sent to a model, in the assistant's
 // context and in the session log's material.
 import { test, before, after } from 'node:test';
@@ -90,8 +90,8 @@ test('SessionSummary: waits for enough lines, then folds them in; the next pass 
   assert.ok(asked[0].includes('harbour at dusk') && asked[0].split('New transcript lines')[1].includes('gull steals the map') && !asked[0].split('New transcript lines')[1].includes('harbour at dusk'), 'only the new line is sent, the rest rides in the summary');
 });
 
-test('SessionSummary: the players\' summary never holds a DM line; no classified line reaches a model', async () => {
-  line(`DM aside: ${DM_SECRET}`, 'dm');
+test('SessionSummary: the players\' summary never holds a GM line; no classified line reaches a model', async () => {
+  line(`GM aside: ${DM_SECRET}`, 'dm');
   line(`Tomas says ${CLASSIFIED}`, 'players');
   asked.length = 0;
   await updateBoth(deps, W, 'ss1', { force: true });
@@ -99,7 +99,7 @@ test('SessionSummary: the players\' summary never holds a DM line; no classified
   const party = (await ok('GET', `/api/worlds/${W}/audio/sessions/ss1/summary`, T.jess)).text;
   const dmSum = (await ok('GET', `/api/worlds/${W}/audio/sessions/ss1/summary`, T.dm)).text;
   assert.ok(!party.includes(DM_SECRET), 'players get the party summary');
-  assert.ok(dmSum.includes(DM_SECRET), 'the DM summary has every line the DM can read');
+  assert.ok(dmSum.includes(DM_SECRET), 'the GM summary has every line the GM can read');
   assert.equal((await call('POST', `/api/worlds/${W}/audio/sessions/ss1/summary/refresh`, T.jess)).status, 403);
 });
 
@@ -119,11 +119,11 @@ test('SessionSummary: a line repeating classified text is left out of the assist
   assert.ok(live.lines.every((l: any) => !l.text.includes('Glass Throne')), 'the classified line is not handed to the harness');
 });
 
-test('RulesCheck: a rules term said at the table is checked once; a clear mistake becomes a DM-only note', async () => {
+test('RulesCheck: a rules term said at the table is checked once; a clear mistake becomes a GM-only note', async () => {
   const { rulesPass, ruleNotes } = await import('../src/features/audio/rulescheck.ts');
   await rulesPass(deps, W, 'ss1'); // everything said so far is seen first
   line('Jessamine: I cast counter spell on the mage!', 'players');
-  line('DM: Okay, make an Arcana check for the counterspell.', 'players');
+  line('GM: Okay, make an Arcana check for the counterspell.', 'players');
   asked.length = 0;
   const r = await rulesPass(deps, W, 'ss1');
   assert.equal(r.flagged, 1, JSON.stringify(r));
@@ -131,7 +131,7 @@ test('RulesCheck: a rules term said at the table is checked once; a clear mistak
   const notes = ruleNotes(deps, 'ss1', { onlyFlags: true });
   assert.equal(notes[0].term, 'Counterspell');
   assert.match(notes[0].note, /Constitution save/);
-  line('DM: and counter spell again next round', 'players');
+  line('GM: and counter spell again next round', 'players');
   assert.equal((await rulesPass(deps, W, 'ss1')).checked, 0, 'not the same term again within ten minutes');
   assert.equal((await call('GET', `/api/worlds/${W}/audio/sessions/ss1/rule-notes`, T.jess)).status, 403, 'players never see the checks');
   assert.equal((await ok('GET', `/api/worlds/${W}/audio/sessions/ss1/rule-notes`, T.dm)).notes.length, 1);
@@ -140,7 +140,7 @@ test('RulesCheck: a rules term said at the table is checked once; a clear mistak
   assert.equal((await rulesPass(deps, W, 'ss1')).checked, 0, 'off is off');
 });
 
-test('SessionHandoff: when a recording ends Minerva drafts "Last session" for the DM; approved, the next session reads it', async () => {
+test('SessionHandoff: when a recording ends Minerva drafts "Last session" for the GM; approved, the next session reads it', async () => {
   const { draftHandoff } = await import('../src/features/minerva/after.ts');
   const { minervaBrief } = await import('../src/features/minerva/context.ts');
   assert.equal(draftHandoff(deps, W, 'ss1'), 'off', 'nothing while Minerva is off');
@@ -148,7 +148,7 @@ test('SessionHandoff: when a recording ends Minerva drafts "Last session" for th
   run(deps.db, "UPDATE audio_sessions SET stopped_at = ? WHERE id = 'ss1'", new Date().toISOString());
   assert.equal(draftHandoff(deps, W, 'ss1'), 'created');
   assert.equal(draftHandoff(deps, W, 'ss1'), 'kept', 'once per recording');
-  assert.ok(!minervaBrief(deps, W).includes('gull steals the map'), 'not before the DM approves');
+  assert.ok(!minervaBrief(deps, W).includes('gull steals the map'), 'not before the GM approves');
   await ok('POST', `/api/worlds/${W}/minerva/review/approve-all`, T.dm, {});
   const brief = minervaBrief(deps, W);
   assert.match(brief, /Last session \(approved hand-off\)/);

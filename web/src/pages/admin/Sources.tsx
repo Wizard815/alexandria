@@ -55,7 +55,7 @@ export default function AdminSources() {
 
   return (
     <div className="page">
-      <PageHead title="World sources" lead="Where a world's library comes from. The librarian only reads from a source; nothing is ever written back. Anything hidden there stays DM-only here, and anything without a clear mark is DM-only too.">
+      <PageHead title="World sources" lead="Where a world's library comes from. The librarian only reads from a source; nothing is ever written back. Anything hidden there stays GM-only here, and anything without a clear mark is GM-only too.">
         {!!worlds.data?.length && <button type="button" className="btn primary" onClick={() => setEditing('new')}>Add a source</button>}
       </PageHead>
       <div className="note">Tokens, keys and addresses now live in <Link to="/admin/sources?tab=connections">Connections</Link>, and each world has its own page with its sources, audience and crawl under <Link to="/admin/worlds">Worlds</Link>. This page keeps working.</div>
@@ -65,7 +65,7 @@ export default function AdminSources() {
           <Field label="World"><select aria-label="World" value={wid} onChange={(e) => setWorld(e.target.value)} style={{ maxWidth: 320 }}>{worlds.data.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></Field>
           <div className="stack">
             {(sources.data ?? []).map((s) => <SourceCard key={s.id} s={s} connector={byId.get(s.kind)} onEdit={() => setEditing(s)} onChanged={() => void sources.reload()} toast={toast} />)}
-            {!sources.loading && !sources.data?.length && <div className="card"><Empty>No sources for this world yet. The DM can also write pages in the Library.</Empty></div>}
+            {!sources.loading && !sources.data?.length && <div className="card"><Empty>No sources for this world yet. The GM can also write pages in the Library.</Empty></div>}
           </div>
           <HowSecretsWork />
         </>
@@ -84,7 +84,7 @@ function StatLine({ st }: { st: Stats }) {
     <span className="row wrap small" style={{ gap: 10 }}>
       <span><strong>{st.pages ?? 0}</strong> pages</span>
       <span className="chip teal">{st.shared ?? 0} shared</span>
-      <span className="chip red">{st.dmOnly ?? 0} DM-only</span>
+      <span className="chip red">{st.dmOnly ?? 0} GM-only</span>
       {!!st.removed && <span className="muted">{st.removed} removed</span>}
       {!!st.skipped && <span className="muted">{st.skipped} skipped</span>}
       {!!st.records && <span className="muted">{st.records} relations, timelines, calendars and markers</span>}
@@ -134,9 +134,9 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
       ) : null}
       {!s.running && last?.status === 'error' && <ErrorBox error={last.error} />}
       <div className="row small muted wrap">
-        <span>Players see: {s.audience === 'dm' ? 'nothing (DM only)' : s.audience === 'party' ? 'everything from it (shared with players)' : s.default_visibility === 'party' ? 'what the source shows its players (follows the source)' : 'nothing until a page is marked shared (follows the source)'}</span>
+        <span>Players see: {s.audience === 'dm' ? 'nothing (GM only)' : s.audience === 'party' ? 'everything from it (shared with players)' : s.default_visibility === 'party' ? 'what the source shows its players (follows the source)' : 'nothing until a page is marked shared (follows the source)'}</span>
         {s.connection && <span>· Connection: {s.connection.name}</span>}
-        {connector?.fields.some((f) => f.key === 'trustPostVisibility') && <span>· Posts: {s.config.trustPostVisibility ? 'Kanka visibility' : 'all DM-only'}</span>}
+        {connector?.fields.some((f) => f.key === 'trustPostVisibility') && <span>· Posts: {s.config.trustPostVisibility ? 'Kanka visibility' : 'all GM-only'}</span>}
       </div>
       <div className="row wrap">
         {connector?.push ? null : s.running
@@ -155,7 +155,7 @@ function SourceCard({ s, connector, onEdit, onChanged, toast }: { s: Source; con
         runs === null ? <Loading /> : runs.length ? (
           <div className="table-wrap" style={{ overflowX: 'auto' }}>
             <table className="table small">
-              <thead><tr><th>Started</th><th>Status</th><th>Took</th><th>Pages</th><th>Shared</th><th>DM-only</th><th>Removed</th><th>Skipped</th><th /></tr></thead>
+              <thead><tr><th>Started</th><th>Status</th><th>Took</th><th>Pages</th><th>Shared</th><th>GM-only</th><th>Removed</th><th>Skipped</th><th /></tr></thead>
               <tbody>{runs.map((r) => (
                 <tr key={r.id}>
                   <td>{when(r.started_at)}</td><td><span className={`chip ${statusChip(r.status)}`}>{r.status}</span></td><td>{duration(r)}</td>
@@ -205,7 +205,7 @@ function PushKeys({ s, toast }: { s: Source; toast: (m: string) => void }) {
   return (
     <div className="stack tight">
       <div className="small"><strong>Endpoint</strong> <code className="mono" style={{ overflowWrap: 'anywhere' }}>POST {endpoint}</code> <button type="button" className="btn small" onClick={() => copy(endpoint)}>Copy</button></div>
-      <p className="tiny muted" style={{ margin: 0 }}>Send <span className="mono">{'{ "entries": [ ... ] }'}</span> with <span className="mono">Authorization: Bearer alx_push_…</span>. A key writes to this source only and can read nothing. Entries are DM-only unless they say <span className="mono">"visibility": "party"</span> and “Share what the source shares” is on.</p>
+      <p className="tiny muted" style={{ margin: 0 }}>Send <span className="mono">{'{ "entries": [ ... ] }'}</span> with <span className="mono">Authorization: Bearer alx_push_…</span>. A key writes to this source only and can read nothing. Entries are GM-only unless they say <span className="mono">"visibility": "party"</span> and “Share what the source shares” is on.</p>
       {active.length ? (
         <ul className="stack tight" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {active.map((k) => (
@@ -318,7 +318,7 @@ function SourceForm({ worldId, connectors, source, onClose, onDone }: { worldId:
         <Capabilities c={c} />
         <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. LegendKeeper · BloodEarth" required maxLength={80} /></Field>
         {c?.fields.filter((f) => shown(f, v, c.fields)).map((f) => <ConfigInput key={f.key} f={f} value={v[f.key]} editing={!!source} onChange={(x) => { setV((o) => ({ ...o, [f.key]: x })); setResult(null); }} />)}
-        <label className="row small"><Switch checked={share} onChange={setShare} label="Share what the source shares" /> Let players see what the source itself shows its players. Off: everything stays DM-only until a page is marked shared.</label>
+        <label className="row small"><Switch checked={share} onChange={setShare} label="Share what the source shares" /> Let players see what the source itself shows its players. Off: everything stays GM-only until a page is marked shared.</label>
         {!c?.push && <Field label="Sync on its own"><select value={sched} onChange={(e) => setSched(e.target.value)}>{SCHEDULES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>}
         {result && <div className={result.ok ? 'ok-box small' : 'error-box'} role="status">{result.ok ? '✓ ' : ''}{result.message}</div>}
         <ErrorBox error={a.error || t.error} />
@@ -358,20 +358,20 @@ function ConfigInput({ f, value, editing, onChange }: { f: ConfigField; value: a
 function HowSecretsWork() {
   return (
     <div className="note">
-      <strong>How DM-only content is kept from players.</strong>
+      <strong>How GM-only content is kept from players.</strong>
       <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
         <li><strong>LegendKeeper</strong> (MCP or API key): hidden pages, everything under a hidden page or document, and secret blocks.</li>
-        <li><strong>Kanka</strong> (token or mcp-kanka): private entities, private attributes, and posts not visible to “all” or “members”. With the stock mcp-kanka every post is DM-only.</li>
+        <li><strong>Kanka</strong> (token or mcp-kanka): private entities, private attributes, and posts not visible to “all” or “members”. With the stock mcp-kanka every post is GM-only.</li>
         <li><strong>World Anvil</strong> (API): drafts, private articles, categories and maps, embedded secrets, <span className="mono">[subcontainer]</span> and <span className="mono">[userstate]</span> blocks, comments and storyteller seeds. Private pages and secrets shared with a subscriber group you name as the players’ are shared.</li>
-        <li><strong>Notion</strong>: pages without a <span className="mono">Visibility</span> of party (a database property) that are not published to the web, and toggles or callouts titled Secret, DM or GM.</li>
+        <li><strong>Notion</strong>: pages without a <span className="mono">Visibility</span> of party (a database property) that are not published to the web, and toggles or callouts titled Secret, GM or GM.</li>
         <li><strong>Obsidian Portal</strong>: GM-only pages, private characters and every page’s GM info.</li>
         <li><strong>Obsidian Sync, Local REST API and Publish</strong>: the same Markdown rules as a vault. A Publish site is public, so only its secret callouts and comments stay back.</li>
-        <li><strong>Markdown folders, git and MCP file servers</strong>: files without <span className="mono">visibility: party</span>, plus <span className="mono">secret:</span> frontmatter, <span className="mono">&gt; [!secret]</span> callouts, <span className="mono">%% %%</span> comments and headings marked (DM).</li>
-        <li><strong>Relations, timelines, calendars and map markers</strong> (Kanka) and <strong>maps and timelines</strong> (LegendKeeper): private or hidden ones, hidden pins and events, and anything pointing at a DM-only page stay DM-only. LegendKeeper calendars have no hidden flag, so they stay DM-only.</li>
-        <li><strong>Push sources</strong>: entries are DM-only unless they say “party” and the source is set to share. Secret blocks and DM facts are removed from the player copy like everywhere else.</li>
-        <li><strong>Any JSON API</strong>: everything is DM-only unless the field you map to visibility says the record is shared.</li>
+        <li><strong>Markdown folders, git and MCP file servers</strong>: files without <span className="mono">visibility: party</span>, plus <span className="mono">secret:</span> frontmatter, <span className="mono">&gt; [!secret]</span> callouts, <span className="mono">%% %%</span> comments and headings marked (GM).</li>
+        <li><strong>Relations, timelines, calendars and map markers</strong> (Kanka) and <strong>maps and timelines</strong> (LegendKeeper): private or hidden ones, hidden pins and events, and anything pointing at a GM-only page stay GM-only. LegendKeeper calendars have no hidden flag, so they stay GM-only.</li>
+        <li><strong>Push sources</strong>: entries are GM-only unless they say “party” and the source is set to share. Secret blocks and GM facts are removed from the player copy like everywhere else.</li>
+        <li><strong>Any JSON API</strong>: everything is GM-only unless the field you map to visibility says the record is shared.</li>
       </ul>
-      <p className="small" style={{ margin: '6px 0 0' }}>With sharing off, players see nothing from a source until the DM shares a page. Players get a separate player copy built on the server: secret parts are removed, blocks the librarian doesn't understand are dropped, and links to DM-only pages show as “(hidden)”.</p>
+      <p className="small" style={{ margin: '6px 0 0' }}>With sharing off, players see nothing from a source until the GM shares a page. Players get a separate player copy built on the server: secret parts are removed, blocks the librarian doesn't understand are dropped, and links to GM-only pages show as “(hidden)”.</p>
     </div>
   );
 }

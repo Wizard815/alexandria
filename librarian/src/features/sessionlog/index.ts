@@ -1,4 +1,4 @@
-// The session log (PLAN §8): DM drafts of a session summary built from the
+// The session log (PLAN §8): GM drafts of a session summary built from the
 // transcript (players' lines only), combat, loot, coin, the broker and the
 // world clock; review with versions; a proposed date change; a leak check;
 // publishing to players, who only ever see published entries.
@@ -92,7 +92,7 @@ const feature: Feature = {
       return v;
     };
 
-    /** Entries reach players only as published; DMs see all of them. */
+    /** Entries reach players only as published; GMs see all of them. */
     const announce = (worldId: string, action: 'published' | 'unpublished', row: any) => {
       d.hub.emit(worldId, 'sessionlog', { action, entry: { ...entryOut(row), draftId: row.draft_id } }, dmOnly);
       if (action === 'published') d.hub.emit(worldId, 'sessionlog', { action, entry: entryOut(row) }, (v) => v.role !== 'dm');
@@ -106,7 +106,7 @@ const feature: Feature = {
       res.json(rows.map((x) => (dm ? { ...entryOut(x), draftId: x.draft_id } : entryOut(x))));
     });
 
-    // ---- drafts (DM only) ----
+    // ---- drafts (GM only) ----
     r.get('/drafts', requireDM, (_req, res) => {
       const rows = all<any>(db, 'SELECT * FROM sessionlog_drafts WHERE world_id = ? ORDER BY created_at DESC', ctx(res).world.id);
       res.json(rows.map((x) => { const o = draftOut(db, x); return { id: o.id, title: o.title, version: o.version, dateStatus: o.dateStatus, entryId: o.entryId, usedModel: o.usedModel, createdAt: o.createdAt, updatedAt: o.updatedAt }; }));
@@ -183,8 +183,8 @@ const feature: Feature = {
       }
       const prop: DateProposal | null = row.proposal ? JSON.parse(row.proposal) : null;
       const b = req.body ?? {};
-      // From the assistant: with no proposal on the draft it may only set the time the DM gave (minutes); it never
-      // "accepts" a change that is not there. The DM still approves whatever it proposes.
+      // From the assistant: with no proposal on the draft it may only set the time the GM gave (minutes); it never
+      // "accepts" a change that is not there. The GM still approves whatever it proposes.
       if (b.requireProposal === true && (!prop || row.date_status !== 'pending') && b.minutes === undefined) throw new HttpError(409, 'This draft proposes no date change, so there is nothing to accept. Give the time to set (minutes), or use advance_world_time.');
       const merged = cleanProposal({
         minutes: b.minutes ?? prop?.minutes,
@@ -231,7 +231,7 @@ const feature: Feature = {
         return;
       }
       if (overlaps.length && req.body?.force !== true) {
-        res.status(409).json({ error: 'The summary repeats DM-only text. Fix these passages, or publish anyway.', overlaps, blocked: false, forceAllowed: true });
+        res.status(409).json({ error: 'The summary repeats GM-only text. Fix these passages, or publish anyway.', overlaps, blocked: false, forceAllowed: true });
         return;
       }
       if (overlaps.length) audit(db, c.world.id, me(res), 'sessionlog.publish_forced', `${row.id} ${overlaps.length} overlaps`);
@@ -292,15 +292,15 @@ const feature: Feature = {
     return r;
   },
   mcpTools: [
-    { name: 'list_session_log_drafts', dmOnly: true, description: 'DM: the session log drafts waiting for review (title, version, whether the proposed date change is pending).', props: {}, call: () => ({ method: 'GET', path: '/sessionlog/drafts' }) },
-    { name: 'read_session_log_draft', dmOnly: true, description: 'DM: one draft: its Markdown summary, the proposed date change and the versions.', props: { draftId: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'GET', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}` }) },
-    { name: 'edit_session_log_draft', write: true, description: 'DM: replace the draft text and/or title (kept as a new version).', props: { draftId: { type: 'string' }, markdown: { type: 'string' }, title: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'PUT', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}`, body: { markdown: a.markdown, title: a.title } }) },
-    { name: 'decide_session_date', write: true, description: "DM: accept (optionally with other minutes or a reason) or decline the in-world date change a draft proposes. Accept only what the draft proposes (dateStatus pending); with no proposal, say so, unless the DM gave the time (then pass minutes). Accepting moves the world clock.", props: { draftId: { type: 'string' }, accept: { type: 'boolean', description: 'false declines' }, minutes: { type: 'integer', description: 'Override the proposed minutes' }, reason: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'POST', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}/date`, body: { accept: a.accept !== false, minutes: a.minutes, reason: a.reason, requireProposal: true } }) },
-    { name: 'publish_session_log', write: true, description: 'DM: publish a draft to the players as the next session log entry. Refused if it repeats DM asides; DM-only overlaps need force.', props: { draftId: { type: 'string' }, force: { type: 'boolean' } }, required: ['draftId'], call: (a) => ({ method: 'POST', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}/publish`, body: { force: a.force === true ? true : undefined } }) },
+    { name: 'list_session_log_drafts', dmOnly: true, description: 'GM: the session log drafts waiting for review (title, version, whether the proposed date change is pending).', props: {}, call: () => ({ method: 'GET', path: '/sessionlog/drafts' }) },
+    { name: 'read_session_log_draft', dmOnly: true, description: 'GM: one draft: its Markdown summary, the proposed date change and the versions.', props: { draftId: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'GET', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}` }) },
+    { name: 'edit_session_log_draft', write: true, description: 'GM: replace the draft text and/or title (kept as a new version).', props: { draftId: { type: 'string' }, markdown: { type: 'string' }, title: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'PUT', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}`, body: { markdown: a.markdown, title: a.title } }) },
+    { name: 'decide_session_date', write: true, description: "GM: accept (optionally with other minutes or a reason) or decline the in-world date change a draft proposes. Accept only what the draft proposes (dateStatus pending); with no proposal, say so, unless the GM gave the time (then pass minutes). Accepting moves the world clock.", props: { draftId: { type: 'string' }, accept: { type: 'boolean', description: 'false declines' }, minutes: { type: 'integer', description: 'Override the proposed minutes' }, reason: { type: 'string' } }, required: ['draftId'], call: (a) => ({ method: 'POST', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}/date`, body: { accept: a.accept !== false, minutes: a.minutes, reason: a.reason, requireProposal: true } }) },
+    { name: 'publish_session_log', write: true, description: 'GM: publish a draft to the players as the next session log entry. Refused if it repeats GM asides; GM-only overlaps need force.', props: { draftId: { type: 'string' }, force: { type: 'boolean' } }, required: ['draftId'], call: (a) => ({ method: 'POST', path: `/sessionlog/drafts/${encodeURIComponent(String(a.draftId))}/publish`, body: { force: a.force === true ? true : undefined } }) },
     { name: 'list_session_log', description: 'The session log: published summaries of past sessions, newest first, with the in-world dates they cover. Players only ever see published entries.', props: {}, call: () => ({ method: 'GET', path: '/sessionlog' }) },
     {
       name: 'draft_session_summary', write: true,
-      description: "Draft a summary of a session for the DM to review (never published by this tool). Built from the players' transcript, combat, loot, coin, purchases and clock changes. Give audioSessionId, or from/to (ISO date-times).",
+      description: "Draft a summary of a session for the GM to review (never published by this tool). Built from the players' transcript, combat, loot, coin, purchases and clock changes. Give audioSessionId, or from/to (ISO date-times).",
       props: { audioSessionId: { type: 'string', description: 'The audio session to summarise' }, from: { type: 'string', description: 'Start, ISO date-time' }, to: { type: 'string', description: 'End, ISO date-time' }, title: { type: 'string' } },
       call: (a) => ({ method: 'POST', path: '/sessionlog/drafts', body: { audioSessionId: a.audioSessionId, from: a.from, to: a.to, title: a.title } }),
     },

@@ -1,4 +1,4 @@
-// "DM first": the DM's model calls get through at once even when players fill every slot of a local model.
+// "GM first": the GM's model calls get through at once even when players fill every slot of a local model.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
@@ -43,12 +43,12 @@ test('TestDmFirst_TheDmStopsTheNewestPlayerCallWhichRunsAgainAfter', async () =>
     await tick();
     const dm = ask(s.d, 'dm', 2);
     await tick();
-    assert.ok(s.live.has('dm'), 'the DM runs at once');
+    assert.ok(s.live.has('dm'), 'the GM runs at once');
     assert.ok(s.live.has('p1') && !s.live.has('p2'), 'the newest player call gave way');
     assert.equal(gateStats().find((g) => g.server === 'http://preempt.test/v1')!.preempted, 1);
     await s.release('dm');
     assert.equal((await dm).content, 'dm ok @preempt.test');
-    assert.ok(s.live.has('p2'), 'the stopped call started again after the DM');
+    assert.ok(s.live.has('p2'), 'the stopped call started again after the GM');
     await s.release('p1');
     await s.release('p2');
     assert.deepEqual([(await p1).content, (await p2).content], ['p1 ok @preempt.test', 'p2 ok @preempt.test'], 'both players still get their answer');
@@ -67,7 +67,7 @@ test('TestDmFirst_PreemptOffTheDmWaitsAtTheFrontOfTheLine', async () => {
     await tick();
     assert.ok(s.live.has('p1') && !s.live.has('dm'), 'nothing is stopped');
     await s.release('p1');
-    assert.ok(s.live.has('dm') && !s.live.has('p2'), 'the DM goes next, before the player who asked first');
+    assert.ok(s.live.has('dm') && !s.live.has('p2'), 'the GM goes next, before the player who asked first');
     await s.release('dm');
     await s.release('p2');
     await Promise.all([p1, p2, dm]);
@@ -112,9 +112,9 @@ test('TestDmFirst_AReservedSlotIsLeftForTheDm', async () => {
     assert.ok(s.live.has('p1') && !s.live.has('p2'), 'players share what is left: one slot');
     const dm = ask(s.d, 'dm', 2);
     await tick();
-    assert.ok(s.live.has('dm'), 'the DM gets the kept slot at once');
+    assert.ok(s.live.has('dm'), 'the GM gets the kept slot at once');
     await s.release('dm');
-    assert.ok(!s.live.has('p2'), 'the kept slot stays the DM\'s');
+    assert.ok(!s.live.has('p2'), 'the kept slot stays the GM\'s');
     await s.release('p1');
     await s.release('p2');
     await Promise.all([p1, p2, dm]);
@@ -138,9 +138,9 @@ test('TestDmFirst_HoldPlayersWaitsWhileTheDmIsBusyOnAnyLocalModel', async () => 
     const bg = ask(s.d, 'summary', 0);
     await tick();
     assert.ok(s.live.has('dm'));
-    assert.ok(!s.live.has('quick') && !s.live.has('summary'), 'the player\'s small model and background work wait for the DM');
+    assert.ok(!s.live.has('quick') && !s.live.has('summary'), 'the player\'s small model and background work wait for the GM');
     await s.release('dm');
-    assert.ok(s.live.has('quick') && s.live.has('summary'), 'and start once the DM is done');
+    assert.ok(s.live.has('quick') && s.live.has('summary'), 'and start once the GM is done');
     await s.release('quick');
     await s.release('summary');
     assert.equal((await helper).content, 'quick ok @helper.hold.test');

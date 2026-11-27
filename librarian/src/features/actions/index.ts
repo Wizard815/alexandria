@@ -2,7 +2,7 @@
 //
 //   GET  /actions                      the actions you may run, with their arguments
 //   POST /actions/run                  run one action
-//   CRUD /actions/macros               named sequences of actions (DM); POST /macros/:id/run
+//   CRUD /actions/macros               named sequences of actions (GM); POST /macros/:id/run
 //   GET  /actions/bindings?scope=      your key bindings (web | app); POST/DELETE to change them
 //   POST /actions/macros/:id/triggers  make a trigger URL (shown once); GET/DELETE /actions/triggers
 //   POST /api/trigger/:token           public: runs exactly that macro, as its maker
@@ -108,7 +108,7 @@ const feature: Feature = {
     const runnerFor = (req: Request, res: any): Runner => makeRunner(d, { worldId: W(res), accountId: me(res), role: role(res), token: bearer(req), port: req.socket.localPort ?? 0 });
     const macro = (res: any, ref: string): MacroRow => {
       const m = findMacro(d, W(res), ref);
-      // A player never learns that a DM-only macro exists.
+      // A player never learns that a GM-only macro exists.
       if (!m || (!isDM(res) && !m.player_run)) throw new HttpError(404, 'Macro not found');
       return m;
     };
@@ -208,7 +208,7 @@ const feature: Feature = {
       res.json({ ok: true });
     });
 
-    // ---- trigger URLs (DM) ----
+    // ---- trigger URLs (GM) ----
     const triggerOut = (t: any) => ({ id: t.id, macroId: t.macro_id, macroName: t.macro_name, label: t.label, prefix: t.prefix, perMinute: t.per_minute, createdAt: t.created_at, lastUsedAt: t.last_used_at, uses: t.uses, revoked: !!t.revoked });
     r.get('/triggers', requireDM, (_req, res) => {
       res.json(all<any>(db, 'SELECT t.*, m.name AS macro_name FROM actions_triggers t JOIN actions_macros m ON m.id = t.macro_id WHERE t.world_id = ? ORDER BY t.created_at DESC', W(res)).map(triggerOut));
@@ -233,7 +233,7 @@ const feature: Feature = {
       res.json({ ok: true });
     });
 
-    // ---- what ran lately (DM) ----
+    // ---- what ran lately (GM) ----
     r.get('/runs', requireDM, (_req, res) => {
       res.json(all<any>(db, `SELECT a.action, a.detail, a.at, a.account_id AS accountId FROM audit a WHERE a.world_id = ? AND a.action IN ('macro.run', 'macro.trigger', 'action.run') ORDER BY a.at DESC, a.rowid DESC LIMIT 100`, W(res)));
     });

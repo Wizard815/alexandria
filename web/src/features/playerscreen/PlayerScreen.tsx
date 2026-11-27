@@ -1,7 +1,7 @@
 // The players' screen: a chrome-less full-screen page for the TV facing the
-// table. It is opened on the DM's computer, so it never asks for anything but
+// table. It is opened on the GM's computer, so it never asks for anything but
 // GET /screen/players, which the server builds as the player view whoever is
-// signed in; nothing here fetches a DM endpoint. Live through the world's
+// signed in; nothing here fetches a GM endpoint. Live through the world's
 // event stream, like the player stage.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';

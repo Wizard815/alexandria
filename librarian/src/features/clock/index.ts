@@ -193,7 +193,7 @@ const feature: Feature = {
     r.patch('/events/:id', requireDM, (req, res) => res.json(clock.updateEvent(db, hub, wid(res), String(req.params.id), req.body ?? {})));
     r.delete('/events/:id', requireDM, (req, res) => { clock.deleteEvent(db, hub, wid(res), String(req.params.id)); res.json({ ok: true }); });
 
-    // "Someday": things the DM wants to happen with no date yet. DM-only; dating one turns it into a world event.
+    // "Someday": things the GM wants to happen with no date yet. GM-only; dating one turns it into a world event.
     r.get('/someday', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT id, title, created_at FROM clock_someday WHERE world_id = ? ORDER BY created_at, rowid', wid(res))));
     r.post('/someday', requireDM, (req, res) => {
       const t = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
@@ -229,19 +229,19 @@ const feature: Feature = {
     },
     {
       name: 'advance_world_time', write: true,
-      description: "Move the world clock forward: give minutes, or a preset ('short-rest' +1 hour, 'long-rest' per the world's setting, 'next-day' to 07:00). Logged with your reason and undoable by the DM.",
+      description: "Move the world clock forward: give minutes, or a preset ('short-rest' +1 hour, 'long-rest' per the world's setting, 'next-day' to 07:00). Logged with your reason and undoable by the GM.",
       props: { minutes: N('Minutes to move forward'), preset: { type: 'string', enum: ['short-rest', 'long-rest', 'next-day'] }, reason: S('Why, e.g. "Traveled to Saltmarsh"') },
       call: (a) => ({ method: 'POST', path: '/clock/advance', body: { minutes: a.minutes, preset: a.preset, reason: a.reason } }),
     },
     {
       name: 'add_world_event', write: true,
-      description: 'Put an event on the world calendar, at start or after an amount of days, weeks or months from now. DM-only unless visibility is party.',
+      description: 'Put an event on the world calendar, at start or after an amount of days, weeks or months from now. GM-only unless visibility is party.',
       props: { title: S('Title'), description: S('Details'), start: DATE, after: { type: 'object', description: 'Instead of start: how long from now, e.g. { amount: 3, unit: "months" }', properties: { amount: { type: 'integer' }, unit: { type: 'string', enum: ['days', 'weeks', 'months'] } }, required: ['amount', 'unit'] }, end: DATE, durationMinutes: N('Alternative to end'), visibility: { type: 'string', enum: ['dm', 'party'] }, repeat: { type: 'string', enum: ['yearly'] }, kind: { type: 'string', enum: [...clock.EVENT_KINDS] } },
       required: ['title'],
       call: (a) => ({ method: 'POST', path: '/clock/events', body: a }),
     },
-    { name: 'list_someday_events', description: 'World events the DM wants to happen but has not dated yet (DM only).', props: {}, call: () => ({ method: 'GET', path: '/clock/someday' }) },
-    { name: 'add_someday_event', write: true, description: 'Keep a world event with no date yet, for the DM to date later (DM only).', props: { title: S('What will happen') }, required: ['title'], call: (a) => ({ method: 'POST', path: '/clock/someday', body: { title: a.title } }) },
+    { name: 'list_someday_events', description: 'World events the GM wants to happen but has not dated yet (GM only).', props: {}, call: () => ({ method: 'GET', path: '/clock/someday' }) },
+    { name: 'add_someday_event', write: true, description: 'Keep a world event with no date yet, for the GM to date later (GM only).', props: { title: S('What will happen') }, required: ['title'], call: (a) => ({ method: 'POST', path: '/clock/someday', body: { title: a.title } }) },
     { name: 'remove_someday_event', write: true, description: 'Drop an undated world event (after dating it with add_world_event, or when it will not happen).', props: { id: S('Someday id (sdy_...)') }, required: ['id'], call: (a) => ({ method: 'DELETE', path: `/clock/someday/${enc(String(a.id))}` }) },
   ],
 };

@@ -29,7 +29,7 @@ function world(kind: string, config: Record<string, unknown>) {
 
 const TOWN = `---\nvisibility: party\ntags: [town]\n---\n# Port Town\n\nA busy harbour. [[Mira]] runs the inn.\n\n> [!secret]\n> SMUGGLERS use the old pier.\n\n%% DMNOTE remember the tide %%\n`;
 const MIRA = `---\nvisibility: party\n---\nMira keeps the inn.\n`;
-const PLOT = `# The plot\n\nPLOTTWIST the duke is a lich.\n`; // no visibility: stays the DM's
+const PLOT = `# The plot\n\nPLOTTWIST the duke is a lich.\n`; // no visibility: stays the GM's
 
 function leakCheck(lib: Library) {
   const titles = lib.list('w', player).map((p: any) => p.title).sort();
@@ -38,7 +38,7 @@ function leakCheck(lib: Library) {
   const pl = JSON.stringify(lib.get('w', town.id, player));
   assert.ok(pl.includes('busy harbour'), 'players see the shared text');
   for (const w of ['SMUGGLERS', 'DMNOTE', 'PLOTTWIST']) assert.ok(!pl.includes(w), `a player never sees ${w}`);
-  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('SMUGGLERS'), 'the DM sees the secret');
+  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('SMUGGLERS'), 'the GM sees the secret');
   assert.equal(lib.list('w', dm).length, 3);
 }
 
@@ -71,7 +71,7 @@ function fakeRest(files: Record<string, string>, key = 'k'.repeat(32)) {
 }
 
 test('TestObsidianRest_SyncsTheVaultAndKeepsSecretsFromPlayers', async () => {
-  const files: Record<string, string> = { 'Places/Port Town.md': TOWN, 'People/Mira.md': MIRA, 'DM/The plot.md': PLOT, 'Places/map.png': 'x' };
+  const files: Record<string, string> = { 'Places/Port Town.md': TOWN, 'People/Mira.md': MIRA, 'GM/The plot.md': PLOT, 'Places/map.png': 'x' };
   const { f, calls } = fakeRest(files);
   const { db, lib } = world('obsidian-rest', { url: 'http://127.0.0.1:27123', apiKey: 'k'.repeat(32), vaultName: 'Realm' });
   const out = await runSync({ db, library: lib, dataDir: null, vaultsDir: null, fetch: f, env: {}, mcp: null as any }, 's', 'a');

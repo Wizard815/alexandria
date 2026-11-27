@@ -2,14 +2,14 @@
 // and the detail fetcher (tier 3). No network here.
 //
 // Every page of a tiered source has a depth:
-//   index    what a list call gave (title, type, tags, parent, updated time); DM-only until its details are read
+//   index    what a list call gave (title, type, tags, parent, updated time); GM-only until its details are read
 //   summary  the list also gave an opening excerpt
 //   full     the whole page
 // plus `fetched_at`, `source_updated_at` (what the list last said) and
 // `held_updated_at` (the source time of the content we hold). A page whose
 // source_updated_at is newer than the one it was read at is stale and is read
 // again. An index entry never replaces a page already read deeper: it only
-// notes the new time, and makes the page DM-only at once if the list says the
+// notes the new time, and makes the page GM-only at once if the list says the
 // page is hidden (the leak guard does not wait for the details).
 import type { DB } from '../core/db.ts';
 import { all, one, run } from '../core/db.ts';
@@ -234,7 +234,7 @@ export function depthCounts(db: DB, sourceId: string) {
   return out;
 }
 
-/** Page ids of a world and what is not full about them, for the DM's depth badges. Only pages not held in full are listed. */
+/** Page ids of a world and what is not full about them, for the GM's depth badges. Only pages not held in full are listed. */
 export function depthsOf(db: DB, worldId: string): Record<string, Depth | 'stale'> {
   ensureTierSchema(db);
   const out: Record<string, Depth | 'stale'> = {};

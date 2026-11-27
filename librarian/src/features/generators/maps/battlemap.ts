@@ -193,7 +193,7 @@ export function genBattlemap(o: MapOpts = {}): MapResult {
   void pick;
   return {
     kind: 'battlemap', seed, size, flavour: theme, title, ftPerCell: 5, canvas: c, key,
-    legend: ['Grid: one square is 5 ft', 'Numbers: spots in the key', 'DM view only: H = hazard'],
+    legend: ['Grid: one square is 5 ft', 'Numbers: spots in the key', 'GM view only: H = hazard'],
     stats: { total: 1, reached: 1, connected: true, spots: nspots, width: W, height: H },
   };
 }

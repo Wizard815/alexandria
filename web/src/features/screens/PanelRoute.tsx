@@ -1,4 +1,4 @@
-// /w/:world/panel/:name: one DM panel filling its own window, with none of the DM app's menu around it.
+// /w/:world/panel/:name: one GM panel filling its own window, with none of the GM app's menu around it.
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
@@ -10,7 +10,7 @@ export default function PanelRoute() {
   const { isDM, info } = useWorld();
   const def = panelById(name);
   useEffect(() => { document.title = `${def?.title ?? 'Panel'} · ${info?.name ?? 'Alexandria'}`; }, [def?.title, info?.name]);
-  if (!isDM) return <div className="t-fantasy"><div className="page"><p className="muted">Pop-out panels are for the DM.</p></div></div>;
+  if (!isDM) return <div className="t-fantasy"><div className="page"><p className="muted">Pop-out panels are for the GM.</p></div></div>;
   if (!def) return <div className="t-fantasy"><div className="page"><p className="muted">There is no panel called “{name}”.</p></div></div>;
   return (
     <div className="t-fantasy sc-window" data-testid={`panel-${def.id}`}>

@@ -1,4 +1,4 @@
-// Library page search: the FTS5 indexes (DM copy and party copy), the title
+// Library page search: the FTS5 indexes (GM copy and party copy), the title
 // and alias list used for exact matches and typo tolerance, query parsing
 // (words, "phrases", -exclusions), ranking and snippets.
 //
@@ -7,7 +7,7 @@
 //   party   player copies   (pages.player_body)   what players may search
 //   broker  broker copies   (pages.broker_body)   what the broker may use
 //   ai      AI copies       (pages.ai_body)       everything but classified: every model-facing search
-//   dm      DM copies       (pages.body)          only the DM's own screen
+//   dm      GM copies       (pages.body)          only the GM's own screen
 // A search reads the table and page_names scope of its own copy, and
 // snippets are cut from that copy's column, never from pages.body.
 //
@@ -265,7 +265,7 @@ export const allowedEdits = (len: number) => (len <= 3 ? 0 : len <= 5 ? 1 : 2);
 
 const KEY_DM_ALIAS = /^(secret|secrets|dm|dm_.*|gm|gm_.*|private)$/i;
 
-/** Aliases written under DM-only keys (secret: { aliases }, dm_aliases ...). Only the DM index gets these. */
+/** Aliases written under GM-only keys (secret: { aliases }, dm_aliases ...). Only the GM index gets these. */
 export function dmOnlyAliases(fm: any): string[] {
   const out: string[] = [];
   const take = (v: any) => { if (typeof v === 'string') out.push(v); else if (Array.isArray(v)) for (const x of v) if (typeof x === 'string') out.push(x); };
@@ -281,7 +281,7 @@ export function dmOnlyAliases(fm: any): string[] {
 /**
  * Aliases a player may search by. Markdown pages: the aliases left in the
  * player frontmatter (secret/dm keys are already gone). Imported pages: the
- * source's aliases, minus any that name a DM-only page.
+ * source's aliases, minus any that name a GM-only page.
  */
 export function playerAliases(origin: string, playerFm: any, pageAliases: string[], hiddenTitles: Set<string>): string[] {
   const src = origin === 'markdown' ? (Array.isArray(playerFm?.aliases) ? playerFm.aliases : typeof playerFm?.aliases === 'string' ? [playerFm.aliases] : []) : pageAliases;
@@ -363,7 +363,7 @@ function createTables(db: DB) {
     CREATE TABLE IF NOT EXISTS search_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
 }
 
-/** Rebuild every index from the pages table (DM copy and the stored player, broker and AI copies). */
+/** Rebuild every index from the pages table (GM copy and the stored player, broker and AI copies). */
 export function rebuildAll(db: DB) {
   bump(db);
   db.exec('BEGIN');
@@ -435,7 +435,7 @@ const recency = (iso: string, nowMs: number) => {
 };
 
 /**
- * Search the pages one viewer may see. `scope` is 'dm' only for a DM; every
+ * Search the pages one viewer may see. `scope` is 'dm' only for a GM; every
  * other viewer reads the party index and the player copy.
  */
 export function searchPages(db: DB, worldId: string, q: string, scope: Scope, limit = 20, nowMs = Date.now()): PageHit[] {
