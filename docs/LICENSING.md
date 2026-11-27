@@ -76,6 +76,17 @@ Material from the System Reference Document 5.1 and 5.2, Open5e and other
 sources keeps its own license (usually CC-BY-4.0) and its attribution. The
 Shield license covers only Alexandria's own code.
 
+## Third-party software
+
+Alexandria uses open source packages (npm, Rust crates for the desktop app)
+and, in its Docker image, system tools such as ffmpeg. Each keeps its own
+license; the Shield license covers only Alexandria's own code. As of the
+switch, every dependency is under a permissive license (MIT, Apache-2.0, BSD,
+ISC, Zlib, Unicode) or a file-level one (MPL-2.0, used unmodified). None is
+GPL, AGPL, share-alike or noncommercial. Font Awesome Free's icons are
+CC-BY-4.0 and its fonts are OFL-1.1; the credit comments in its files must be
+kept.
+
 ## Contributing
 
 Pull requests are welcome. Because the maker may offer Alexandria as a paid
