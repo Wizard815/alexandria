@@ -202,7 +202,7 @@ function routes(d: Deps) {
 
   // ---- the Mod studio: what the assistant reads to write a rule ----
 
-  const exampleIds = () => [...new Set([...exampleFiles().keys(), ...shippedMods().filter((s) => s.mod.scope !== 'server').map((s) => s.mod.id)])];
+  const exampleIds = () => [...new Set([...exampleFiles().keys(), ...shippedMods().map((s) => s.mod.id)])];
   r.get('/guide', requireDM, (req, res) => {
     const part = typeof req.query.part === 'string' ? req.query.part : undefined;
     res.json({ part: part ?? 'start', text: guideText(part, DEFAULT_SETTINGS as any, exampleIds()) });
