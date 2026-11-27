@@ -156,7 +156,8 @@ function EventModal({ events, onClose, onDone }: { events: DtEvent[]; onClose: (
     <div className="modal-back">
       <style>{CSS}</style>
       <div className="modal stack" role="dialog" aria-modal="true" aria-labelledby="dt-ev" data-testid="downtime-event-popup" style={{ maxWidth: 520 }}>
-        <div className="row between"><h2 id="dt-ev" style={{ margin: 0 }}><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Something happens</h2><button type="button" className="btn ghost small" onClick={onClose}>Later</button></div>
+        <div className="row between"><h2 id="dt-ev" style={{ margin: 0 }}><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Something happens</h2><button type="button" className="btn ghost small" onClick={onClose} title="It stays waiting: only the DM can cancel an event">Roll later</button></div>
+        <p className="tiny muted" style={{ margin: 0 }}>Part of the downtime you picked: it can wait, but not be skipped.</p>
         <EventCard key={events[0].id} e={events[0]} onDone={onDone} />
         {events.length > 1 && <span className="tiny muted">{events.length - 1} more after this one</span>}
       </div>
