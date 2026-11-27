@@ -43,9 +43,10 @@ enough" line in between.
 
 ## Older versions
 
-Every version released before the switch (up to commit `010222f` on `main`)
-was MIT and stays MIT for anyone who got it then. The PolyForm Shield license
-covers the code from the switch onward.
+Alexandria had no releases before the switch. Commits on `main` up to
+`010222f` carried an MIT license file, so a copy someone made of those commits
+at the time came with MIT terms. Everything from the switch onward, and every
+release, is under the PolyForm Shield license.
 
 ## The name
 

@@ -5,8 +5,7 @@ app and AI game master assistant, offered as self-hosted software and as a
 hosted service (https://github.com/Wizard815/alexandria)
 
 Alexandria is source-available under the PolyForm Shield License 1.0.0 below.
-Versions released before this license was added remain under the MIT License
-they were released with. The built-in house rules in mods/ are under the MIT
+Commits made before this license was added carried the MIT License. The built-in house rules in mods/ are under the MIT
 License in mods/LICENSE. Material from the System Reference Document and other
 game content keeps its own license and attribution. See docs/LICENSING.md for
 a plain-English summary; the license text below is what applies.
