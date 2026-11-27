@@ -9,6 +9,7 @@
 //   POST /templates/derive     a guide from example library pages (their common structure)
 //   GET/PUT /templates/web, POST /templates/web/check, POST /templates/web/search
 //   POST /templates/:id/shop   a shop draft from the shop generator, with this template's guide
+//   GET /templates/starters, POST /templates/starters/add { pack, names? }   the starter templates (starters.ts)
 //   GET /templates/export?ids=a,b&kind=k   a package (.alxtemplates.json); POST /templates/import { file }  (share.ts)
 //   MCP  list_dm_templates, get_dm_template, create_dm_template, update_dm_template, web_research
 import { Router } from 'express';
@@ -25,6 +26,7 @@ import { deriveGuide, draftTemplate } from './draft.ts';
 import { blockedQuery, blockedText, cleanQueries, webSearch } from './web.ts';
 import { generateShopWithTemplate } from './shop.ts';
 import { importTemplates, makePackage, readPackage } from './share.ts';
+import { starterPacks } from './starters.ts';
 import { VERSION } from '../../version.ts';
 
 const audit = (d: Deps, worldId: string, accountId: string | null, action: string, detail = '') =>
@@ -89,6 +91,26 @@ function routes(d: Deps) {
     const ids = (Array.isArray(req.body?.pageIds) ? req.body.pageIds : []).filter((x: unknown) => typeof x === 'string').slice(0, 8);
     if (!ids.length) throw new HttpError(400, 'Pick one or more example pages');
     res.json(await deriveGuide(d, W(res), ctx(res).viewer, ids, typeof req.body?.name === 'string' ? req.body.name.slice(0, 80) : ''));
+  });
+
+  // ---- starter templates that ship in templates/ (before /:id) ----
+  r.get('/starters', (_req, res) => {
+    const have = new Set(listTemplates(d.db, W(res)).map((t) => `${t.kind}:${t.name.toLowerCase()}`));
+    res.json({ packs: starterPacks().map((p) => ({ id: p.id, name: p.name, templates: p.templates.map((t) => ({ kind: t.kind, name: t.name, description: t.description, added: have.has(`${t.kind}:${t.name.toLowerCase()}`) })) })) });
+  });
+  r.post('/starters/add', (req, res) => {
+    const pack = starterPacks().find((p) => p.id === req.body?.pack);
+    if (!pack) throw new HttpError(404, 'No such starter pack');
+    const names = Array.isArray(req.body?.names) ? new Set(req.body.names.map((n: unknown) => String(n).toLowerCase())) : null;
+    const picked = pack.templates.filter((t) => !names || names.has(t.name.toLowerCase()));
+    if (!picked.length) throw new HttpError(404, 'None of those templates are in the pack');
+    // One the world already has (perhaps changed by the DM) is left alone.
+    const have = new Set(listTemplates(d.db, W(res)).map((t) => `${t.kind}:${t.name.toLowerCase()}`));
+    const list = picked.filter((t) => !have.has(`${t.kind}:${t.name.toLowerCase()}`));
+    const out = list.length ? importTemplates(d.db, W(res), list, me(res), (t) => refuseClassified(d, W(res), t)) : { created: [], updated: [], unchanged: [] };
+    out.unchanged.push(...picked.filter((t) => !list.includes(t)).map((t) => t.name));
+    audit(d, W(res), me(res), 'templates.starters', `${pack.id}: ${[...out.created, ...out.updated].join(', ')}`);
+    res.json(out);
   });
 
   // ---- sharing: a package file to take to another world or table (before /:id) ----

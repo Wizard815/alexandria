@@ -130,6 +130,18 @@ try {
   check(after?.version === 2 && after.description === 'Towns, shared from another table', 'the imported copy should be version 2 of Towns, not a second template');
   note('shared: exported a file, imported a changed copy as version 2');
 
+  // ---- starters: add one, then a whole pack ----
+  await page.getByRole('tab', { name: 'Starters' }).click();
+  const pack = page.getByTestId('tpl-pack-shops');
+  await pack.waitFor({ timeout: 8000 });
+  await pack.locator('li').filter({ hasText: 'Blacksmith' }).getByRole('button', { name: 'Add' }).click();
+  await pack.locator('li').filter({ hasText: 'Blacksmith' }).getByText('Added').waitFor({ timeout: 8000 }).catch(() => problems.push('the starter Blacksmith did not show as added'));
+  await page.getByTestId('tpl-pack-macros').getByRole('button', { name: /^Add all/ }).click();
+  await page.getByTestId('tpl-pack-macros').getByRole('button', { name: 'All added' }).waitFor({ timeout: 8000 }).catch(() => problems.push('Add all did not add the macro pack'));
+  const mine = (await api('GET', '/templates')).body.templates ?? [];
+  check(mine.some((t) => t.name === 'Blacksmith' && t.kind === 'shop') && mine.filter((t) => t.kind === 'macro').length >= 8, 'starters were added as world templates');
+  note('starters: added one shop template and the whole macro pack');
+
   // ---- players cannot open it ----
   const ptok = await login('jess', 'player pass 123');
   check((await api('GET', '/templates', undefined, ptok)).status === 403, 'a player must not read templates');
