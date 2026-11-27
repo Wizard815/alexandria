@@ -63,6 +63,7 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 | Messages | `GET/POST /messages`, `GET/POST /messages/:tid`, `POST /messages/:tid/members`, `POST /messages/:tid/keep` |
 | Quick events | `GET/POST /quick-events`, `POST /quick-events/:id/respond`, `/resolve`, `/cancel` |
 | Encounters | `/encounters/*`: an NPC talks to one player in their app; see [ENCOUNTERS.md](ENCOUNTERS.md) |
+| Discord | `/discord/*`: the world's Discord bot (DM settings, channels, test post, linked players) and a player's own link (`/discord/me`, `/discord/me/code`); see [DISCORD.md](DISCORD.md) |
 | Calendar | `GET/POST /calendar`, `PATCH /calendar/:sid`, `PUT /calendar/:sid/rsvp`, `GET/POST /calendar/:sid/chat`, `POST /calendar/:sid/reschedule`, `POST /calendar/:sid/reschedule/:rid`; feed `GET /dav/worlds/:world/sessions.ics` |
 | Live session | `GET /live`, `PUT/DELETE /live/presence`, `GET/POST /live/ledger`, `GET/PUT /live/combat`, `POST /live/combat/next`, `POST/PATCH/DELETE /live/combatants/:id` |
 | Inventory | `GET /inventory?owner=me\|party\|<account>`, `POST /inventory`, `PATCH/DELETE /inventory/:id`; giving and pictures: see below |

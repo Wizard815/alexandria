@@ -58,7 +58,7 @@ export function ManaMeter({ mana, small = false }: { mana: Mana; small?: boolean
 }
 
 const KIND_LABEL: Record<string, string> = { hp: 'HP', temp: 'Temp HP', max: 'Max HP', conditions: 'Conditions', mana: 'Mana', reroll: 'Re-roll' };
-const SOURCE_LABEL: Record<string, string> = { sheet: 'sheet', combat: 'combat tracker', dm: 'DM', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
+const SOURCE_LABEL: Record<string, string> = { sheet: 'sheet', combat: 'combat tracker', dm: 'DM', foundry: 'Foundry', roll20: 'Roll20', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
 
 /** Every HP and mana change, newest first. `account` null: the whole party (DM). */
 export function ChangeLog({ account, limit = 40 }: { account: string | null; limit?: number }) {

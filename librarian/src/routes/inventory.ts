@@ -124,17 +124,28 @@ export default function inventoryRoutes(d: Deps) {
     d.hub.emit(c.world.id, 'approval', { id: ch.id, kind: ch.kind, status }, dmAnd(me(res), ...(ch.owner !== 'party' ? [ch.owner] : party)));
   };
 
-  // The DM changed someone else's items: record it so the owner is told.
+  // The DM changed someone else's items: record it so the owner is told,
+  // unless the DM asked to keep this one quiet (see dmReason).
   function dmAlert(res: Response, kind: 'add' | 'edit' | 'remove', itemId: string, ownerId: string, before: any, after: any, reason: string) {
     const c = ctx(res);
-    if (ownerId === me(res)) return;
+    if (ownerId === me(res) || res.locals.dmQuiet) return;
     const ch = { id: id('chg_'), owner: ownerId, kind };
     run(db, `INSERT INTO item_changes (id, world_id, item_id, owner, kind, before_json, after_json, reason, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'alert')`,
       ch.id, c.world.id, itemId, ownerId, kind, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, reason, me(res), now());
     approvalEvent(res, ch, 'alert');
   }
+  /**
+   * The DM's reason for changing someone's things (required when Settings say
+   * so). `quiet: true` from the DM means "don't tell them" (a secret for the
+   * story): no reason is needed and no alert is raised. Every DM write calls
+   * this first, so it also marks the request quiet for dmAlert. Players can't
+   * be quiet; their changes go through approvals.
+   */
   function dmReason(res: Response, b: any, ownerId: string) {
     const reason = str(b?.reason, 'reason', { max: 300, optional: true });
+    const q = b?.quiet;
+    res.locals.dmQuiet = isDM(res) && (q === true || q === 'true' || q === '1');
+    if (res.locals.dmQuiet) return reason;
     if (isDM(res) && ownerId !== 'party' && ownerId !== me(res) && settings(res).dmChangeReason && !reason.trim()) throw new HttpError(400, 'Say why you are changing this player’s items (reason)');
     return reason;
   }
@@ -538,7 +549,7 @@ export default function inventoryRoutes(d: Deps) {
       approvalEvent(res, { id: chId, owner: it.owner, kind: 'remove' }, 'pending');
       return res.status(202).json({ ok: true, pending: true });
     }
-    const reason = dmReason(res, { reason: req.body?.reason ?? req.query.reason }, it.owner);
+    const reason = dmReason(res, { reason: req.body?.reason ?? req.query.reason, quiet: req.body?.quiet ?? req.query.quiet }, it.owner);
     tx(db, () => {
       run(db, 'DELETE FROM items WHERE id = ?', it.id);
       if (isDM(res)) dmAlert(res, 'remove', it.id, it.owner, itemSnapshot(it), null, reason);

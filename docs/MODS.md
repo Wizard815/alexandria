@@ -43,6 +43,42 @@ every world.
 | Spell crafting (Codex) | | Learn new spells by combining known ones, with the DM's approval or automatically. |
 | DownTime | | Downtime activities from common to legendary: the DM presses Downtime when days pass and each player picks what to work on. See [DOWNTIME.md](DOWNTIME.md). |
 
+Table rules, the house rules D&D tables use most (from house-rule surveys and
+threads on EN World, TheGamer, ScreenRant and GamersDecide). Each one is off
+until the DM turns it on, and each one tells the assistant and the player
+helper how it works:
+
+| Rule | Kind | What it does |
+| --- | --- | --- |
+| Potions as a bonus action | rule text | Drinking a potion yourself is a bonus action; giving one is an action. |
+| Flanking: +2, not advantage | rule text, option | Allies on opposite sides each get a bonus to hit (option, default +2). |
+| Criticals on ability checks | rule text | A natural 20 is the best result the task allows; a natural 1 adds a complication. |
+| Hidden death saves | rule text | The DM rolls death saves in secret; Medicine DC 10 shows stable or not. |
+| Hit points: roll, keep the better | rule text | On level up, the Hit Die roll or the average, whichever is higher. |
+| Gritty realism rests | rule text | Short rest 8 hours, long rest 7 days. The assistant advances the clock to match. |
+| Party inspiration pool | data system | One shared pool (up to 10). The DM adds points; any player draws one for advantage. Turns inspiration rerolls off. |
+| Lingering injuries | data system | The DM gives an injury on a crit or a drop to 0 HP. Each long rest counts toward healing; 0 days means magic only. |
+| Brutal critical hits | rule text | A crit deals the dice's maximum plus one normal roll. |
+| Critical fumbles | rule text | A natural 1 on an attack gives a mild mishap: drop the weapon, an opening, or a stumble. |
+| A free feat at 1st level | rule text | Every character starts with one extra feat. |
+| Full hit dice on a long rest | rule text | A long rest gives back all spent hit dice. |
+| Massive damage | rule text | Half your HP maximum in one hit: DC 15 Constitution save or a d10 result. |
+| Morale | rule text | Enemies may flee or surrender (DC 10 Wisdom save) when a fight turns against them. |
+| Cleaving through creatures | rule text | Leftover melee damage carries to another creature in reach. |
+| Side initiative | rule text | Each side rolls one initiative and acts together. |
+| Slot inventory | rule text | Carry items equal to your Strength score; bulky ones take 2 slots. |
+| Bloodied | rule text | The DM says when a creature is at half HP or less. |
+| Potions heal fully as an action | rule text | Drinking a healing potion with your action heals its maximum. |
+| Climbing onto big creatures | rule text | Climb a creature two sizes larger and attack it with advantage. |
+| Luck points | counters | Reroll a d20 after seeing it; refills each session. Chat word /luck. |
+| Stress | counters | Horror adds stress; at the limit the character breaks for the session. A long rest takes 2 off. |
+| Honor | counters | An Honor score (0 to 20) the DM raises or lowers. |
+| Simple exhaustion | counters | Each level is -2 to d20 rolls and -5 feet of speed; a long rest takes one off. |
+| Crafting projects | data system | Players start projects; each long rest adds a day of work until the item is done. |
+| Faction renown | data system | The party's renown and rank with each faction. |
+| Training | data system | Learn a language or a tool over days of training. |
+| Hirelings | data system | The party's hirelings with their job, wage and loyalty. |
+
 Rules in the same **group** are exclusive: turning on spell points turns the
 simple mana pool or MANA off first. With no magic rule on, spells use slots.
 
@@ -143,7 +179,7 @@ is a whole downtime system in about 60 lines.
 | `prompts` | `{ id, button, title, text, choices: [{ label, action } \| { label, skip: true }] }`. The DM presses the button and every player gets a popup. A choice runs its record action for them, and `prompt:<id>` timers move only the records of players who did not skip. |
 | `views` | `{ id, title, record, place: dm \| sheet \| player, columns, where?, actions?, groupByPlayer? }`. `dm` is a tab on the DM's House rules page, `sheet` the player's sheet and home card, `player` the player's House rules page. |
 
-Chat text in a data system may use `{name}` (always the player's character),
+Chat text in a data system may use `{name}` (the record's player; on a shared record, whoever ran the action), `{note}` (the reason given),
 `{field}`, `{title}`, `{kind.field}` for the record's own field (so a field
 called `name` is `{project.name}`) and `{ref.field}` (the record a ref points
 at). The check names any placeholder that does not exist.

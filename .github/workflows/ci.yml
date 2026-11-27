@@ -36,9 +36,14 @@ jobs:
           node e2e/dm.mjs
           node e2e/houserules.mjs
           node e2e/downtime.mjs
+          node e2e/table.mjs
           node e2e/dmphone.mjs
           node e2e/sculpt.mjs
           node e2e/buttons.mjs
           node e2e/leaks.mjs
           node e2e/thoughts.mjs
           node e2e/sheet.mjs
+          node e2e/foundry.mjs
+          node e2e/roll20.mjs
+          node e2e/trades.mjs
+          node e2e/owlbear.mjs

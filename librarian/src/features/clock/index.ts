@@ -5,7 +5,9 @@ import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { requireDM } from '../../core/auth.ts';
 import { featureSetting } from '../../core/policy.ts';
-import { HttpError } from '../../core/util.ts';
+import { HttpError, id, now } from '../../core/util.ts';
+import { all, run } from '../../core/db.ts';
+import { dmOnly } from '../../core/events.ts';
 import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
 import * as clock from './api.ts';
 import { BUILTIN_CALENDARS, MINUTES_PER_DAY, dateToMinutes, normalizeCalendar } from './calendar.ts';
@@ -15,6 +17,22 @@ const S = (description: string) => ({ type: 'string', description });
 const N = (description: string) => ({ type: 'integer', description });
 const DATE = { type: 'object', description: 'In-world date: { year, month (1-based), day, hour?, minute? }', properties: { year: { type: 'integer' }, month: { type: 'integer' }, day: { type: 'integer' }, hour: { type: 'integer' }, minute: { type: 'integer' } }, required: ['year', 'month', 'day'] };
 const role = (res: any) => ctx(res).viewer.role as clock.Role;
+
+/** The minutes of "amount days/weeks/months from now" in this world's calendar; months keep the day (or the month's last). */
+function afterNow(db: any, worldId: string, after: any): number {
+  const amount = after?.amount, unit = after?.unit;
+  if (!Number.isInteger(amount) || amount < 0 || amount > 1200) throw new HttpError(400, 'after.amount must be a whole number from 0 to 1200');
+  const now = clock.getClock(db, worldId);
+  if (unit === 'days') return now.minutes + amount * MINUTES_PER_DAY;
+  if (unit === 'weeks') return now.minutes + amount * 7 * MINUTES_PER_DAY;
+  if (unit !== 'months') throw new HttpError(400, "after.unit must be 'days', 'weeks' or 'months'");
+  const def = clock.getCalendar(db, worldId).definition;
+  const len = def.months.length;
+  const idx = now.date.month - 1 + amount;
+  const year = now.date.year + Math.floor(idx / len);
+  const month = (idx % len) + 1;
+  return dateToMinutes(def, { year, month, day: Math.min(now.date.day, def.months[month - 1].days), hour: now.date.hour, minute: now.date.minute });
+}
 
 /** Minutes, or "year-month-day" in the world's calendar (start of that day). */
 function queryWhen(v: unknown, def: ReturnType<typeof clock.getCalendar>['definition'], field: string): number | null {
@@ -69,6 +87,13 @@ const feature: Feature = {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS clock_events_world ON clock_events(world_id, start_minutes);
+    CREATE TABLE IF NOT EXISTS clock_someday (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS clock_someday_world ON clock_someday(world_id);
     CREATE TABLE IF NOT EXISTS clock_prefs (
       world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -158,10 +183,33 @@ const feature: Feature = {
       res.json(clock.listEvents(db, wid(res), role(res), from, to));
     });
     r.get('/events/:id', (req, res) => res.json(clock.getEvent(db, wid(res), String(req.params.id), role(res))));
-    r.post('/events', requireDM, (req, res) => res.status(201).json(clock.addEvent(db, hub, wid(res), req.body ?? {}, me(res))));
+    r.post('/events', requireDM, (req, res) => {
+      const b = { ...(req.body ?? {}) };
+      // "after": { amount, unit: days|weeks|months } from the world's current date and hour, for "in 3 months".
+      if (b.start === undefined && b.after !== undefined) b.start = afterNow(db, wid(res), b.after);
+      delete b.after;
+      res.status(201).json(clock.addEvent(db, hub, wid(res), b, me(res)));
+    });
     r.patch('/events/:id', requireDM, (req, res) => res.json(clock.updateEvent(db, hub, wid(res), String(req.params.id), req.body ?? {})));
     r.delete('/events/:id', requireDM, (req, res) => { clock.deleteEvent(db, hub, wid(res), String(req.params.id)); res.json({ ok: true }); });
 
+    // "Someday": things the DM wants to happen with no date yet. DM-only; dating one turns it into a world event.
+    r.get('/someday', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT id, title, created_at FROM clock_someday WHERE world_id = ? ORDER BY created_at, rowid', wid(res))));
+    r.post('/someday', requireDM, (req, res) => {
+      const t = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+      if (!t) throw new HttpError(400, 'title is required');
+      if (t.length > 200) throw new HttpError(400, 'title is longer than 200 characters');
+      const row = { id: id('sdy_'), title: t, created_at: now() };
+      run(db, 'INSERT INTO clock_someday (id, world_id, title, created_at) VALUES (?, ?, ?, ?)', row.id, wid(res), row.title, row.created_at);
+      hub.emit(wid(res), 'clock-someday', { action: 'created', id: row.id }, dmOnly);
+      res.status(201).json(row);
+    });
+    r.delete('/someday/:id', requireDM, (req, res) => {
+      const done = run(db, 'DELETE FROM clock_someday WHERE id = ? AND world_id = ?', String(req.params.id), wid(res));
+      if (!done) throw new HttpError(404, 'Not found');
+      hub.emit(wid(res), 'clock-someday', { action: 'deleted', id: String(req.params.id) }, dmOnly);
+      res.json({ ok: true });
+    });
     r.get('/prefs', (_req, res) => res.json({ upcomingDays: clock.getUpcomingDays(db, wid(res), me(res)) }));
     r.put('/prefs', (req, res) => res.json({ upcomingDays: clock.setUpcomingDays(db, wid(res), me(res), req.body?.upcomingDays) }));
     r.get('/upcoming', (req, res) => {
@@ -187,11 +235,14 @@ const feature: Feature = {
     },
     {
       name: 'add_world_event', write: true,
-      description: 'Put an event on the world calendar. DM-only unless visibility is party.',
-      props: { title: S('Title'), description: S('Details'), start: DATE, end: DATE, durationMinutes: N('Alternative to end'), visibility: { type: 'string', enum: ['dm', 'party'] }, repeat: { type: 'string', enum: ['yearly'] }, kind: { type: 'string', enum: [...clock.EVENT_KINDS] } },
-      required: ['title', 'start'],
+      description: 'Put an event on the world calendar, at start or after an amount of days, weeks or months from now. DM-only unless visibility is party.',
+      props: { title: S('Title'), description: S('Details'), start: DATE, after: { type: 'object', description: 'Instead of start: how long from now, e.g. { amount: 3, unit: "months" }', properties: { amount: { type: 'integer' }, unit: { type: 'string', enum: ['days', 'weeks', 'months'] } }, required: ['amount', 'unit'] }, end: DATE, durationMinutes: N('Alternative to end'), visibility: { type: 'string', enum: ['dm', 'party'] }, repeat: { type: 'string', enum: ['yearly'] }, kind: { type: 'string', enum: [...clock.EVENT_KINDS] } },
+      required: ['title'],
       call: (a) => ({ method: 'POST', path: '/clock/events', body: a }),
     },
+    { name: 'list_someday_events', description: 'World events the DM wants to happen but has not dated yet (DM only).', props: {}, call: () => ({ method: 'GET', path: '/clock/someday' }) },
+    { name: 'add_someday_event', write: true, description: 'Keep a world event with no date yet, for the DM to date later (DM only).', props: { title: S('What will happen') }, required: ['title'], call: (a) => ({ method: 'POST', path: '/clock/someday', body: { title: a.title } }) },
+    { name: 'remove_someday_event', write: true, description: 'Drop an undated world event (after dating it with add_world_event, or when it will not happen).', props: { id: S('Someday id (sdy_...)') }, required: ['id'], call: (a) => ({ method: 'DELETE', path: `/clock/someday/${enc(String(a.id))}` }) },
   ],
 };
 export default feature;
