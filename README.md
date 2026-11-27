@@ -95,6 +95,13 @@ See [docs/CONNECTORS.md](docs/CONNECTORS.md) for writing a new connector.
 See [librarian/docs/MCP_SOURCES.md](librarian/docs/MCP_SOURCES.md) for
 what was learned from the live LegendKeeper and Kanka servers.
 
+## Virtual tabletops
+
+**Foundry VTT:** install the Alexandria Bridge module in Foundry from its
+manifest URL (DM → Setup → Foundry VTT). Maps, tokens, fog of war, HP,
+conditions, rolls and journal entries move both ways. See
+[docs/FOUNDRY.md](docs/FOUNDRY.md).
+
 The full API is in [docs/API.md](docs/API.md).
 
 ## Roll20

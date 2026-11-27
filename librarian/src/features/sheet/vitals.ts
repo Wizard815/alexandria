@@ -8,7 +8,7 @@ import { applyDamage, applyHeal, gainTempHp, syncDeathTags, type DeathSaves, typ
 import { id, now, parseJson } from '../../core/util.ts';
 
 export interface Vitals { hp: number | null; maxHp: number | null; tempHp: number; conditions: string[] }
-export type Source = 'sheet' | 'combat' | 'dm' | 'roll20';
+export type Source = 'sheet' | 'combat' | 'dm' | 'foundry' | 'roll20';
 export interface VitalsChange {
   damage?: number; crit?: boolean; heal?: number;
   /** Set HP outright. */
