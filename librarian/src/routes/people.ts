@@ -52,7 +52,7 @@ export default function peopleRoutes(d: Deps) {
   // ---- People ----
   r.get('/people', (_req, res) => {
     const c = ctx(res);
-    const people = all<any>(db, 'SELECT * FROM people WHERE world_id = ? ORDER BY name', c.world.id).filter((p) => canSee(c.viewer, p.visibility, null));
+    const people = all<any>(db, 'SELECT *, rowid AS seq FROM people WHERE world_id = ? ORDER BY name', c.world.id).filter((p) => canSee(c.viewer, p.visibility, null));
     res.json(people.map((p) => ({
       ...p,
       quotes: all<any>(db, 'SELECT id, text, said, visibility FROM quotes WHERE person_id = ?', p.id).filter((q) => canSee(c.viewer, q.visibility, null)),

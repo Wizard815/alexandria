@@ -287,6 +287,24 @@ test('TestApprovals_DMChangeAlertsOwnerDisputeAndRevert', async () => {
   assert.equal((await ok('GET', `/api/worlds/${W}/approvals/mine`, T.jess)).alerts.find((a: any) => a.id === a2.id).status, 'ok');
 });
 
+test('TestApprovals_DMQuietChangeSkipsTheAlert', async () => {
+  const alerts = async () => (await ok('GET', `/api/worlds/${W}/approvals/mine`, T.jess)).alerts.filter((a: any) => a.status === 'alert').length;
+  const before = await alerts();
+  // Quiet: no reason needed, the item still changes, the player gets no alert.
+  const it = await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Cursed locket', qty: 1, quiet: true });
+  await ok('PATCH', `/api/worlds/${W}/inventory/${it.id}`, T.dm, { qty: 2, quiet: true });
+  const pack = await ok('GET', `/api/worlds/${W}/inventory`, T.jess);
+  assert.equal((pack.items ?? pack).find((x: any) => x.id === it.id).qty, 2);
+  await ok('DELETE', `/api/worlds/${W}/inventory/${it.id}?quiet=1`, T.dm);
+  assert.equal(await alerts(), before, 'quiet changes raise no alert');
+  // A player can't be quiet: their change still waits for the DM.
+  const r = await ok('POST', `/api/worlds/${W}/inventory`, T.jess, { name: 'Lucky coin', quiet: true });
+  assert.equal(r.pending, true);
+  // Default is still loud.
+  await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Map fragment', reason: 'Found it' });
+  assert.equal(await alerts(), before + 1);
+});
+
 test('TestBroker_MCPQuoteToolNeverCharges', async () => {
   // A read key can quote (GET) but not ask.
   const k = await ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });

@@ -1,0 +1,32 @@
+{
+  "kit": 2,
+  "id": "potion-max-heal",
+  "name": "Potions heal fully as an action",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Drinking a healing potion with your action heals the maximum; a bonus action rolls as usual.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "combat",
+      "inventory",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Potion healing (house rule)",
+      "text": "When you drink a healing potion **as an action**, it heals its **maximum** (a potion of healing heals 10). Drinking it as a **bonus action** rolls the dice as normal. Pairs well with Potions as a bonus action."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "potion",
+      "healing potion",
+      "drink"
+    ],
+    "dm": "Healing potions drunk with an action heal their maximum (potion of healing: 10). As a bonus action they roll normally.",
+    "player": "At this table drinking a healing potion with your action heals its maximum (10 for a potion of healing); as a bonus action you roll."
+  }
+}

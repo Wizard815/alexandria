@@ -1,0 +1,31 @@
+{
+  "kit": 2,
+  "id": "full-hit-dice",
+  "name": "Full hit dice on a long rest",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "A long rest gives back every spent hit die, not just half.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "sheet",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Full hit dice recovery (house rule)",
+      "text": "At the end of a **long rest** a character regains **all** spent hit dice, instead of half their total."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "hit dice",
+      "hit die",
+      "long rest"
+    ],
+    "dm": "Long rests restore all spent hit dice at this table, not half.",
+    "player": "At this table a long rest gives back all your spent hit dice, so spend them freely on short rests."
+  }
+}
