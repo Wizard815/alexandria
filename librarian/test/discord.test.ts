@@ -257,22 +257,22 @@ test('TestDiscord_BrokerMessagesGoToTheAskerOnly', async () => {
   const jessDm = `7${JESS.id.slice(1)}`;
   const from = fake.calls.length;
   await ok('POST', w(`/broker/${rid}/price`), T.dm, { costCp: 500, answer: 'To the smuggler queen.', waitAmount: 0, waitUnit: 'minutes', clock: 'real' });
-  const priced: any = await until('the price direct message', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from)[0]);
+  const priced: any = await until('the price DM', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from)[0]);
   assert.match(priced.body.content, /names a price/);
   assert.equal(priced.body.content.includes('smuggler queen'), false, 'no answer before paying');
   await ok('POST', w('/live/ledger'), T.dm, { owner: ID.jess, amountCp: 1000, note: 'Reward' });
   await ok('POST', w(`/broker/${rid}/accept`), T.jess, { from: 'me' });
   const st = one<any>(deps.db, 'SELECT status FROM broker_requests WHERE id = ?', rid).status;
   if (st === 'waiting') await ok('POST', w(`/broker/${rid}/deliver`), T.dm, {});
-  const answered: any = await until('the answer direct message', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from).find((c) => /has an answer/.test(c.body.content)));
+  const answered: any = await until('the answer DM', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from).find((c) => /has an answer/.test(c.body.content)));
   assert.match(answered.body.content, /To the smuggler queen/);
-  assert.equal(fake.find('POST', /\/users\/@me\/channels/, from).every((c) => c.body.recipient_id === JESS.id), true, 'only Jess got a direct message');
+  assert.equal(fake.find('POST', /\/users\/@me\/channels/, from).every((c) => c.body.recipient_id === JESS.id), true, 'only Jess got a DM');
 });
 
 test('TestDiscord_BrokerOffersSendTheTeaserNotTheInfo', async () => {
   const from = fake.calls.length;
   await ok('POST', w('/broker/offers'), T.dm, { title: 'The vault key', teaser: 'I know where a key is kept.', info: 'Under the third step of the lighthouse.', priceCp: 2000, targets: ['party'] });
-  await until('two offer direct messages', () => fake.find('POST', /\/channels\/7\d+\/messages/, from).length >= 2);
+  await until('two offer DMs', () => fake.find('POST', /\/channels\/7\d+\/messages/, from).length >= 2);
   const posts = fake.find('POST', /\/channels\/7\d+\/messages/, from);
   assert.ok(posts.every((p) => /The vault key/.test(p.body.content) && /key is kept/.test(p.body.content)));
   assert.ok(posts.every((p) => !p.body.content.includes('third step')), 'the information stays in the app');

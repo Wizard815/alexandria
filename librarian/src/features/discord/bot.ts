@@ -5,7 +5,7 @@
 // What goes to Discord, and to whom:
 //   recap channel   a session log entry when the GM publishes it (party-level text only)
 //   roll channel    dice rolled in the table chat (never the party chat, never a hidden one)
-//   a player's direct messages  their own broker answers and price offers, and the GM's special offers sent to them
+//   a player's DMs  their own broker answers and price offers, and the GM's special offers sent to them
 // Nothing GM-only is ever posted: every post is built from what the players
 // already see in the app. Commands act as the linked account, with its role
 // checked on every call, so a player who left the world can do nothing.

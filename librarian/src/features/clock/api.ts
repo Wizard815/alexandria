@@ -24,7 +24,7 @@ const MAX_ADVANCE = 365 * 1000 * MINUTES_PER_DAY;
 export interface ClockNow {
   minutes: number;
   date: DateParts;
-  /** e.g. "3 Frostmoot 1492 DR · evening" */
+  /** e.g. "3 Frostmoot 1492 AR · evening" */
   label: string;
 }
 export interface LogEntry {

@@ -65,7 +65,7 @@ test('TestClock_DefaultsToTheBuiltInCalendar', async () => {
   const c = await ok('GET', C(), T.jess);
   assert.equal(c.date.year, 1492);
   assert.equal(c.date.monthName, 'Frostmoot');
-  assert.equal(c.label, '1 Frostmoot 1492 DR · morning');
+  assert.equal(c.label, '1 Frostmoot 1492 AR · morning');
   assert.equal(c.calendar.months.length, 12);
   assert.equal(c.sources, undefined, 'players are not offered the GM setup lists');
   const d = await ok('GET', C(), T.dm);
@@ -86,12 +86,12 @@ test('TestClock_AdvanceSetAndLog', async () => {
   assert.equal(a.minutes, 570);
   assert.equal(a.entry.reason, 'Walked to the ford');
   assert.equal(a.entry.accountId, ID.dm);
-  assert.equal(a.entry.beforeLabel, '1 Frostmoot 1492 DR · morning');
+  assert.equal(a.entry.beforeLabel, '1 Frostmoot 1492 AR · morning');
   assert.equal((await call('POST', C() + '/advance', T.dm, { minutes: 0 })).status, 400);
   assert.equal((await call('POST', C() + '/advance', T.dm, { minutes: 1.5 })).status, 400);
   assert.equal((await call('POST', C() + '/advance', T.dm, { preset: 'nap' })).status, 400);
   const s = await ok('POST', C() + '/set', T.dm, { year: 1492, month: 1, day: 3, hour: 19, reason: 'Skip ahead' });
-  assert.equal(s.label, '3 Frostmoot 1492 DR · evening');
+  assert.equal(s.label, '3 Frostmoot 1492 AR · evening');
   assert.equal(s.date.weekday, 'Third');
   assert.equal((await call('POST', C() + '/set', T.dm, { year: 1492, month: 13, day: 1 })).status, 400);
   assert.equal((await call('POST', C() + '/set', T.dm, { year: 1492, month: 2, day: 31 })).status, 400);
@@ -104,7 +104,7 @@ test('TestClock_AdvanceSetAndLog', async () => {
 test('TestClock_RestPresetsFollowTheLongRestSetting', async () => {
   await ok('POST', C() + '/set', T.dm, { year: 1492, month: 2, day: 10, hour: 21, minute: 30 });
   const short = await ok('POST', C() + '/advance', T.dm, { preset: 'short-rest' });
-  assert.equal(short.label, '10 Thawing 1492 DR · night');
+  assert.equal(short.label, '10 Thawing 1492 AR · night');
   assert.equal(short.date.hour, 22);
   assert.equal(short.entry.reason, 'Short rest');
   const lr = await ok('POST', C() + '/advance', T.dm, { preset: 'long-rest', reason: 'Camp at the ford' });

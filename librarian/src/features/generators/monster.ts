@@ -127,7 +127,7 @@ const ARCHS: Record<MonsterType, Arch> = {
   },
   aberration: {
     type: 'aberration',
-    bases: [['Gibbering Mouther', 'Eye Mote'], ['Tentacled Lurker', 'Spined Watcher'], ['Mind Flayer Thrall', 'Veil Strangler'], ['Deep Seer', 'Many-Eyed Warden'], ['Warp Sovereign', 'Brain Weaver'], ['Void Idol', 'Star-Eater']],
+    bases: [['Gibbering Mouther', 'Eye Mote'], ['Tentacled Lurker', 'Spined Watcher'], ['Mind-Bound Thrall', 'Veil Strangler'], ['Deep Seer', 'Many-Eyed Warden'], ['Warp Sovereign', 'Brain Weaver'], ['Void Idol', 'Star-Eater']],
     adjs: ['Gaunt', 'Dripping', 'Warped', 'Whispering', 'Hollow', 'Pale', 'Slick', 'Lidless'],
     sizes: ['Small', 'Medium', 'Large', 'Large', 'Huge', 'Huge'],
     primary: 'int',

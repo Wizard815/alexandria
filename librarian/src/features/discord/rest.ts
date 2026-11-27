@@ -46,7 +46,7 @@ function discordMessage(status: number, j: any): string {
   if (status === 401) return 'Discord did not accept the bot token.';
   if (code === 50001) return 'The bot cannot see that channel. Give it the View Channel permission there.';
   if (code === 50013) return 'The bot is missing a permission there (it needs View Channel and Send Messages).';
-  if (code === 50007) return 'Discord would not let the bot message that person (their direct messages are closed to server members).';
+  if (code === 50007) return 'Discord would not let the bot message that person (their DMs are closed to server members).';
   if (code === 10003) return 'That channel does not exist, or the bot is not in its server.';
   if (code === 10004) return 'The bot is not in that server yet. Invite it with the link on this page.';
   return `Discord answered ${status}${j?.message ? `: ${String(j.message).slice(0, 200)}` : ''}`;

@@ -4,7 +4,7 @@ A world can have a bot in the table's Discord server. It:
 
 - posts a **session recap** to a channel the moment the GM publishes it;
 - posts **dice rolls** from the table chat to a channel (never the party chat, and a roll the GM hides comes down again);
-- sends each player their **broker messages** as Discord direct messages: an answer that is ready, a price the GM named, and the GM's special offers (the teaser and price only; the information stays in the app until someone pays);
+- sends each player their **broker messages** as Discord DMs: an answer that is ready, a price the GM named, and the GM's special offers (the teaser and price only; the information stays in the app until someone pays);
 - lets linked players use slash commands: `/roll`, `/ask` (their quick helper), `/recap`, `/link`, `/unlink`.
 
 Nothing GM-only is posted. Everything the bot sends is something the players
@@ -59,7 +59,7 @@ question waits or is told to ask again in a moment.
 - **"Discord did not accept the bot token."** The token was reset or mistyped. Reset it again and paste the new one.
 - **"The bot is not in that server yet."** Press Invite the bot.
 - **"The bot cannot see that channel" / "is missing a permission".** Give the bot's role View Channel and Send Messages in that channel.
-- **A player gets no broker direct messages.** Their Discord privacy setting blocks direct messages from server members; the error shows on the GM page.
+- **A player gets no broker DMs.** Their Discord privacy setting blocks DMs from server members; the error shows on the GM page.
 - **No slash commands.** The bot registers them when it joins or starts; if you changed the server id, they come within a few seconds of saving.
 
 ## Tests
