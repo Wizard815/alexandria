@@ -20,11 +20,13 @@ export function DowntimeButton({ compact = false }: { compact?: boolean }) {
   const { toast, toastNode } = useToast();
   const [days, setDays] = useState(1);
   const [note, setNote] = useState('');
+  const [travel, setTravel] = useState(false);
+  const travelH = Number((info.settings as any).downtimeTravelHours ?? 2);
   const [forPlayer, setForPlayer] = useState<string | null>(null);
   if ((info.settings as any).downtimeOn !== true) return compact ? null : <p className="small muted">DownTime is off. Turn it on under <Link to={`/w/${info.slug}/dm/house-rules`}>House rules</Link>.</p>;
   if (!o.data) return <Loading />;
   const r = o.data.round;
-  const start = () => act.run(async () => { await w.call('POST', '/downtime/rounds', { days, note: note.trim() || undefined }); setNote(''); toast(`Downtime: ${days} day${days === 1 ? '' : 's'}. Each player has a popup.`); });
+  const start = () => act.run(async () => { await w.call('POST', '/downtime/rounds', { days, note: note.trim() || undefined, ...(travel ? { travel: true } : {}) }); setNote(''); toast(`${travel ? 'Travel' : 'Downtime'}: ${days} day${days === 1 ? '' : 's'}. Each player has a popup.`); });
   const close = (how: 'close' | 'cancel') => act.run(async () => { const x = await w.call<any>('POST', `/downtime/rounds/current/${how}`, {}); toast(how === 'close' ? 'Downtime closed' : `Taken back${x?.clockBack ? ', the clock too' : ''}`); });
   return (
     <div className="stack tight" data-testid="downtime-button">
@@ -37,13 +39,14 @@ export function DowntimeButton({ compact = false }: { compact?: boolean }) {
             <button type="button" className="btn small" aria-label="One day more" onClick={() => setDays((n) => Math.min(365, n + 1))}>＋</button>
             <span className="small">day{days === 1 ? '' : 's'}</span>
           </span>
+          {travelH > 0 && <label className="small" title={`On the road only ${travelH} hour${travelH === 1 ? '' : 's'} a day go to downtime`}><input type="checkbox" checked={travel} onChange={(e) => setTravel(e.target.checked)} data-testid="downtime-travel" /> Travel ({travelH}h a day)</label>}
           {!compact && <input className="input grow" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="Where, e.g. Resting in Saltmarsh" aria-label="Note" />}
-          <button type="button" className="btn primary" disabled={act.busy} onClick={() => void start()} data-testid="downtime-start"><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> Downtime</button>
+          <button type="button" className="btn primary" disabled={act.busy} onClick={() => void start()} data-testid="downtime-start"><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> {travel ? 'Travel days' : 'Downtime'}</button>
         </div>
       ) : (
         <>
           <div className="row between" style={{ gap: 6, flexWrap: 'wrap' }}>
-            <strong>Downtime: {r.days} day{r.days === 1 ? '' : 's'}{r.note ? ` · ${r.note}` : ''}</strong>
+            <strong>{r.kind === 'travel' ? `Travel: ${r.days} day${r.days === 1 ? '' : 's'}, ${r.hoursPerDay}h a day` : `Downtime: ${r.days} day${r.days === 1 ? '' : 's'}`}{r.note ? ` · ${r.note}` : ''}</strong>
             <span className="row" style={{ gap: 6 }}>
               <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void close('close')}>Close</button>
               <button type="button" className="btn small" disabled={act.busy} onClick={() => void close('cancel')} title="Undo every pick and move the clock back">Take back</button>

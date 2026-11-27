@@ -302,3 +302,29 @@ test('TestDowntime_RandomEventsAreQuickTimeChecks', async () => {
   assert.equal((await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] })).events.length, 0);
   await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
 });
+
+test('TestDowntime_FiveDaysAtOnceAndTravelDays', async () => {
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 0 });
+  const t = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activity: { name: 'Learn to sail', tier: 'very-rare', days: 20 } });
+  // Five downtime days at once: 40 hours to spread over tasks; the clock moves five days.
+  const c0 = (await ok('GET', D(), T.dm)).now;
+  const { round } = await ok('POST', `${D()}/rounds`, T.dm, { days: 5 });
+  assert.equal(round.hours, 40);
+  assert.notEqual((await ok('GET', D(), T.dm)).now, c0, 'the world clock moved');
+  await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: t.id, days: 5 }] });
+  assert.equal((await task('tom', 'Learn to sail')).doneMin, 5 * 8 * 60);
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  // Travel days: 2 hours a day go to downtime, so 3 days on the road are 6 hours on the task.
+  const tr = (await ok('POST', `${D()}/rounds`, T.dm, { days: 3, travel: true, advance: false, note: 'On the road to Saltmarsh' })).round;
+  assert.equal(tr.kind, 'travel');
+  assert.equal(tr.hoursPerDay, 2);
+  assert.equal(tr.hours, 6);
+  await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: t.id, days: 3 }] });
+  assert.equal((await task('tom', 'Learn to sail')).doneMin, 5 * 8 * 60 + 3 * 2 * 60);
+  assert.equal((await call('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: t.id, days: 3 }, { activityId: 'pre-pray', days: 1 }] })).status, 400, 'no time left beyond 6 hours');
+  await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
+  // A world with no downtime on the road.
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeTravelHours: 0 });
+  assert.equal((await call('POST', `${D()}/rounds`, T.dm, { days: 2, travel: true })).status, 409);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeTravelHours: 2 });
+});

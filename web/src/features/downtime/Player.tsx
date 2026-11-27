@@ -33,7 +33,7 @@ function PopupInner() {
   if (!r || r.mine) return null;
   const fold = (v: string | null) => { setLater(v); try { if (v) sessionStorage.setItem(FOLD, v); else sessionStorage.removeItem(FOLD); } catch { /* private */ } };
   if (later === r.id) {
-    return <button type="button" className="btn dt-chip" data-testid="downtime-chip" onClick={() => fold(null)}><style>{CSS}</style><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> Downtime: pick your {r.days === 1 ? 'day' : `${r.days} days`}</button>;
+    return <button type="button" className="btn dt-chip" data-testid="downtime-chip" onClick={() => fold(null)}><style>{CSS}</style><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> {r.kind === 'travel' ? 'Travel' : 'Downtime'}: pick your {r.days === 1 ? 'day' : `${r.days} days`}</button>;
   }
   return <PickModal o={o.data} onClose={() => fold(r.id)} onDone={() => void o.reload()} />;
 }
@@ -53,9 +53,13 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
   const [choices, setChoices] = useState<Choice[]>(() => prev.map((p) => { const t = mine.find((x) => x.id === p.taskId); return { key: p.taskId, taskId: p.taskId, days: p.days, label: p.name, perDay: (t?.perDayMin ?? o.dayHours * 60) / 60 }; }));
   // Open on my tasks when I have some of my own (or joined a group one); else on starting something.
   const [mode, setMode] = useState<'mine' | 'start' | 'new'>(split.personal.length || split.group.some((t) => t.members.includes(player ?? me)) ? 'mine' : 'start');
-  const used = choices.reduce((n, c) => n + c.days * c.perDay, 0);
-  const left = r.days * o.dayHours - used;
-  const toggle = (c: Choice) => setChoices((l) => (l.some((x) => x.key === c.key) ? l.filter((x) => x.key !== c.key) : [...l, { ...c, days: Math.max(1, Math.min(c.days, Math.floor((left + 0) / c.perDay) || 1)) }]));
+  // A travel day has only a few hours: each task gets at most that much of each day.
+  const dayH = r.hoursPerDay ?? o.dayHours;
+  const travel = r.kind === 'travel';
+  const per = (c: { perDay: number }) => Math.min(c.perDay, dayH);
+  const used = choices.reduce((n, c) => n + c.days * per(c), 0);
+  const left = r.days * dayH - used;
+  const toggle = (c: Choice) => setChoices((l) => (l.some((x) => x.key === c.key) ? l.filter((x) => x.key !== c.key) : [...l, { ...c, days: Math.max(1, Math.min(c.days, Math.floor((left + 0) / Math.min(c.perDay, dayH)) || 1)) }]));
   const setDays = (key: string, days: number) => setChoices((l) => l.map((x) => (x.key === key ? { ...x, days: Math.max(1, Math.min(r.days, days)) } : x)));
   const send = (skip: boolean) => act.run(async () => {
     await w.call('POST', '/downtime/rounds/current/pick', skip ? { skip: true, player } : {
@@ -77,8 +81,8 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
           <span className="tiny muted">{r.worldLabel}{r.note ? ` · ${r.note}` : ''}</span>
           <button type="button" className="btn ghost small" onClick={onClose}>Later</button>
         </div>
-        <h2 id="dt-pick" style={{ margin: 0 }}>Downtime: {r.days === 1 ? 'one day' : `${r.days} days`}</h2>
-        <p className="small muted" style={{ margin: 0 }}>{r.days * o.dayHours} hours to spend. A daily task (an hour or two a day) fits beside a bigger one. {r.mine ? 'You already picked; a new pick replaces it.' : ''}</p>
+        <h2 id="dt-pick" style={{ margin: 0 }}>{travel ? 'Travel' : 'Downtime'}: {r.days === 1 ? 'one day' : `${r.days} days`}</h2>
+        <p className="small muted" style={{ margin: 0 }}>{travel ? `On the road: ${dayH} hour${dayH === 1 ? '' : 's'} a day for downtime, ${r.days * dayH} in all. Every task moves at that pace.` : `${r.days * dayH} hours to spend. A daily task (an hour or two a day) fits beside a bigger one.`} {r.mine ? 'You already picked; a new pick replaces it.' : ''}</p>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="tablist">
           {mine.length > 0 && <button type="button" role="tab" aria-selected={mode === 'mine'} className={`btn small${mode === 'mine' ? ' on' : ''}`} onClick={() => setMode('mine')}>My tasks ({mine.length})</button>}
           <button type="button" role="tab" aria-selected={mode === 'start'} className={`btn small${mode === 'start' ? ' on' : ''}`} onClick={() => setMode('start')}>Start something</button>
@@ -122,13 +126,13 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
                 <span>{c.label}{c.activity ? ' (new)' : c.activityId ? ' (start)' : ''}</span>
                 <span className="dt-step">
                   <button type="button" className="btn small" aria-label={`One day less on ${c.label}`} onClick={() => setDays(c.key, c.days - 1)} disabled={c.days <= 1}>−</button>
-                  <span className="small">{c.days} day{c.days === 1 ? '' : 's'}{c.perDay < o.dayHours ? ` × ${c.perDay}h` : ''}</span>
+                  <span className="small">{c.days} day{c.days === 1 ? '' : 's'}{per(c) < o.dayHours ? ` × ${per(c)}h` : ''}</span>
                   <button type="button" className="btn small" aria-label={`One day more on ${c.label}`} onClick={() => setDays(c.key, c.days + 1)} disabled={c.days >= r.days}>＋</button>
                   <button type="button" className="btn small ghost" aria-label={`Drop ${c.label}`} onClick={() => setChoices((l) => l.filter((x) => x.key !== c.key))}>✕</button>
                 </span>
               </div>
             ))}
-            <span className={`tiny ${left < 0 ? '' : 'muted'}`} style={left < 0 ? { color: 'var(--danger, #c33)' } : undefined}>{left < 0 ? `${-left} hours too many` : `${left} of ${r.days * o.dayHours} hours left`}</span>
+            <span className={`tiny ${left < 0 ? '' : 'muted'}`} style={left < 0 ? { color: 'var(--danger, #c33)' } : undefined}>{left < 0 ? `${-left} hours too many` : `${left} of ${r.days * dayH} hours left`}</span>
           </section>
         )}
         <ErrorBox error={act.error} />

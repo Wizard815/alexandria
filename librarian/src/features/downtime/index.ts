@@ -24,7 +24,7 @@ import { DEFAULT_TIER_DAYS, MAX_DAYS, TIERS, TIER_LABEL, checkActivity, checkPre
 import './codex.ts';
 import { linkHandlers } from './hooks.ts';
 import {
-  PARTY, SCHEMA, activities, activity, addWork, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
+  PARTY, SCHEMA, activities, activity, addWork, migrateRounds, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
   isGroup, saveActivity, setMember, setStatus, span, startTask, taskOut, taskRow, tierDays, tx, undoPick, updateActivity, worldSettings, writeLog, type ActivityRow, type DayPick,
 } from './store.ts';
 import { EVENTS_SCHEMA, announce, cancelPending, eventOut, eventRow, outcomeText, resolveEvent, rollForPick } from './events.ts';
@@ -364,11 +364,20 @@ function routes(d: Deps) {
     if (!Number.isInteger(days) || days < 1 || days > 365) throw new HttpError(400, 'days must be a whole number from 1 to 365');
     const advance = typeof req.body?.advance === 'boolean' ? req.body.advance : featureSetting<boolean>(S(res), 'downtimeAdvanceClock') !== false;
     const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 300) : '';
+    // Travel days: on the road, only a few hours a day go to downtime (the world's downtimeTravelHours, or { hours }).
+    const travel = req.body?.travel === true || req.body?.kind === 'travel';
+    let dayMin: number | null = null;
+    if (travel) {
+      const h = req.body?.hours === undefined || req.body?.hours === null ? Number(featureSetting<number>(S(res), 'downtimeTravelHours') ?? 2) : Number(req.body.hours);
+      if (!Number.isInteger(h) || h < 0 || h > dayHours(S(res))) throw new HttpError(400, `hours must be a whole number from 1 to ${dayHours(S(res))}`);
+      if (h === 0) throw new HttpError(409, 'Travel days give no downtime in this world (travel hours is 0)');
+      dayMin = h * 60;
+    }
     const before = clock.getClock(db, w);
     let entry: string | null = null;
-    if (advance) entry = clock.advance(db, hub, w, days * 1440, `Downtime: ${days} day${days === 1 ? '' : 's'}${note ? ` (${note})` : ''}`, me(res)).id;
+    if (advance) entry = clock.advance(db, hub, w, days * 1440, `${travel ? 'Travel' : 'Downtime'}: ${days} day${days === 1 ? '' : 's'}${note ? ` (${note})` : ''}`, me(res)).id;
     const rid = id('dtr_');
-    run(db, "INSERT INTO downtime_rounds (id, world_id, days, status, note, world_start, world_label, clock_entry, created_by, created_at) VALUES (?,?,?,'open',?,?,?,?,?,?)", rid, w, days, note, before.minutes, before.label, entry, me(res), now());
+    run(db, "INSERT INTO downtime_rounds (id, world_id, days, status, note, world_start, world_label, clock_entry, created_by, created_at, kind, day_min) VALUES (?,?,?,'open',?,?,?,?,?,?,?,?)", rid, w, days, note, before.minutes, before.label, entry, me(res), now(), travel ? 'travel' : 'downtime', dayMin);
     audit(d, w, me(res), 'downtime.round', `${days} days`);
     roundChanged(w, rid, 'open');
     res.status(201).json({ round: roundView(res, roundRow(db, w, rid)) });
@@ -542,6 +551,7 @@ const P = (description: string) => ({ type: 'string', description });
 const feature: Feature = {
   id: 'downtime',
   schema: SCHEMA + EVENTS_SCHEMA,
+  migrate: migrateRounds,
   settings: {
     downtimeOn: { type: 'boolean', default: false },
     downtimeDayHours: { type: 'int', default: 8, min: 1, max: 24 },
@@ -549,6 +559,7 @@ const feature: Feature = {
     downtimeAdvanceClock: { type: 'boolean', default: true },
     downtimeAutoReward: { type: 'boolean', default: false },
     downtimeEventChance: { type: 'int', default: 10, min: 0, max: 100 },
+    downtimeTravelHours: { type: 'int', default: 2, min: 0, max: 24 },
     downtimeTierDays: { type: 'json', default: { ...DEFAULT_TIER_DAYS }, validate: checkTierDays },
     downtimePremade: { type: 'json', default: [], validate: checkPremade },
   },
@@ -646,8 +657,8 @@ const feature: Feature = {
     },
     {
       name: 'downtime_round', write: true, dmOnly: true,
-      description: 'Press Downtime: N days pass and every player gets a popup to pick their downtime (or skip, or make a new activity). Moves the world clock unless advance is false.',
-      props: { days: { type: 'integer', description: 'Days of downtime (default 1)' }, note: P('e.g. "Resting in Saltmarsh"'), advance: { type: 'boolean' } },
+      description: 'Press Downtime: N days pass and every player gets a popup to pick their downtime (or skip, or make a new activity). Moves the world clock unless advance is false. travel: true for days on the road, where only a few hours a day (the world\'s travel hours, or hours) go to downtime.',
+      props: { days: { type: 'integer', description: 'Days of downtime (default 1)' }, travel: { type: 'boolean', description: 'Travel days: only a few hours a day' }, hours: { type: 'integer', description: 'Travel: hours a day for downtime' }, note: P('e.g. "Resting in Saltmarsh"'), advance: { type: 'boolean' } },
       call: (a) => ({ method: 'POST', path: '/downtime/rounds', body: a }),
     },
     {

@@ -67,6 +67,25 @@ becomes a group one with `"group": true`. The DM sets this with a checkbox in
 the activity editor. A player sets it with the checkbox on a new activity.
 The DM can also assign one to "The whole party".
 
+## Several days at once, and travel days
+
+- **Several days at once:** the DM presses **Downtime** with the number of
+  days that passed, for example 5. Each player gets one popup for all five
+  days, with 5 × 8 = 40 hours to spread over their tasks. A daily task of an
+  hour or two fits beside a bigger one. The world clock moves 5 days in one
+  step. Random events roll per day (at most one per task).
+- **Travel days:** in D&D 5e, downtime is the time between adventures, so a
+  day on the road is not downtime. Many tables still let characters read,
+  practise or pray for a little while each day. Tick **Travel** on the
+  Downtime button: each day then gives only the world's travel hours (the
+  rule's `travelHours` option, `downtimeTravelHours`, 2 by default), and
+  every task moves at that pace. Setting it to 0 turns off downtime on the
+  road. The API takes `{ travel: true, hours? }`.
+- **The day cycle:** each round moves the world clock (unless the DM turns
+  that off). Every downtime day spent on a task sends the server event
+  `downtime-day`, so features that count study days (MANA's spell study) can
+  add them.
+
 ## Random events
 
 Something can happen on a downtime day: rats boil out of the cellar you are

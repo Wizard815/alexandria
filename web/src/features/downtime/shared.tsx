@@ -33,7 +33,7 @@ export const outcomeText = (o: Outcome | undefined): string => (!o ? '' : [
 ].filter(Boolean).join(', '));
 
 export interface Answer { accountId: string; name: string; waiting?: boolean; skipped?: boolean; picks?: { taskId: string; days: number; name: string }[]; at?: string }
-export interface Round { id: string; days: number; hours: number; status: 'open' | 'closed' | 'cancelled'; note: string; worldLabel: string; createdAt: string; answers?: Answer[]; mine?: Answer | null }
+export interface Round { id: string; days: number; hours: number; kind?: 'downtime' | 'travel'; hoursPerDay?: number; status: 'open' | 'closed' | 'cancelled'; note: string; worldLabel: string; createdAt: string; answers?: Answer[]; mine?: Answer | null }
 export interface Overview {
   on: boolean; dayHours: number; playerNew: 'approve' | 'free' | 'off'; advanceClock: boolean; now: string;
   tiers: { id: Tier; label: string; days: number }[]; round: Round | null; tasks: Task[]; events?: DtEvent[]; waitingRewards?: number; proposals?: number;
