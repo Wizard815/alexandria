@@ -41,12 +41,10 @@ your own app from scratch that does similar things, the license doesn't apply
 to it: features, ideas and game rules can't be owned. There is no "changed
 enough" line in between.
 
-## Older versions
+## Releases
 
-Alexandria had no releases before the switch. Commits on `main` up to
-`010222f` carried an MIT license file, so a copy someone made of those commits
-at the time came with MIT terms. Everything from the switch onward, and every
-release, is under the PolyForm Shield license.
+Every release of Alexandria is under the PolyForm Shield license. There has
+never been a release under another license.
 
 ## The name
 
