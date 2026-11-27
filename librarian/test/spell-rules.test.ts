@@ -431,19 +431,17 @@ test('SpellRules: studying a spell: the plan, days, DM approval, the final check
   assert.ok(!('schools' in flat));
   const named = await ok('GET', `${SP()}/tree?compact=1&q=hypnotic`, T.jess);
   assert.deepEqual(named.spells.map((s: any) => [s.name, s.status]), [['Hypnotic Pattern', 'studying']]);
-  // Any class may study any spell; one on their own class list earns a point a day more (learning.classBonus).
+  // Any class may study any spell; one on their own class list needs 25% fewer points (learning.classDiscount).
   const cls0 = (await ok('GET', `${SP()}/characters/me`, T.jess)).class ?? '';
-  await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: 'Wizard' });
+  await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: 'Cleric' });
   const names = (await ok('GET', `${SP()}/tree?compact=1&status=learn&limit=500`, T.jess)).spells.map((s: any) => s.name);
   assert.ok(names.includes('Eldritch Blast') && names.includes('Sacred Flame'), 'other classes\' cantrips are open too');
-  const off = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:eldritch-blast', source: 'alone' });
-  const on = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:ray-of-frost', source: 'alone' });
-  assert.deepEqual([off.ownClass, off.perDay, off.missing], [false, 1, []], 'no penalty off the list');
-  assert.deepEqual([on.ownClass, on.perDay, on.classBonus], [true, 2, 1]);
-  const misty = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:misty-step', source: 'text' });
+  const off = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:misty-step', source: 'text' });
+  assert.deepEqual([off.ownClass, off.needed, off.days, off.missing.filter((m: string) => /class/.test(m))], [false, 5, { alone: 5, text: 3, mentor: 2 }, []], 'no penalty off the list');
   await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: 'Paladin 4 / Wizard 6' });
-  assert.equal((await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:misty-step', source: 'text' })).perDay, 3, 'a multiclass has both lists');
-  assert.equal(misty.perDay, 3);
+  const on = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:misty-step', source: 'text' });
+  assert.deepEqual([on.ownClass, on.classDiscount, on.needed], [true, 0.25, 4], 'a multiclass has both lists');
+  await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: cls0 });
   // A DownTime task linked to the study: each 8 hours worked is a study day, the rest carries over.
   const eb = await ok('POST', `${SP()}/study`, T.jess, { spellId: 'srd:eldritch-blast', source: 'alone' });
   hub.emit(W, 'downtime-day', { accountId: ID.jess, minutes: 200, link: { kind: 'spell-study', ref: eb.id } }, () => false);

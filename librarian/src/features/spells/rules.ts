@@ -79,8 +79,8 @@ export interface SpellRules {
     /** Study points per 8-hour day. */
     rates: Record<StudySource, number>;
     labBonus: number;
-    /** Extra study points a day for a spell on the character's own class list (0 turns it off). Any class may study any spell. */
-    classBonus: number;
+    /** Share of the study points taken off a spell on the character's own class list (0 turns it off). Any class may study any spell. */
+    classDiscount: number;
     /** Materials = materialsPerC2 × C² coin; a mentor charges mentorFeeMultiplier × that again. */
     materialsPerC2: number;
     mentorFeeMultiplier: number;
@@ -138,7 +138,7 @@ export const DEFAULT_SPELL_RULES: SpellRules = {
     maxDiscount: 0.2,
     rates: { alone: 1, text: 2, mentor: 3 },
     labBonus: 1,
-    classBonus: 1,
+    classDiscount: 0.25,
     materialsPerC2: 10,
     mentorFeeMultiplier: 1,
     checkDC: [10, 13, 13, 15, 15, 18, 18, 22, 22, 22],
@@ -414,15 +414,15 @@ export function fuseInsight(recipePrereqs: string[], a: string, b: string, banke
 export const complexity = (level: number, costs: number[], own?: number | null): number => Math.max(1, own ?? costs[level] ?? 0);
 
 /** Study points a spell needs. `extraSpells` = recipe spells beyond the tier minimum. */
-export function studyPoints(c: number, opts: { hybrid?: boolean; extraSpells?: number }, r: SpellRules): number {
+export function studyPoints(c: number, opts: { hybrid?: boolean; extraSpells?: number; ownClass?: boolean }, r: SpellRules): number {
   const L = r.learning;
   const discount = Math.min(L.maxDiscount, Math.max(0, opts.extraSpells ?? 0) * L.discountPerExtraSpell);
-  return Math.max(1, Math.ceil(Math.ceil((c * c) / L.pointsDivisor) * (opts.hybrid ? L.hybridMultiplier : 1) * (1 - discount) - 1e-9));
+  const own = opts.ownClass ? 1 - Math.min(0.9, Math.max(0, L.classDiscount ?? 0)) : 1;
+  return Math.max(1, Math.ceil(Math.ceil((c * c) / L.pointsDivisor) * (opts.hybrid ? L.hybridMultiplier : 1) * (1 - discount) * own - 1e-9));
 }
 
 /** Progress per 8-hour day from a study source, with or without a lab. */
-/** Study points a day: the source's rate, plus the lab bonus, plus the class bonus for a spell on their own class list. */
-export const dailyProgress = (source: StudySource, lab: boolean, r: SpellRules, ownClass = false): number => r.learning.rates[source] + (lab ? r.learning.labBonus : 0) + (ownClass ? r.learning.classBonus ?? 0 : 0);
+export const dailyProgress = (source: StudySource, lab: boolean, r: SpellRules): number => r.learning.rates[source] + (lab ? r.learning.labBonus : 0);
 
 /** Days to finish from `banked` points. */
 export const studyDays = (needed: number, banked: number, perDay: number): number => (perDay > 0 ? Math.ceil(Math.max(0, needed - banked) / perDay) : Infinity);

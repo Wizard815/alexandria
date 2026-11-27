@@ -405,7 +405,7 @@ async function spellContext(d: Deps, c: Caller, text: string): Promise<string> {
     L.push(open.length ? `They can START studying now (${open.length}): ${shown}${n < open.length ? `, and ${open.length - n} more (my_spell_tree lists them)` : ''}.` : 'They can start studying no spell right now.');
     const st = by(['studying', 'stopped']);
     if (st.length) L.push(`Studying: ${st.map((x: any) => `${x.name} (${x.study ? `${x.study.banked}/${x.study.needed} points` : ''}${x.status === 'stopped' ? ', paused' : ''})`).join(', ')}.`);
-    L.push('Study: each 8-hour downtime day earns 1 point alone, 2 with a text, 3 with a mentor (+1 in a lab); +1 a day for a spell on their own class list (any class may study any spell); a final check (d20 + casting modifier + proficiency) when the points are in. Spells not listed as "can start" are locked or out of reach: do not offer them.');
+    L.push('Study: each 8-hour downtime day earns 1 point alone, 2 with a text, 3 with a mentor (+1 in a lab); a spell on their own class list needs 25% fewer points (any class may study any spell); a final check (d20 + casting modifier + proficiency) when the points are in. Spells not listed as "can start" are locked or out of reach: do not offer them.');
     // Spells the message names: their plan (days and gold each way) and cast cost.
     const lower = text.toLowerCase();
     const named = (tree.spells ?? []).filter((x: any) => lower.includes(String(x.name).toLowerCase())).slice(0, 2);
@@ -418,7 +418,7 @@ async function spellContext(d: Deps, c: Caller, text: string): Promise<string> {
       }
       const p = await post(d, c, '/spells/study/plan', { spellId: x.id, source: 'text' });
       if (!p) continue;
-      L.push(`Studying ${x.name} (${lv(x.level)}): ${p.needed} points; alone ${p.days.alone ?? '-'} days / ${p.gold.alone} gp, with a text ${p.days.text ?? '-'} days / ${p.gold.text} gp, with a mentor ${p.days.mentor ?? '-'} days / ${p.gold.mentor} gp;${p.ownClass ? ` (on their own class list: +${p.classBonus} point a day, already in these days)` : ''} final check DC ${p.finalDC} (they roll d20 + ${p.checkBonus})${p.arcanaDC !== null ? `; an Arcana check DC ${p.arcanaDC} to start` : ''}; a scroll of it adds ${p.scrollPoints} points.${p.missing.length ? ` Still missing before they can start: ${p.missing.join('; ')}.` : ' They can start it now.'}`);
+      L.push(`Studying ${x.name} (${lv(x.level)}): ${p.needed} points; alone ${p.days.alone ?? '-'} days / ${p.gold.alone} gp, with a text ${p.days.text ?? '-'} days / ${p.gold.text} gp, with a mentor ${p.days.mentor ?? '-'} days / ${p.gold.mentor} gp;${p.ownClass ? ` (on their own class list: ${Math.round(p.classDiscount * 100)}% fewer points, already in these numbers)` : ''} final check DC ${p.finalDC} (they roll d20 + ${p.checkBonus})${p.arcanaDC !== null ? `; an Arcana check DC ${p.arcanaDC} to start` : ''}; a scroll of it adds ${p.scrollPoints} points.${p.missing.length ? ` Still missing before they can start: ${p.missing.join('; ')}.` : ' They can start it now.'}`);
     }
   }
   return L.length ? `This player's spells (from their Codex; trust these numbers):\n${L.join('\n')}` : '';

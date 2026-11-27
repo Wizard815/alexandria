@@ -159,10 +159,11 @@ by tier (and as a list).
 
 **School paths and class lists.** With the rules engine on, a spell no recipe
 teaches is taught by its school (`spellSchoolPaths`, on by default). Any class
-may study any spell. A spell on the character's own class list earns
-`learning.classBonus` more study points a day (1 by default; 0 turns it off),
-and there is no penalty for the rest. A multiclass character ("Wizard 6 /
-Paladin 4") gets the bonus on both lists.
+may study any spell. A spell on the character's own class list needs
+`learning.classDiscount` fewer study points (0.25, a quarter, by default; 0
+turns it off), and there is no penalty for the rest. A wizard studying
+Fireball: alone 10 days, with a text 5, with a mentor 4 (off the list: 13, 7,
+5). A multiclass character ("Wizard 6 / Paladin 4") gets it on both lists.
 
 **The player's Codex** shows the spells they know (cast them), the recipes they
 can learn now (all met, highlighted), the next ones with what is missing (a

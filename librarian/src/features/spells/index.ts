@@ -102,8 +102,7 @@ function routes(d: Deps) {
     if (!x) return;
     const total = x.carryMin + Math.round(data.minutes);
     const n = Math.floor(total / STUDY_DAY_MIN);
-    const sp = spellById(db, worldId, x.spellId);
-    const per = dailyProgress(x.source, x.lab, rules.engine, !!sp && ownClass(sp, character(db, worldId, x.accountId).class));
+    const per = dailyProgress(x.source, x.lab, rules.engine);
     const banked = Math.min(x.needed, x.banked + n * per);
     saveStudy(db, worldId, x.id, { carryMin: total % STUDY_DAY_MIN, ...(n ? { banked, days: x.days + n, status: banked >= x.needed ? 'ready' : 'studying' } : {}) });
     if (n) logEntry(db, worldId, x.accountId, 'study', null, { spellId: x.spellId, note: `${n} downtime day${n === 1 ? '' : 's'} of study (DownTime)` });
@@ -922,8 +921,7 @@ function routes(d: Deps) {
     const text = String(cls ?? '').toLowerCase();
     return !!text.trim() && (sp.classes ?? []).some((x) => { const w = String(x).toLowerCase().replace(/[^a-z ]/g, ''); return !!w && new RegExp(`\\b${w}\\b`).test(text); });
   }
-  /** Study points a day for a study, with the class bonus when the spell is on their class list. */
-  const studyRate = (res: Response, x: Study) => { const sp = spellById(db, W(res), x.spellId); return dailyProgress(x.source, x.lab, R(res).engine!, !!sp && ownClass(sp, character(db, W(res), x.accountId).class)); };
+  const studyRate = (res: Response, x: Study) => dailyProgress(x.source, x.lab, R(res).engine!);
 
   function schoolPath(res: Response, sp: WorldSpell, known: Set<string>) {
     const lof = linesOfSpells(db, W(res));
@@ -955,13 +953,13 @@ function routes(d: Deps) {
     let arcanaDC: number | null = null;
     if (known.has(sp.id)) missing.push('already known');
     if (!rc && !school) missing.push('no recipe teaches this spell yet (ask the DM)');
-    // Any class may study any spell; one on their own class list goes faster (learning.classBonus a day).
+    // Any class may study any spell; one on their own class list needs fewer points (learning.classDiscount).
     const onList = ownClass(sp, c.class);
     const own = sp.manaOverride ?? sp.manaCost ?? null;
     const cx = complexity(sp.level, rules.costs, own);
     const spellLines = linesOfSpells(db, W(res)).get(sp.id) ?? [];
     const hybrid = isHybrid(spellLines);
-    const needed = studyPoints(cx, { hybrid, extraSpells: rc ? extraRecipeSpells(rc.prereqs.length, sp.level, e) : 0 }, e);
+    const needed = studyPoints(cx, { hybrid, extraSpells: rc ? extraRecipeSpells(rc.prereqs.length, sp.level, e) : 0, ownClass: ownClass(sp, c.class) }, e);
     const coin = studyCoin(cx, source, e);
     if (rc || school) {
       if (rc) { const el = eligibility(db, W(res), rc, c, known, nameOf(res), { on: false, now: null }); for (const m of el.missing) missing.push(missingText(m)); }
@@ -980,10 +978,10 @@ function routes(d: Deps) {
         missing.push(gateText(g));
       }
     }
-    const per = dailyProgress(source, lab, e, onList);
-    const days = Object.fromEntries(STUDY_SOURCES.map((x) => [x, studyDays(needed, 0, dailyProgress(x, lab, e, onList))]));
+    const per = dailyProgress(source, lab, e);
+    const days = Object.fromEntries(STUDY_SOURCES.map((x) => [x, studyDays(needed, 0, dailyProgress(x, lab, e))]));
     const bonus = (() => { const sc = castingScore(c); return (sc === null ? 0 : Math.floor((sc - 10) / 2)) + proficiency(c.level); })();
-    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : school ? { id: school.id, prereqs: [school.text] } : null, source, lab, ownClass: onList, classBonus: onList ? e.learning.classBonus ?? 0 : 0, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
+    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : school ? { id: school.id, prereqs: [school.text] } : null, source, lab, ownClass: onList, classDiscount: onList ? e.learning.classDiscount ?? 0 : 0, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
   }
 
   const studyOut = (res: Response, x: Study) => ({ ...x, name: nameOf(res)(x.spellId), perDay: studyRate(res, x), daysLeft: studyDays(x.needed, x.banked, studyRate(res, x)) });
