@@ -87,14 +87,16 @@ export function PieceChips<P extends { kind: string }>({ pieces, kinds }: { piec
 }
 
 /** DC, or a DC range "from–to": the DC is picked from it when the player rolls. */
-export function DcInputs({ dc, dcMax, onChange }: { dc: number | null; dcMax: number | null | undefined; onChange: (dc: number | null, dcMax: number | null) => void }) {
+export function DcInputs({ dc, dcMax, onChange, range = true }: { dc: number | null; dcMax: number | null | undefined; onChange: (dc: number | null, dcMax: number | null) => void; range?: boolean }) {
   const num = (v: string) => Number(v.replace(/\D/g, '').slice(0, 2)) || null;
   return (
     <span className="blk-dc">
       <span className="small">DC</span>
-      <input className="input blk-num-in" inputMode="numeric" aria-label="DC from" value={dc ?? ''} onChange={(e) => onChange(num(e.target.value), dcMax ?? null)} />
-      <span className="small">to</span>
-      <input className="input blk-num-in" inputMode="numeric" aria-label="DC to" placeholder="–" value={dcMax ?? ''} onChange={(e) => onChange(dc, num(e.target.value))} />
+      <input className="input blk-num-in" inputMode="numeric" aria-label={range ? 'DC from' : 'DC'} value={dc ?? ''} onChange={(e) => onChange(num(e.target.value), dcMax ?? null)} />
+      {range && <>
+        <span className="small">to</span>
+        <input className="input blk-num-in" inputMode="numeric" aria-label="DC to" placeholder="–" value={dcMax ?? ''} onChange={(e) => onChange(dc, num(e.target.value))} />
+      </>}
     </span>
   );
 }
@@ -112,12 +114,12 @@ export const dcText = (dc: number | null, dcMax?: number | null) => (dc === null
  * the skill (a game picker). Read-only when onChange is left out.
  *
  * noRoll: "no roll, it just happens": no skill or DC, and only the pass slot, shown as "What happens". onNoRoll adds
- * the switch between the two.
+ * the switch between the two. range={false}: a single DC, with no "to" box.
  */
-export function CheckBlock({ skill, dc, dcMax, onChange, onRemove, pass, fail, head, help, noRoll = false, onNoRoll, testid = 'blk-check' }: {
+export function CheckBlock({ skill, dc, dcMax, onChange, onRemove, pass, fail, head, help, noRoll = false, onNoRoll, range = true, testid = 'blk-check' }: {
   skill: string | null; dc: number | null; dcMax?: number | null;
   onChange?: (v: { skill: string | null; dc: number | null; dcMax: number | null }) => void; onRemove?: () => void;
-  pass: ReactNode; fail?: ReactNode; head?: ReactNode; help?: ReactNode; noRoll?: boolean; onNoRoll?: (v: boolean) => void; testid?: string;
+  pass: ReactNode; fail?: ReactNode; head?: ReactNode; help?: ReactNode; noRoll?: boolean; onNoRoll?: (v: boolean) => void; range?: boolean; testid?: string;
 }) {
   if (!onChange && noRoll) {
     return <div className="blk blk-tone-gold" data-testid={testid}><i className="fa-solid fa-bolt blk-ico" aria-hidden="true" /><span className="blk-outcomes">{pass}</span></div>;
@@ -145,7 +147,7 @@ export function CheckBlock({ skill, dc, dcMax, onChange, onRemove, pass, fail, h
         {!noRoll && <>
           <input className="input blk-grow" aria-label="Skill" placeholder="Skill (Athletics)" list="blk-skills" value={skill ?? ''} maxLength={40} onChange={(e) => onChange({ skill: e.target.value || null, dc, dcMax: dcMax ?? null })} />
           <SkillList />
-          <DcInputs dc={dc} dcMax={dcMax} onChange={(a, b) => onChange({ skill, dc: a, dcMax: b })} />
+          <DcInputs dc={dc} dcMax={dcMax} range={range} onChange={(a, b) => onChange({ skill, dc: a, dcMax: b })} />
         </>}
         {onRemove && <button type="button" className="btn ghost small blk-x" aria-label="Remove the check" onClick={onRemove}>✕</button>}
       </div>

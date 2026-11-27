@@ -81,3 +81,117 @@ export async function draftEncounter(d: Deps, prompt: string, worldName: string,
     return { ...base, note: `The model's draft did not hold together (${String(e?.message ?? e).slice(0, 120)}), so this is a plain starting point to edit.` };
   }
 }
+
+// ---------------- fill in the blanks ----------------
+
+const FILL_SYSTEM = [
+  'You help a DM finish a half-written event for the tabletop campaign app Alexandria. You get the event as JSON: steps ("nodes") with what happens ("text"), the player\'s answers ("options", each with "label", "next" and "effects") and sometimes a skill check ("game").',
+  'Fill in ONLY what is empty: an empty "text", an empty answer "label", a check with no "skill", an item with no "name", a DM note ("dmnote") with no "text", and the "name", "npcName" or "npcBlurb" when they are empty. A step with no answers and no check may get 2 or 3 answers. An answer with no effects may get one small effect if it clearly fits (a DM note for a consequence, a little coin).',
+  'Keep every field that already has a value exactly as it is. Keep every step id, every "next", "win" and "lose" link, and the order of the answers. Do not add or remove steps. Never invent campaign facts beyond what the DM wrote.',
+  'Effects: {"kind": "gold", "cp": 1-100}, {"kind": "pay", "cp": n}, {"kind": "lose", "cp": n}, {"kind": "item", "name": "...", "qty": 1, "note": "..."}, {"kind": "dmnote", "text": "a consequence only the DM sees"}.',
+  'Return the whole event as one JSON object: {"name": "...", "npcName": "...", "npcBlurb": "...", "script": {"start": "...", "nodes": [...]}}.',
+].join('\n');
+
+export interface FillInput { script: any; name?: string; npcName?: string; npcBlurb?: string; kind?: EncounterKind; hint?: string; step?: string | null }
+export interface FillResult { script: any; name: string; npcName: string; npcBlurb: string; filled: number; usedModel: boolean; note: string | null }
+
+const blank = (v: unknown) => typeof v !== 'string' || !v.trim();
+const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+
+/** The DM's half-written script in a safe shape: nothing required, nothing longer than the limits. */
+export function looseScript(v: any): any {
+  const nodes = (Array.isArray(v?.nodes) ? v.nodes : []).slice(0, LIMITS.nodes).filter((n: any) => n && typeof n === 'object' && typeof n.id === 'string').map((n: any) => ({
+    ...n,
+    text: typeof n.text === 'string' ? n.text.slice(0, LIMITS.text) : '',
+    options: (Array.isArray(n.options) ? n.options : []).slice(0, LIMITS.options).filter((o: any) => o && typeof o === 'object').map((o: any) => ({
+      label: typeof o.label === 'string' ? o.label.slice(0, LIMITS.label) : '', next: typeof o.next === 'string' && o.next ? o.next : null,
+      effects: (Array.isArray(o.effects) ? o.effects : []).slice(0, LIMITS.effects).filter((e: any) => e && typeof e === 'object'),
+    })),
+    game: n.game && typeof n.game === 'object' ? n.game : null,
+  }));
+  return { start: typeof v?.start === 'string' ? v.start : nodes[0]?.id ?? '', nodes };
+}
+
+const fillEffect = (e: any, m: any): [any, boolean] => {
+  if (!m || typeof m !== 'object' || m.kind !== e.kind) return [e, false];
+  if (e.kind === 'item' && blank(e.name) && str(m.name, LIMITS.label)) return [{ ...e, name: str(m.name, LIMITS.label), ...(blank(e.note) && str(m.note, 200) ? { note: str(m.note, 200) } : {}) }, true];
+  if (e.kind === 'dmnote' && blank(e.text) && str(m.text, 300)) return [{ ...e, text: str(m.text, 300) }, true];
+  return [e, false];
+};
+
+/** A small effect the model added to an answer that had none, if it is one of the plain kinds and in bounds. */
+const newEffect = (m: any): any | null => {
+  if (!m || typeof m !== 'object') return null;
+  const cp = Number(m.cp);
+  if ((m.kind === 'gold' || m.kind === 'pay' || m.kind === 'lose') && Number.isInteger(cp) && cp >= 1 && cp <= 100) return { kind: m.kind, cp };
+  if (m.kind === 'dmnote' && str(m.text, 300)) return { kind: 'dmnote', text: str(m.text, 300) };
+  if (m.kind === 'item' && str(m.name, LIMITS.label)) return { kind: 'item', name: str(m.name, LIMITS.label), qty: 1, ...(str(m.note, 200) ? { note: str(m.note, 200) } : {}) };
+  return null;
+};
+
+/**
+ * Take what the model filled in, but only into the blanks: every value the DM wrote stays, no step is added or
+ * removed, and links only point at steps that exist. With step, only that step is touched. Returns how many blanks
+ * were filled.
+ */
+export function mergeFill(orig: any, model: any, step: string | null = null): { script: any; filled: number } {
+  const s = looseScript(orig);
+  const ids = new Set<string>(s.nodes.map((n: any) => n.id));
+  const by = new Map<string, any>((Array.isArray(model?.nodes) ? model.nodes : []).filter((n: any) => n && typeof n === 'object').map((n: any) => [String(n.id), n]));
+  let filled = 0;
+  const nodes = s.nodes.map((n: any) => {
+    const m = by.get(n.id);
+    if (!m || (step && n.id !== step)) return n;
+    const out = { ...n };
+    if (blank(n.text) && str(m.text, LIMITS.text)) { out.text = str(m.text, LIMITS.text); filled++; }
+    const mo: any[] = Array.isArray(m.options) ? m.options : [];
+    if (!n.options.length && !n.game && mo.length) {
+      out.options = mo.slice(0, 3).map((o: any) => ({ label: str(o?.label, LIMITS.label), next: typeof o?.next === 'string' && ids.has(o.next) ? o.next : null, effects: (Array.isArray(o?.effects) ? o.effects : []).map(newEffect).filter(Boolean).slice(0, 1) })).filter((o: any) => o.label);
+      filled += out.options.length;
+    } else {
+      out.options = n.options.map((o: any, j: number) => {
+        const p = mo[j];
+        if (!p || typeof p !== 'object') return o;
+        const q = { ...o };
+        if (blank(o.label) && str(p.label, LIMITS.label)) { q.label = str(p.label, LIMITS.label); filled++; }
+        const pe: any[] = Array.isArray(p.effects) ? p.effects : [];
+        if (o.effects.length) q.effects = o.effects.map((e: any, k: number) => { const [v, did] = fillEffect(e, pe[k]); if (did) filled++; return v; });
+        else { const add = pe.map(newEffect).filter(Boolean).slice(0, 1); if (add.length) { q.effects = add; filled++; } }
+        return q;
+      });
+    }
+    if (n.game && n.game.kind === 'check' && blank(n.game.skill) && str(m.game?.skill, 40)) { out.game = { ...n.game, skill: str(m.game.skill, 40) }; filled++; }
+    return out;
+  });
+  return { script: { ...s, nodes }, filled };
+}
+
+/** Fill the blanks of a half-written event (or one step of it) with the chat model; the DM's own words stay. */
+export async function fillEncounter(d: Deps, worldName: string, o: FillInput): Promise<FillResult> {
+  const kind = o.kind ?? 'npc';
+  const s = looseScript(o.script);
+  const keep = { name: o.name ?? '', npcName: o.npcName ?? '', npcBlurb: o.npcBlurb ?? '' };
+  const none = (note: string): FillResult => ({ script: s, ...keep, filled: 0, usedModel: false, note });
+  if (!s.nodes.length) return none('There is nothing to fill in yet: add a step first.');
+  if (!hasJob(d, 'chat')) return none('No chat model is set up, so nothing was filled in.');
+  const messages: ChatMessage[] = [
+    { role: 'system', content: FILL_SYSTEM },
+    { role: 'user', content: [
+      `World: ${worldName.slice(0, 100)}`,
+      `This is ${kind === 'event' ? 'a quick event that happens to a player' : 'an NPC encounter'}.`,
+      o.step ? `Fill in only the step "${o.step}"; leave the other steps as they are.` : '',
+      o.hint ? `The DM adds: ${o.hint.slice(0, 500)}` : '',
+      JSON.stringify({ ...keep, script: s }).slice(0, 12_000),
+    ].filter(Boolean).join('\n') },
+  ];
+  const j: any = await chatJson(d, 'chat', messages, undefined, { maxTokens: 2500 }).catch(() => null);
+  if (!j || typeof j !== 'object') return { ...none('The model gave no usable answer, so nothing was filled in.'), usedModel: true };
+  const { script, filled } = mergeFill(s, j.script ?? (Array.isArray(j.nodes) ? j : null), o.step ?? null);
+  const head = o.step ? keep : {
+    name: keep.name.trim() ? keep.name : str(j.name, 120) ?? keep.name,
+    npcName: keep.npcName.trim() ? keep.npcName : str(j.npcName, 80) ?? keep.npcName,
+    npcBlurb: keep.npcBlurb.trim() ? keep.npcBlurb : str(j.npcBlurb, 300) ?? keep.npcBlurb,
+  };
+  const more = (['name', 'npcName', 'npcBlurb'] as const).filter((k) => head[k] !== keep[k]).length;
+  return { script, ...head, filled: filled + more, usedModel: true, note: filled + more ? null : 'The model left everything as it was.' };
+}

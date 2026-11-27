@@ -121,6 +121,12 @@ try {
   await last.getByLabel('Skill').fill('Persuasion');
   await last.getByRole('button', { name: '+ Timer' }).click();
   await last.getByTestId('blk-timer').waitFor();
+  // The assistant fills the blanks: the whole event, then one step. What the DM wrote stays.
+  await page.getByTestId('blk-fill').click();
+  await page.getByText(/Filled \d+ blank|nothing was filled in|left everything/).first().waitFor({ timeout: 20_000 });
+  check(await last.getByLabel('What happens').inputValue() === 'The stallholder squints at you.', 'filling changed what the DM wrote');
+  await last.getByTestId('blk-fill-step').click();
+  await page.getByTestId('blk-fill').and(page.locator(':enabled')).waitFor({ timeout: 20_000 });
   await page.screenshot({ path: path.join(tmpDir('story'), 'blocks.png') }).catch(() => {});
   await page.getByTestId('story-tweak').getByRole('button', { name: 'Back to the preview' }).click();
   await page.getByTestId('story-preview').getByRole('button', { name: 'Close' }).click();

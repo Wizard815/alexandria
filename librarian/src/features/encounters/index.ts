@@ -25,7 +25,7 @@ import { ctx, isDM, me, memberIds, names, settings } from '../../routes/_shared.
 import { playerVisible } from '../shop/shops.ts';
 import { stateOf as minervaState } from '../minerva/store.ts';
 import { memoryLog } from '../minerva/after.ts';
-import { draftEncounter } from './draft.ts';
+import { draftEncounter, fillEncounter } from './draft.ts';
 import { GAME_LABEL, KINDS, LIMITS, PLACES, PLACE_LABEL, STARTERS, cleanPlaces, parseScript, play, quickScript, starter as npcStarter, type EncounterKind, type Effect, type Node, type Place, type Script, type Starter } from './script.ts';
 import { EVENT_STARTERS } from './events.ts';
 
@@ -555,6 +555,14 @@ function routes(d: Deps) {
       if (!places.length && g.kind === 'event') places = cleanPlaces((g.spec as any).places);
     }
     res.json(await draftEncounter(d, prompt, ctx(res).world.name, { kind, guide, places }));
+  });
+  // Fill the blanks of a half-written event with the chat model; what the DM wrote stays.
+  // { script, name?, npcName?, npcBlurb?, kind?, hint?, step?: one step's id to fill only that step }.
+  r.post('/templates/fill', requireDM, async (req, res) => {
+    const b = req.body ?? {};
+    if (!b.script || typeof b.script !== 'object') throw new HttpError(400, 'Send the event to fill in');
+    const opt = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : undefined);
+    res.json(await fillEncounter(d, ctx(res).world.name, { script: b.script, name: opt(b.name, 120), npcName: opt(b.npcName, 80), npcBlurb: opt(b.npcBlurb, 300), kind: kindOf(b.kind), hint: opt(b.hint, 500), step: opt(b.step, 40) ?? null }));
   });
   // ?kind=npc|event, ?place=woods: only those.
   r.get('/templates/all', requireDM, (req, res) => {

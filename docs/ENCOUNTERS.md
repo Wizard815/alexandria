@@ -167,6 +167,23 @@ answers and games. Loose links in the model's draft are repaired (a link to
 a missing step ends the talk). Nothing is saved or sent until you do. With
 no chat model, you get a plain one-step draft to edit.
 
+**Editing as blocks.** The editor (and the Tweak screen in Story events)
+shows the name, who or what it is about and the places as a compact header,
+then each step as a card of blocks: an answer with its effect chips, a check
+or game with a **Pass** and a **Fail** slot that each go to a step, and a
+timer. **+ Answer**, **+ Check** (which brings a pass step and a fail step
+ready to write) and **+ Timer** add to a step; **+ New step** in any "goes
+to" picker makes the step on the spot. The blocks come from the shared
+block kit in `web/src/ui/blocks.tsx`, which DownTime's event editor uses too.
+
+**Fill the blanks with the assistant.** Write as much as you like, leave
+the rest empty, and press **Fill the blanks** (the whole event) or **Fill**
+on one step, with an optional hint such as "make the fail step nastier".
+The chat model fills only what is empty: a step's text, answer labels, a
+check's skill, an item's name, an empty DM note, and answers for a step
+that has none. Everything you wrote stays, no step is added or removed, and
+links only go to steps that exist. Nothing is saved until you Save.
+
 Copy a starter to change it. Mark an encounter **Wander** to put it in the
 wandering pool.
 
@@ -217,6 +234,7 @@ Guests get 403 everywhere.
 | `GET/POST /templates/all`, `PUT/DELETE /templates/all/:tid` | DM: saved encounters and story events (`{kind: npc \| event, places}`); `GET ?kind=&place=` filters, and also returns the starters and the places |
 | `PUT /templates/fav/:tid` | DM: `{fav: true \| false}` stars a saved or built-in one; the lists return `fav` |
 | `POST /templates/draft` | DM: `{prompt, kind?, places?, guide?}`: a draft from the chat model, not saved; `guide` is a quick event template id |
+| `POST /templates/fill` | DM: `{script, name?, npcName?, npcBlurb?, kind?, hint?, step?}`: fills only the blanks of a half-written event (or one step) with the chat model; returns `{script, name, npcName, npcBlurb, filled, usedModel, note}`, not saved |
 
 Live event `encounter` `{id}` goes to the DM and that player; clients
 refetch. An open encounter on a timed step carries `timer: {secs, endsAt}`

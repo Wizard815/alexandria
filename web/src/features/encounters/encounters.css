@@ -35,3 +35,5 @@
 .blk-wander { margin-left: auto; align-items: center; gap: 8px; }
 /* The Tweak screen needs room for the blocks. */
 .modal:has(.enc-editor) { width: min(820px, 100%); }
+/* A "go to step" picker in a check's pass or fail slot (a column, so the kit's flex-basis would be its height). */
+.blk-slot > .blk-pick { flex: none; align-self: flex-start; width: auto; max-width: 100%; }

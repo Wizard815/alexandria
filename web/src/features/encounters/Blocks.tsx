@@ -4,10 +4,11 @@
 // DM edits looks like what they send. The data is the same script the server and the agent already use.
 import { useEffect, useState } from 'react';
 import { parseCoins } from '../../lib/format.ts';
+import { AddBar, Block, BlockRow, CheckBlock, Chip, FoldChip, Palette, StepCard, dcText } from '../../ui/blocks.tsx';
 import { GAME_HELP, type Effect, type Game, type GameKind, type Node, type Option, type Script } from './types.ts';
 
 export const GAME_NAME: Record<GameKind, string> = { coin: 'Coin toss', shells: 'Shell game', dice: 'Dice duel', check: 'Skill check' };
-export const dcLabel = (g: { dc: number | null; dcMax?: number | null }) => (g.dc === null ? 'DC ?' : `DC ${g.dc}${g.dcMax ? `–${g.dcMax}` : ''}`);
+export const dcLabel = (g: { dc: number | null; dcMax?: number | null }) => dcText(g.dc, g.dcMax);
 
 /** The steps in reading order: the start, then breadth first along answers and outcomes, then anything unreachable. */
 export function stepOrder(s: Script): Node[] {
@@ -39,45 +40,34 @@ function GoTo({ to, n }: { to: string | null; n: Map<string, number> }) {
 }
 
 function FxChip({ fx, money }: { fx: Effect; money: (cp: number) => string }) {
-  const [open, setOpen] = useState(false);
-  if (fx.kind === 'gold') return <span className="chip green"><i className="fa-solid fa-coins" aria-hidden="true" /> +{money(fx.cp)}</span>;
-  if (fx.kind === 'pay') return <span className="chip red"><i className="fa-solid fa-hand-holding-dollar" aria-hidden="true" /> pays {money(fx.cp)}</span>;
-  if (fx.kind === 'lose') return <span className="chip red"><i className="fa-solid fa-coins" aria-hidden="true" /> −{money(fx.cp)}</span>;
-  if (fx.kind === 'item') return <span className="chip gold" title={fx.note}><i className="fa-solid fa-sack-xmark" aria-hidden="true" /> {fx.qty > 1 ? `${fx.qty} × ` : ''}{fx.name}</span>;
-  if (fx.kind === 'shop') return <span className="chip"><i className="fa-solid fa-store" aria-hidden="true" /> shop</span>;
-  return (
-    <button type="button" className={`chip teal blk-note${open ? ' open' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)} title={open ? 'Hide the DM note' : fx.text}>
-      <i className="fa-solid fa-note-sticky" aria-hidden="true" /> {open ? fx.text : 'DM note'}
-    </button>
-  );
+  if (fx.kind === 'gold') return <Chip tone="green" icon="fa-coins">+{money(fx.cp)}</Chip>;
+  if (fx.kind === 'pay') return <Chip tone="red" icon="fa-hand-holding-dollar">pays {money(fx.cp)}</Chip>;
+  if (fx.kind === 'lose') return <Chip tone="red" icon="fa-coins">−{money(fx.cp)}</Chip>;
+  if (fx.kind === 'item') return <Chip tone="gold" icon="fa-sack-xmark" title={fx.note}>{fx.qty > 1 ? `${fx.qty} × ` : ''}{fx.name}</Chip>;
+  if (fx.kind === 'shop') return <Chip icon="fa-store">shop</Chip>;
+  return <FoldChip label="DM note" text={fx.text} />;
 }
 
 /** One step, read-only: what happens, its timer, its check or game, and its answers. */
 function FlowStep({ n, i, start, nums, money }: { n: Node; i: number; start: boolean; nums: Map<string, number>; money: (cp: number) => string }) {
+  const g = n.game;
+  const stakes = g ? `${g.stakeCp ? ` · stake ${money(g.stakeCp)}` : ''}${g.winCp ? ` · win ${money(g.winCp)}` : ''}` : '';
   return (
-    <li className="blk-step" id={`flow-${n.id}`} data-testid="flow-step">
-      <div className="blk-head">
-        <span className="blk-num">{i}</span>
-        <strong>{start ? 'Start' : stepName(n.id)}</strong>
-        {n.timer && <span className="chip gold blk-timer" title="Timed"><i className="fa-solid fa-stopwatch" aria-hidden="true" /> {n.timer.secs}s</span>}
-      </div>
+    <StepCard num={i} anchor={`flow-${n.id}`} title={<strong>{start ? 'Start' : stepName(n.id)}</strong>}
+      badges={n.timer && <span className="chip gold blk-timer" title="Timed"><i className="fa-solid fa-stopwatch" aria-hidden="true" /> {n.timer.secs}s</span>}>
       <p className="blk-text">{n.text}</p>
-      {n.game && (
-        <div className="blk blk-check">
-          <span className="blk-label"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> {n.game.kind === 'check' ? `${n.game.skill || 'Skill'} · ${dcLabel(n.game)}` : GAME_NAME[n.game.kind]}{n.game.stakeCp ? ` · stake ${money(n.game.stakeCp)}` : ''}{n.game.winCp ? ` · win ${money(n.game.winCp)}` : ''}</span>
-          <span className="blk-outcomes"><span className="blk-ok">✓</span> <GoTo to={n.game.win} n={nums} /> <span className="blk-bad">✗</span> <GoTo to={n.game.lose} n={nums} /></span>
-        </div>
-      )}
+      {g && <CheckBlock skill={g.skill} dc={g.dc} dcMax={g.dcMax} head={g.kind === 'check' ? `${g.skill || 'Skill'} · ${dcLabel(g)}${stakes}` : `${GAME_NAME[g.kind]}${stakes}`}
+        pass={<GoTo to={g.win} n={nums} />} fail={<GoTo to={g.lose} n={nums} />} />}
       {n.options.map((o, j) => (
-        <div key={j} className="blk blk-answer">
+        <Block key={j} tone="gold">
           <span className="blk-label">{o.label}</span>
           {o.effects.map((fx, k) => <FxChip key={k} fx={fx} money={money} />)}
-          {n.timer && n.timer.fallback === j && <span className="chip" title="Picked when time runs out"><i className="fa-solid fa-hourglass-end" aria-hidden="true" /> if time runs out</span>}
+          {n.timer && n.timer.fallback === j && <Chip icon="fa-hourglass-end" title="Picked when time runs out">if time runs out</Chip>}
           <GoTo to={o.next} n={nums} />
-        </div>
+        </Block>
       ))}
-      {n.timer && n.timer.fallback === -1 && n.game && <span className="tiny faint"><i className="fa-solid fa-hourglass-end" aria-hidden="true" /> Out of time: the {n.game.kind === 'check' ? 'check' : 'game'} fails.</span>}
-    </li>
+      {n.timer && n.timer.fallback === -1 && g && <span className="tiny faint"><i className="fa-solid fa-hourglass-end" aria-hidden="true" /> Out of time: the {g.kind === 'check' ? 'check' : 'game'} fails.</span>}
+    </StepCard>
   );
 }
 
@@ -119,9 +109,13 @@ function GoPicker({ order, value, onChange, onNew, required, label = 'Goes to' }
   );
 }
 
-const FX_ADD: [Effect['kind'], string, Effect][] = [
-  ['gold', 'Coin', { kind: 'gold', cp: 10 }], ['pay', 'They pay', { kind: 'pay', cp: 10 }], ['lose', 'They lose', { kind: 'lose', cp: 10 }],
-  ['item', 'Item', { kind: 'item', name: '', qty: 1 }], ['dmnote', 'DM note', { kind: 'dmnote', text: '' }], ['shop', 'Shop', { kind: 'shop', shopId: '' }],
+const FX_ADD: { key: Effect['kind']; label: string; icon: string; make: () => Effect }[] = [
+  { key: 'gold', label: 'Coin', icon: 'fa-coins', make: () => ({ kind: 'gold', cp: 10 }) },
+  { key: 'pay', label: 'They pay', icon: 'fa-hand-holding-dollar', make: () => ({ kind: 'pay', cp: 10 }) },
+  { key: 'lose', label: 'They lose', icon: 'fa-coins', make: () => ({ kind: 'lose', cp: 10 }) },
+  { key: 'item', label: 'Item', icon: 'fa-sack-xmark', make: () => ({ kind: 'item', name: '', qty: 1 }) },
+  { key: 'dmnote', label: 'DM note', icon: 'fa-note-sticky', make: () => ({ kind: 'dmnote', text: '' }) },
+  { key: 'shop', label: 'Shop', icon: 'fa-store', make: () => ({ kind: 'shop', shopId: '' }) },
 ];
 
 function FxEdit({ fx, set, del, money, shops }: { fx: Effect; set: (fx: Effect) => void; del: () => void; money: (cp: number) => string; shops: { id: string; name: string }[] }) {
@@ -149,59 +143,63 @@ function FxEdit({ fx, set, del, money, shops }: { fx: Effect; set: (fx: Effect) 
 }
 
 function AnswerEdit({ o, set, del, order, onNew, money, shops, timedOut }: { o: Option; set: (o: Option) => void; del: () => void; order: Node[]; onNew: () => string; money: (cp: number) => string; shops: { id: string; name: string }[]; timedOut: boolean }) {
-  const [adding, setAdding] = useState(false);
   return (
-    <div className="blk blk-answer edit" data-testid="blk-answer">
-      <div className="blk-row">
+    <div className="blk blk-tone-gold edit" data-testid="blk-answer">
+      <BlockRow>
         <i className="fa-solid fa-comment blk-ico" aria-hidden="true" />
         <input className="input blk-grow" value={o.label} placeholder="What the player does" aria-label="Answer" onChange={(e) => set({ ...o, label: e.target.value })} maxLength={120} />
         <GoPicker order={order} value={o.next} onChange={(v) => set({ ...o, next: v })} onNew={onNew} />
         <button type="button" className="btn ghost small blk-x" aria-label="Remove answer" onClick={del}>✕</button>
-      </div>
+      </BlockRow>
       {timedOut && <span className="tiny faint"><i className="fa-solid fa-hourglass-end" aria-hidden="true" /> Picked for them when time runs out</span>}
       {o.effects.map((fx, k) => <FxEdit key={k} fx={fx} money={money} shops={shops} set={(f) => set({ ...o, effects: o.effects.map((x, m) => (m === k ? f : x)) })} del={() => set({ ...o, effects: o.effects.filter((_, m) => m !== k) })} />)}
-      {o.effects.length < 3 && (adding
-        ? <div className="blk-add">{FX_ADD.map(([k, l, v]) => <button key={k} type="button" className="btn ghost small" onClick={() => { set({ ...o, effects: [...o.effects, structuredClone(v)] }); setAdding(false); }}>+ {l}</button>)}<button type="button" className="btn ghost small" onClick={() => setAdding(false)}>Cancel</button></div>
-        : <button type="button" className="btn ghost small blk-addfx" onClick={() => setAdding(true)}>+ Effect</button>)}
+      {o.effects.length < 3 && <Palette items={FX_ADD} onAdd={(fx) => set({ ...o, effects: [...o.effects, fx] })} />}
     </div>
   );
 }
 
 function GameEdit({ g, set, del, order, onNewWin, onNewLose, money }: { g: Game; set: (g: Game) => void; del: () => void; order: Node[]; onNewWin: () => string; onNewLose: () => string; money: (cp: number) => string }) {
-  const num = (v: string) => Number(v.replace(/\D/g, '')) || null;
+  const kind = (
+    <select className="input blk-pick" aria-label="Kind of roll" value={g.kind} onChange={(e) => set({ ...g, kind: e.target.value as GameKind, dc: e.target.value === 'check' ? g.dc ?? 12 : null })}>
+      {(Object.keys(GAME_NAME) as GameKind[]).map((k) => <option key={k} value={k}>{GAME_NAME[k]}</option>)}
+    </select>
+  );
+  const pass = <GoPicker order={order} required value={g.win} onChange={(v) => set({ ...g, win: v ?? g.win })} onNew={onNewWin} label="On a pass go to" />;
+  const fail = <GoPicker order={order} required value={g.lose} onChange={(v) => set({ ...g, lose: v ?? g.lose })} onNew={onNewLose} label="On a fail go to" />;
+  const coin = (g.kind !== 'check' || g.stakeCp > 0 || g.winCp > 0) && (
+    <BlockRow>
+      <CoinInput label="Stake" cp={g.stakeCp} money={money} onChange={(cp) => set({ ...g, stakeCp: cp })} />
+      <CoinInput label="Win pays" cp={g.winCp} money={money} onChange={(cp) => set({ ...g, winCp: cp })} />
+    </BlockRow>
+  );
+  if (g.kind === 'check') {
+    return <>
+      <CheckBlock skill={g.skill} dc={g.dc} dcMax={g.dcMax} head={kind} help={GAME_HELP.check} pass={pass} fail={fail} onRemove={del}
+        onChange={(v) => set({ ...g, skill: v.skill, dc: v.dc, dcMax: v.dcMax })} />
+      {coin}
+    </>;
+  }
+  // A coin toss, shell game or dice duel: no skill or DC, the same pass and fail.
   return (
-    <div className="blk blk-check edit" data-testid="blk-check">
-      <div className="blk-row">
+    <div className="blk blk-tone-teal edit" data-testid="blk-check">
+      <BlockRow>
         <i className="fa-solid fa-dice-d20 blk-ico" aria-hidden="true" />
-        <select className="input blk-pick" aria-label="Kind of roll" value={g.kind} onChange={(e) => set({ ...g, kind: e.target.value as GameKind, dc: e.target.value === 'check' ? g.dc ?? 12 : null })}>
-          {(Object.keys(GAME_NAME) as GameKind[]).map((k) => <option key={k} value={k}>{GAME_NAME[k]}</option>)}
-        </select>
-        {g.kind === 'check' && <>
-          <input className="input blk-grow" aria-label="Skill" placeholder="Skill (Athletics)" value={g.skill ?? ''} maxLength={40} onChange={(e) => set({ ...g, skill: e.target.value || null })} />
-          <span className="small">DC</span>
-          <input className="input blk-num-in" inputMode="numeric" aria-label="DC from" value={g.dc ?? ''} onChange={(e) => set({ ...g, dc: num(e.target.value) })} />
-          <span className="small">to</span>
-          <input className="input blk-num-in" inputMode="numeric" aria-label="DC to" placeholder="–" value={g.dcMax ?? ''} onChange={(e) => set({ ...g, dcMax: num(e.target.value) })} />
-        </>}
+        {kind}
         <button type="button" className="btn ghost small blk-x" aria-label="Remove the roll" onClick={del}>✕</button>
-      </div>
+      </BlockRow>
       <span className="tiny faint">{GAME_HELP[g.kind]}</span>
-      <div className="blk-row">
-        <span className="blk-ok">✓ Pass</span><GoPicker order={order} required value={g.win} onChange={(v) => set({ ...g, win: v ?? g.win })} onNew={onNewWin} label="On a pass go to" />
-        <span className="blk-bad">✗ Fail</span><GoPicker order={order} required value={g.lose} onChange={(v) => set({ ...g, lose: v ?? g.lose })} onNew={onNewLose} label="On a fail go to" />
-      </div>
-      {(g.kind !== 'check' || g.stakeCp > 0 || g.winCp > 0) && (
-        <div className="blk-row">
-          <CoinInput label="Stake" cp={g.stakeCp} money={money} onChange={(cp) => set({ ...g, stakeCp: cp })} />
-          <CoinInput label="Win pays" cp={g.winCp} money={money} onChange={(cp) => set({ ...g, winCp: cp })} />
-        </div>
-      )}
+      <div className="blk-outcome blk-outcome-pass"><span className="blk-ok">✓ Win</span><div className="blk-slot">{pass}</div></div>
+      <div className="blk-outcome blk-outcome-fail"><span className="blk-bad">✗ Lose</span><div className="blk-slot">{fail}</div></div>
+      {coin}
     </div>
   );
 }
 
-/** Every step of a script as editable block cards, in reading order. */
-export function StepBlocks({ script, setScript, money, shops, eventKind }: { script: Script; setScript: (s: Script) => void; money: (cp: number) => string; shops: { id: string; name: string }[]; eventKind: boolean }) {
+/** Every step of a script as editable block cards, in reading order. onFill adds a "Fill" button to each step. */
+export function StepBlocks({ script, setScript, money, shops, eventKind, onFill, filling = null }: {
+  script: Script; setScript: (s: Script) => void; money: (cp: number) => string; shops: { id: string; name: string }[]; eventKind: boolean;
+  onFill?: (step: string) => void; filling?: string | null;
+}) {
   const order = stepOrder(script);
   const ids = script.nodes.map((n) => n.id);
   const setNode = (id: string, n: Node) => {
@@ -227,29 +225,32 @@ export function StepBlocks({ script, setScript, money, shops, eventKind }: { scr
       {order.map((n, i) => {
         const put = (m: Node) => setNode(n.id, m);
         const patch = (s: Script, m: (x: Node) => Node) => ({ ...s, nodes: s.nodes.map((x) => (x.id === n.id ? m(x) : x)) });
+        const addCheck = () => {
+          // A new check comes with a step for each outcome, ready to write.
+          const win = slug(`${n.id}-pass`, ids), lose = slug(`${n.id}-fail`, [...ids, win]);
+          const s = patch(script, (x) => ({ ...x, game: { kind: 'check', skill: null, dc: 10, dcMax: 14, stakeCp: 0, winCp: 0, win, lose } }));
+          setScript({ ...s, nodes: [...s.nodes, { id: win, text: '', options: [], game: null }, { id: lose, text: '', options: [], game: null }] });
+        };
         return (
-          <li key={script.nodes.indexOf(n)} className="blk-step edit" id={`flow-${n.id}`} data-testid="blk-step" data-step={n.id}>
-            <div className="blk-head">
-              <span className="blk-num">{i + 1}</span>
-              <input className="input blk-id" aria-label="Step name" value={n.id} onChange={(e) => put({ ...n, id: e.target.value.replace(/[^\w-]/g, '').slice(0, 40) || n.id })} />
+          <StepCard key={script.nodes.indexOf(n)} num={i + 1} anchor={`flow-${n.id}`} edit testid="blk-step" data={{ step: n.id }}
+            title={<input className="input blk-id" aria-label="Step name" value={n.id} onChange={(e) => put({ ...n, id: e.target.value.replace(/[^\w-]/g, '').slice(0, 40) || n.id })} />}
+            badges={<>
               {n.id === script.start ? <span className="chip gold">Start</span> : <button type="button" className="btn ghost small" onClick={() => setScript({ ...script, start: n.id })}>Make start</button>}
+              {onFill && <button type="button" className="btn ghost small" disabled={filling !== null} onClick={() => onFill(n.id)} title="Fill this step's blanks with the assistant" data-testid="blk-fill-step">
+                <i className={`fa-solid ${filling === n.id ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} aria-hidden="true" /> Fill</button>}
               {script.nodes.length > 1 && <button type="button" className="btn ghost small blk-x" aria-label={`Remove step ${i + 1}`} onClick={() => del(n.id)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>}
-            </div>
+            </>}>
             <textarea className="input blk-text" rows={2} aria-label={eventKind ? 'What happens' : 'What the NPC says'} placeholder={eventKind ? 'What happens, in a sentence or two' : 'What the NPC says'} value={n.text} onChange={(e) => put({ ...n, text: e.target.value })} maxLength={1000} />
 
             {n.timer && (
-              <div className="blk blk-timer edit" data-testid="blk-timer">
-                <div className="blk-row">
-                  <i className="fa-solid fa-stopwatch blk-ico" aria-hidden="true" />
-                  <input className="input blk-num-in" inputMode="numeric" aria-label="Seconds to answer" value={n.timer.secs} onChange={(e) => put({ ...n, timer: { ...n.timer!, secs: Math.min(600, Number(e.target.value.replace(/\D/g, '')) || 0) } })} />
-                  <span className="small">seconds, then</span>
-                  <select className="input blk-pick" aria-label="If time runs out" value={n.timer.fallback} onChange={(e) => put({ ...n, timer: { ...n.timer!, fallback: Number(e.target.value) } })}>
-                    {n.game && <option value={-1}>{n.game.kind === 'check' ? 'the check fails' : 'they lose the game'}</option>}
-                    {n.options.map((o, j) => <option key={j} value={j}>“{o.label || `Answer ${j + 1}`}”</option>)}
-                  </select>
-                  <button type="button" className="btn ghost small blk-x" aria-label="Remove the timer" onClick={() => put({ ...n, timer: null })}>✕</button>
-                </div>
-              </div>
+              <Block tone="red" icon="fa-stopwatch" edit testid="blk-timer" removeLabel="Remove the timer" onRemove={() => put({ ...n, timer: null })}>
+                <input className="input blk-num-in" inputMode="numeric" aria-label="Seconds to answer" value={n.timer.secs} onChange={(e) => put({ ...n, timer: { ...n.timer!, secs: Math.min(600, Number(e.target.value.replace(/\D/g, '')) || 0) } })} />
+                <span className="small">seconds, then</span>
+                <select className="input blk-pick" aria-label="If time runs out" value={n.timer.fallback} onChange={(e) => put({ ...n, timer: { ...n.timer!, fallback: Number(e.target.value) } })}>
+                  {n.game && <option value={-1}>{n.game.kind === 'check' ? 'the check fails' : 'they lose the game'}</option>}
+                  {n.options.map((o, j) => <option key={j} value={j}>“{o.label || `Answer ${j + 1}`}”</option>)}
+                </select>
+              </Block>
             )}
             {n.game && <GameEdit g={n.game} money={money} order={order} set={(g) => put({ ...n, game: g })} del={() => put({ ...n, game: null, timer: n.timer && n.timer.fallback === -1 ? null : n.timer })}
               onNewWin={withNew((s, id) => patch(s, (x) => ({ ...x, game: x.game && { ...x.game, win: id } })))}
@@ -261,16 +262,12 @@ export function StepBlocks({ script, setScript, money, shops, eventKind }: { scr
                 onNew={withNew((s, id) => patch(s, (x) => ({ ...x, options: x.options.map((y, k) => (k === j ? { ...y, next: id } : y)) })))} />
             ))}
 
-            <div className="blk-add" aria-label="Add to this step">
-              {n.options.length < 6 && <button type="button" className="btn small" onClick={() => put({ ...n, options: [...n.options, { label: '', next: null, effects: [] }] })}><i className="fa-solid fa-comment" aria-hidden="true" /> + Answer</button>}
-              {!n.game && <button type="button" className="btn small" onClick={() => {
-                // A new check comes with a step for each outcome, ready to write.
-                const win = slug(`${n.id}-pass`, ids), lose = slug(`${n.id}-fail`, [...ids, win]);
-                setScript({ ...patch(script, (x) => ({ ...x, game: { kind: 'check', skill: null, dc: 10, dcMax: 14, stakeCp: 0, winCp: 0, win, lose } })), nodes: [...patch(script, (x) => ({ ...x, game: { kind: 'check', skill: null, dc: 10, dcMax: 14, stakeCp: 0, winCp: 0, win, lose } })).nodes, { id: win, text: '', options: [], game: null }, { id: lose, text: '', options: [], game: null }] });
-              }}><i className="fa-solid fa-dice-d20" aria-hidden="true" /> + Check</button>}
-              {!n.timer && (n.options.length > 0 || n.game) && <button type="button" className="btn small" onClick={() => put({ ...n, timer: { secs: 20, fallback: n.game ? -1 : Math.max(0, n.options.length - 1) } })}><i className="fa-solid fa-stopwatch" aria-hidden="true" /> + Timer</button>}
-            </div>
-          </li>
+            <AddBar items={[
+              { key: 'answer', label: 'Answer', icon: 'fa-comment', hidden: n.options.length >= 6, onAdd: () => put({ ...n, options: [...n.options, { label: '', next: null, effects: [] }] }) },
+              { key: 'check', label: 'Check', icon: 'fa-dice-d20', hidden: !!n.game, onAdd: addCheck },
+              { key: 'timer', label: 'Timer', icon: 'fa-stopwatch', hidden: !!n.timer || !(n.options.length > 0 || n.game), onAdd: () => put({ ...n, timer: { secs: 20, fallback: n.game ? -1 : Math.max(0, n.options.length - 1) } }) },
+            ]} />
+          </StepCard>
         );
       })}
       {script.nodes.length < 40 && <li className="blk-newstep"><button type="button" className="btn" onClick={addStep}>+ Step</button></li>}

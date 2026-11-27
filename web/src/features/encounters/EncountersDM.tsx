@@ -503,6 +503,19 @@ function Editor({ start, shops, places = [], onSaved, onGone }: { start: Templat
   const money = (cp: number) => coins(cp, info.settings.coins);
   const ev = t.kind === 'event';
   const tagged = t.places ?? [];
+  // The assistant fills the blanks (the whole event, or one step); what the DM wrote stays.
+  const [hint, setHint] = useState('');
+  const [filling, setFilling] = useState<string | null>(null);
+  const fill = (step: string | null) => {
+    setFilling(step ?? '*');
+    void act.run(async () => {
+      try {
+        const r = await w.call<{ script: Script; name: string; npcName: string; npcBlurb: string; filled: number; note: string | null }>('POST', '/encounters/templates/fill', { kind: t.kind ?? 'npc', script: t.script, name: t.name, npcName: t.npcName, npcBlurb: t.npcBlurb, hint: hint.trim() || undefined, step: step ?? undefined });
+        setT((cur) => ({ ...cur, script: r.script, name: r.name || cur.name, npcName: r.npcName || cur.npcName, npcBlurb: r.npcBlurb }));
+        toast(r.note ?? `Filled ${r.filled} blank${r.filled === 1 ? '' : 's'}. Check it over, then Save.`);
+      } finally { setFilling(null); }
+    });
+  };
   return (
     <section className="card stack enc-editor" aria-label={ev ? 'Edit story event' : 'Edit encounter'}>
       <div className="blk-header" data-testid="blk-header">
@@ -523,8 +536,14 @@ function Editor({ start, shops, places = [], onSaved, onGone }: { start: Templat
           )}
           <span className="row tight small blk-wander" title="Only when wandering is on in Settings"><Switch checked={t.wander} onChange={(v) => setT({ ...t, wander: v })} label="Wander" /> {ev ? 'Wanderers can run into it' : 'Wanderers can meet them'}</span>
         </div>
+        <div className="blk-row" data-testid="blk-fill-bar">
+          <i className="fa-solid fa-wand-magic-sparkles blk-ico" aria-hidden="true" />
+          <input className="input blk-grow2" aria-label="A hint for the assistant" value={hint} onChange={(e) => setHint(e.target.value)} maxLength={500} placeholder="Optional hint: make the fail step nastier" />
+          <button type="button" className="btn small" disabled={filling !== null} onClick={() => fill(null)} data-testid="blk-fill">{filling === '*' ? 'Filling…' : 'Fill the blanks'}</button>
+        </div>
+        <span className="tiny faint">The assistant fills only what is empty; what you wrote stays. Nothing is saved until you Save.</span>
       </div>
-      <StepBlocks script={t.script} setScript={setScript} money={money} shops={shops} eventKind={ev} />
+      <StepBlocks script={t.script} setScript={setScript} money={money} shops={shops} eventKind={ev} onFill={(id) => fill(id)} filling={filling} />
       <ErrorBox error={act.error} />
       <div className="row">
         <button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save</button>
