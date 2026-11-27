@@ -23,6 +23,7 @@ import { STUDY_SOURCES, checkSpellRules, complexity, dailyProgress, extraRecipeS
 import { STUDY_DAY_MIN, STUDY_SCHEMA, migrateStudy, openStudy, proficiency, saveStudy, studies, studyById, studyLongRest, type Study } from './study.ts';
 import { randomInt } from 'node:crypto';
 import { STATE_SCHEMA, castMemory, normalizeCasterLevels, restMemory, saveMemory } from './castState.ts';
+import { bubbleOf, bubbleOpen, makeBubbles, type Bubble } from './bubbles.ts';
 import { LINES_SCHEMA, MAX_LINES, PROFILE_FORMAT, PROFILE_SETTINGS, linesOfSpells, deleteLine, forgetSpell, lineById, lineByName, lines, normalizeLine, readProfile, saveLine, setLineSpells, setSpellLines } from './lines.ts';
 import { eligibility, holding, normalizeRecipe, recipeById, recipes, tiers, type Eligibility, type Recipe } from './craft.ts';
 import { readImport, saveImport } from './importers.ts';
@@ -55,7 +56,7 @@ function spellOut(s: WorldSpell, dm: boolean, r: ManaRules, known = false) {
     id: s.id, name: s.name, level: s.level, school: s.school, classes: s.classes, castingTime: s.castingTime, ritual: s.ritual, range: s.range,
     components: s.components, componentsText: componentsText(s), material: s.material, materialCost: s.materialCost, materialConsumed: s.materialConsumed,
     duration: s.duration, concentration: s.concentration, damageTypes: s.damageTypes, saves: s.saves, attack: s.attack, text: s.text,
-    source: s.source, builtin: s.builtin, attribution: s.attribution, line: spellLine(s), manaCost: castCost(s, s.level, r), known,
+    source: s.source, book: (s as { book?: string }).book, builtin: s.builtin, attribution: s.attribution, line: spellLine(s), manaCost: castCost(s, s.level, r), known,
   };
   return dm ? { ...base, kind: s.kind, public: s.public, manaOverride: s.manaOverride, dmNotes: s.dmNotes } : base;
 }
@@ -911,7 +912,18 @@ function routes(d: Deps) {
       case 'source': return `study it with ${m.allowed.join(' or ')}`;
       case 'research': return 'a research project the DM approves';
       case 'mastery': return `${m.line} mastery ${m.need} (has ${m.have})`;
+      case 'bubble': return `learn a spell in the ${m.name}`;
     }
+  };
+  /** The school bubbles of this world's spells (learning.bubbles), once per request. Null when the rules have them off. */
+  const bubblesFor = (res: Response): { list: Bubble[]; of: Map<string, Bubble>; byId: Map<string, Bubble> } | null => {
+    const e = R(res).engine;
+    if (!e?.learning.bubbles?.on) return null;
+    if (res.locals.spellBubbles) return res.locals.spellBubbles;
+    const lof = linesOfSpells(db, W(res));
+    const names = new Map(lines(db, W(res)).map((l) => [l.id, l.name]));
+    const list = makeBubbles(catalog(db, W(res)).map((x) => ({ id: x.id, name: x.name, level: x.level, school: x.school || 'Others', lines: (lof.get(x.id) ?? []).map((l) => names.get(l) ?? l) })), e.learning.bubbles.size);
+    return (res.locals.spellBubbles = { list, of: bubbleOf(list), byId: new Map(list.map((b) => [b.id, b])) });
   };
 
   /** Everything about studying a spell for a character: the recipe, what is missing, the points, days and gold. */
@@ -949,6 +961,14 @@ function routes(d: Deps) {
     // No recipe: its school teaches it (spellSchoolPaths, on by default). The tier gate then counts the known spells of the
     // same school or of a line it is in, the way the Spell Tree app does.
     const school = !rc && featureSetting<boolean>(S(res), 'spellSchoolPaths') !== false ? schoolPath(res, sp, known) : null;
+    // With bubbles on, the school teaches it bubble by bubble: its bubble opens once a spell in the one before it is known.
+    const bubs = school ? bubblesFor(res) : null;
+    const bub = (() => {
+      const b = bubs?.of.get(sp.id);
+      if (!bubs || !b) return null;
+      const parent = b.parent ? bubs.byId.get(b.parent) ?? null : null;
+      return { b, parent, open: bubbleOpen(b, bubs.byId, known) };
+    })();
     const missing: string[] = [];
     let arcanaDC: number | null = null;
     if (known.has(sp.id)) missing.push('already known');
@@ -968,6 +988,7 @@ function routes(d: Deps) {
       const mastery = lineMastery(kr.map((k) => ({ id: k.spellId, how: k.how })), (x) => lof.get(x) ?? [], e);
       const max = poolMax(c, rules) ?? 0;
       const gates = learnGates({
+        bubble: bub ? { open: bub.open, parent: bub.parent?.name ?? '' } : undefined,
         spellLevel: sp.level, castCost: castCost(sp, sp.level, rules), knownRecipeLevels: rc ? rc.prereqs.filter((p) => known.has(p)).map((p) => spellById(db, W(res), p)?.level ?? 0) : school!.levels,
         highest: maxCastLevel(c, rules) ?? 9, casterLevel: c.level ?? 0, abilityScore: castingScore(c), poolMax: max, source, research: o.research === true, arcanaPassed: false,
         hybridMastery: hybrid ? Object.fromEntries(spellLines.map((l) => [l, mastery[l] ?? 0])) : undefined,
@@ -981,7 +1002,7 @@ function routes(d: Deps) {
     const per = dailyProgress(source, lab, e);
     const days = Object.fromEntries(STUDY_SOURCES.map((x) => [x, studyDays(needed, 0, dailyProgress(x, lab, e))]));
     const bonus = (() => { const sc = castingScore(c); return (sc === null ? 0 : Math.floor((sc - 10) / 2)) + proficiency(c.level); })();
-    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : school ? { id: school.id, prereqs: [school.text] } : null, source, lab, ownClass: onList, classDiscount: onList ? e.learning.classDiscount ?? 0 : 0, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
+    return { spellId: sp.id, name: sp.name, level: sp.level, recipe: rc ? { id: rc.id, prereqs: rc.prereqs.map(nameOf(res)) } : bub ? { id: `bubble:${bub.b.id}`, prereqs: bub.parent ? [`a spell in the ${bub.parent.name}`] : [`${sp.school || 'Others'}: a first bubble, open from the start`] } : school ? { id: school.id, prereqs: [school.text] } : null, bubble: bub ? { id: bub.b.id, name: bub.b.name, open: bub.open, parent: bub.parent?.name ?? null } : null, source, lab, ownClass: onList, classDiscount: onList ? e.learning.classDiscount ?? 0 : 0, hybrid, missing, canStart: missing.length === 0, arcanaDC, needed, perDay: per, days, materials: coin.materials, mentorFee: coin.mentorFee, gold: Object.fromEntries(STUDY_SOURCES.map((x) => { const g = studyCoin(cx, x, e); return [x, g.materials + g.mentorFee]; })), finalDC: finalCheckDC(sp.level, e), checkBonus: bonus, scrollPoints: scrollRule(sp.level, needed, e).points };
   }
 
   const studyOut = (res: Response, x: Study) => ({ ...x, name: nameOf(res)(x.spellId), perDay: studyRate(res, x), daysLeft: studyDays(x.needed, x.banked, studyRate(res, x)) });
@@ -1160,7 +1181,11 @@ function routes(d: Deps) {
         // Taught by its school. Out of reach (dark) when it is over a level beyond what they cast, or nothing they know leads there.
         const p = studyPlan(res, aid, sp, {});
         missing = p.missing;
-        const far = sp.level > (maxCastLevel(character(db, W(res), aid), rules) ?? 9) + 1 || (sp.level > 0 && schoolPath(res, sp, known).levels.length === 0);
+        const bubs = bubblesFor(res);
+        const b = bubs?.of.get(sp.id);
+        // Bubbles: dark until the bubble before it is open (it is two steps away or more). Otherwise: nothing known in its school leads there.
+        const away = bubs && b ? !bubbleOpen(b, bubs.byId, known) && !(b.parent && bubbleOpen(bubs.byId.get(b.parent)!, bubs.byId, known)) : sp.level > 0 && schoolPath(res, sp, known).levels.length === 0;
+        const far = sp.level > (maxCastLevel(character(db, W(res), aid), rules) ?? 9) + 1 || away;
         status = p.canStart ? 'learn' : far ? 'dark' : 'locked';
       } else if (!made.length) status = 'dark';
       else if (!seen.length) status = dm ? 'hidden' : 'dark';
@@ -1168,7 +1193,9 @@ function routes(d: Deps) {
       else status = seen.some((x) => x.prereqs.every((p) => known.has(p))) ? 'learn' : 'locked';
       const ln = (lof.get(sp.id) ?? []).map((l) => lineNames.get(l) ?? l);
       const x = st.get(sp.id);
-      return { id: sp.id, name: sp.name, level: sp.level, school: sp.school || 'Others', lines: ln, hybrid: ln.length >= 2, status, missing, from: status === 'hidden' ? [] : made.length ? (seen[0]?.prereqs ?? []).map(nameOf(res)) : rules.engine && featureSetting<boolean>(S(res), 'spellSchoolPaths') !== false && status !== 'known' && status !== 'gift' ? [schoolPath(res, sp, known).text] : [], ...(x ? { study: { id: x.id, banked: x.banked, needed: x.needed } } : {}) };
+      const bb = !made.length ? bubblesFor(res)?.of.get(sp.id) : undefined;
+      const bp = bb?.parent ? bubblesFor(res)!.byId.get(bb.parent) : undefined;
+      return { id: sp.id, name: sp.name, level: sp.level, school: sp.school || 'Others', lines: ln, hybrid: ln.length >= 2, status, missing, ...(bb ? { bubble: bb.id } : {}), from: status === 'hidden' ? [] : made.length ? (seen[0]?.prereqs ?? []).map(nameOf(res)) : rules.engine && featureSetting<boolean>(S(res), 'spellSchoolPaths') !== false && status !== 'known' && status !== 'gift' ? [bb ? (bp ? `a spell in the ${bp.name}` : 'a first bubble, open from the start') : schoolPath(res, sp, known).text] : [], ...(x ? { study: { id: x.id, banked: x.banked, needed: x.needed } } : {}) };
     });
     const counts = Object.fromEntries(['known', 'gift', 'studying', 'stopped', 'learn', 'locked', 'hidden', 'dark'].map((k) => [k, out.filter((x) => x.status === k).length]));
     // ?compact=1 (the assistant): a flat, filtered list instead of the whole tree.
@@ -1182,7 +1209,10 @@ function routes(d: Deps) {
       return res.json({ engine: !!rules.engine, counts, total: hits.length, spells: hits.slice(0, limit).map(({ hybrid: _h, ...x }) => (x.status === 'dark' && !dm ? { id: x.id, name: x.name, level: x.level, school: x.school, status: x.status } : x)) });
     }
     const schools = [...new Set(out.filter((x) => !x.hybrid).map((x) => x.school))].sort((a, b) => (a === 'Others' ? 1 : b === 'Others' ? -1 : a.localeCompare(b)));
-    res.json({ engine: !!rules.engine, schools: schools.map((name) => ({ name, spells: out.filter((x) => !x.hybrid && x.school === name) })), hybrids: out.filter((x) => x.hybrid), counts });
+    // Bubbles: only the ones with a spell this viewer sees, and only their visible spells.
+    const vis = new Set(out.map((x) => x.id));
+    const bubbles = (bubblesFor(res)?.list ?? []).map((b) => ({ ...b, spells: b.spells.filter((id) => vis.has(id)) })).filter((b) => b.spells.length);
+    res.json({ engine: !!rules.engine, schools: schools.map((name) => ({ name, spells: out.filter((x) => !x.hybrid && x.school === name) })), hybrids: out.filter((x) => x.hybrid), counts, ...(bubbles.length ? { bubbles } : {}) });
   });
 
   r.post('/learn', requirePlayerOrDM, (req, res) => {
@@ -1288,6 +1318,8 @@ const feature: Feature = {
     spellManaMaxLevel: { type: 'json', default: DEFAULT_MAX_LEVEL, validate: checkMaxLevel },
     spellManaOverdraw: { type: 'boolean', default: false },
     spellRules: { type: 'json', default: {}, validate: checkSpellRules },
+    // Official books turned off in this world ({XGE: false, ...}); the SRD is always on.
+    spellBooks: { type: 'json', default: {}, validate: (v: unknown) => { if (!v || typeof v !== 'object' || Array.isArray(v) || Object.values(v).some((x) => typeof x !== 'boolean')) throw new Error('spellBooks: an object of book codes to true or false'); } },
     spellRulesOn: { type: 'boolean', default: false },
     spellManaPlayerEdit: { type: 'boolean', default: true },
     spellCrafting: { type: 'boolean', default: false },

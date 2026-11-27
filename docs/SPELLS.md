@@ -165,6 +165,20 @@ turns it off), and there is no penalty for the rest. A wizard studying
 Fireball: alone 10 days, with a text 5, with a mentor 4 (off the list: 13, 7,
 5). A multiclass character ("Wizard 6 / Paladin 4") gets it on both lists.
 
+**Spell books.** Besides the 339 SRD 5.2.1 spells, every official book's
+spells ship as facts only: name, level, school, class lists and book, with no
+rules text (`data/official-spells.json`, 188 spells, ids `book:<name>`). The
+world setting `spellBooks` turns a book off (`{"XGE": false}`); the SRD is
+always on.
+
+**Bubbles.** With `learning.bubbles.on` (default), a spell no recipe teaches
+sits in a bubble of about `learning.bubbles.size` (4) spells of its school and
+level. A school's first bubbles are open from the start; any other opens once a
+spell in the bubble before it is known, and then every spell in it can be
+studied. This replaces the "know 2 spells one level lower" count for school
+paths. The tree sends `bubbles` (id, school, level, name, parent, spells) and a
+`bubble` id on each spell; a study plan says `bubble: {open, parent}`.
+
 **The player's Codex** shows the spells they know (cast them), the recipes they
 can learn now (all met, highlighted), the next ones with what is missing (a
 spell, an item and how many they have, an ability score and their score, a

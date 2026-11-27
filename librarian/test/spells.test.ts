@@ -182,7 +182,14 @@ test('Spells: players read only spells they know or the DM made public; DM notes
   assert.deepEqual(mine.spells.map((s: any) => s.name), ['Fire Bolt']);
   // The world switch opens every SRD spell.
   await settings({ spellsPublicSrd: true });
+  assert.equal((await ok('GET', `${SP()}/list?limit=1`, T.tom)).total, 527, 'the SRD and the official books (facts only)');
+  // A world can turn books off.
+  await settings({ spellBooks: { PHB: false, PHB24: false, XGE: false, TCE: false, FTD: false, EGW: false, SCC: false, AI: false, AAG: false, BMT: false } });
   assert.equal((await ok('GET', `${SP()}/list?limit=1`, T.tom)).total, 339);
+  assert.equal((await call('GET', `${SP()}/s/book:armor-of-agathys`, T.dm)).status, 404);
+  await settings({ spellBooks: { PHB: true } });
+  assert.equal((await ok('GET', `${SP()}/s/book:armor-of-agathys`, T.dm)).name, 'Armor of Agathys');
+  await settings({ spellBooks: {} });
   await settings({ spellsPublicSrd: false });
   // Only the DM changes spells.
   assert.equal((await call('PUT', `${SP()}/s/srd:fireball/meta`, T.jess, { public: false })).status, 403);
@@ -220,7 +227,7 @@ test('Spells: homebrew, import from JSON, CSV, a game module and library pages, 
   const csv = 'name,level,school,casting time,range,components,duration,concentration,mana cost,text\nFrostbite Lash,1,Evocation,Bonus Action,30 feet,"V, S","1 minute",yes,3,"Cold: 1d8 Cold damage."\n';
   const c = await ok('POST', `${SP()}/import`, T.dm, { type: 'csv', csv, source: 'Frost Folio' });
   assert.equal(c.added.length, 1);
-  const lash = (await ok('GET', `${SP()}/list?q=frostbite`, T.dm)).spells[0];
+  const lash = (await ok('GET', `${SP()}/list?q=frostbite%20lash`, T.dm)).spells[0];
   assert.ok(lash.concentration);
   assert.equal(lash.manaCost, 3, 'a cost given by the source');
 

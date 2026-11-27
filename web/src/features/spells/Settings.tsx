@@ -5,6 +5,8 @@ import { ErrorBox, Field, Switch, useAction, useToast } from '../../ui/index.tsx
 import { useWorld } from '../../lib/world.tsx';
 import { levelText } from './shared.tsx';
 
+/** The official books beyond the SRD (facts only: name, level, school, classes); a world may turn each off. */
+const BOOKS: [string, string][] = [['PHB', "Player's Handbook (2014)"], ['PHB24', "Player's Handbook (2024)"], ['XGE', "Xanathar's Guide to Everything"], ['TCE', "Tasha's Cauldron of Everything"], ['FTD', "Fizban's Treasury of Dragons"], ['EGW', "Explorer's Guide to Wildemount"], ['SCC', 'Strixhaven: A Curriculum of Chaos'], ['AI', 'Acquisitions Incorporated'], ['AAG', 'Spelljammer: Adventures in Space'], ['BMT', 'The Book of Many Things']];
 const REST: [string, string][] = [['none', 'Nothing'], ['quarter', 'A quarter'], ['half', 'Half'], ['full', 'All of it']];
 
 export default function SpellSettings() {
@@ -34,6 +36,17 @@ export default function SpellSettings() {
         <h3>Codex</h3>
         {sw('spellsPublicSrd', 'Players may read every SRD spell', 'Off: players read the spells they know and the ones you open one by one.')}
         {sw('spellPlayerStats', 'Players fill in their own spell sheet', 'Class, level and ability scores on their Codex page. Off: only you set them.', true)}
+      </section>
+
+      <section className="card stack">
+        <h3>Spell books</h3>
+        <p className="tiny muted">The SRD's 339 spells are always in. These books add their spells as facts only (name, level, school, classes); the description is in the book. Turn off the ones your table doesn't use.</p>
+        {BOOKS.map(([code, name]) => (
+          <div key={code} className="row between" style={{ gap: 10 }}>
+            <span>{name}</span>
+            <Switch checked={s.spellBooks?.[code] !== false} label={name} onChange={(v) => void save({ spellBooks: { ...(s.spellBooks ?? {}), [code]: v } })} />
+          </div>
+        ))}
       </section>
 
       <section className="card stack">

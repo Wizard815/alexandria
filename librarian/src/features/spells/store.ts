@@ -111,6 +111,21 @@ export function srd(): Bundled {
 }
 export const SRD_SOURCE = 'SRD 5.2.1';
 
+/** Official spells outside the SRD: name, level, school, class lists and book only (the description is in the book). */
+export interface Official { books: Record<string, string>; spells: (Spell & { book?: string })[] }
+let official: Official | null = null;
+export function officialBooks(): Official {
+  if (!official) official = JSON.parse(fs.readFileSync(path.join(here, 'data', 'official-spells.json'), 'utf8')) as Official;
+  return official;
+}
+/** The books a world turned off (world setting spellBooks: {XGE: false, ...}). */
+function booksOff(db: DB, worldId: string): Set<string> {
+  const st = parseJson<Record<string, unknown>>(one<any>(db, 'SELECT settings FROM worlds WHERE id = ?', worldId)?.settings ?? '{}', {});
+  const b = (st.spellBooks ?? {}) as Record<string, unknown>;
+  return new Set(Object.entries(b).filter(([, v]) => v === false).map(([k]) => k));
+}
+const bookSpell = (s: Official['spells'][number], pub: boolean): WorldSpell => ({ ...s, builtin: true, kind: 'srd', attribution: `Facts only; the description is in ${s.book ?? s.source}.`, public: pub, manaOverride: null, dmNotes: '' });
+
 /** A spell as the world serves it: where it came from, and the DM's settings for it. */
 export interface WorldSpell extends Spell {
   builtin: boolean;
@@ -140,6 +155,7 @@ export function catalog(db: DB, worldId: string, publicSrd = false): WorldSpell[
   const b = srd();
   const out: WorldSpell[] = [
     ...b.spells.map((s) => ({ ...s, builtin: true, kind: 'srd' as const, attribution: b.attribution, public: publicSrd, manaOverride: null, dmNotes: '' })),
+    ...(() => { const off = booksOff(db, worldId); return officialBooks().spells.filter((s) => !off.has(String(s.source))).map((s) => bookSpell(s, publicSrd)); })(),
     ...customRows(db, worldId),
   ];
   for (const s of out) {
@@ -159,6 +175,12 @@ export function spellById(db: DB, worldId: string, spellId: string, publicSrd = 
     if (!s) return null;
     const m = metaMap(db, worldId).get(spellId);
     return { ...s, builtin: true, kind: 'srd', attribution: b.attribution, public: publicSrd || !!m?.public, manaOverride: m?.manaCost ?? null, dmNotes: m?.dmNotes ?? '' };
+  }
+  if (spellId.startsWith('book:')) {
+    const s = officialBooks().spells.find((x) => x.id === spellId);
+    if (!s || booksOff(db, worldId).has(String(s.source))) return null;
+    const m = metaMap(db, worldId).get(spellId);
+    return { ...bookSpell(s, publicSrd || !!m?.public), manaOverride: m?.manaCost ?? null, dmNotes: m?.dmNotes ?? '' };
   }
   const r = one<any>(db, 'SELECT * FROM spells_custom WHERE world_id = ? AND id = ?', worldId, spellId);
   if (!r) return null;

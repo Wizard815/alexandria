@@ -25,11 +25,18 @@ export interface TreeSpell {
   /** The spells that teach it (its recipe). */
   from: string[];
   study?: { id: string; banked: number; needed: number };
+  /** The school bubble it sits in (see TreeData.bubbles). */
+  bubble?: string;
 }
+
+/** A bubble of about four spells of one school and level; it opens once a spell in its parent bubble is known. */
+export interface TreeBubble { id: string; school: string; level: number; name: string; parent: string | null; spells: string[] }
 
 export interface TreeData {
   engine: boolean;
   schools: { name: string; spells: TreeSpell[] }[];
+  /** Present when the tree is grouped in bubbles. */
+  bubbles?: TreeBubble[];
   hybrids: TreeSpell[];
   counts: Record<string, number>;
 }
@@ -56,6 +63,8 @@ export interface StudyPlan {
   finalDC: number;
   checkBonus: number;
   scrollPoints: number;
+  /** Its school bubble, when bubbles teach it. */
+  bubble?: { id: string; name: string; open: boolean; parent: string | null } | null;
 }
 
 export type StudyStatus = 'studying' | 'ready' | 'learned' | 'stopped';
@@ -109,6 +118,8 @@ export interface SpellDetail {
   damageTypes?: string[];
   text?: string;
   source?: string;
+  /** The book it is from, when the app has no text for it. */
+  book?: string;
 }
 
 export interface StartOptions { source: StudySource; lab: boolean; scroll: boolean; arcana?: number; /** DM: start even though requirements are missing. */ anyway?: boolean }

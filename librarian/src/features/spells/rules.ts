@@ -81,6 +81,8 @@ export interface SpellRules {
     labBonus: number;
     /** Share of the study points taken off a spell on the character's own class list (0 turns it off). Any class may study any spell. */
     classDiscount: number;
+    /** A spell no recipe teaches sits in a bubble of about `size` spells of its school and level; a bubble opens once a spell in the one before it is known. */
+    bubbles: { on: boolean; size: number };
     /** Materials = materialsPerC2 × C² coin; a mentor charges mentorFeeMultiplier × that again. */
     materialsPerC2: number;
     mentorFeeMultiplier: number;
@@ -139,6 +141,7 @@ export const DEFAULT_SPELL_RULES: SpellRules = {
     rates: { alone: 1, text: 2, mentor: 3 },
     labBonus: 1,
     classDiscount: 0.25,
+    bubbles: { on: true, size: 4 },
     materialsPerC2: 10,
     mentorFeeMultiplier: 1,
     checkDC: [10, 13, 13, 15, 15, 18, 18, 22, 22, 22],
@@ -497,7 +500,8 @@ export type LearnMissing =
   | { kind: 'pool'; need: number; have: number }
   | { kind: 'source'; allowed: StudySource[] }
   | { kind: 'research' }
-  | { kind: 'mastery'; line: string; need: number; have: number };
+  | { kind: 'mastery'; line: string; need: number; have: number }
+  | { kind: 'bubble'; name: string };
 
 export interface LearnInput {
   spellLevel: number;
@@ -517,6 +521,8 @@ export interface LearnInput {
   arcanaPassed: boolean;
   /** For a hybrid spell: mastery the character has in each of its lines. */
   hybridMastery?: Record<string, number>;
+  /** Taught by its school's bubbles (learning.bubbles): whether its bubble is open, and the bubble before it. Replaces the count gate. */
+  bubble?: { open: boolean; parent: string };
 }
 
 /** Everything the plan's requirement table asks, as a list of what is missing (empty: may start studying). */
@@ -525,7 +531,7 @@ export function learnGates(x: LearnInput, r: SpellRules): LearnMissing[] {
   const g = L.gates[Math.max(0, Math.min(9, x.spellLevel))];
   const out: LearnMissing[] = [];
   const counted = x.knownRecipeLevels.filter((l) => (g.from === 'cantrip' ? l === 0 : g.from === 'below' ? l === x.spellLevel - 1 : true)).length;
-  if (counted < g.known) out.push({ kind: 'gate', need: g.known, from: g.from, have: counted });
+  if (x.bubble) { if (!x.bubble.open) out.push({ kind: 'bubble', name: x.bubble.parent }); } else if (counted < g.known) out.push({ kind: 'gate', need: g.known, from: g.from, have: counted });
   if (g.arcanaCheck && !x.arcanaPassed) out.push({ kind: 'arcana', dc: finalCheckDC(x.spellLevel, r) });
   const min = L.abilityMin[Math.max(0, Math.min(9, x.spellLevel))];
   if (min > 0 && (x.abilityScore === null || x.abilityScore < min)) out.push({ kind: 'ability', need: min, have: x.abilityScore });

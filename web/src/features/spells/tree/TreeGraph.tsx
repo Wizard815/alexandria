@@ -113,7 +113,99 @@ function layout(data: TreeData) {
   }
   const R9 = radiusOf(9) + SUBRING * 1.5;
   const pad = 260;
-  return { nodes, edges, sectors, box: { x1: -R9 - pad, y1: -R9 - pad, x2: R9 + pad, y2: R9 + pad } };
+  return { nodes, edges, sectors, rings: Array.from({ length: 10 }, (_, lv) => radiusOf(lv)), blobs: [] as Blob[], links: [] as Link[], box: { x1: -R9 - pad, y1: -R9 - pad, x2: R9 + pad, y2: R9 + pad } };
+}
+
+// ---- the bubble layout: each school's spells in bubbles of about four ----
+interface Blob { id: string; name: string; x: number; y: number; r: number; state: 'lit' | 'open' | 'shut'; sector: number }
+interface Link { x1: number; y1: number; x2: number; y2: number; state: 'lit' | 'open' | 'shut'; root: boolean }
+const BUB_GAP = 26; // between bubbles along a ring
+const BUB_RING = 34; // between the rings of bubbles
+const clusterR = (n: number) => (n <= 1 ? 0 : n === 2 ? 30 : n === 3 ? 36 : n === 4 ? 42 : 50);
+
+function layoutBubbles(data: TreeData) {
+  const spells = [...data.schools.flatMap((g) => g.spells), ...data.hybrids];
+  const byId = new Map(spells.map((s) => [s.id, s]));
+  const bubbles = (data.bubbles ?? []).map((b) => ({ ...b, spells: b.spells.filter((id) => byId.has(id)) })).filter((b) => b.spells.length);
+  const names = [...new Set(spells.map((s) => s.school || 'Others'))];
+  const order = [...SCHOOL_ORDER.filter((n) => names.includes(n)), ...names.filter((n) => !SCHOOL_ORDER.includes(n) && n !== 'Others').sort(), ...(names.includes('Others') ? ['Others'] : [])];
+  const weight = (n: string) => Math.max(10, bubbles.filter((b) => b.school === n).length);
+  const total = order.reduce((a, n) => a + weight(n), 0);
+  const GAP = 0.04;
+  let a0 = -Math.PI / 2;
+  const sectors: Sector[] = order.map((name) => {
+    const span = (weight(name) / total) * Math.PI * 2;
+    const list = spells.filter((s) => (s.school || 'Others') === name);
+    const sec = { name, color: SCHOOL_COLOR[name] ?? SCHOOL_COLOR.Others, a0: a0 + GAP / 2, a1: a0 + span - GAP / 2, spells: list, known: list.filter(isKnown).length };
+    a0 += span;
+    return sec;
+  });
+  const has = (b: { spells: string[] }) => b.spells.some((id) => { const s = byId.get(id); return !!s && isKnown(s); });
+  const bubbleById = new Map(bubbles.map((b) => [b.id, b]));
+  const stateOf = (b: (typeof bubbles)[number]): Blob['state'] => (has(b) ? 'lit' : !b.parent || (bubbleById.get(b.parent) && has(bubbleById.get(b.parent)!)) ? 'open' : 'shut');
+  const size = (b: (typeof bubbles)[number]) => clusterR(b.spells.length) + nodeR(b.level) + 12;
+  // Rings grow outward as far as each level needs: a crowded level takes two or three rings of bubbles.
+  const rings: number[] = [];
+  const place = new Map<string, { x: number; y: number; a: number; r: number }>();
+  let cursor = RING0 - 40;
+  for (let lv = 0; lv <= 9; lv++) {
+    const per = sectors.map((sec) => bubbles.filter((b) => b.school === sec.name && b.level === lv));
+    const deep = Math.max(80, ...per.flat().map(size));
+    let k = 1;
+    for (;;) {
+      const r = cursor + deep + ((k - 1) * (2 * deep + BUB_RING)) / 2;
+      if (per.every((list, si) => Math.ceil(list.reduce((t, b) => t + 2 * size(b) + BUB_GAP, 0) / k) <= (sectors[si].a1 - sectors[si].a0) * r) || k >= 4) break;
+      k++;
+    }
+    const mid = cursor + deep + ((k - 1) * (2 * deep + BUB_RING)) / 2;
+    rings.push(mid);
+    per.forEach((list, si) => {
+      const sec = sectors[si];
+      const span = sec.a1 - sec.a0;
+      for (let ring = 0; ring < k; ring++) {
+        const mine = list.filter((_, i) => i % k === ring);
+        const rr = cursor + deep + ring * (2 * deep + BUB_RING);
+        mine.forEach((b, j) => {
+          const t = (j + 0.5 + (k > 1 ? ring / k - 0.5 + 0.5 / k : 0)) / mine.length;
+          const ang = sec.a0 + span * Math.max(0.04, Math.min(0.96, t));
+          place.set(b.id, { x: rr * Math.cos(ang), y: rr * Math.sin(ang), a: ang, r: size(b) });
+        });
+      }
+    });
+    if (per.some((l) => l.length)) cursor += k * (2 * deep) + (k - 1) * BUB_RING + BUB_RING;
+    else rings[lv] = cursor;
+  }
+  const nodes: Node[] = [];
+  const blobs: Blob[] = [];
+  for (const b of bubbles) {
+    const p = place.get(b.id);
+    if (!p) continue;
+    const si = sectors.findIndex((x) => x.name === b.school);
+    blobs.push({ id: b.id, name: b.name, x: p.x, y: p.y, r: p.r, state: stateOf(b), sector: si });
+    const cr = clusterR(b.spells.length);
+    b.spells.forEach((id, j) => {
+      const s = byId.get(id)!;
+      const phi = p.a + Math.PI + (2 * Math.PI * j) / b.spells.length + (b.spells.length === 2 ? Math.PI / 2 : 0);
+      nodes.push({ s, x: p.x + cr * Math.cos(phi), y: p.y + cr * Math.sin(phi), a: p.a, sector: si });
+    });
+  }
+  const links: Link[] = [];
+  for (const b of bubbles) {
+    const p = place.get(b.id);
+    if (!p) continue;
+    const st = stateOf(b);
+    const par = b.parent ? place.get(b.parent) : null;
+    const pb = b.parent ? bubbleById.get(b.parent) : null;
+    const from = par ?? { x: 0, y: 0, r: 70 };
+    const dx = p.x - from.x;
+    const dy = p.y - from.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const lit = st === 'lit' && (!pb || has(pb));
+    links.push({ x1: from.x + (dx / len) * from.r, y1: from.y + (dy / len) * from.r, x2: p.x - (dx / len) * p.r, y2: p.y - (dy / len) * p.r, state: lit ? 'lit' : st === 'shut' ? 'shut' : 'open', root: !par });
+  }
+  const R9 = Math.max(...rings) + 160;
+  const pad = 260;
+  return { nodes, edges: [] as Edge[], sectors, rings, blobs, links, box: { x1: -R9 - pad, y1: -R9 - pad, x2: R9 + pad, y2: R9 + pad } };
 }
 
 /** Unknown spells keep their secret on the web: no name, no glyph. */
@@ -144,7 +236,7 @@ export interface TreeGraphProps {
 }
 
 export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
-  const L = useMemo(() => layout(data), [data]);
+  const L = useMemo(() => (data.bubbles?.length ? layoutBubbles(data) : layout(data)), [data]);
   const byName = useMemo(() => new Map(L.nodes.map((p) => [p.s.name, p])), [L]);
   const picked = L.nodes.find((p) => p.s.id === sel) ?? null;
 
@@ -171,9 +263,9 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
     if (!el) return;
     const w = el.clientWidth;
     const h = el.clientHeight;
-    const k = clampK(Math.min(w, h) / (2 * (RING0 + 1.6 * STEP)));
+    const k = clampK(Math.min(w, h) / (2 * ((L.rings[1] ?? RING0 + STEP) + 0.6 * STEP)));
     setView({ k, x: w / 2, y: h / 2 });
-  }, []);
+  }, [L.rings]);
   useLayoutEffect(() => { home(); }, [home]);
 
   const zoomAt = (cx: number, cy: number, f: number) => setView((v) => {
@@ -246,7 +338,7 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
   const recipe = picked ? picked.s.from.map((n) => byName.get(n)).filter((p): p is Node => !!p) : [];
   const allLabels = view.k >= 0.95;
   const labelled = (s: TreeSpell) => view.k >= 0.22 && (allLabels || sel === s.id || isKnown(s) || s.status === 'learn' || s.status === 'studying' || s.status === 'stopped');
-  const R9 = radiusOf(9);
+  const R9 = L.rings[9] ?? radiusOf(9);
   // Names keep a readable size on screen when zoomed out.
   const nameSize = 13 * Math.max(1, 0.75 / view.k);
   // Names that would overlap another name are left off; the picked spell, then
@@ -286,7 +378,7 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
         </defs>
         <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
           {/* Faint level rings and the borders between schools. */}
-          {Array.from({ length: 10 }, (_, lv) => <circle key={`ring${lv}`} r={radiusOf(lv)} className="stg-ring" />)}
+          {L.rings.map((r, lv) => <circle key={`ring${lv}`} r={r} className="stg-ring" />)}
           {L.sectors.map((sec) => (
             <line key={`b${sec.name}`} className="stg-border" x1={(RING0 - 70) * Math.cos(sec.a0 - 0.025)} y1={(RING0 - 70) * Math.sin(sec.a0 - 0.025)} x2={(R9 + 90) * Math.cos(sec.a0 - 0.025)} y2={(R9 + 90) * Math.sin(sec.a0 - 0.025)} />
           ))}
@@ -305,6 +397,13 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
               </g>
             );
           })}
+          {/* Bubbles and the paths between them. */}
+          {L.links.map((e, i) => <path key={`l${i}`} className={`stg-link ${e.state}`} d={curve(e.x1, e.y1, e.x2, e.y2)} />)}
+          {L.blobs.map((b) => (
+            <circle key={b.id} cx={b.x} cy={b.y} r={b.r} className={`stg-bubble ${b.state}`} style={{ stroke: b.state === 'shut' ? undefined : L.sectors[b.sector]?.color }}>
+              <title>{b.name}{b.state === 'shut' ? ': learn a spell in the bubble before it to open it' : b.state === 'open' ? ': open, learn any spell in it' : ''}</title>
+            </circle>
+          ))}
           {/* The web. */}
           {L.edges.map((e, i) => {
             const ax = e.a?.x ?? 0;
@@ -331,7 +430,7 @@ export default function TreeGraph({ data, sel, onPick, dim }: TreeGraphProps) {
                 role="button" tabIndex={0} aria-label={hid ? `Unknown spell, ${levelName(s.level)}` : `${s.name}, ${levelName(s.level)}, ${STATUS_LABEL[s.status]}`} aria-pressed={sel === s.id}
                 onClick={() => pick(s.id)} onKeyDown={key(s.id)}>
                 <title>{hid ? `Unknown spell (${levelName(s.level)}, ${s.school})` : `${s.name} (${levelName(s.level)}, ${s.school}${s.lines.length ? `, ${s.lines.join(' + ')}` : ''}): ${STATUS_LABEL[s.status]}`}</title>
-                <circle r={Math.max(r + 8, 18 / view.k)} className="stg-hit" />
+                <circle r={L.blobs.length ? r + 9 : Math.max(r + 8, 18 / view.k)} className="stg-hit" />
                 {sel === s.id && <circle r={r + 10} className="stg-selring" />}
                 <circle r={r} className="stg-disc" style={{ stroke: two ? 'transparent' : rim }} filter={isKnown(s) || s.status === 'learn' ? 'url(#stg-glow)' : undefined} />
                 {two && (
@@ -377,6 +476,13 @@ export const GRAPH_CSS = `
 .stg-edge.element { stroke-width: 1.6; opacity: .35; stroke-dasharray: 8 6; }
 .stg-edge.open { stroke: rgba(255,255,255,.65); stroke-width: 2.4; opacity: 1; stroke-dasharray: none; }
 .stg-edge.lit { stroke: #e9a94a; stroke-width: 3.2; opacity: 1; stroke-dasharray: none; filter: drop-shadow(0 0 4px rgba(240,170,70,.8)); }
+.stg-bubble { fill: rgba(255,255,255,.035); stroke: rgba(255,255,255,.12); stroke-width: 2; }
+.stg-bubble.open { fill: rgba(255,255,255,.07); stroke-width: 2.5; stroke-dasharray: 6 5; }
+.stg-bubble.lit { fill: rgba(240,180,64,.10); stroke-width: 3; filter: drop-shadow(0 0 6px rgba(240,170,70,.45)); }
+.stg-bubble.shut { stroke: rgba(255,255,255,.08); }
+.stg-link { fill: none; stroke: rgba(205,180,150,.22); stroke-width: 3; }
+.stg-link.open { stroke: rgba(255,255,255,.6); stroke-dasharray: 8 6; }
+.stg-link.lit { stroke: #e9a94a; stroke-width: 4.5; filter: drop-shadow(0 0 4px rgba(240,170,70,.8)); }
 .stg-recipe { stroke: #fff; stroke-width: 2.2; stroke-dasharray: 3 6; fill: none; opacity: .9; }
 .stg-node { cursor: pointer; outline: none; }
 .stg-hit { fill: transparent; }

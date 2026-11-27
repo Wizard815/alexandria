@@ -442,6 +442,21 @@ test('SpellRules: studying a spell: the plan, days, DM approval, the final check
   const on = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: 'srd:misty-step', source: 'text' });
   assert.deepEqual([on.ownClass, on.classDiscount, on.needed], [true, 0.25, 4], 'a multiclass has both lists');
   await ok('PUT', `${SP()}/characters/${ID.jess}`, T.dm, { class: cls0 });
+  // Bubbles: a school's spells sit in bubbles of about four; one known spell in a bubble opens the next.
+  const tb = await ok('GET', `${SP()}/tree`, T.jess);
+  const flatT = [...tb.schools.flatMap((g: any) => g.spells), ...tb.hybrids];
+  const knownT = new Set(flatT.filter((x: any) => x.status === 'known' || x.status === 'gift').map((x: any) => x.id));
+  const byB = new Map(tb.bubbles.map((b: any) => [b.id, b]));
+  assert.ok(tb.bubbles.length > 100 && tb.bubbles.every((b: any) => b.spells.length >= 1 && b.spells.length <= 5), `${tb.bubbles.length} bubbles`);
+  const shut = tb.bubbles.find((b: any) => b.level === 1 && b.parent && !(byB.get(b.parent) as any).spells.some((id: string) => knownT.has(id)) && !b.spells.some((id: string) => knownT.has(id)));
+  const par: any = byB.get(shut.parent);
+  let bp = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: shut.spells[0] });
+  assert.ok(bp.missing.includes(`learn a spell in the ${par.name}`), bp.missing.join('; '));
+  assert.deepEqual([bp.bubble.open, bp.bubble.parent], [false, par.name]);
+  await ok('POST', `${SP()}/characters/${ID.jess}/known`, T.dm, { spellId: par.spells[0] });
+  bp = await ok('POST', `${SP()}/study/plan`, T.jess, { spellId: shut.spells[0] });
+  assert.ok(bp.bubble.open && !bp.missing.some((m: string) => m.startsWith('learn a spell in')), bp.missing.join('; '));
+  await ok('DELETE', `${SP()}/characters/${ID.jess}/known/${encodeURIComponent(par.spells[0])}`, T.dm);
   // A DownTime task linked to the study: each 8 hours worked is a study day, the rest carries over.
   const eb = await ok('POST', `${SP()}/study`, T.jess, { spellId: 'srd:eldritch-blast', source: 'alone' });
   hub.emit(W, 'downtime-day', { accountId: ID.jess, minutes: 200, link: { kind: 'spell-study', ref: eb.id } }, () => false);

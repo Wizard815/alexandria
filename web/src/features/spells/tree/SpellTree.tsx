@@ -204,6 +204,7 @@ function Panel({ backend, spell, engine, study, onClose, onChanged, onEdit }: { 
         </dl>
       )}
       {d?.text && <details><summary className="st-sub">Spell text</summary><div className="st-text">{d.text}</div></details>}
+      {d && !d.text && d.book && <p className="st-sub">The description is in {d.book}.</p>}
 
       {spell.status === 'dark' && <p className="st-note">Out of reach for now: nothing this character knows leads here yet{backend.give ? '. The DM can give it, or let them study it anyway' : '. Ask the DM, or find a text, a mentor or a scroll of it'}.</p>}
       {spell.status === 'hidden' && <p className="st-note">A hidden recipe teaches this spell. Players see it as unknown.</p>}
