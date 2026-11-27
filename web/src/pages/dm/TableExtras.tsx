@@ -278,16 +278,49 @@ export function NamesBlock() {
 
 const AHEAD = [7, 30, 90, 365];
 
-type When = 'days' | 'weeks' | 'months' | 'date' | 'someday';
-const WHEN: [When, string][] = [['days', 'days'], ['weeks', 'weeks'], ['months', 'months'], ['date', 'on a date'], ['someday', 'no date yet']];
+type Unit = 'days' | 'weeks' | 'months' | 'none';
+const UNITS: [Unit, string][] = [['days', 'Days'], ['weeks', 'Weeks'], ['months', 'Months'], ['none', 'No date']];
+type Ymd = { year: number; month: number; day: number };
+type Cal = { months: { name: string; days: number }[] };
 
 /** The in-world date n months after this one, in the world's calendar (the day is kept, or the month's last day). */
-function addMonths(cal: { months: { name: string; days: number }[] }, d: { year: number; month: number; day: number }, n: number) {
+function addMonths(cal: Cal, d: Ymd, n: number): Ymd {
   const len = cal.months.length;
   const idx = d.month - 1 + n;
   const year = d.year + Math.floor(idx / len);
   const month = (((idx % len) + len) % len) + 1;
   return { year, month, day: Math.min(d.day, cal.months[month - 1].days) };
+}
+/** The in-world date n days after this one. */
+function addDays(cal: Cal, d: Ymd, n: number): Ymd {
+  let { year, month, day } = d;
+  day += n;
+  while (day > cal.months[month - 1].days) { day -= cal.months[month - 1].days; month++; if (month > cal.months.length) { month = 1; year++; } }
+  return { year, month, day };
+}
+
+/** A month of the world's calendar to pick a day from. */
+function MiniMonth({ cal, value, today, onPick }: { cal: Cal; value: Ymd; today: Ymd; onPick: (d: Ymd) => void }) {
+  const [view, setView] = useState({ year: value.year, month: value.month });
+  const m = cal.months[view.month - 1];
+  const step = (by: number) => { const x = addMonths(cal, { ...view, day: 1 }, by); setView({ year: x.year, month: x.month }); };
+  const same = (a: Ymd, d: number) => a.year === view.year && a.month === view.month && a.day === d;
+  const past = (d: number) => view.year < today.year || (view.year === today.year && (view.month < today.month || (view.month === today.month && d < today.day)));
+  return (
+    <div className="tb-mini" data-testid="tb-mini-month">
+      <div className="row between">
+        <button type="button" className="icon-btn" aria-label="Month before" onClick={() => step(-1)}><i className="fa-solid fa-chevron-left" aria-hidden="true" /></button>
+        <b className="small">{m.name} {view.year}</b>
+        <button type="button" className="icon-btn" aria-label="Month after" onClick={() => step(1)}><i className="fa-solid fa-chevron-right" aria-hidden="true" /></button>
+      </div>
+      <div className="tb-mini-days">
+        {Array.from({ length: m.days }, (_, i) => i + 1).map((d) => (
+          <button key={d} type="button" disabled={past(d)} aria-label={`${d} ${m.name} ${view.year}`} aria-pressed={same(value, d)}
+            className={`${same(value, d) ? 'on' : ''}${same(today, d) ? ' today' : ''}`} onClick={() => onPick({ ...view, day: d })}>{d}</button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function ComingUpBlock() {
@@ -300,34 +333,32 @@ export function ComingUpBlock() {
   const clk = useLoad<any>(() => w.call('GET', '/clock'), [w], ['clock']);
   const act = useAction();
   const [title, setTitle] = useState('');
-  const [mode, setMode] = useState<When>('days');
+  const [unit, setUnit] = useState<Unit>('days');
   const [n, setN] = useState('1');
-  const [date, setDate] = useState<{ year: string; month: string; day: string } | null>(null);
+  const [picked, setPicked] = useState<Ymd | null>(null);
+  const [picking, setPicking] = useState(false);
   const [dating, setDating] = useState<string | null>(null);
   const nights = (cal.data ?? []).filter((s: any) => s.status === 'scheduled' && s.ends_at >= new Date().toISOString()).slice(0, 3);
   const events: any[] = [...(up.data?.today ?? []), ...(up.data?.upcoming ?? [])];
-  const months: { name: string; days: number }[] = clk.data?.calendar?.months ?? [];
-  const today = clk.data?.date;
-  const d = date ?? (today ? { year: String(today.year), month: String(today.month), day: String(today.day) } : { year: '', month: '1', day: '1' });
+  const calDef: Cal | null = clk.data?.calendar ?? null;
+  const today: Ymd | null = clk.data?.date ? { year: clk.data.date.year, month: clk.data.date.month, day: clk.data.date.day } : null;
+  const k = Math.max(0, parseInt(n || '0', 10));
+  const target: Ymd | null = picked ?? (calDef && today && unit !== 'none'
+    ? unit === 'months' ? addMonths(calDef, today, k) : addDays(calDef, today, unit === 'weeks' ? k * 7 : k) : null);
+  const label = (d: Ymd) => `${d.day} ${calDef?.months[d.month - 1]?.name ?? ''} ${d.year}`;
   const add = (e: FormEvent) => act.run(async () => {
     e.preventDefault();
     const t = title.trim();
-    if (mode === 'someday') {
-      await w.call('POST', '/clock/someday', { title: t });
-    } else {
-      const now = await w.call<any>('GET', '/clock');
-      const k = Math.max(0, parseInt(n || '0', 10));
-      const start = mode === 'days' ? now.minutes + k * 1440
-        : mode === 'weeks' ? now.minutes + k * 7 * 1440
-        : mode === 'months' ? { ...addMonths(now.calendar, now.date, k), hour: now.date.hour, minute: now.date.minute }
-        : { year: parseInt(d.year, 10), month: parseInt(d.month, 10), day: parseInt(d.day, 10), hour: now.date.hour, minute: now.date.minute };
-      await w.call('POST', '/clock/events', { title: t, start, visibility: 'dm', kind: 'custom' });
+    if (unit === 'none' && !picked) await w.call('POST', '/clock/someday', { title: t });
+    else {
+      const body = picked ? { start: { ...picked, hour: clk.data.date.hour, minute: clk.data.date.minute } } : { after: { amount: k, unit } };
+      await w.call('POST', '/clock/events', { title: t, ...body, visibility: 'dm', kind: 'custom' });
       if (dating) { await w.call('DELETE', `/clock/someday/${dating}`).catch(() => {}); setDating(null); }
     }
-    setTitle(''); setDate(null); await Promise.all([up.reload(), someday.reload()]);
+    setTitle(''); setPicked(null); setPicking(false); await Promise.all([up.reload(), someday.reload()]);
   });
   const drop = (id: string) => act.run(async () => { await w.call('DELETE', `/clock/someday/${id}`); await someday.reload(); });
-  const dateIt = (s: any) => { setTitle(s.title); setDating(s.id); if (mode === 'someday') setMode('months'); };
+  const dateIt = (s: any) => { setTitle(s.title); setDating(s.id); if (unit === 'none') setUnit('days'); setPicking(true); };
   const range = (
     <span className="tb-seg" role="radiogroup" aria-label="How far ahead">
       {AHEAD.map((x) => <button key={x} type="button" role="radio" aria-checked={days === x} className={days === x ? 'on' : ''} onClick={() => { setDays(x); lsSet(key, x); }}>{x === 365 ? '1y' : `${x}d`}</button>)}
@@ -348,7 +379,7 @@ export function ComingUpBlock() {
       ) : up.data && <span className="small muted">Nothing in the world's calendar for the next {days === 365 ? 'year' : `${days} days`}.</span>}
       {(someday.data ?? []).length > 0 && (
         <>
-          <span className="tiny faint">Someday, no date yet</span>
+          <span className="tiny faint">No date yet</span>
           <ul className="tb-list" data-testid="tb-someday">
             {(someday.data ?? []).map((s: any) => (
               <li key={s.id} className="tb-someday-row">
@@ -367,19 +398,22 @@ export function ComingUpBlock() {
         </>
       )}
       <form className="tb-add-event" onSubmit={(e) => void add(e)} aria-label="Add a world event">
-        <input required aria-label="New world event" placeholder="Add an event: The tax collector arrives" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <div className="row wrap">
-          {(mode === 'days' || mode === 'weeks' || mode === 'months') && <label className="tiny muted">in <input style={{ width: 52 }} aria-label="How many" inputMode="numeric" value={n} onChange={(e) => setN(e.target.value.replace(/[^\d]/g, ''))} /></label>}
-          <select aria-label="When" value={mode} onChange={(e) => setMode(e.target.value as When)}>{WHEN.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-          {mode === 'date' && (
-            <>
-              <input style={{ width: 48 }} aria-label="Day" inputMode="numeric" value={d.day} onChange={(e) => setDate({ ...d, day: e.target.value.replace(/[^\d]/g, '') })} />
-              <select aria-label="Month" value={d.month} onChange={(e) => setDate({ ...d, month: e.target.value })}>{months.map((m, i) => <option key={i} value={String(i + 1)}>{m.name}</option>)}</select>
-              <input style={{ width: 64 }} aria-label="Year" inputMode="numeric" value={d.year} onChange={(e) => setDate({ ...d, year: e.target.value.replace(/[^\d-]/g, '') })} />
-            </>
-          )}
-          <button type="submit" className="btn small" disabled={act.busy}>{mode === 'someday' ? 'Keep for later' : dating ? 'Put on the calendar' : 'Add'}</button>
+        <input required aria-label="New world event" placeholder="Add an event" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <div className="row">
+          <span className="tb-seg" role="radiogroup" aria-label="When">
+            {UNITS.map(([v, l]) => <button key={v} type="button" role="radio" aria-checked={unit === v && !picked} className={unit === v && !picked ? 'on' : ''} onClick={() => { setUnit(v); setPicked(null); if (v === 'none') setPicking(false); }}>{l}</button>)}
+          </span>
+          {unit !== 'none' && !picked && <input className="tb-n" aria-label="How many" inputMode="numeric" value={n} onChange={(e) => setN(e.target.value.replace(/[^\d]/g, ''))} />}
         </div>
+        <div className="row">
+          {target ? (
+            <button type="button" className="btn small ghost" aria-expanded={picking} onClick={() => setPicking(!picking)} data-testid="tb-event-date">
+              <i className="fa-solid fa-calendar" aria-hidden="true" /> {label(target)}
+            </button>
+          ) : <span className="tiny muted">Kept for later, with no date</span>}
+          <button type="submit" className="btn small primary" disabled={act.busy}>{unit === 'none' && !picked ? 'Keep' : 'Add'}</button>
+        </div>
+        {picking && target && calDef && today && <MiniMonth key={`${target.year}-${target.month}`} cal={calDef} value={target} today={today} onPick={(d) => { setPicked(d); setPicking(false); }} />}
       </form>
     </TableCard>
   );

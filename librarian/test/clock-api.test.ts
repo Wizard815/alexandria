@@ -319,6 +319,20 @@ test('TestClock_SomedayIsDmOnly', async () => {
   assert.ok(!(await ok('GET', `${C()}/someday`, T.dm)).some((s: any) => s.id === made.id));
 });
 
+test('TestClock_EventAfterAmountFromNow', async () => {
+  const now = await ok('GET', C(), T.dm);
+  const ev = await ok('POST', `${C()}/events`, T.dm, { title: 'Tax collector', after: { amount: 3, unit: 'months' } });
+  const len = now.calendar.months.length;
+  const idx = now.date.month - 1 + 3;
+  assert.equal(ev.startDate.month, (idx % len) + 1);
+  assert.equal(ev.startDate.year, now.date.year + Math.floor(idx / len));
+  assert.equal(ev.startDate.hour, now.date.hour);
+  const wk = await ok('POST', `${C()}/events`, T.dm, { title: 'Fair', after: { amount: 2, unit: 'weeks' } });
+  assert.equal(wk.start, now.minutes + 14 * 1440);
+  assert.equal((await call('POST', `${C()}/events`, T.dm, { title: 'x', after: { amount: 1, unit: 'years' } })).status, 400);
+  assert.equal((await call('POST', `${C()}/events`, T.jess, { title: 'x', after: { amount: 1, unit: 'days' } })).status, 403);
+});
+
 test('TestClock_ClockIsPerWorldAndRemovedWithIt', async () => {
   const w2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Other', dmAccountId: ID.dm })).id;
   const c2 = await ok('GET', `/api/worlds/${w2}/clock`, T.dm);

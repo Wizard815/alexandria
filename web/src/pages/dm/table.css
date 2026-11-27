@@ -147,5 +147,14 @@ span.tb-ellipsis, a.tb-ellipsis { display: inline-block; max-width: 100%; vertic
 /* Coming up: add an event, with when it happens (days, weeks, months, a date, or no date yet). */
 .tb-add-event { display: flex; flex-direction: column; gap: 6px; }
 .tb-add-event > .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.tb-add-event > .row > button { margin-left: auto; }
 .tb-someday-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px; }
+.tb-add-event > .row { justify-content: space-between; }
+.tb-add-event .tb-n { width: 52px; }
+.tb-mini { border: 1px solid var(--line); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+.tb-mini .icon-btn { width: 28px; height: 28px; font-size: 12px; }
+.tb-mini-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); gap: 3px; }
+.tb-mini-days button { height: 28px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--text); font-size: 12px; cursor: pointer; }
+.tb-mini-days button:hover:not(:disabled) { border-color: var(--line); }
+.tb-mini-days button:disabled { opacity: .35; cursor: default; }
+.tb-mini-days button.today { border-color: var(--line); }
+.tb-mini-days button.on { background: var(--accent); color: #12161F; font-weight: 600; }
