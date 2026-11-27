@@ -52,7 +52,7 @@ async function signIn(user, pass, opts) {
 try {
   // 1. World settings → House rules: inspiration rerolls on, then spell points (the GM confirms the settings it sets).
   const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
-  await dm.goto(`${W}/dm/settings`);
+  await dm.goto(`${W}/gm/settings`);
   await dm.getByRole('tab', { name: 'House rules' }).click();
   await dm.getByRole('switch', { name: 'Inspiration as rerolls on' }).click();
   await dm.getByRole('switch', { name: 'Inspiration as rerolls on' }).and(dm.locator('[aria-checked=true]')).waitFor({ timeout: 5000 });
@@ -65,7 +65,7 @@ try {
   note('settings: inspiration rerolls and spell points on');
 
   // 2. The GM grants Jess a personal reroll with a reason.
-  await dm.goto(`${W}/dm/house-rules`);
+  await dm.goto(`${W}/gm/house-rules`);
   await dm.getByLabel(/Reason/).fill('Stayed in character through the interrogation');
   await dm.getByRole('button', { name: 'Grant Personal reroll to Jessamine' }).click();
   await dm.getByText('Stayed in character through the interrogation', { exact: false }).last().waitFor({ timeout: 8000 });
@@ -91,7 +91,7 @@ try {
   note('player: rolled and rerolled in chat');
 
   // 4. The GM's log shows both.
-  await dm.goto(`${W}/dm/house-rules`);
+  await dm.goto(`${W}/gm/house-rules`);
   await dm.getByText(/Reroll my roll by Jessamine/).first().waitFor({ timeout: 8000 });
   await shot(dm, '5-dm-house-rules-page');
   note('dm: the change log has the grant and the reroll');

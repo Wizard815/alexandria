@@ -99,7 +99,7 @@ test('TestItemCards_DMSeesFullCardAndPlayerOnlyThePlayerCopy', async () => {
   assert.equal(dmCard.item.dmNote, 'Handle with care');
   assert.equal(dmCard.page.title, 'Moonblade');
   assert.ok(JSON.stringify(dmCard.page.excerpt).includes('silver sword'));
-  assert.ok(dmCard.page.openPath.includes('/dm/library?page='));
+  assert.ok(dmCard.page.openPath.includes('/gm/library?page='));
 
   const pCard = await ok('GET', `${IC()}/${dmIt.id}`, T.jess);
   assert.equal(pCard.item.note, 'Family heirloom');

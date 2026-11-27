@@ -34,7 +34,7 @@ export function healthPreview(hp: number | null, max: number | null, mode: strin
 /** Link to another GM screen. */
 export function DMLink({ to, children, className }: { to: string; children: ReactNode; className?: string }) {
   const { info } = useWorld();
-  return <Link to={`/w/${info.slug}/dm/${to}`} className={className}>{children}</Link>;
+  return <Link to={`/w/${info.slug}/gm/${to}`} className={className}>{children}</Link>;
 }
 
 /** Player members only (not GMs or guests). */

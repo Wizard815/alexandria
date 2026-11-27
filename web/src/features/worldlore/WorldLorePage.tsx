@@ -17,7 +17,7 @@ export default function WorldLorePage() {
       </PageHead>
       <ErrorBox error={st.error ?? pages.error} />
       {!st.data ? <Loading /> : !st.data.enabled ? (
-        <Empty>WorldLore is off. Turn it on in <Link to={`/w/${world}/dm/settings`}>Settings</Link>.</Empty>
+        <Empty>WorldLore is off. Turn it on in <Link to={`/w/${world}/gm/settings`}>Settings</Link>.</Empty>
       ) : !pages.data ? <Loading /> : !pages.data.length ? (
         <Empty>Nothing here yet. Ask the assistant to write something to the WorldLore wiki.</Empty>
       ) : (
@@ -28,7 +28,7 @@ export default function WorldLorePage() {
                 <strong style={{ fontWeight: 500 }}>{p.title}</strong>
                 <span className="tiny muted">{LEVEL_LABEL[p.level] ?? p.level} · {p.writtenBy === 'agent' ? 'written by the AI' : 'written by the GM'} · {new Date(p.updatedAt).toLocaleString()}</span>
               </div>
-              <Link className="btn small" to={`/w/${world}/dm/library?page=${encodeURIComponent(p.id)}`}>Open in library</Link>
+              <Link className="btn small" to={`/w/${world}/gm/library?page=${encodeURIComponent(p.id)}`}>Open in library</Link>
             </div>
           ))}
         </div>

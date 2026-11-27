@@ -127,7 +127,7 @@ try {
   await api('POST', '/screen/media/clear', {});
   const shown = await api('POST', '/screen/media/items', { kind: 'video', ref: sec.id, play: true, loopVideo: true });
   check(shown.status === 201, `a GM-only video can be queued: ${shown.status}`);
-  await page.goto(`${W}/dm/screen-players`);
+  await page.goto(`${W}/gm/screen-players`);
   check(await shows(page.getByRole('button', { name: /^Share secret.webm with the party$/ })), 'the GM page offers Share with party for a GM-only file');
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: /^Share secret.webm with the party$/ }).click();

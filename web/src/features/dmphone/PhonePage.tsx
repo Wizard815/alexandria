@@ -1,4 +1,4 @@
-// The GM phone assistant at /w/:world/dm/phone: five tabs, one job each.
+// The GM phone assistant at /w/:world/gm/phone: five tabs, one job each.
 // A near-square screen (a Fold's inner screen) shows two panes: the chosen
 // tab beside Ask, with the tabs as a side rail.
 import { useEffect, useRef, useState } from 'react';
@@ -88,7 +88,7 @@ export default function PhonePage() {
     <div ref={rootRef} className={`dmp${shape.wide ? ' wide' : ''}${kb ? ' kb' : ''}`} style={kb ? { bottom: kb } : undefined} data-testid="dmphone" data-layout={shape.wide ? 'two-pane' : 'one-pane'}>
       <div className="dmp-col">
         <header className="dmp-top">
-          <Link to={`/w/${info.slug}/dm`} className="b" style={{ padding: '0 10px', textDecoration: 'none' }} aria-label="Back to the desktop view"><i className="fa-solid fa-arrow-left" aria-hidden="true" /></Link>
+          <Link to={`/w/${info.slug}/gm`} className="b" style={{ padding: '0 10px', textDecoration: 'none' }} aria-label="Back to the desktop view"><i className="fa-solid fa-arrow-left" aria-hidden="true" /></Link>
           <span className="brand">{info.name}</span>
           <ModeBadge phone />
           <span className="date" data-testid="phone-date"><span className={`live-dot${connected ? '' : ' off'}`} style={{ marginRight: 6 }} />{sum.data?.date.label ?? ''}</span>

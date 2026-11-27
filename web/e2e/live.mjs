@@ -44,7 +44,7 @@ try {
   const acc = Object.fromEntries(members.map((m) => [m.display_name.toLowerCase(), m.id]));
 
   // Each person on a different page, like a real table.
-  await dm.page.goto(base + '/w/saltreach/dm/combat');
+  await dm.page.goto(base + '/w/saltreach/gm/combat');
   await jess.page.goto(base + '/w/saltreach/live');
   await tom.page.goto(base + '/w/saltreach/stage');
   await ana.page.goto(base + '/w/saltreach/inventory');
@@ -76,7 +76,7 @@ try {
 
   console.log('session chat: a player writes, the GM and another player see it');
   try { await api(T.dm, 'POST', '/sessionchat/sessions/start', { title: 'Sync night' }); } catch { /* already running */ }
-  await dm.page.goto(base + '/w/saltreach/dm/chat');
+  await dm.page.goto(base + '/w/saltreach/gm/chat');
   await jess.page.goto(base + '/w/saltreach/chat');
   await new Promise((r) => setTimeout(r, 2000));
   await expectEverywhere('chat', [['dm /chat', dm.page], ['jess /chat', jess.page]], 'Sync: Tomas waves from the dock', async () => {
@@ -92,7 +92,7 @@ try {
   });
 
   console.log('requests: a player asks the GM; the GM\'s approvals page shows it');
-  await dm.page.goto(base + '/w/saltreach/dm/requests');
+  await dm.page.goto(base + '/w/saltreach/gm/requests');
   await new Promise((r) => setTimeout(r, 2000));
   await expectEverywhere('requests', [['dm /requests', dm.page]], 'Sync: may I know the ferry guild', async () => {
     await api(T.jess, 'POST', '/requests', { kind: 'question', title: 'Sync: may I know the ferry guild', body: 'Jessamine grew up on the docks.' });

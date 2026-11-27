@@ -224,7 +224,7 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
   if (t.kind === 'macro') main = btn('Make a macro', () => { setName(t.name); setAsk('macro'); });
   if (t.kind === 'assist') main = btn('Open', () => {
     const panes = (t.spec.panes ?? []).filter(Boolean);
-    navigate(`/w/${slug}/dm/ws?l=${encodeURIComponent(panes.length > 1 ? t.spec.layout || 'cols' : 'one')}&p=${encodeURIComponent(panes.join(','))}`);
+    navigate(`/w/${slug}/gm/ws?l=${encodeURIComponent(panes.length > 1 ? t.spec.layout || 'cols' : 'one')}&p=${encodeURIComponent(panes.join(','))}`);
     if (t.spec.prompt) setTimeout(() => askAssistant(t.spec.prompt), 300);
   });
   if (t.kind === 'shop') main = shop ? btn('Make a shop', () => { setOut(''); setAsk('shop'); }, 'A shop draft from the shop generator, following this guide') : null;
@@ -243,7 +243,7 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
           {ask === 'page' && <p className="tiny muted">Saved GM only in {t.spec.folder || 'the library root'}; share it when it is ready.</p>}
           {ask === 'macro' && <p className="tiny muted">The macro asks for {(t.spec.params ?? []).map((p: any) => p.label || p.name).join(', ') || 'nothing'} each time it runs, and {t.spec.mode === 'do' ? 'does it at once' : 'proposes each change for you to approve'}.</p>}
           {out && <pre className="tpl-out" data-testid="tpl-shop-draft">{out}</pre>}
-          {out && <p className="tiny muted">A draft only: make and stock a shop on the <a href={`/w/${slug}/dm/shops`} onClick={(e) => { e.preventDefault(); setAsk(null); navigate(`/w/${slug}/dm/shops`); }}>Shops</a> page.</p>}
+          {out && <p className="tiny muted">A draft only: make and stock a shop on the <a href={`/w/${slug}/gm/shops`} onClick={(e) => { e.preventDefault(); setAsk(null); navigate(`/w/${slug}/gm/shops`); }}>Shops</a> page.</p>}
           <div className="row">
             <button type="button" className="btn primary" disabled={busy || (ask !== 'shop' && !name.trim())} onClick={() => void run(async () => {
               if (ask === 'page') {
@@ -252,7 +252,7 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
                 const tags = (t.spec.tags ?? []).length ? `---\ntags: [${t.spec.tags.join(', ')}]\n---\n` : '';
                 const p = await w.call<any>('PUT', '/library/pages', { path: `${t.spec.folder ? `${t.spec.folder}/` : ''}${String(t.spec.titlePattern || '{name}').replace(/\{name\}/g, title)}`, visibility: 'dm', markdown: tags + md });
                 setAsk(null);
-                navigate(`/w/${slug}/dm/library?page=${encodeURIComponent(p.id)}`);
+                navigate(`/w/${slug}/gm/library?page=${encodeURIComponent(p.id)}`);
               } else if (ask === 'macro') {
                 await w.call('POST', '/actions/macros', {
                   name: name.trim(), description: t.description,
@@ -297,7 +297,7 @@ function MakeEvent({ t, onClose }: { t: Tpl; onClose: () => void }) {
           {d.note && <span className="tiny faint">{d.note}</span>}
         </div>
       )}
-      {saved && <p className="tiny">Saved. Send it from <a href={`/w/${info.slug}/dm/encounters?tab=events`} onClick={(e) => { e.preventDefault(); navigate(`/w/${info.slug}/dm/encounters?tab=events`); }}>Encounters → Story events</a>, or change it under Saved.</p>}
+      {saved && <p className="tiny">Saved. Send it from <a href={`/w/${info.slug}/gm/encounters?tab=events`} onClick={(e) => { e.preventDefault(); navigate(`/w/${info.slug}/gm/encounters?tab=events`); }}>Encounters → Story events</a>, or change it under Saved.</p>}
       <div className="row">
         <button type="button" className="btn" disabled={busy} onClick={() => void run(async () => { const r = await w.call<any>('POST', `/templates/${t.id}/event`, { prompt }); setD(r.draft); setSaved(false); })} data-testid="tpl-event-go">{busy ? 'Drafting…' : d ? 'Draft again' : 'Draft'}</button>
         {d && !saved && <button type="button" className="btn primary" disabled={busy} onClick={() => void run(async () => { await w.call('POST', '/encounters/templates/all', { kind: 'event', name: d.name, npcName: d.npcName, npcBlurb: d.npcBlurb, places: d.places, script: d.script }); setSaved(true); })} data-testid="tpl-event-save">Save as a story event</button>}
@@ -331,7 +331,7 @@ function MakeSpell({ t, onClose }: { t: Tpl; onClose: () => void }) {
           {d.note && <span className="tiny faint">{d.note}</span>}
         </div>
       )}
-      {saved && <p className="tiny">Saved to the Codex as homebrew, GM only. Change it or share it on the <a href={`/w/${info.slug}/dm/codex`} onClick={(e) => { e.preventDefault(); navigate(`/w/${info.slug}/dm/codex`); }}>Codex</a> page.</p>}
+      {saved && <p className="tiny">Saved to the Codex as homebrew, GM only. Change it or share it on the <a href={`/w/${info.slug}/gm/codex`} onClick={(e) => { e.preventDefault(); navigate(`/w/${info.slug}/gm/codex`); }}>Codex</a> page.</p>}
       <div className="row">
         <button type="button" className="btn" disabled={busy || !prompt.trim()} onClick={() => void run(async () => { const r = await w.call<any>('POST', `/templates/${t.id}/spell`, { prompt }); setD(r.draft); setSaved(false); })} data-testid="tpl-spell-go">{busy ? 'Drafting…' : d ? 'Draft again' : 'Draft'}</button>
         {sp && !saved && <button type="button" className="btn primary" disabled={busy} onClick={() => void run(async () => { await w.call('POST', '/spells/s', { ...sp, ...(d.lines?.length ? { dmNotes: `Spell lines: ${d.lines.join(', ')}` } : {}) }); setSaved(true); })} data-testid="tpl-spell-save">Save to the Codex</button>}

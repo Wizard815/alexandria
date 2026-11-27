@@ -1,4 +1,4 @@
-// /w/:world/dm/ws: the GM's workspace. The main area is split into 1 to 4 panes, each showing any GM page. The state (layout,
+// /w/:world/gm/ws: the GM's workspace. The main area is split into 1 to 4 panes, each showing any GM page. The state (layout,
 // pages, sizes, focused and maximised pane) lives in the URL, so a reload or a bookmark brings it back; the last one is also
 // remembered per world, and layouts can be named and saved (lib/workspace.ts). One world event stream serves every pane: they
 // are all inside the one WorldProvider.
@@ -70,7 +70,7 @@ function geometry(ws: Workspace, s: number[]): Geo {
 export default function WorkspacePage() {
   const { info, isDM } = useWorld();
   const slug = info.slug;
-  const base = `/w/${slug}/dm`;
+  const base = `/w/${slug}/gm`;
   const loc = useLocation();
   const nav = useNavigate();
   const parsed = useMemo(() => parse(loc.search), [loc.search]);
@@ -271,7 +271,7 @@ function Pane({ i, id, count, slug, routes, choices, focused, maximised, hidden,
   const panel = panelOnly(id);
   const [over, setOver] = useState(false);
   const accepts = (e: DragEvent) => e.dataTransfer.types.includes(PAGE_MIME) || e.dataTransfer.types.includes(PANE_MIME);
-  const first = entry ?? `/w/${slug}/dm/${routeOfPage(id)}`;
+  const first = entry ?? `/w/${slug}/gm/${routeOfPage(id)}`;
   // The first location is read once: moving around inside the pane is the pane router's business.
   const firstRef = useRef(first);
   const noRoute = !panel && !meta;

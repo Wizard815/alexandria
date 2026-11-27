@@ -452,7 +452,7 @@ test('Stt_csp: the app page allows WebAssembly from its own origin and nothing e
   await new Promise((r) => srv.once('listening', r));
   try {
     const b = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
-    const csp = (await fetch(b + '/w/x/dm/audio')).headers.get('content-security-policy') ?? '';
+    const csp = (await fetch(b + '/w/x/gm/audio')).headers.get('content-security-policy') ?? '';
     assert.match(csp, /script-src 'self' 'wasm-unsafe-eval';/);
     assert.match(csp, /connect-src 'self';/);
     assert.ok(!/unsafe-eval'/.test(csp.replace("'wasm-unsafe-eval'", '')), 'no plain unsafe-eval');

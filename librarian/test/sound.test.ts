@@ -286,7 +286,7 @@ test('TestSound_SpotifyFlowWithFakeFetch', async () => {
   const cb = `${S()}/spotify`;
   assert.equal((await call('POST', `${cb}/login`, T.dm, { redirectUri: 'http://localhost/cb' })).status, 400, 'needs a client id first');
   await ok('PUT', cb, T.dm, { clientId: 'abcd1234efgh5678' });
-  const { url } = await ok('POST', `${cb}/login`, T.dm, { redirectUri: 'http://localhost:5173/w/x/dm/sound' });
+  const { url } = await ok('POST', `${cb}/login`, T.dm, { redirectUri: 'http://localhost:5173/w/x/gm/sound' });
   const q = new URL(url).searchParams;
   assert.equal(new URL(url).origin + new URL(url).pathname, 'https://accounts.spotify.com/authorize');
   assert.equal(q.get('code_challenge_method'), 'S256');

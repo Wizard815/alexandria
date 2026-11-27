@@ -127,7 +127,7 @@ try {
 
   // 5. The GM's status bar shows it; the sheet opens from it; the log has every change.
   const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: 2 });
-  await dm.goto(`${W}/dm`);
+  await dm.goto(`${W}/gm`);
   const bar = dm.getByTestId('party-status');
   await bar.waitFor({ timeout: 10000 });
   const chip = bar.getByRole('button', { name: /Jessamine/ });

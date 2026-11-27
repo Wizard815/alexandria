@@ -10,7 +10,7 @@ import { chromium, root, startScript, tmpDir, signIn, quiet } from './lib.mjs';
 
 const PORT = Number(process.env.WORKSPACE_PORT || 8844);
 const base = `http://127.0.0.1:${PORT}`;
-const W = `${base}/w/saltreach/dm`;
+const W = `${base}/w/saltreach/gm`;
 const SHOTS = process.env.WORKSPACE_SHOTS || '/tmp/claude-0/-home-user/26e3dbe6-7466-590f-acf8-13740003567a/scratchpad/workspace';
 fs.mkdirSync(SHOTS, { recursive: true });
 const problems = [];
@@ -224,7 +224,7 @@ try {
   // ---- plain routes still work as a single pane ----
   await page.goto(`${W}/combat`);
   await page.getByRole('heading', { name: 'Combat', level: 1 }).waitFor();
-  check((await page.getByTestId('workspace').count()) === 0, '/dm/combat is still one plain page');
+  check((await page.getByTestId('workspace').count()) === 0, '/gm/combat is still one plain page');
   await strip.getByTestId('beside-sound').click({ force: true });
   await page.getByTestId('workspace').waitFor();
   await sleep(400);

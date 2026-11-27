@@ -83,7 +83,7 @@ function Box({ onClose }: { onClose: () => void }) {
   const navHits: Hit[] = useMemo(() => {
     const needle = q.trim();
     const list = isDM
-      ? menuEntries().filter((e) => !needle || matches(e, needle)).map((e) => ({ to: `dm/${e.to}`, label: e.label, desc: e.desc }))
+      ? menuEntries().filter((e) => !needle || matches(e, needle)).map((e) => ({ to: `gm/${e.to}`, label: e.label, desc: e.desc }))
       : availableLinks(info.settings).filter((l) => !needle || l.label.toLowerCase().includes(needle.toLowerCase())).map((l) => ({ to: l.to, label: l.label, desc: groupOf(l.to) }));
     return list.slice(0, needle ? 6 : 99).map((e) => ({ kind: 'nav', id: e.to, title: e.label, snippet: e.desc, link: e.to, score: 0 }));
   }, [q, isDM, info.settings]);

@@ -1,5 +1,5 @@
 // The GM's workspace: the main area split into 1 to 4 panes, each showing a GM page. This file is the pure part (no React):
-// the state, how it reads and writes the URL (/w/:world/dm/ws?l=cols&p=combat,sound&s=50,50&f=0), the operations the menu and
+// the state, how it reads and writes the URL (/w/:world/gm/ws?l=cols&p=combat,sound&s=50,50&f=0), the operations the menu and
 // the workspace both use, the presets and the saved layouts kept in the browser.
 
 export type LayoutId = 'one' | 'cols' | 'rows' | 'grid' | 'side';

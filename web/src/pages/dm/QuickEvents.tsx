@@ -18,7 +18,7 @@ export default function DMQuickEvents() {
       <PageHead title="Quick events" lead="Timed prompts on players' screens; answers appear here." />
       <p className="small muted" data-testid="story-events-link">
         <i className="fa-solid fa-bolt" aria-hidden="true" /> Want something to <em>happen</em> to a player instead, by place (a pickpocket in town, a rotten bridge on the road, a trap in a dungeon)?{' '}
-        <Link to={`/w/${info.slug}/dm/encounters?tab=events`}>Story events →</Link>
+        <Link to={`/w/${info.slug}/gm/encounters?tab=events`}>Story events →</Link>
       </p>
       <ErrorBox error={events.error} />
       <div className="cols">

@@ -31,7 +31,7 @@ try {
   const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1440, height: 900 });
   page.on('pageerror', (e) => problems.push(`page error on ${page.url()}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`console on ${page.url()}: ${m.text()}`); });
-  await page.goto(`${W}/dm`);
+  await page.goto(`${W}/gm`);
   await shows(page.getByTestId('dm-table'));
 
   // 1. The zones and the world clock.
@@ -143,7 +143,7 @@ try {
 
   // 7. A phone: no sideways scroll.
   const { page: ph } = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true);
-  await ph.goto(`${W}/dm`);
+  await ph.goto(`${W}/gm`);
   await shows(ph.getByTestId('dm-table'));
   await ph.waitForTimeout(800);
   const over = await ph.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

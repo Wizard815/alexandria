@@ -8,7 +8,7 @@ export default function ModeBadge({ phone = false }: { phone?: boolean }) {
   const st = useActive();
   const loc = useLocation();
   // The phone assistant covers the whole screen and has its own badge.
-  if (info?.role !== 'dm' || !st.data || (!phone && /\/dm\/phone\/?$/.test(loc.pathname))) return null;
+  if (info?.role !== 'dm' || !st.data || (!phone && /\/gm\/phone\/?$/.test(loc.pathname))) return null;
   const s = st.data;
   const active = s.effective === 'active';
   const label = s.takeoverOn ? 'Takeover' : active ? 'Active' : 'Assistant';
@@ -19,7 +19,7 @@ export default function ModeBadge({ phone = false }: { phone?: boolean }) {
         title={active ? 'Active mode: I listen to the table while recording and act on what I hear. Tap to switch to Assistant.' : 'Assistant mode: I act only when you ask. Tap to switch to Active.'}>
         <span className="act-dot" aria-hidden="true" />{label}{s.sessionOverride ? ' (this recording)' : ''}{s.cards.length > 0 ? ` · ${s.cards.length}` : ''}
       </button>
-      {!phone && <Link to={`/w/${info.slug}/dm/active`} className="tiny muted" style={{ textDecoration: 'none' }} aria-label="Active mode settings"><i className="fa-solid fa-gear" aria-hidden="true" /></Link>}
+      {!phone && <Link to={`/w/${info.slug}/gm/active`} className="tiny muted" style={{ textDecoration: 'none' }} aria-label="Active mode settings"><i className="fa-solid fa-gear" aria-hidden="true" /></Link>}
     </span>
   );
 }

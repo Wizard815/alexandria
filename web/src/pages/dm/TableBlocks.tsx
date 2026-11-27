@@ -211,7 +211,7 @@ export function CombatBlock() {
 /** Everything waiting on the GM: approvals, disputes, requests and the assistant's proposed changes. */
 export function NeedsBlock() {
   const { w, info, nameOf } = useWorld();
-  const base = `/w/${info.slug}/dm`;
+  const base = `/w/${info.slug}/gm`;
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad<any>(() => w.call('GET', '/approvals'), [w], ['approval', 'coin', 'item', 'item-removed']);
   const agent = useLoad<{ actions: unknown[] }>(() => w.call<{ actions: unknown[] }>('GET', '/agent/actions?status=pending').catch(() => ({ actions: [] })), [w], ['agent']);
@@ -288,9 +288,9 @@ export function LibraryBlock() {
   const recent = [...lib].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5);
   return (
     <TableCard id="library" title="Library" icon="fa-book" badge={`${lib.length} pages`} link={['library', 'Library']}>
-      <div className="kind-grid">{kinds.map(([k, n]) => <Link key={k} className="kind-tile" to={`/w/${info.slug}/dm/library?kind=${encodeURIComponent(k)}`}><b>{n}</b>{k}</Link>)}</div>
+      <div className="kind-grid">{kinds.map(([k, n]) => <Link key={k} className="kind-tile" to={`/w/${info.slug}/gm/library?kind=${encodeURIComponent(k)}`}><b>{n}</b>{k}</Link>)}</div>
       <span className="tiny faint">Changed lately</span>
-      <ul className="tb-list">{recent.map((r) => <li key={r.id}><Link className="tb-ellipsis" to={`/w/${info.slug}/dm/library?page=${encodeURIComponent(r.id)}`}>{r.title}</Link></li>)}</ul>
+      <ul className="tb-list">{recent.map((r) => <li key={r.id}><Link className="tb-ellipsis" to={`/w/${info.slug}/gm/library?page=${encodeURIComponent(r.id)}`}>{r.title}</Link></li>)}</ul>
     </TableCard>
   );
 }

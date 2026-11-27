@@ -21,7 +21,7 @@ export function DowntimeButton({ compact = false }: { compact?: boolean }) {
   const [days, setDays] = useState(1);
   const [note, setNote] = useState('');
   const [forPlayer, setForPlayer] = useState<string | null>(null);
-  if ((info.settings as any).downtimeOn !== true) return compact ? null : <p className="small muted">DownTime is off. Turn it on under <Link to={`/w/${info.slug}/dm/house-rules`}>House rules</Link>.</p>;
+  if ((info.settings as any).downtimeOn !== true) return compact ? null : <p className="small muted">DownTime is off. Turn it on under <Link to={`/w/${info.slug}/gm/house-rules`}>House rules</Link>.</p>;
   if (!o.data) return <Loading />;
   const r = o.data.round;
   const start = () => act.run(async () => { await w.call('POST', '/downtime/rounds', { days, note: note.trim() || undefined }); setNote(''); toast(`Downtime: ${days} day${days === 1 ? '' : 's'}. Each player has a popup.`); });
@@ -81,7 +81,7 @@ export function DowntimeCard() {
   const waiting = (o.data?.waitingRewards ?? 0) + (o.data?.proposals ?? 0);
   return (
     <section className="card stack tight" aria-labelledby="dt-card">
-      <div className="card-head"><h2 id="dt-card">Downtime</h2><Link className="small" to={`/w/${info.slug}/dm/downtime`}>All tasks{waiting ? ` · ${waiting} waiting for you` : ''}</Link></div>
+      <div className="card-head"><h2 id="dt-card">Downtime</h2><Link className="small" to={`/w/${info.slug}/gm/downtime`}>All tasks{waiting ? ` · ${waiting} waiting for you` : ''}</Link></div>
       <DowntimeButton compact />
     </section>
   );
@@ -95,7 +95,7 @@ export function DMDowntime() {
     <div className="page stack">
       <style>{CSS}</style>
       <PageHead title="Downtime" lead="What every character does between adventures: press Downtime when days pass, add or take away time, and give rewards." />
-      {(info.settings as any).downtimeOn !== true ? <Empty>DownTime is off. Turn it on under <Link to={`/w/${info.slug}/dm/house-rules`}>House rules</Link>.</Empty> : <>
+      {(info.settings as any).downtimeOn !== true ? <Empty>DownTime is off. Turn it on under <Link to={`/w/${info.slug}/gm/house-rules`}>House rules</Link>.</Empty> : <>
         <section className="card"><DowntimeButton /></section>
         <Tabs label="Downtime" value={tab} onChange={setTab} items={[['party', 'Party'], ['log', 'Log'], ['activities', 'Activities']]} />
         {tab === 'party' && <Party />}

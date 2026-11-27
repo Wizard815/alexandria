@@ -34,7 +34,7 @@ export default function KnowledgePage() {
   if (!s) return st.error ? <ErrorBox error={st.error} /> : <Loading what="knowledge" />;
   const start = (full: boolean) => act.run(async () => { await w.call('POST', '/knowledge/refresh', { full }); toast('Refreshing the world'); await st.reload(); });
   const stop = () => act.run(async () => { await w.call('POST', '/knowledge/refresh/stop'); await st.reload(); });
-  const dm = (to: string) => `/w/${info.slug}/dm/${to}`;
+  const dm = (to: string) => `/w/${info.slug}/gm/${to}`;
   const r = s.refresh;
   return (
     <div className="stack">

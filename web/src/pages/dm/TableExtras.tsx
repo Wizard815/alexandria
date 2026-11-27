@@ -50,7 +50,7 @@ export function QuickEventsBlock() {
         <ul className="tb-list" data-testid="tb-quick-open">
           {open.slice(0, 4).map((e) => (
             <li key={e.id}>
-              <div className="row between"><Link to={`/w/${info.slug}/dm/quick`} className="tb-ellipsis"><span className="chip gold">{QUICK_KINDS.find((k) => k[0] === e.kind)?.[1] ?? e.kind}</span> {e.title}</Link><span className="tiny muted">{e.responses.length}/{e.audience.length} answered</span></div>
+              <div className="row between"><Link to={`/w/${info.slug}/gm/quick`} className="tb-ellipsis"><span className="chip gold">{QUICK_KINDS.find((k) => k[0] === e.kind)?.[1] ?? e.kind}</span> {e.title}</Link><span className="tiny muted">{e.responses.length}/{e.audience.length} answered</span></div>
               <span className="tb-hp wide"><span style={{ width: `${e.audience.length ? Math.round((e.responses.length / e.audience.length) * 100) : 0}%` }} /></span>
             </li>
           ))}
@@ -150,7 +150,7 @@ export function LinksBlock() {
     <TableCard id="links" title="Quick links" icon="fa-link" badge={<button type="button" className="tb-linkbtn" onClick={() => setEdit(!edit)} aria-expanded={edit}>{edit ? 'Done' : 'Edit'}</button>}>
       <div className="tb-links">
         {links.filter((k) => DM_NAMES[k]).map((k) => (
-          <Link key={k} to={`/w/${info.slug}/dm/${k}`} className="tb-link" title={DM_NAMES[k].desc}><i className={`fa-solid ${DM_NAMES[k].icon}`} aria-hidden="true" /> {dmLabel(k)}</Link>
+          <Link key={k} to={`/w/${info.slug}/gm/${k}`} className="tb-link" title={DM_NAMES[k].desc}><i className={`fa-solid ${DM_NAMES[k].icon}`} aria-hidden="true" /> {dmLabel(k)}</Link>
         ))}
         {me?.account.is_admin && <Link to="/admin/models" className="tb-link" title="Which local models run chat, audit, speech and embeddings"><i className="fa-solid fa-microchip" aria-hidden="true" /> Model settings</Link>}
       </div>
@@ -194,7 +194,7 @@ export function PeopleBlock() {
       <ul className="tb-list">
         {list.map((p) => (
           <li key={p.id} className="row between">
-            <span className="tb-ellipsis grow">{p.page_id ? <Link to={`/w/${info.slug}/dm/library?page=${encodeURIComponent(p.page_id)}`}><b>{p.name}</b></Link> : <b>{p.name}</b>}{p.role ? <span className="muted"> · {p.role}</span> : null}</span>
+            <span className="tb-ellipsis grow">{p.page_id ? <Link to={`/w/${info.slug}/gm/library?page=${encodeURIComponent(p.page_id)}`}><b>{p.name}</b></Link> : <b>{p.name}</b>}{p.role ? <span className="muted"> · {p.role}</span> : null}</span>
             {p.attitude && <span className={`chip ${p.kind === 'ally' ? 'green' : p.kind === 'rival' || p.kind === 'enemy' ? 'red' : ''}`}>{p.attitude}</span>}
           </li>
         ))}

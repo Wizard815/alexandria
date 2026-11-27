@@ -36,7 +36,7 @@ try {
     await page.getByRole('button', { name: /sign in|log in/i }).click();
     await page.waitForURL(/\/w\//, { timeout: 15000 });
 
-    await page.goto(`${W}/dm/sculpt`);
+    await page.goto(`${W}/gm/sculpt`);
     await page.getByRole('tab', { name: 'Combat' }).click();
     await page.getByText('Encounter', { exact: true }).first().waitFor();
     if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) problems.push(`${label}: the library scrolls sideways`);
@@ -44,7 +44,7 @@ try {
     await page.getByLabel('Search templates').fill('trap');
     if ((await page.locator('.sculpt-card').count()) < 1) problems.push(`${label}: search found nothing`);
 
-    await page.goto(`${W}/dm/combat`);
+    await page.goto(`${W}/gm/combat`);
     const rows = () => page.locator('[aria-label="Initiative order"] .cb-row').count();
     await page.waitForTimeout(500);
     const before = await rows();

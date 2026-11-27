@@ -35,7 +35,7 @@ try {
   watch(player.page, 'player');
 
   // ---- send a random dungeon event to Jessamine ----
-  await page.goto(`${W}/dm/encounters?tab=events`);
+  await page.goto(`${W}/gm/encounters?tab=events`);
   await page.getByTestId('story-place-dungeon').click();
   await page.getByRole('group', { name: 'Players' }).getByRole('button', { name: 'Jessamine' }).click();
   const events = await page.getByTestId('story-event').count();
@@ -87,7 +87,7 @@ try {
   await player.page.getByTestId('encounter').getByRole('button', { name: 'Let it go' }).click();
   await player.page.getByText('You lose', { exact: false }).first().waitFor();
   check(!(await player.page.getByText('Let a pickpocket get away').count()), 'the GM note reached the player');
-  await page.goto(`${W}/dm/encounters?tab=events`);
+  await page.goto(`${W}/gm/encounters?tab=events`);
   await page.getByText('Let a pickpocket get away', { exact: false }).first().waitFor({ timeout: 10_000 });
   check((await page.getByText('picked from 10–14', { exact: false }).count()) > 0, 'the GM does not see the picked DC');
   note('the GM sees the GM-only note; the player does not');
@@ -119,7 +119,7 @@ try {
   note('favourites, a generated event sent from its preview');
 
   // ---- templates: starters, a story event and a spell from them, a template chat ----
-  await page.goto(`${W}/dm/templates`);
+  await page.goto(`${W}/gm/templates`);
   await page.getByRole('tab', { name: 'Starters' }).click();
   await page.getByTestId('tpl-pack-events').locator('li', { hasText: 'Town & city temptations' }).getByRole('button', { name: 'Add' }).click();
   await page.getByText('Added Town & city temptations', { exact: false }).waitFor();
@@ -156,10 +156,10 @@ try {
 
   // ---- phone width ----
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${W}/dm/encounters?tab=events`);
+  await page.goto(`${W}/gm/encounters?tab=events`);
   await page.getByText('Make something happen').waitFor();
   await noSideways(page, 'Story events');
-  await page.goto(`${W}/dm/templates`);
+  await page.goto(`${W}/gm/templates`);
   await page.getByRole('tab', { name: 'Template chats' }).click();
   await page.getByTestId('tpl-chats').waitFor();
   await noSideways(page, 'Template chats');

@@ -12,7 +12,7 @@ export default function PhoneBanner() {
   if (hidden) return null;
   return (
     <div className="dmp-banner t-fantasy" data-testid="phone-banner" role="region" aria-label="Phone assistant">
-      <Link to={`/w/${info.slug}/dm/phone`}><i className="fa-solid fa-mobile-screen" aria-hidden="true" /> Open the phone assistant</Link>
+      <Link to={`/w/${info.slug}/gm/phone`}><i className="fa-solid fa-mobile-screen" aria-hidden="true" /> Open the phone assistant</Link>
       <button type="button" aria-label="Dismiss" onClick={() => { lsSet(key, 'dismissed'); setHidden(true); }}><i className="fa-solid fa-xmark" aria-hidden="true" /></button>
     </div>
   );

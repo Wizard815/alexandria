@@ -91,7 +91,7 @@ function WorldMembers({ world, card, accounts, onChange }: { world: any; card?: 
         <h2>{world.name}</h2>
         <span className="row">
           <Link className="btn small" to={`/admin/worlds/${world.id}`}>Sources, crawl and index</Link>
-          {iAmIn && <Link className="btn small" to={iAmIn.role === 'dm' ? `/w/${world.slug}/dm` : `/w/${world.slug}`}>Open</Link>}
+          {iAmIn && <Link className="btn small" to={iAmIn.role === 'dm' ? `/w/${world.slug}/gm` : `/w/${world.slug}`}>Open</Link>}
         </span>
       </div>
       <ErrorBox error={a.error || members.error} />

@@ -106,7 +106,7 @@ const feature: Feature = {
           const ex = excerpt(lead !== null && lead === String(pg.title).trim().toLowerCase() ? blocks.slice(1) : blocks);
           out.page = {
             id: pg.id, title: pg.title, kind: pg.kind, icon: pg.icon, facts, excerpt: ex.blocks, truncated: ex.truncated, links: pg.links, updated_at: pg.updated_at,
-            openPath: `/w/${c.world.id}/${dm ? 'dm/' : ''}library?page=${encodeURIComponent(pg.id)}`,
+            openPath: `/w/${c.world.id}/${dm ? 'gm/' : ''}library?page=${encodeURIComponent(pg.id)}`,
             ...(dm ? { visibility: pg.visibility } : {}),
           };
         } catch { /* hidden or deleted: players get the item alone */ }

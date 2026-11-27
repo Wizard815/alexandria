@@ -49,10 +49,10 @@ async function signIn(user, viewport, mobile) {
   await page.getByLabel(/username/i).fill(user);
   await page.getByLabel(/password/i).fill(PASS[user]);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
-  await page.waitForURL(user === 'dm' ? '**/dm' : '**/w/saltreach', { timeout: 15000 });
+  await page.waitForURL(user === 'dm' ? '**/gm' : '**/w/saltreach', { timeout: 15000 });
   return { ctx, page };
 }
-const go = async (page, p) => { await page.goto(`${W}/dm/${p}`); await page.locator('main').waitFor(); await page.waitForTimeout(500); };
+const go = async (page, p) => { await page.goto(`${W}/gm/${p}`); await page.locator('main').waitFor(); await page.waitForTimeout(500); };
 
 // 'approvals' and 'requests' are old paths that redirect to 'inbox'; the rest are in the menu.
 const REDIRECTS = { approvals: 'inbox?tab=approvals', requests: 'inbox?tab=requests' };
@@ -91,11 +91,11 @@ try {
     for (const r of ROUTES) {
       await go(page, r);
       const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      check(over <= 2, `${label}: /dm/${r} scrolls sideways by ${over}px`);
+      check(over <= 2, `${label}: /gm/${r} scrolls sideways by ${over}px`);
       const text = (await page.locator('main').innerText()).trim();
-      check(text.length > 20, `${label}: /dm/${r} is empty`);
-      check(!/something went wrong|cannot read prop|undefined is not/i.test(text), `${label}: /dm/${r} shows a crash message`);
-      if (['', 'stage', 'sculpt', 'broker'].includes(r)) await dockCheck(page, `${label} /dm/${r}`);
+      check(text.length > 20, `${label}: /gm/${r} is empty`);
+      check(!/something went wrong|cannot read prop|undefined is not/i.test(text), `${label}: /gm/${r} shows a crash message`);
+      if (['', 'stage', 'sculpt', 'broker'].includes(r)) await dockCheck(page, `${label} /gm/${r}`);
     }
     // The rail has five areas, and every page of an area is on its strip: nothing is folded away.
     await go(page, '');
@@ -110,15 +110,15 @@ try {
       dmLinks.push(...(await strip.locator('.dmx-tabwrap a.dmx-tab').evaluateAll((as) => as.map((x) => x.getAttribute('href').replace(/\/$/, '')))));
     }
     check(new Set(dmLinks).size === dmLinks.length, `${label} tabs: a page is listed twice: ` + dmLinks.filter((h, i) => dmLinks.indexOf(h) !== i).join(', '));
-    for (const r of ROUTES.filter((x) => !(x in REDIRECTS))) check(dmLinks.includes(`/w/saltreach/dm${r ? '/' + r : ''}`), `${label} tabs: no link to /dm/${r}`);
+    for (const r of ROUTES.filter((x) => !(x in REDIRECTS))) check(dmLinks.includes(`/w/saltreach/gm${r ? '/' + r : ''}`), `${label} tabs: no link to /gm/${r}`);
     note(`${label}: ${ROUTES.length} screens, ${dmLinks.length} tabs`);
     // An area reopens on the page last used in it.
     await go(page, 'map'); await go(page, 'combat');
     await rail.locator('a[data-group=world]').click();
-    await page.waitForURL(/\/dm\/map$/, { timeout: 4000 }).catch(() => problems.push(`${label}: World did not reopen on Map`));
+    await page.waitForURL(/\/gm\/map$/, { timeout: 4000 }).catch(() => problems.push(`${label}: World did not reopen on Map`));
     for (const [old, now] of Object.entries(REDIRECTS)) {
       await go(page, old);
-      check(page.url().endsWith(`/dm/${now}`), `${label}: /dm/${old} should redirect to /dm/${now}, is ${page.url()}`);
+      check(page.url().endsWith(`/gm/${now}`), `${label}: /gm/${old} should redirect to /gm/${now}, is ${page.url()}`);
     }
     // The search box lists the app's pages, by what they do as well as by name; "/" opens it.
     await go(page, 'combat');
@@ -130,7 +130,7 @@ try {
     check((await navHits.count()) === 1 && /Game nights/.test(await navHits.first().innerText()), `${label}: searching "rsvp" should find Game nights`);
     await box.getByRole('searchbox').fill('micro');
     await box.getByRole('searchbox').press('Enter');
-    await page.waitForURL(/\/dm\/audio$/, { timeout: 5000 }).catch(() => problems.push(`${label}: Enter in the search did not open Microphones`));
+    await page.waitForURL(/\/gm\/audio$/, { timeout: 5000 }).catch(() => problems.push(`${label}: Enter in the search did not open Microphones`));
     await page.keyboard.press('/');
     check(await box.isVisible(), `${label}: "/" should open the search`);
     await page.keyboard.press('Escape');

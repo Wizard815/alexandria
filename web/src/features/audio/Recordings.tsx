@@ -271,14 +271,14 @@ function SummaryBox({ s }: { s: RecSession }) {
           {v.where === 'none' && <p className="small muted" style={{ margin: 0 }}>{v.hasSummary ? 'Getting the summary ready for your review…' : 'No summary yet. It is made from the transcript a few seconds after the recording stops (it needs a chat model), and made again from the final transcript.'}</p>}
           {v.where === 'minerva' && (
             <p className="small" style={{ margin: 0 }} data-testid="rec-summary-where">
-              The summary went to <Link to={`/w/${info.slug}/dm/minerva`}>Minerva’s review queue</Link> as “Last session” for the Campaign Status.{' '}
+              The summary went to <Link to={`/w/${info.slug}/gm/minerva`}>Minerva’s review queue</Link> as “Last session” for the Campaign Status.{' '}
               {minervaPending.length ? `${minervaPending.length === 1 ? 'It waits' : `${minervaPending.length} drafts wait`} for your approval there; nothing is written before you approve.` : 'You have decided it there.'}
               {v.source === 'final' ? ' It is made from the final transcript.' : ''}
             </p>
           )}
           {v.where === 'recordings' && (
             <p className="small" style={{ margin: 0 }} data-testid="rec-summary-where">
-              Minerva is off for this world, so the summary waits here for you. Approve saves it as a <Link to={`/w/${info.slug}/dm/sessionlog`}>session log</Link> draft (players see nothing until you publish it there); Discard drops it.
+              Minerva is off for this world, so the summary waits here for you. Approve saves it as a <Link to={`/w/${info.slug}/gm/sessionlog`}>session log</Link> draft (players see nothing until you publish it there); Discard drops it.
             </p>
           )}
           {pending.map((c) => (
@@ -298,7 +298,7 @@ function SummaryBox({ s }: { s: RecSession }) {
           ))}
           {decided.map((c) => (
             <p key={c.id} className="tiny muted" style={{ margin: 0 }} data-card={c.status}>
-              {c.status === 'approved' ? <>Approved{c.decidedAt ? ` ${c.decidedAt.slice(0, 10)}` : ''}: saved as a <Link to={`/w/${info.slug}/dm/sessionlog`}>session log draft</Link> (from {FROM[c.source]}).</> : <>Discarded (from {FROM[c.source]}).</>}
+              {c.status === 'approved' ? <>Approved{c.decidedAt ? ` ${c.decidedAt.slice(0, 10)}` : ''}: saved as a <Link to={`/w/${info.slug}/gm/sessionlog`}>session log draft</Link> (from {FROM[c.source]}).</> : <>Discarded (from {FROM[c.source]}).</>}
             </p>
           ))}
         </>

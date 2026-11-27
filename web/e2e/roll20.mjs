@@ -59,7 +59,7 @@ try {
   await dm.getByLabel(/password/i).fill('game master 123');
   await dm.getByRole('button', { name: /sign in|log in/i }).click();
   await dm.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
-  await dm.goto(`${base}/w/saltreach/dm/roll20`);
+  await dm.goto(`${base}/w/saltreach/gm/roll20`);
   await dm.getByText('Not set up').waitFor();
   await shot(dm, '1-dm-roll20-before');
   await dm.getByRole('button', { name: 'Make a bridge key' }).click();
@@ -204,7 +204,7 @@ try {
   await dm.locator('section[aria-label="What moves"]').scrollIntoViewIfNeeded();
   await shot(dm, '3-dm-roll20-options');
   await shot(game, '4-test-game-with-bridge');
-  await dm.goto(`${base}/w/saltreach/dm/sheets`);
+  await dm.goto(`${base}/w/saltreach/gm/sheets`);
   await dm.waitForTimeout(800);
   await shot(dm, '5-sheet-log-from-roll20');
 
@@ -321,7 +321,7 @@ try {
   check(ho?.j === 'all' && ho?.notes.length > 0, 'free mode handout in players journals with notes');
   await until(() => free.locator('.message:has-text("rolls 2d6")').count(), 'free mode: table roll shown in Roll20');
   await shot(free, '6-test-game-no-mod');
-  await dm.goto(`${base}/w/saltreach/dm/roll20`);
+  await dm.goto(`${base}/w/saltreach/gm/roll20`);
   await dm.getByText(/Without the Mod script/).first().waitFor();
   await shot(dm, '7-dm-roll20-no-mod');
   note('without the Mod: HP, conditions, rolls, lines and handouts moved');

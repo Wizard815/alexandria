@@ -60,7 +60,7 @@ try {
   await dm.getByLabel('Name', { exact: true }).fill('BloodEarth');
   await dm.getByRole('button', { name: 'Create world' }).click();
   await dm.getByRole('link', { name: 'Open' }).click();
-  await dm.waitForURL('**/w/bloodearth/dm');
+  await dm.waitForURL('**/w/bloodearth/gm');
   note('world made, GM table open');
   const dmToken = await dm.evaluate(() => localStorage.getItem('alx.token'));
 
@@ -107,7 +107,7 @@ try {
   // 6. Every screen, both roles, no errors; phones have no sideways scroll.
   const dmRoutes = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'settings', 'connect'];
   const plRoutes = ['', 'live', 'library', 'broker', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect'];
-  for (const r of dmRoutes) { await dm.goto(`${base}/w/bloodearth/dm/${r}`); await dm.waitForTimeout(400); }
+  for (const r of dmRoutes) { await dm.goto(`${base}/w/bloodearth/gm/${r}`); await dm.waitForTimeout(400); }
   await pl.keyboard.press('Escape');
   for (const r of plRoutes) {
     await pl.goto(`${base}/w/bloodearth/${r}`);
@@ -117,7 +117,7 @@ try {
   }
   for (const r of ['', 'accounts', 'worlds', 'sources', 'keys', 'audit']) { await dm.goto(`${base}/admin/${r}`); await dm.waitForTimeout(300); }
   note('visited every screen');
-  await dm.goto(base + '/w/bloodearth/dm');
+  await dm.goto(base + '/w/bloodearth/gm');
   await dm.screenshot({ path: path.join(tmp, 'dm-table.png'), fullPage: true });
   await pl.goto(base + '/w/bloodearth');
   await pl.screenshot({ path: path.join(tmp, 'player-home.png'), fullPage: true });

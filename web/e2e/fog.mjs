@@ -80,7 +80,7 @@ try {
   await page.evaluate(({ id, pic }) => { localStorage.setItem(`alx.mapbg.${id}`, JSON.stringify({ world: pic })); }, { id: (await api('GET', '')).json.id, pic: PIC });
 
   // ---- 1. the GM's Map page: fog is off until turned on, then everything is fogged ---------------------------------------
-  await page.goto(`${W}/dm/map`);
+  await page.goto(`${W}/gm/map`);
   await page.getByTestId('map-fog').waitFor({ timeout: 8000 });
   check(await shows(page.getByText(SECRET).first(), 3000) || (await page.locator('[data-mark]').count()) >= 2, 'dm map: the GM sees both pins with fog off');
   check((await page.getByTestId('fog-canvas').count()) === 0, 'dm map: no fog canvas while fog is off');

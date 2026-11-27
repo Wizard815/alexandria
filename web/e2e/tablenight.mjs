@@ -234,7 +234,7 @@ try {
     await Promise.all([login('dm', 'dm', PASS.dm), login('side', 'dm', PASS.dm), login('tv', 'dm', PASS.dm), login('table', 'dm', PASS.dm), login('phone', 'dm', PASS.dm), login('p1', 'jess'), login('p2', 'tom'), login('p3', 'ana')]);
     // Player 4 is invited the way a GM does it: an invite code from Settings, then the Join page on the player's phone.
     const dm = pg('dm');
-    await dm.goto(`${W}/dm/settings`);
+    await dm.goto(`${W}/gm/settings`);
     await dm.getByRole('tab', { name: /invite players/i }).click().catch(() => dm.getByText(/Invite players/).first().click());
     await dm.getByRole('button', { name: /make an invite code/i }).click();
     const code = (await dm.locator('.ok-box .mono').first().innerText({ timeout: 8000 })).trim();
@@ -253,13 +253,13 @@ try {
     for (const p of ['jess', 'tom', 'ana', 'mira']) await asApi(p, 'POST', '/audio/consent', { agree: true }).catch((e) => note(`consent ${p}: ${e.message}`));
     // Everyone is where they will be for the first steps.
     await Promise.all([
-      pg('dm').goto(`${W}/dm`), pg('side').goto(`${W}/screen/side`), pg('tv').goto(`${W}/screen/players`), pg('table').goto(`${W}/screen/table`), pg('phone').goto(`${W}/dm/phone`),
+      pg('dm').goto(`${W}/gm`), pg('side').goto(`${W}/screen/side`), pg('tv').goto(`${W}/screen/players`), pg('table').goto(`${W}/screen/table`), pg('phone').goto(`${W}/gm/phone`),
       pg('p1').goto(`${W}/live`), pg('p2').goto(`${W}/live`), pg('p3').goto(`${W}/live`), pg('p4a').goto(`${W}/live`), pg('p4w').goto(`${W}/live`),
     ]);
     await sleep(2500);
     for (const p of ['p1', 'p2', 'p3', 'p4a', 'p4w']) {
       const url = pg(p).url();
-      check(!/\/dm/.test(url) && /\/w\/saltreach/.test(url), `${p} landed on ${url}`);
+      check(!/\/gm/.test(url) && /\/w\/saltreach/.test(url), `${p} landed on ${url}`);
       const nav = await pg(p).evaluate(() => !!document.querySelector('nav, .bottomnav, header'));
       check(nav, `${p}: no player app chrome`);
     }
@@ -446,7 +446,7 @@ try {
     const pcs = {};
     for (const [who, init] of [['jess', 17], ['tom', 14], ['ana', 8], ['mira', 11]]) pcs[who] = (await dmApi('POST', '/live/combatants', { name: { jess: 'Jessamine', tom: 'Tomas', ana: 'Anselm', mira: 'Mira' }[who], accountId: S.acc[who], initiative: init, hp: 30, maxHp: 30 })).id;
     S.mon = mon; S.pcs = pcs;
-    await pg('dm').goto(`${W}/dm/combat`);
+    await pg('dm').goto(`${W}/gm/combat`);
     await pg('phone').getByRole('tab', { name: /^Now/ }).click();
     // Start from the phone.
     let from = Date.now();
@@ -601,7 +601,7 @@ try {
     let reply = '';
     for (let i = 0; i < 60; i++) { const v = await asApi('ana', 'GET', `/agent/chats/${cid}`); const m = (v.messages ?? []).filter((x) => x.role === 'assistant'); if (m.length && m.every((x) => x.status !== 'working')) { reply = m.map((x) => x.text).join('\n'); break; } await sleep(1000); }
     if (!reply) fail('the player assistant gave no answer after the hand-off'); else if (reply.includes(MARKER) || /black pearl/i.test(reply)) fail(`a player's assistant repeated the GM-only aside: ${reply.slice(0, 160)}`); else note(`player assistant after the hand-off: ${reply.replace(/\s+/g, ' ').slice(0, 120)}`);
-    await pg('phone').goto(`${W}/dm/phone`);
+    await pg('phone').goto(`${W}/gm/phone`);
     const ph = await pg('phone').evaluate(() => /recording/i.test(document.querySelector('[data-testid=dmphone]')?.innerText ?? ''));
     note(`phone still shows a recording: ${ph}`);
   });

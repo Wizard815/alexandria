@@ -54,7 +54,7 @@ const closeQuick = async (page) => { const c = page.locator('.modal[role=dialog]
 try {
   // 1. The GM turns on mana and spell crafting in World settings.
   const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 } });
-  await dm.goto(`${W}/dm/settings`);
+  await dm.goto(`${W}/gm/settings`);
   await dm.getByRole('tab', { name: 'Spells & mana' }).click();
   await dm.getByRole('switch', { name: 'Use mana' }).click();
   await dm.getByRole('switch', { name: 'Learn spells by combining known ones' }).click();
@@ -64,7 +64,7 @@ try {
   note('settings: mana and crafting on');
 
   // 2. The GM makes the recipe in the editor.
-  await dm.goto(`${W}/dm/codex`);
+  await dm.goto(`${W}/gm/codex`);
   await dm.getByRole('tab', { name: 'Recipes' }).click();
   await dm.getByRole('button', { name: 'New recipe' }).click();
   const ed = dm.getByRole('dialog', { name: 'New recipe' });

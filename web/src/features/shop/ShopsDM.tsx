@@ -129,7 +129,7 @@ function ShopEditor({ id, cfg, onGone }: { id: string; cfg: ShopConfig; onGone: 
           <button type="button" className="btn primary" disabled={act.busy || !dirty} onClick={() => void save()}>Save</button>
           <button type="button" className="btn" disabled={act.busy} onClick={() => void run(async () => { await w.call('POST', '/shop/keeper', { shopId: s.id, kind: s.kind }); setDirty(false); }, 'A new shopkeeper')}>New keeper</button>
           <button type="button" className="btn" disabled={act.busy || !s.keeper?.name} onClick={() => void run(() => w.call('POST', `${path}/keeper-page`), 'Saved as a GM-only NPC page')}>{s.keeper?.pageId ? 'Update NPC page' : 'Save keeper as NPC page'}</button>
-          {s.keeper?.pageId && <Link className="btn ghost" to={`/w/${info.slug}/dm/library?page=${encodeURIComponent(s.keeper.pageId)}`}>Open NPC page</Link>}
+          {s.keeper?.pageId && <Link className="btn ghost" to={`/w/${info.slug}/gm/library?page=${encodeURIComponent(s.keeper.pageId)}`}>Open NPC page</Link>}
         </div>
         <ErrorBox error={act.error} />
       </section>

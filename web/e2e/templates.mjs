@@ -36,13 +36,13 @@ try {
   watch(page, 'desktop');
 
   // ---- the page is in the GM menu ----
-  await page.goto(`${W}/dm`);
+  await page.goto(`${W}/gm`);
   // The menu shows one area at a time: the guide lives under Prep.
   await page.locator('[data-group=prep]').first().click().catch(() => problems.push('no Prep area in the GM menu'));
-  const link = page.locator('a[href$="/dm/templates"]').first();
+  const link = page.locator('a[href$="/gm/templates"]').first();
   await link.waitFor({ timeout: 15000 }).catch(() => problems.push('no Templates & guides entry in the GM menu'));
   check(/Templates & guides/.test(await link.innerText().catch(() => '')), 'the menu entry should read "Templates & guides"');
-  await page.goto(`${W}/dm/templates`);
+  await page.goto(`${W}/gm/templates`);
   await page.getByRole('heading', { name: 'Templates & guides' }).waitFor({ timeout: 10000 });
 
   // ---- web research: off by default, turned on with the stubbed SearXNG ----
@@ -110,7 +110,7 @@ try {
 
   // ---- share: export a file, change it, import it back as a new version ----
   await page.keyboard.press('Escape');
-  await page.goto(`${W}/dm/templates`);
+  await page.goto(`${W}/gm/templates`);
   await page.locator('[data-testid=tpl-item][data-name="Towns"]').waitFor({ timeout: 8000 });
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('tpl-export').click()]);
   check(/\.alxtemplates\.json$/.test(dl.suggestedFilename()), `the export should be a .alxtemplates.json file (got ${dl.suggestedFilename()})`);
@@ -149,7 +149,7 @@ try {
   // ---- phone width ----
   const ph = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true);
   watch(ph.page, 'phone');
-  await ph.page.goto(`${W}/dm/templates`);
+  await ph.page.goto(`${W}/gm/templates`);
   await ph.page.getByRole('heading', { name: 'Templates & guides' }).waitFor({ timeout: 10000 });
   await ph.page.locator('[data-testid=tpl-item][data-name="Towns"]').waitFor({ timeout: 8000 }).catch(() => problems.push('phone: the guide is not listed'));
   const over = await ph.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

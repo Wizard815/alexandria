@@ -14,7 +14,7 @@ export const DM_GROUPS: { id: DMGroupId; label: string; icon: string }[] = [
   { id: 'setup', label: 'Setup', icon: 'fa-gear' },
 ];
 
-/** Keyed by the route under /w/:world/dm/ ('' is the table). The key order is the menu order inside a group. */
+/** Keyed by the route under /w/:world/gm/ ('' is the table). The key order is the menu order inside a group. */
 export const DM_NAMES: Record<string, DMName> = {
   '': { group: 'run', label: 'Table', icon: 'fa-table-cells-large', desc: 'Everything live in the world, at a glance.' },
   combat: { group: 'run', label: 'Combat', icon: 'fa-khanda', desc: 'Initiative, conditions and monster health.' },

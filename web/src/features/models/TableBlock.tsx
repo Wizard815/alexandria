@@ -22,7 +22,7 @@ export default function TableModels() {
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
   const jobs = Object.entries(r.data?.jobs ?? {});
   const failed = jobs.some(([, e]) => e.state === 'failed');
-  const base = `/w/${info.slug}/dm`;
+  const base = `/w/${info.slug}/gm`;
   return (
     <TableCard id="ai" title="AI & templates" icon="fa-microchip" tone={failed ? 'red' : undefined} link={['minerva', 'Minerva']}>
       {jobs.length > 0 ? (

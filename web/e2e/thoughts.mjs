@@ -30,7 +30,7 @@ try {
   const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 });
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`console: ${m.text()}`); });
-  await page.goto(`${W}/dm`);
+  await page.goto(`${W}/gm`);
   await page.getByTestId('dock-thoughts').waitFor({ timeout: 15000 });
   check(!(await page.getByTestId('thoughts').count()), 'the thoughts window should start folded in Assistant mode');
 

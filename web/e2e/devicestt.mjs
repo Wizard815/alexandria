@@ -99,7 +99,7 @@ const micsDM = async () => (await api(tokDM, 'GET', '/audio/mics')).body;
 
 /** The GM turns on this computer's (fake) mic and starts a session. */
 async function dmStart(page, name) {
-  await page.goto(`${base}/w/saltreach/dm/audio`);
+  await page.goto(`${base}/w/saltreach/gm/audio`);
   await page.getByRole('button', { name: /allow the microphone|refresh the list/i }).click();
   const sw = page.getByRole('switch', { name: /^Use /i }).first();
   await sw.waitFor({ timeout: 10000 });
@@ -113,7 +113,7 @@ async function dmStop(page) {
   await page.getByRole('button', { name: /start recording/i }).waitFor({ timeout: 30000 });
 }
 async function setMode(page, label) {
-  await page.goto(`${base}/w/saltreach/dm/audio`);
+  await page.goto(`${base}/w/saltreach/gm/audio`);
   await page.getByRole('radio', { name: label }).check();
   await page.getByText('Saved').first().waitFor({ timeout: 5000 }).catch(() => {});
   for (let i = 0; i < 20; i++) { if ((await api(tokDM, 'GET', '/audio/status')).body.transcription.stt) break; await sleep(100); }
@@ -215,7 +215,7 @@ try {
   check(dupes.length === 0, `no sentence is in the final transcript twice at the same time (${finalLines.length} lines, live had ${(await api(tokDM, 'GET', `/audio/sessions/${sid}/lines?version=live`)).body.lines.length})`);
   check((await api(tokTom, 'GET', `/audio/sessions/${sid}/lines?version=live`)).status === 403, 'a player cannot read the live version');
 
-  await dm.goto(`${base}/w/saltreach/dm/recordings`);
+  await dm.goto(`${base}/w/saltreach/gm/recordings`);
   await dm.getByRole('button', { name: /E2E device session/ }).click();
   const box = dm.getByRole('region', { name: 'Final transcript' });
   await box.locator('[data-final="done"]').waitFor({ timeout: 15000 });

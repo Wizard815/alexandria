@@ -70,9 +70,9 @@ try {
   check(await shows(page.getByText('Assistant').first()), 'the assistant-window route still renders');
 
   // The pop-out button on a GM page opens the named window.
-  await page.goto(`${W}/dm/combat`);
+  await page.goto(`${W}/gm/combat`);
   const pop = page.getByTestId('popout');
-  check(await shows(pop), 'dm/combat: no pop-out button');
+  check(await shows(pop), 'gm/combat: no pop-out button');
   const [popup] = await Promise.all([ctx.waitForEvent('page', { timeout: 8000 }), pop.click()]).catch(() => [null]);
   check(!!popup && /\/w\/saltreach\/panel\/combat$/.test(popup.url()), `the pop-out opened ${popup?.url()}`);
   await popup?.close();
@@ -182,7 +182,7 @@ try {
   await table.close();
 
   // ---- 4. the Screens page ----------------------------------------------------------------------------
-  await page.goto(`${W}/dm/screens`);
+  await page.goto(`${W}/gm/screens`);
   await page.getByTestId('screens-page').waitFor({ timeout: 8000 });
   for (const id of ['side', 'players', 'table', 'panels']) check(await page.getByTestId(`screen-card-${id}`).isVisible(), `screens: no card for ${id}`);
   check(await page.getByText(/four-monitor/i).first().isVisible(), 'screens: the four-monitor setup is not explained');
@@ -197,14 +197,14 @@ try {
   await pp?.close();
 
   // The main monitor can drop the docked assistant and the transcript island.
-  await page.goto(`${W}/dm`);
+  await page.goto(`${W}/gm`);
   await page.locator('main').waitFor();
   await settle(page, 600);
   check(await shows(page.getByTestId('dock-agent')), 'main: the assistant dock button should show by default');
-  await page.goto(`${W}/dm/screens`);
+  await page.goto(`${W}/gm/screens`);
   await page.getByTestId('hide-assistant').check();
   await page.getByTestId('hide-transcript').check();
-  await page.goto(`${W}/dm`);
+  await page.goto(`${W}/gm`);
   await page.locator('main').waitFor();
   await settle(page, 600);
   check(!(await page.getByTestId('dock-agent').isVisible().catch(() => false)), 'main: the assistant dock button should be gone when it lives on the side screen');

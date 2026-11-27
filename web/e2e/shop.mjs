@@ -51,7 +51,7 @@ async function signIn(user, pass, viewport, mobile) {
 try {
   // 1. The GM generates a blacksmith in the browser and saves it open.
   const { page: dm } = await signIn('dm', 'game master 123', { width: 1366, height: 900 });
-  await dm.goto(`${W}/dm/shops?tab=generate`);
+  await dm.goto(`${W}/gm/shops?tab=generate`);
   await dm.getByTestId('gen-kind').selectOption('blacksmith');
   await dm.getByTestId('gen-size').selectOption('city');
   await dm.getByTestId('gen-go').click();

@@ -19,7 +19,7 @@ export default function DMBroker() {
 
   if (!enabled) return (
     <div className="page"><PageHead title="Broker" />
-      <Empty>The broker is turned off. Turn it on in <Link to={`/w/${info.slug}/dm/settings`}>Settings</Link>.</Empty></div>
+      <Empty>The broker is turned off. Turn it on in <Link to={`/w/${info.slug}/gm/settings`}>Settings</Link>.</Empty></div>
   );
   const open = (list.data?.requests ?? []).filter((q) => ['pricing', 'offered', 'waiting'].includes(q.status));
   const review = (list.data?.requests ?? []).filter((q) => q.needs_review).length;
@@ -29,7 +29,7 @@ export default function DMBroker() {
       <ErrorBox error={cfg.error ?? list.error} />
       <div className="row between">
         <Tabs label="Broker" value={tab} onChange={setTab} items={[['queue', `Questions${open.length ? ` (${open.length})` : ''}${review ? ` · ${review} to review` : ''}`], ['offers', 'Special offers'], ['notes', 'Broker notes'], ['tune', 'Fine-tune'], ['setup', 'Persona and prices']]} />
-        {cfg.data && <span className="row" style={{ gap: 6 }}><span className="chip gold" title="Game time">Game time: {cfg.data.clock.label}</span><Link className="small" to={`/w/${info.slug}/dm/clock`}>Clock →</Link></span>}
+        {cfg.data && <span className="row" style={{ gap: 6 }}><span className="chip gold" title="Game time">Game time: {cfg.data.clock.label}</span><Link className="small" to={`/w/${info.slug}/gm/clock`}>Clock →</Link></span>}
       </div>
       {!cfg.data ? <Loading /> : tab === 'queue' ? <Queue list={list.data?.requests ?? null} reload={list.reload} />
         : tab === 'offers' ? <Offers /> : tab === 'notes' ? <Notes /> : tab === 'tune' ? <Tune cfg={cfg.data} /> : <Setup cfg={cfg.data} onSaved={cfg.reload} />}
@@ -257,7 +257,7 @@ function Judged({ c }: { c: Classification }) {
         {c.routing && <span className="chip" title={`Labelled by ${c.routing.source === 'rules' ? 'the keyword rules' : 'the audit model'}`} style={c.routing.intent !== 'fact' ? { borderColor: 'var(--danger-text)' } : undefined}>{c.routing.intent}</span>}
         {c.routing && <span className="chip faint" title="Confidence">{Math.round(c.routing.confidence * 100)}% · {c.routing.source === 'rules' ? 'rules' : 'model'}</span>}
         {c.knowledge && c.verdict === 'shared' && <span className="chip">{c.knowledge}{c.multiplier !== 1 ? ` ×${c.multiplier}` : ''}</span>}
-        {c.entities.map((e) => <Link key={e.id} className="chip" to={e.id.startsWith('person:') ? `/w/${info.slug}/dm/people` : `/w/${info.slug}/dm/library?page=${encodeURIComponent(e.id)}`} title={e.shared ? 'Players can see this' : 'GM only'}>{e.shared ? '' : '🔒 '}{e.title}</Link>)}
+        {c.entities.map((e) => <Link key={e.id} className="chip" to={e.id.startsWith('person:') ? `/w/${info.slug}/gm/people` : `/w/${info.slug}/gm/library?page=${encodeURIComponent(e.id)}`} title={e.shared ? 'Players can see this' : 'GM only'}>{e.shared ? '' : '🔒 '}{e.title}</Link>)}
       </div>
       <span className="tiny muted">{c.reason}</span>
       {!!c.dmEvidence.length && (

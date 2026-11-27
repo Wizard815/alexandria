@@ -46,7 +46,7 @@ try {
   await api('PATCH', '/settings', { agentAuto: false });
   const { ctx, page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1400, height: 900 });
   watch(page, 'desktop');
-  await page.goto(`${W}/dm`);
+  await page.goto(`${W}/gm`);
   await page.getByTestId('dock-agent').waitFor({ timeout: 15000 });
   await page.keyboard.press('Control+k');
   const box = page.locator('[data-ag-input]');
@@ -119,7 +119,7 @@ try {
   // ---- the GM phone: the same card and the same mode ----
   const ph = await signIn(browser, base, 'dm', 'game master 123', { width: 390, height: 844 }, true, /\/w\/saltreach/);
   watch(ph.page, 'phone');
-  await ph.page.goto(`${W}/dm/phone`);
+  await ph.page.goto(`${W}/gm/phone`);
   await ph.page.getByTestId('dmphone').waitFor({ timeout: 10000 });
   await ph.page.getByRole('tab', { name: /^Ask/ }).first().click();
   const pc = ph.page.getByRole('group', { name: 'Waiting for your approval' }).first();

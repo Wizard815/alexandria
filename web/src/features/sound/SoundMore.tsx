@@ -42,7 +42,7 @@ export function SpotifyTab() {
   const st = useLoad(() => w.call('GET', '/sound/spotify'), [w]);
   const [clientId, setClientId] = useState('');
   const [rows, setRows] = useState<[string, string][]>([]);
-  const redirectUri = `${window.location.origin}/w/${info.slug}/dm/sound`;
+  const redirectUri = `${window.location.origin}/w/${info.slug}/gm/sound`;
   const seeded = useRef(false);
 
   useEffect(() => {

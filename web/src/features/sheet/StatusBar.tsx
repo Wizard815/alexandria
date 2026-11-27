@@ -77,7 +77,7 @@ function Quick({ account, slug, onClose }: { account: string; slug: string; onCl
           <section className="stack tight"><span className="tiny faint">Secret notes and goals for {s.name}</span><FromDm account={account} notes={s.fromDm ?? []} dm onChanged={() => void sheet.reload()} /></section>
         </div>
         <span className="tiny faint">Every change is logged and the player sees it at once.</span>
-        <Link className="btn small" to={`/w/${slug}/dm/sheets?player=${account}`} onClick={onClose}>Open the whole sheet</Link>
+        <Link className="btn small" to={`/w/${slug}/gm/sheets?player=${account}`} onClick={onClose}>Open the whole sheet</Link>
       </div>}
     </Modal>
   );

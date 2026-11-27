@@ -82,7 +82,7 @@ Default-export a `WebFeature` (`web/src/features/registry.ts`):
 import type { WebFeature } from '../registry.ts';
 const feature: WebFeature = {
   id: 'clock',
-  dmRoutes: [{ path: 'clock', element: <ClockPage /> }],        // /w/:world/dm/clock
+  dmRoutes: [{ path: 'clock', element: <ClockPage /> }],        // /w/:world/gm/clock
   playerRoutes: [{ path: 'log', element: <SessionLog /> }],     // /w/:world/log
   dmNav: [{ group: 'At the table', to: 'clock', label: '☾ World clock' }],
   playerNav: [{ to: 'log', label: 'Session log', icon: 'fa-scroll' }],

@@ -169,7 +169,7 @@ async function throwaways() {
   page.on('pageerror', (e) => bad(`page error: ${e.message}`));
   page.on('dialog', (d) => { void d.accept().catch(() => {}); });
   page.on('response', (r) => { const s = r.status(); if (s >= 400 && s !== 403 && s !== 404) bad(`${s} ${r.request().method()} ${r.url().replace(base, '')}`); });
-  await page.goto(`${W}/dm/combat`);
+  await page.goto(`${W}/gm/combat`);
   await page.locator('main').waitFor();
   // Add a throwaway fighter, remove it, then add two and clear the tracker.
   const add = async (name) => {
@@ -184,7 +184,7 @@ async function throwaways() {
   await page.getByRole('button', { name: 'Clear the tracker' }).click();
   await page.waitForFunction(() => document.body.innerText.includes('No one in the fight yet'), null, { timeout: 8000 }).catch(() => bad('combat: Clear the tracker did not empty the tracker'));
   // A throwaway stage card: add it, then Delete it.
-  await page.goto(`${W}/dm/stage`);
+  await page.goto(`${W}/gm/stage`);
   await page.locator('main').waitFor();
   await page.locator('main select').first().selectOption({ label: 'Text handout' }).catch(() => {});
   await page.getByLabel(/heading/i).first().fill('Throwaway card').catch(() => {});

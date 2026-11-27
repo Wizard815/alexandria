@@ -12,7 +12,7 @@ const cache = new Map<string, string | null>();
 
 /** Is this vault page readable by every player (secret blocks aside)? */
 export function sharedWithParty(path: string, fmJson: string | null): boolean {
-  if (!path.startsWith(`${ROOT}/`) || path.startsWith(`${ROOT}/dm/`)) return false;
+  if (!path.startsWith(`${ROOT}/`) || path.startsWith(`${ROOT}/gm/`)) return false;
   const own = /^Minerva\/players\/[^/]+\/(.+)$/.exec(path);
   if (own && own[1] !== 'shared.md') return false;
   return vaultLevel(parseJson(fmJson, {})) === 'party';

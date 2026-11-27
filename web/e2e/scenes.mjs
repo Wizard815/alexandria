@@ -109,14 +109,14 @@ try {
   await phone.addInitScript((t) => localStorage.setItem('alx.token', t), token);
   const pp = await phone.newPage();
   watch(pp, 'phone');
-  await pp.goto(`${W}/dm/phone`);
+  await pp.goto(`${W}/gm/phone`);
   await pp.getByRole('tab', { name: /remote/i }).click().catch(() => pp.getByText(/^Remote$/).first().click());
   check(await shows(pp.getByTestId('phone-scene').filter({ hasText: 'Lighthouse' })), 'phone: the scene button is not on the Remote tab');
   note('phone Remote tab lists the scene');
   await phone.close();
 
   // The Scenes page opens and lists it.
-  await page.goto(`${W}/dm/scenes`);
+  await page.goto(`${W}/gm/scenes`);
   check(await shows(page.getByText('Lighthouse').first()), 'scenes page: the scene is not listed');
   await ctx.close();
 } catch (e) {

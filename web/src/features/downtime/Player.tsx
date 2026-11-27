@@ -313,7 +313,7 @@ export function DowntimeModule({ account }: { account: string }) {
           {sp.group.slice(0, 3).map((t) => <TaskLine key={t.id} t={t} />)}
         </>;
       })()}
-      <Link className="tiny" to={dm ? `/w/${info.slug}/dm/downtime` : `/w/${info.slug}/downtime`}>All downtime</Link>
+      <Link className="tiny" to={dm ? `/w/${info.slug}/gm/downtime` : `/w/${info.slug}/downtime`}>All downtime</Link>
     </div>
   );
 }

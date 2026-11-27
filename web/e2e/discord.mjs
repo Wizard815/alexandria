@@ -38,7 +38,7 @@ try {
   const { page } = await signIn(browser, base, 'dm', 'game master 123', { width: 1280, height: 900 });
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`console: ${m.text()}`); });
-  await page.goto(`${W}/dm/discord`);
+  await page.goto(`${W}/gm/discord`);
   await page.getByLabel('Bot token').fill(GOOD_TOKEN);
   await page.getByRole('button', { name: 'Save token' }).click();
   await page.getByLabel('Server id').fill(GUILD);

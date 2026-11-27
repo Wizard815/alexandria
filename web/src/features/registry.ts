@@ -12,7 +12,7 @@ export type TableZone = 'now' | 'main' | 'side' | 'world';
 export interface TableBlock { id: string; label: string; zone: TableZone; order?: number; component: ComponentType }
 export interface WebFeature {
   id: string;
-  /** Under /w/:world/dm/<path>. */
+  /** Under /w/:world/gm/<path>. */
   dmRoutes?: FeatureRoute[];
   /** Under /w/:world/<path> (players). */
   playerRoutes?: FeatureRoute[];

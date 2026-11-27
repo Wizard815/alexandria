@@ -153,7 +153,7 @@ try {
   await api('POST', '/fog/map/world/ops', { pic: PIC, op: { k: 'c', x: 0.5, y: 0.5, r: 0.12, v: 1 } });
 
   // ---- 2. GM → Setup → Owlbear Rodeo: the address and a link key ----------------------------------------------------------
-  await page.goto(`${W}/dm/owlbear`);
+  await page.goto(`${W}/gm/owlbear`);
   await page.getByTestId('owlbear-page').waitFor({ timeout: 8000 });
   const manifest = await page.getByTestId('owlbear-manifest').innerText();
   check(manifest === `${base}/owlbear/manifest.json`, `manifest address: ${manifest}`);

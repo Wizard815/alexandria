@@ -13,14 +13,14 @@ const mk = (path: string, key: string): Location => { const p = parsePath(path);
 
 export default function PaneRouter({ slug, entry, routes, onPage }: {
   slug: string;
-  /** The first location, path and query: /w/<slug>/dm/<route>?... */
+  /** The first location, path and query: /w/<slug>/gm/<route>?... */
   entry: string;
   routes: PaneRoute[];
   /** The pane moved to another GM page by itself (a link on the page); `entry` is where. */
   onPage: (page: string, entry: string) => void;
 }) {
   const outer = useNavigate();
-  const prefix = `/w/${slug}/dm`;
+  const prefix = `/w/${slug}/gm`;
   const pageOf = useCallback((pathname: string): string | null => {
     if (pathname !== prefix && !pathname.startsWith(`${prefix}/`)) return null;
     const first = pathname.slice(prefix.length + 1).split('/')[0];
@@ -58,7 +58,7 @@ export default function PaneRouter({ slug, entry, routes, onPage }: {
       <UNSAFE_LocationContext.Provider value={loc}>
         <UNSAFE_RouteContext.Provider value={route as never}>
           <Routes>
-            <Route path="/w/:world/dm">
+            <Route path="/w/:world/gm">
               <Route index element={tablePage} />
               {children}
             </Route>

@@ -35,7 +35,7 @@ export function PlayerLayout() {
   };
   // Badges for pages that are not on the bottom bar go on More.
   const hidden = (ids: string[]) => Object.keys(counts).filter((k) => !ids.includes(k)).reduce((n, k) => n + counts[k][0], 0);
-  if (isDM) return <Navigate to={`/w/${info.slug}/dm`} replace />;
+  if (isDM) return <Navigate to={`/w/${info.slug}/gm`} replace />;
   const base = `/w/${info.slug}`;
   const links = availableLinks(info.settings);
   const tabIds = tabsFor(pinned, info.settings);

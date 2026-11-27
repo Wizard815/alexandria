@@ -45,7 +45,7 @@ async function signIn(user, viewport, mobile) {
   await page.getByLabel(/username/i).fill(user);
   await page.getByLabel(/password/i).fill(PASS[user]);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
-  await page.waitForURL(user === 'dm' ? '**/dm' : '**/w/saltreach', { timeout: 15000 });
+  await page.waitForURL(user === 'dm' ? '**/gm' : '**/w/saltreach', { timeout: 15000 });
   return { ctx, page };
 }
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, name + '.png') }); };
@@ -58,7 +58,7 @@ try {
   const rec = await api('POST', `/api/worlds/${world}/audio/sessions`, dmTok, { name: 'E2E session' });
   check(rec.status === 201, `could not start a recording: ${rec.status}`);
   const dm = await signIn('dm', { width: 1280, height: 800 });
-  await dm.page.goto(`${W}/dm/library`);
+  await dm.page.goto(`${W}/gm/library`);
   check(await dm.page.locator('.au-badge').waitFor({ timeout: 8000 }).then(() => true, () => false), 'no Recording badge for the GM');
   const jess = await signIn('jess', { width: 1280, height: 800 });
   check(await jess.page.locator('.au-badge').waitFor({ timeout: 8000 }).then(() => true, () => false), 'no Recording badge for a player');
@@ -105,7 +105,7 @@ try {
 
   // 5. Phone: the GM's party pack is a list of cards, not a cramped table (L12).
   const ph = await signIn('dm', { width: 390, height: 844 }, true);
-  await ph.page.goto(`${W}/dm/party`);
+  await ph.page.goto(`${W}/gm/party`);
   await ph.page.locator('main').waitFor();
   await ph.page.getByRole('tab', { name: 'Details and approvals' }).click().catch(() => {});
   await ph.page.waitForTimeout(600);

@@ -54,14 +54,14 @@ try {
   await api(dmLogin.token, 'PUT', '/mods/downtime/enabled', { on: true });
   await api(dmLogin.token, 'POST', '/downtime/tasks', { player: 'Tomas', activityId: 'pre-stronghold', reward: { text: 'A keep on the cliffs and a lordship', hidden: true }, dmNote: 'The cliffs hide a smugglers cave' });
   const { page: dm } = await signIn('dm', 'game master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
-  await dm.goto(`${W}/dm/house-rules`);
+  await dm.goto(`${W}/gm/house-rules`);
   await dm.getByRole('tab', { name: 'DownTime activities' }).click();
   await dm.getByText('Legendary vigil').waitFor({ timeout: 8000 });
   await shot(dm, '1-house-rules-activities');
   note('dm: DownTime on, its activities tab on the House rules page');
 
   // 2. The GM presses Downtime for 3 days on the Downtime page.
-  await dm.goto(`${W}/dm/downtime`);
+  await dm.goto(`${W}/gm/downtime`);
   await dm.getByLabel('Days of downtime').fill('3');
   await dm.getByLabel('Note').fill('Resting in Saltmarsh');
   await dm.getByTestId('downtime-start').click();

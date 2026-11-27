@@ -76,7 +76,7 @@ async function pages(d: Deps, worldId: string, v: Viewer, q: string, limit: numb
   const scope = scopeFor(v);
   const hits = semantic ? await hybridPages(d, worldId, q, scope, limit, v) : (d.library.search(worldId, q, v, limit) as any[]);
   logSearch(d.db, { worldId, role: roleOf(v), origin: 'global', q, hitIds: hits.map((h: any) => h.id) });
-  const base = v.role === 'dm' ? 'dm/library' : 'library';
+  const base = v.role === 'dm' ? 'gm/library' : 'library';
   return finish('page', hits.map((h: any) => ({
     hit: { id: h.id, title: h.title, snippet: h.snippet, snippetHtml: h.snippetHtml, titleHtml: h.titleHtml, link: `${base}?page=${encodeURIComponent(h.id)}`, meta: { path: h.path, matchedOn: h.matchedOn } },
     rel: h.relevance || 0.001, exact: h.tier >= 2 || (h.tier === 1 && false), fuzzy: h.matchedOn === 'fuzzy',
@@ -94,7 +94,7 @@ function people(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[
     if (!rel) continue;
     const sn = makeSnippet(detail || r.name, p);
     out.push({
-      hit: { id: r.id, title: r.name, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(r.name, p), link: `${v.role === 'dm' ? 'dm/' : ''}people`, meta: { role: r.role, attitude: r.attitude, pageId: r.page_id } },
+      hit: { id: r.id, title: r.name, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(r.name, p), link: `${v.role === 'dm' ? 'gm/' : ''}people`, meta: { role: r.role, attitude: r.attitude, pageId: r.page_id } },
       rel, exact: wordsOf(r.name).join(' ') === p.norm,
     });
   }
@@ -104,7 +104,7 @@ function people(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[
 function terms(d: Deps, worldId: string, v: Viewer, q: string, p: ParsedQuery): GlobalHit[] {
   const seen = new Set<string>();
   const out: { hit: Omit<GlobalHit, 'score' | 'kind'>; rel: number; exact?: boolean }[] = [];
-  const base = `${v.role === 'dm' ? 'dm/' : ''}rules`;
+  const base = `${v.role === 'dm' ? 'gm/' : ''}rules`;
   const add = (id: string, term: string, kind: string, summary: string, module: string, rel: number, exact: boolean) => {
     if (seen.has(id)) return;
     seen.add(id);
@@ -136,7 +136,7 @@ function transcript(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): Global
     const min = Math.floor(r.start_ms / 60000);
     const sec = String(Math.floor((r.start_ms % 60000) / 1000)).padStart(2, '0');
     out.push({
-      hit: { id: r.id, title: `${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`, snippet: sn.text, snippetHtml: sn.html, titleHtml: escapeHtml(`${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`), link: `${dm ? 'dm/' : ''}audio?line=${encodeURIComponent(r.id)}&session=${encodeURIComponent(r.session_id)}`, meta: { sessionId: r.session_id, startMs: r.start_ms, speaker } },
+      hit: { id: r.id, title: `${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`, snippet: sn.text, snippetHtml: sn.html, titleHtml: escapeHtml(`${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`), link: `${dm ? 'gm/' : ''}audio?line=${encodeURIComponent(r.id)}&session=${encodeURIComponent(r.session_id)}`, meta: { sessionId: r.session_id, startMs: r.start_ms, speaker } },
       rel,
     });
   }
@@ -153,7 +153,7 @@ function log(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[] {
     if (!rel) continue;
     const sn = makeSnippet(r.summary, p);
     const title = /^session\b/i.test(String(r.title).trim()) ? r.title : `Session ${r.number}: ${r.title}`;
-    out.push({ hit: { id: r.id, title, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(title, p), link: `${dm ? 'dm/sessionlog' : 'log'}?entry=${encodeURIComponent(r.id)}`, meta: { number: r.number, published: !r.unpublished_at } }, rel });
+    out.push({ hit: { id: r.id, title, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(title, p), link: `${dm ? 'gm/sessionlog' : 'log'}?entry=${encodeURIComponent(r.id)}`, meta: { number: r.number, published: !r.unpublished_at } }, rel });
   }
   return finish('log', out);
 }
@@ -172,7 +172,7 @@ function items(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[]
     const owner = r.owner === 'party' ? 'Party stash' : nm[r.owner] ?? 'Someone';
     const sn = makeSnippet(`${r.note || ''}${dm && r.dm_note ? ` ${r.dm_note}` : ''}` || `Held by ${owner}`, p);
     out.push({
-      hit: { id: r.id, title: r.name, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(r.name, p), link: dm ? 'dm/party' : 'inventory', meta: { owner, qty: r.qty } },
+      hit: { id: r.id, title: r.name, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(r.name, p), link: dm ? 'gm/party' : 'inventory', meta: { owner, qty: r.qty } },
       rel, exact: wordsOf(r.name).join(' ') === p.norm,
     });
   }

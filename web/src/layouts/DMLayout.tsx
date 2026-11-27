@@ -15,11 +15,11 @@ const TOPBARS = F.FEATURES.filter((f) => f.topbar && f.id !== 'search').map((f) 
 
 export function DMLayout() {
   const { info, isDM, w, connected } = useWorld();
-  const inWorkspace = /\/dm\/ws\/?$/.test(useLocation().pathname);
+  const inWorkspace = /\/gm\/ws\/?$/.test(useLocation().pathname);
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad(() => (isDM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isDM], ['approval', 'coin', 'item', 'item-removed']);
   if (!isDM) return <Navigate to={`/w/${info.slug}`} replace />;
-  const base = `/w/${info.slug}/dm`;
+  const base = `/w/${info.slug}/gm`;
   const open = (requests.data ?? []).filter((r: any) => r.status === 'open').length;
   const c = approvals.data?.counts;
   const waiting = open + (c ? c.coin + c.items + c.disputes : 0);

@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, Link } from 'react-router-dom';
+import { Navigate, Route, Routes, Link, useLocation } from 'react-router-dom';
 import { useAuth } from './lib/auth.tsx';
 import { WorldProvider } from './lib/world.tsx';
 import { AdminLayout } from './layouts/AdminLayout.tsx';
@@ -69,7 +69,8 @@ export function App() {
         <Route path="panel/:name" element={<PanelRoute />} />
         <Route path="screen/side" element={<SideScreen />} />
         <Route path="screen/table" element={<TableScreen />} />
-        <Route path="dm" element={<DMLayout />}>
+        <Route path="dm/*" element={<OldGmPath />} />
+        <Route path="gm" element={<DMLayout />}>
           <Route index element={<DMTable />} />
           <Route path="library" element={<LibraryPage />} />
           <Route path="broker" element={<DMBroker />} />
@@ -114,6 +115,12 @@ export function App() {
 }
 
 import { Outlet } from 'react-router-dom';
+/** Old GM addresses (/w/:world/dm/...) keep working: same page under /gm, query and hash kept (OAuth return links too). */
+function OldGmPath() {
+  const loc = useLocation();
+  return <Navigate to={`${loc.pathname.replace(/\/dm(?=\/|$)/, '/gm')}${loc.search}${loc.hash}`} replace />;
+}
+
 function WorldOutlet() {
   return <Outlet />;
 }
@@ -125,7 +132,7 @@ function Worlds() {
   if (!me) return <Navigate to="/login" replace />;
   if (me.worlds.length === 1 && !me.account.is_admin) {
     const w = me.worlds[0];
-    return <Navigate to={w.role === 'dm' ? `/w/${w.slug}/dm` : `/w/${w.slug}`} replace />;
+    return <Navigate to={w.role === 'dm' ? `/w/${w.slug}/gm` : `/w/${w.slug}`} replace />;
   }
   return (
     <div className="t-fantasy">
@@ -135,7 +142,7 @@ function Worlds() {
         <div className="card flush">
           <div className="list">
             {me.worlds.map((w) => (
-              <Link key={w.id} className="list-item" to={w.role === 'dm' ? `/w/${w.slug}/dm` : `/w/${w.slug}`}>
+              <Link key={w.id} className="list-item" to={w.role === 'dm' ? `/w/${w.slug}/gm` : `/w/${w.slug}`}>
                 <span className="grow"><strong>{w.name}</strong>{w.character_name && <span className="muted"> · {w.character_name}</span>}</span>
                 <span className={`chip ${w.role === 'dm' ? 'red' : 'teal'}`}>{w.role === 'dm' ? 'Game Master' : w.role === 'player' ? 'Player' : 'Guest'}</span>
               </Link>

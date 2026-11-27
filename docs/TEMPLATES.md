@@ -1,6 +1,6 @@
 # Templates & guides
 
-GM → Prep → **Templates & guides** (`/w/:world/dm/templates`). GM only: players get
+GM → Prep → **Templates & guides** (`/w/:world/gm/templates`). GM only: players get
 403 from every route and never see the page, the tools or what a guide found.
 
 A template is something the GM reuses. A **guide** is a template the assistant

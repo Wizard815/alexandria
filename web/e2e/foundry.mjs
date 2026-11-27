@@ -81,7 +81,7 @@ try {
   await dm.getByLabel(/password/i).fill('game master 123');
   await dm.getByRole('button', { name: /sign in|log in/i }).click();
   await dm.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
-  await dm.goto(`${base}/w/saltreach/dm/foundry`);
+  await dm.goto(`${base}/w/saltreach/gm/foundry`);
   await dm.getByText('Not set up').waitFor();
   const manifest = (await dm.getByTestId('foundry-manifest').textContent()).trim();
   check(manifest === `${base}/api/foundry/module.json`, `manifest URL shown: ${manifest}`);
@@ -119,7 +119,7 @@ try {
   note('fog drawn in Foundry');
 
   // ---- the GM's map ----
-  await dm.goto(`${base}/w/saltreach/dm/map`);
+  await dm.goto(`${base}/w/saltreach/gm/map`);
   await dm.getByRole('button', { name: 'sunken-keep' }).click();
   await dm.locator('[data-token]').first().waitFor();
   check(await dm.locator('[data-token]').count() === 3, 'the GM sees all three tokens');
@@ -183,7 +183,7 @@ try {
   // ---- a map goes out to Foundry as a new scene ----
   const harborPng = await drawMap(dm, 1200, 800, 99);
   const up = await api('POST', '/files?kind=map&level=party&name=harbor.png&title=Harbor%20map', undefined, harborPng);
-  await dm.goto(`${base}/w/saltreach/dm/foundry`);
+  await dm.goto(`${base}/w/saltreach/gm/foundry`);
   await dm.getByLabel('Map picture to send').selectOption(`lib:${up.id}`);
   await dm.getByLabel('Scene name').fill('The Harbor');
   await dm.getByRole('button', { name: 'Make the scene' }).click();

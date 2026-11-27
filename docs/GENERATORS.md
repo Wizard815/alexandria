@@ -1,6 +1,6 @@
 # Generators hub
 
-GM nav: **Generators** (`/w/:world/dm/generators`). NPCs, monsters, maps,
+GM nav: **Generators** (`/w/:world/gm/generators`). NPCs, monsters, maps,
 taverns, names, and two libraries (the bestiary and "My generated"). All
 original tables and code; everything works with no model. A chat model, when
 set, can improve the wording of a result (a checkbox, off by default).

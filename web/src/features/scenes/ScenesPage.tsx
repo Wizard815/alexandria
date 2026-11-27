@@ -1,4 +1,4 @@
-// /dm/scenes: make, edit and order the scenes, press one to set the room, and save the room as it is now as a new scene.
+// /gm/scenes: make, edit and order the scenes, press one to set the room, and save the room as it is now as a new scene.
 // Pickers list what already exists (queued media, library folders, stage cards, sound tracks and ambience scenes, lights
 // presets, maps and map pictures); every part is optional and an unticked part is left alone when the scene runs.
 import { useState } from 'react';

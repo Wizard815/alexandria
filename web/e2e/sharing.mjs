@@ -52,7 +52,7 @@ async function signIn(user, viewport, mobile) {
   await page.getByLabel(/username/i).fill(user);
   await page.getByLabel(/password/i).fill(PASS[user]);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
-  await page.waitForURL(user === 'dm' ? '**/dm' : '**/w/saltreach', { timeout: 15000 });
+  await page.waitForURL(user === 'dm' ? '**/gm' : '**/w/saltreach', { timeout: 15000 });
   return { ctx, page };
 }
 const go = async (page, p) => { await page.goto(`${W}/${p}`); await page.locator('main, .page').first().waitFor(); await page.waitForTimeout(500); };
@@ -77,7 +77,7 @@ try {
 
   // ---- 1. The GM: Share dialog on a page ------------------------------------
   const dm = await signIn('dm', { width: 1280, height: 860 }, false);
-  await go(dm.page, `dm/library?page=${encodeURIComponent(solo.id)}`);
+  await go(dm.page, `gm/library?page=${encodeURIComponent(solo.id)}`);
   await dm.page.getByRole('button', { name: 'Share…' }).first().click();
   const dlg = dm.page.getByRole('dialog', { name: /Share “Only for Jess”/ });
   await dlg.getByText('Only these players').waitFor({ timeout: 8000 }).catch(() => {});
@@ -97,7 +97,7 @@ try {
   check(await dm.page.locator('.shr-some').first().isVisible().catch(() => false), 'no "1 player" badge on the page');
 
   // ---- 2. A folder rule, confirmed first ------------------------------------
-  await go(dm.page, 'dm/library');
+  await go(dm.page, 'gm/library');
   const handouts = dm.page.getByRole('treeitem', { name: /Handouts/ }).first();
   await handouts.hover();
   const folderShare = dm.page.getByRole('button', { name: 'Share Handouts' });
@@ -181,7 +181,7 @@ try {
 
   // ---- 6. Players page (GM) --------------------------------------------------
   await api(dmTok, 'POST', '/live/ledger', { owner: 'party', amountCp: 20000, note: 'E2E party loot' });
-  await go(dm.page, 'dm/party');
+  await go(dm.page, 'gm/party');
   const cards = await dm.page.locator('.pl-card').count();
   const nPlayers = members.filter((m) => m.role === 'player').length;
   check(cards === nPlayers + 1, `expected ${nPlayers + 1} cards (players and the party), found ${cards}`);
@@ -201,7 +201,7 @@ try {
   check(live !== '' && live !== nextGold || true, 'live update');
   await dm.ctx.close();
   const phone = await signIn('dm', { width: 390, height: 844 }, true);
-  await go(phone.page, 'dm/party');
+  await go(phone.page, 'gm/party');
   const over = await phone.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(over <= 2, `Players page scrolls sideways on a phone by ${over}px`);
   const cols = await phone.page.evaluate(() => { const xs = [...document.querySelectorAll('.pl-card')].map((c) => Math.round(c.getBoundingClientRect().x)); return new Set(xs).size; });
@@ -246,7 +246,7 @@ try {
   await jess.ctx.close();
   await tom.ctx.close();
   const dm2 = await signIn('dm', { width: 1280, height: 860 }, false);
-  await go(dm2.page, 'dm/broker');
+  await go(dm2.page, 'gm/broker');
   await dm2.page.getByRole('tab', { name: /Special offers/ }).click().catch(() => {});
   await dm2.page.waitForTimeout(500);
   check(/from the party pouch/.test(await dm2.page.locator('main').innerText()), 'the GM broker page does not say who paid from where');

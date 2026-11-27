@@ -79,7 +79,7 @@ async function signIn(user, pass, viewport = { width: 1280, height: 900 }) {
 try {
   // ---- 1. the GM records a short session with the fake microphone ----
   const { ctx: dctx, page } = await signIn('dm', 'game master 123');
-  await page.goto(`${base}/w/saltreach/dm/audio`);
+  await page.goto(`${base}/w/saltreach/gm/audio`);
   await page.getByRole('button', { name: /allow the microphone|refresh the list/i }).click();
   const sw = page.getByRole('switch', { name: /^Use /i }).first();
   await sw.waitFor({ timeout: 10000 });
@@ -100,7 +100,7 @@ try {
   check(files.includes('Full session.mp3') && files.includes('Transcript.md') && files.includes('session.json') && files.some((f) => / - dm\.mp3$/.test(f) || /\.mp3$/.test(f) && f !== 'Full session.mp3'), `the folder on disk is readable (${files.join(', ')})`);
 
   // ---- 2. the GM's Recordings page ----
-  await page.goto(`${base}/w/saltreach/dm/recordings`);
+  await page.goto(`${base}/w/saltreach/gm/recordings`);
   await page.getByRole('heading', { name: 'Recordings', level: 1 }).waitFor({ timeout: 10000 }).catch(() => {});
   await page.getByText('E2E live session').first().waitFor({ timeout: 10000 });
   await page.screenshot({ path: path.join(SHOTS, 'dm-list.png'), fullPage: true });

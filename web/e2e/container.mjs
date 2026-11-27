@@ -148,13 +148,13 @@ try {
   await dm.getByLabel('New password').fill(PASS);
   await dm.getByRole('button', { name: 'Set password and sign in' }).click();
   await dm.waitForURL(/\/w\/saltreach/);
-  await dm.waitForURL(/\/w\/saltreach\/dm/);
+  await dm.waitForURL(/\/w\/saltreach\/gm/);
   await dm.waitForTimeout(1500);
   await shot(dm, '03-dm-screen');
   check(true, 'GM signed in and sees the GM screen');
 
   // 4. Invites: one code for a phone, one link for another phone.
-  await dm.goto(BASE + '/w/saltreach/dm/settings');
+  await dm.goto(BASE + '/w/saltreach/gm/settings');
   await dm.getByRole('tab', { name: /invite players/i }).or(dm.getByRole('button', { name: /invite players/i })).first().click();
   const invite = async () => {
     const before = await dm.locator('.ok-box .mono').first().innerText().catch(() => '');
@@ -211,7 +211,7 @@ try {
   // 7. Live sync: GM puts a text card on the stage; both phones see it without reloading.
   await ann.goto(BASE + '/w/saltreach/live');
   await bo.goto(BASE + '/w/saltreach/live');
-  await dm.goto(BASE + '/w/saltreach/dm/stage');
+  await dm.goto(BASE + '/w/saltreach/gm/stage');
   await dm.getByLabel('What').selectOption('text');
   await dm.getByLabel('Heading (optional)').fill('The tide bell rings');
   await dm.getByLabel('Text (Markdown)').fill('Three slow strokes from the drowned chapel.');
@@ -257,14 +257,14 @@ try {
 
   if (secure) {
   // 10. Microphones: the GM audio page lists the fake devices; the assistant mic picker remembers a choice.
-  await dm.goto(BASE + '/w/saltreach/dm/audio');
+  await dm.goto(BASE + '/w/saltreach/gm/audio');
   await dm.waitForTimeout(1500);
   await shot(dm, '09-dm-audio-mics');
   const audioText = await dm.locator('main').innerText();
   check(/microphone|fake|default/i.test(audioText), 'GM audio page lists microphones');
   const devs = await dm.evaluate(async () => { const a = await navigator.mediaDevices.enumerateDevices(); return { inputs: a.filter((d) => d.kind === 'audioinput').length, outputs: a.filter((d) => d.kind === 'audiooutput').length }; });
   check(devs.inputs > 0, `fake input devices present (${devs.inputs} in, ${devs.outputs} out)`);
-  await dm.goto(BASE + '/w/saltreach/dm/sound');
+  await dm.goto(BASE + '/w/saltreach/gm/sound');
   await dm.waitForTimeout(1500);
   await shot(dm, '10-dm-sound');
   await dm.getByRole('tab', { name: 'Speakers' }).or(dm.getByRole('button', { name: 'Speakers' })).first().click();
@@ -274,7 +274,7 @@ try {
   await shot(dm, '15-dm-speakers');
 
   // Recording starts on a chosen microphone, and the choice is remembered.
-  await dm.goto(BASE + '/w/saltreach/dm/audio');
+  await dm.goto(BASE + '/w/saltreach/gm/audio');
   await dm.waitForTimeout(1200);
   const mic1 = dm.getByRole('switch', { name: /Use Fake Audio Input 1/ }).or(dm.getByLabel(/Use Fake Audio Input 1/)).first();
   await mic1.click();
@@ -291,7 +291,7 @@ try {
   await dm.waitForTimeout(1500);
 
   // The assistant's dictation: a microphone picker, remembered per browser.
-  await dm.goto(BASE + '/w/saltreach/dm');
+  await dm.goto(BASE + '/w/saltreach/gm');
   await dm.waitForTimeout(1500);
   await dm.getByRole('button', { name: /Open the assistant/ }).click();
   await dm.waitForTimeout(1500);

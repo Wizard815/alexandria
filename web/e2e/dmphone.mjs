@@ -1,4 +1,4 @@
-// End-to-end test of the GM phone assistant (/w/:world/dm/phone) on the seeded
+// End-to-end test of the GM phone assistant (/w/:world/gm/phone) on the seeded
 // demo world (fake models), at a normal phone (390x844) and the Fold's
 // near-square inner screen (700x850). Each tab loads, an HP change from the
 // phone reaches the desktop combat page and the players' view (health as the
@@ -63,14 +63,14 @@ async function signIn(viewport, mobile, who) {
   await page.getByLabel(/username/i).fill('dm');
   await page.getByLabel(/password/i).fill(PASS.dm);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
-  await page.waitForURL('**/dm', { timeout: 15000 });
+  await page.waitForURL('**/gm', { timeout: 15000 });
   return { ctx, page };
 }
 const tab = (page, name) => page.getByRole('tab', { name: new RegExp('^' + name) }).first();
 const sideways = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
 async function tour(page, label, wide) {
-  const R = `${base}/w/saltreach/dm/phone`;
+  const R = `${base}/w/saltreach/gm/phone`;
   await page.goto(R);
   await page.getByTestId('dmphone').waitFor({ timeout: 10000 });
   check((await page.getByTestId('dmphone').getAttribute('data-layout')) === (wide ? 'two-pane' : 'one-pane'), `${label}: wrong layout`);
@@ -258,11 +258,11 @@ try {
   // ---- phone ----------------------------------------------------------------
   const { ctx, page } = await signIn({ width: 390, height: 844 }, true, 'phone');
   const desk = await signIn({ width: 1280, height: 800 }, false, 'desktop');
-  await desk.page.goto(`${base}/w/saltreach/dm/combat`);
+  await desk.page.goto(`${base}/w/saltreach/gm/combat`);
   await desk.page.locator('main').waitFor();
 
   // The banner on the GM's table page, dismissible and remembered.
-  await page.goto(`${base}/w/saltreach/dm`);
+  await page.goto(`${base}/w/saltreach/gm`);
   await page.getByTestId('phone-banner').waitFor({ timeout: 10000 });
   check(/Open the phone assistant/.test(await page.getByTestId('phone-banner').innerText()), 'banner text');
   check((await page.getByTestId('phone-banner').boundingBox()).height < 140, 'banner is one row, not a full screen');
