@@ -1,6 +1,6 @@
 // The audio engine: plays what the librarian's `sound` events ask for, with
 // fades, loops, crossfades and speaker groups. Used by the overlay on every
-// page, so music keeps playing while the DM moves around the app.
+// page, so music keeps playing while the GM moves around the app.
 import type { WorldClient } from '@alx/client';
 
 export type Channel = 'music' | 'ambience' | 'sfx' | 'voice';
@@ -13,7 +13,7 @@ export interface SoundEvent {
 const lsGet = <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } };
 const lsSet = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } };
 
-/** A random id for this browser, kept in localStorage, so the DM can tell a player's devices apart. */
+/** A random id for this browser, kept in localStorage, so the GM can tell a player's devices apart. */
 export function deviceId(): string {
   let v: string | null = null;
   try { v = localStorage.getItem('alx.sound.device'); } catch { /* ignore */ }

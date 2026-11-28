@@ -18,7 +18,7 @@ export interface MapOpts {
   /** Use this title instead of making one up (a tavern map takes its tavern's name). */
   title?: string;
 }
-export interface KeyEntry { n: string; name: string; text: string; dm?: string }
+export interface KeyEntry { n: string; name: string; text: string; gm?: string }
 export interface MapResult {
   kind: MapKind; seed: string; size: string; flavour: string; title: string;
   /** Feet one grid square stands for, or null when the map is not on a battle grid. */

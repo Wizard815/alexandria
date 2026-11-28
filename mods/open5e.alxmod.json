@@ -1,0 +1,45 @@
+{
+  "kit": 2,
+  "id": "open5e",
+  "name": "Open5e and the 5e SRD API",
+  "version": "1.1.0",
+  "author": "Wizard",
+  "summary": "Pull free rules books (Tome of Beasts, Deep Magic, Vault of Magic, the SRD 5.2 and 5.1 ...) from Open5e and the 5e SRD API into this world: monsters, spells, items and more.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [
+      "modules"
+    ],
+    "worksWith": [
+      "codex",
+      "shop",
+      "encounters"
+    ]
+  },
+  "presets": {
+    "open5e": true
+  },
+  "rules": [
+    {
+      "term": "Open5e (house rule)",
+      "text": "This world can pull free books from Open5e and the 5e SRD API in World settings → Game module, and the GM's assistant can import them."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "open5e",
+      "tome of beasts",
+      "deep magic",
+      "vault of magic",
+      "5e srd api",
+      "import monsters",
+      "import spells",
+      "pull a book"
+    ],
+    "tools": [
+      "list_content_books",
+      "import_content"
+    ],
+    "gm": "To add a book: list_content_books gives the keys, import_content pulls it (the GM approves). Books the server admin already keeps are under Available in World settings → Game module and need no download."
+  }
+}

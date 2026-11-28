@@ -89,7 +89,7 @@ export default function PlayerAudio() {
             </Field>
             <Field label="Mode"><select value={mic?.mode ?? 'always'} onChange={(e) => void save({ mode: e.target.value as Mode })}>{MODES.map((m) => <option key={m} value={m}>{MODE_LABELS[m]}</option>)}</select></Field>
             {holdMode && <div className="field"><span className="label">Hold key (laptop)</span><KeyButton value={mic?.key ?? ''} onChange={(k) => void save({ key: k })} /></div>}
-            <div className="field"><span className="label">Signal</span>{ms?.recording ? <Meter level={ms.level} /> : <span className="tiny faint">{recording ? 'Not recording yet' : 'Starts when the DM starts recording'}</span>}</div>
+            <div className="field"><span className="label">Signal</span>{ms?.recording ? <Meter level={ms.level} /> : <span className="tiny faint">{recording ? 'Not recording yet' : 'Starts when the GM starts recording'}</span>}</div>
           </div>
           {!labelled && <button type="button" className="btn small" onClick={() => void reload(true)}>Allow the microphone</button>}
           {ms?.error && <p className="small" style={{ color: 'var(--danger-text)' }}>{ms.error}</p>}
@@ -110,7 +110,7 @@ export default function PlayerAudio() {
             <label className="row" style={{ gap: 8 }}><span className="small">Allow</span><Switch checked={sttAllowed} onChange={(v) => { setSttAllowed(v); deviceStt.setAllowed(v); }} label="Let this device turn my speech into text" /></label>
           </div>
           <p className="small muted" style={{ margin: 0 }}>
-            The DM asked {status.data.transcription.stt === 'auto' ? 'devices with a graphics card the browser can use' : 'each device'} to turn its own mic into text, so the server has less to do.
+            The GM asked {status.data.transcription.stt === 'auto' ? 'devices with a graphics card the browser can use' : 'each device'} to turn its own mic into text, so the server has less to do.
             {' '}The speech model is downloaded from your table’s server the first time (tens of megabytes) and kept. It uses battery while recording; switch it off and the server does it instead.
           </p>
           {ms?.recording ? <DeviceSttNote view={stt} player /> : <p className="tiny faint" style={{ margin: 0 }}>{sttAllowed ? 'Starts with the recording.' : 'Off: the server transcribes your mic.'}</p>}

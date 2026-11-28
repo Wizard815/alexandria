@@ -4,7 +4,7 @@
 import type { DB } from '../../core/db.ts';
 import { one, all, run, tx } from '../../core/db.ts';
 import type { EventHub } from '../../core/events.ts';
-import { dmOnly, everyone } from '../../core/events.ts';
+import { gmOnly, everyone } from '../../core/events.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import {
   BUILTIN_CALENDARS, MAX_MINUTES, MINUTES_PER_DAY, WAKE_HOUR, dateToMinutes, formatDate, formatDay, minutesToDate, nextDayAt, nextHour, normalizeCalendar, remapDate, yearLength,
@@ -16,7 +16,7 @@ export type { CalendarDef, DateInput, DateParts };
 
 export type Preset = 'short-rest' | 'long-rest' | 'next-day';
 export type LongRestMode = '8h' | 'morning';
-export type Role = 'dm' | 'player' | 'guest';
+export type Role = 'gm' | 'player' | 'guest';
 export const EVENT_KINDS = ['holiday', 'deadline', 'travel', 'rest', 'session', 'custom'] as const;
 export const UPCOMING_CHOICES = [3, 7, 30] as const;
 const MAX_ADVANCE = 365 * 1000 * MINUTES_PER_DAY;
@@ -24,7 +24,7 @@ const MAX_ADVANCE = 365 * 1000 * MINUTES_PER_DAY;
 export interface ClockNow {
   minutes: number;
   date: DateParts;
-  /** e.g. "3 Frostmoot 1492 DR · evening" */
+  /** e.g. "3 Frostmoot 1492 AR · evening" */
   label: string;
 }
 export interface LogEntry {
@@ -35,7 +35,7 @@ export interface LogEntry {
 }
 export interface WorldEvent {
   id: string; title: string; description: string; start: number; end: number | null;
-  visibility: 'dm' | 'party'; repeat: 'yearly' | null; kind: string; startLabel: string; endLabel: string | null;
+  visibility: 'gm' | 'party'; repeat: 'yearly' | null; kind: string; startLabel: string; endLabel: string | null;
   startDate: DateParts; endDate: DateParts | null;
   createdBy: string | null;
 }
@@ -221,11 +221,11 @@ const eventOut = (def: CalendarDef, r: any): WorldEvent => ({
 });
 
 /** What a viewer may see of an event: players only get party events. */
-const canSee = (role: Role, visibility: string) => role === 'dm' || visibility === 'party';
+const canSee = (role: Role, visibility: string) => role === 'gm' || visibility === 'party';
 
 export function getEvent(db: DB, worldId: string, eventId: string, role: Role): WorldEvent {
   const r = one<any>(db, 'SELECT * FROM clock_events WHERE id = ? AND world_id = ?', eventId, worldId);
-  // A player gets "not found" for a DM-only event, the same as for one that does not exist.
+  // A player gets "not found" for a GM-only event, the same as for one that does not exist.
   if (!r || !canSee(role, r.visibility)) throw new HttpError(404, 'Event not found');
   return eventOut(getCalendar(db, worldId).definition, r);
 }
@@ -273,8 +273,8 @@ function cleanEvent(def: CalendarDef, body: EventInput, cur: any | null) {
   const end = 'end_minutes' in out ? out.end_minutes : cur?.end_minutes ?? null;
   if (end !== null && end < start) throw new HttpError(400, 'An event cannot end before it starts');
   if (has('visibility') || !cur) {
-    const v = body.visibility ?? 'dm';
-    if (v !== 'dm' && v !== 'party') throw new HttpError(400, "visibility must be 'dm' or 'party'");
+    const v = body.visibility ?? 'gm';
+    if (v !== 'gm' && v !== 'party') throw new HttpError(400, "visibility must be 'gm' or 'party'");
     out.visibility = v;
   }
   if (has('repeat')) {
@@ -293,10 +293,10 @@ function cleanEvent(def: CalendarDef, body: EventInput, cur: any | null) {
 function announceEvent(hub: EventHub | null, worldId: string, action: 'created' | 'updated' | 'deleted', after: WorldEvent | null, before: WorldEvent | null) {
   if (!hub) return;
   const ev = after ?? before!;
-  hub.emit(worldId, 'world-event', { action, event: ev }, dmOnly);
+  hub.emit(worldId, 'world-event', { action, event: ev }, gmOnly);
   const playerSees = (e: WorldEvent | null) => !!e && e.visibility === 'party';
   const was = playerSees(before), is = playerSees(after);
-  const players = (v: { role: string }) => v.role !== 'dm';
+  const players = (v: { role: string }) => v.role !== 'gm';
   if (is && was) hub.emit(worldId, 'world-event', { action: 'updated', event: after }, players);
   else if (is) hub.emit(worldId, 'world-event', { action: 'created', event: after }, players);
   else if (was) hub.emit(worldId, 'world-event', { action: 'deleted', event: { id: before!.id } }, players);
@@ -308,7 +308,7 @@ export function addEvent(db: DB, hub: EventHub | null, worldId: string, body: Ev
   const eid = id('evt_');
   run(db, 'INSERT INTO clock_events (id, world_id, title, description, start_minutes, end_minutes, visibility, repeat_rule, kind, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
     eid, worldId, e.title, e.description ?? '', e.start_minutes, e.end_minutes ?? null, e.visibility, e.repeat_rule ?? null, e.kind, by, now());
-  const ev = getEvent(db, worldId, eid, 'dm');
+  const ev = getEvent(db, worldId, eid, 'gm');
   announceEvent(hub, worldId, 'created', ev, null);
   return ev;
 }
@@ -321,7 +321,7 @@ export function updateEvent(db: DB, hub: EventHub | null, worldId: string, event
   const e = cleanEvent(def, body, cur);
   const sets = Object.keys(e);
   if (sets.length) run(db, `UPDATE clock_events SET ${sets.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`, ...sets.map((k) => e[k]), eventId);
-  const after = getEvent(db, worldId, eventId, 'dm');
+  const after = getEvent(db, worldId, eventId, 'gm');
   announceEvent(hub, worldId, 'updated', after, before);
   return after;
 }
@@ -341,7 +341,7 @@ export function deleteEvent(db: DB, hub: EventHub | null, worldId: string, event
 export function listEvents(db: DB, worldId: string, role: Role, from: number, to: number, limit = 500): Occurrence[] {
   const def = getCalendar(db, worldId).definition;
   const nowMin = ensure(db, worldId).minutes as number;
-  const rows = all<any>(db, `SELECT * FROM clock_events WHERE world_id = ?${role === 'dm' ? '' : " AND visibility = 'party'"}`, worldId);
+  const rows = all<any>(db, `SELECT * FROM clock_events WHERE world_id = ?${role === 'gm' ? '' : " AND visibility = 'party'"}`, worldId);
   const yl = yearLength(def) * MINUTES_PER_DAY;
   const out: Occurrence[] = [];
   const today = Math.floor(nowMin / MINUTES_PER_DAY);

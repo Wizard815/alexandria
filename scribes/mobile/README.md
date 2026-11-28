@@ -1,6 +1,6 @@
 # Alexandria Mobile
 
-The Alexandria Mobile app for DM and Player modes.
+The Alexandria Mobile app for GM and Player modes.
 
 ## Setup
 

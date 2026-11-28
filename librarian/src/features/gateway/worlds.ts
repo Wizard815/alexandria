@@ -2,7 +2,7 @@
 // which pages in two sources are the same thing, and which source wins when they disagree.
 //
 // Being an admin does not open a world. Page titles shown here are the ones this admin may read: party-level pages,
-// or every page of a world whose DM they are. Pairs that involve other pages are only counted.
+// or every page of a world whose GM they are. Pairs that involve other pages are only counted.
 import type { Deps } from '../../app.ts';
 import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS gateway_page_links (
   decided_at TEXT NOT NULL,
   PRIMARY KEY (world_id, a_id, b_id)
 );
--- How a world settles two sources that disagree. first: a source id, or 'newest'. show_both: show the DM both versions.
+-- How a world settles two sources that disagree. first: a source id, or 'newest'. show_both: show the GM both versions.
 CREATE TABLE IF NOT EXISTS gateway_world_prefs (
   world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
   first TEXT NOT NULL DEFAULT 'newest',
@@ -33,10 +33,10 @@ CREATE TABLE IF NOT EXISTS gateway_world_prefs (
 
 const rows = <T>(db: DB, sql: string, ...args: unknown[]): T[] => { try { return all<T>(db, sql, ...args); } catch { return []; } };
 
-/** The viewer an admin reads a world as: the DM's copy only where they are that world's DM, otherwise the party copy. */
+/** The viewer an admin reads a world as: the GM's copy only where they are that world's GM, otherwise the party copy. */
 export function adminViewer(db: DB, worldId: string, accountId: string): Viewer {
   const m = one<{ role: string }>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, accountId);
-  if (m?.role === 'dm') return { accountId, role: 'dm' };
+  if (m?.role === 'gm') return { accountId, role: 'gm' };
   return { accountId, role: m?.role === 'player' ? 'player' : 'guest' };
 }
 
@@ -47,7 +47,7 @@ interface PageRow { id: string; title: string; visibility: string; source_id: st
 /** Pages with the same normalized title in two different sources. */
 function suggestions(d: Deps, worldId: string, accountId: string) {
   const { db } = d;
-  const isDm = adminViewer(db, worldId, accountId).role === 'dm';
+  const isGm = adminViewer(db, worldId, accountId).role === 'gm';
   const pages = rows<PageRow>(db, `SELECT p.id, p.title, p.visibility, p.source_id, s.name AS source_name FROM pages p JOIN sources s ON s.id = p.source_id
     WHERE p.world_id = ? AND p.source_id IS NOT NULL`, worldId);
   const byName = new Map<string, PageRow[]>();
@@ -65,7 +65,7 @@ function suggestions(d: Deps, worldId: string, accountId: string) {
       if (x.source_id === y.source_id) continue;
       const [a, b] = pair(x.id, y.id);
       const status = decided.get(`${a}|${b}`) ?? 'suggested';
-      if (!isDm && (x.visibility !== 'party' || y.visibility !== 'party')) { hidden++; continue; }
+      if (!isGm && (x.visibility !== 'party' || y.visibility !== 'party')) { hidden++; continue; }
       const [ax, bx] = a === x.id ? [x, y] : [y, x];
       shown.push({ a: { id: ax.id, title: ax.title, source: ax.source_name }, b: { id: bx.id, title: bx.title, source: bx.source_name }, status });
     }
@@ -94,9 +94,9 @@ export function worldCards(d: Deps, worldId: string, accountId: string) {
       withParty: shares.filter((s) => s.to_id === '*').length,
       withChosen: shares.filter((s) => s.to_id !== '*').length,
       recent: shares.slice(0, 5).map((s) => ({
-        from: s.kind === 'dm' ? 'DM' : nm[s.from_id] ?? 'Someone', to: s.to_id === '*' ? 'the party' : nm[s.to_id] ?? 'Someone',
+        from: s.kind === 'gm' ? 'GM' : nm[s.from_id] ?? 'Someone', to: s.to_id === '*' ? 'the party' : nm[s.to_id] ?? 'Someone',
         // A title is shown only where this admin could read the page anyway.
-        page: s.title && (s.visibility === 'party' || viewer.role === 'dm') ? s.title : null,
+        page: s.title && (s.visibility === 'party' || viewer.role === 'gm') ? s.title : null,
       })),
     },
     sameThing: suggestions(d, worldId, accountId),
@@ -111,7 +111,7 @@ export function setLink(d: Deps, worldId: string, accountId: string, aId: unknow
   for (const id of [aId, bId]) {
     const p = one<{ visibility: string; source_id: string | null }>(d.db, 'SELECT visibility, source_id FROM pages WHERE world_id = ? AND id = ?', worldId, id);
     // A page this admin may not read is the same as a page that is not there.
-    if (!p || !p.source_id || (viewer.role !== 'dm' && p.visibility !== 'party')) throw new HttpError(404, 'Page not found');
+    if (!p || !p.source_id || (viewer.role !== 'gm' && p.visibility !== 'party')) throw new HttpError(404, 'Page not found');
   }
   const [a, b] = pair(aId, bId);
   if (status === 'clear') run(d.db, 'DELETE FROM gateway_page_links WHERE world_id = ? AND a_id = ? AND b_id = ?', worldId, a, b);

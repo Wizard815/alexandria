@@ -1,5 +1,5 @@
-// The DM's workspace: the main area split into 1 to 4 panes, each showing a DM page. This file is the pure part (no React):
-// the state, how it reads and writes the URL (/w/:world/dm/ws?l=cols&p=combat,sound&s=50,50&f=0), the operations the menu and
+// The GM's workspace: the main area split into 1 to 4 panes, each showing a GM page. This file is the pure part (no React):
+// the state, how it reads and writes the URL (/w/:world/gm/ws?l=cols&p=combat,sound&s=50,50&f=0), the operations the menu and
 // the workspace both use, the presets and the saved layouts kept in the browser.
 
 export type LayoutId = 'one' | 'cols' | 'rows' | 'grid' | 'side';
@@ -20,7 +20,7 @@ export const PANE_MIME = 'application/x-alx-pane';
 
 export interface Workspace {
   l: LayoutId;
-  /** Page ids: a DM route ('combat'; 'table' for the table page) or one of the panel-only ids ('assistant', 'transcript', 'fog'). */
+  /** Page ids: a GM route ('combat'; 'table' for the table page) or one of the panel-only ids ('assistant', 'transcript', 'fog'). */
   p: string[];
   /** Percentages. cols/rows: one per pane. grid: [first row's height, first column's width]. side: [main's width, ...the side column's panes' heights]. */
   s: number[];
@@ -206,7 +206,7 @@ export function deleteLayout(id: string) {
   try { window.dispatchEvent(new Event(LAYOUTS_EVENT)); } catch { /* no window */ }
 }
 
-/** The DM can put the workspace away (this browser): its button leaves the strip until it is brought back from the world menu. */
+/** The GM can put the workspace away (this browser): its button leaves the strip until it is brought back from the world menu. */
 const HIDE_KEY = 'alx.ws.hidden';
 export const workspaceHidden = (): boolean => readJSON<boolean>(HIDE_KEY, false) === true;
 export function setWorkspaceHidden(v: boolean) { writeJSON(HIDE_KEY, v); try { window.dispatchEvent(new Event(LAYOUTS_EVENT)); } catch { /* no window */ } }

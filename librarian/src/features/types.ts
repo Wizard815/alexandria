@@ -21,12 +21,12 @@ export type SettingSpec =
 export interface McpTool {
   name: string;
   description: string;
-  /** Only listed for a DM's write key. */
+  /** Only listed for a GM's write key. */
   write?: boolean;
-  /** Only listed for a player's key (never a DM's, read or write). */
+  /** Only listed for a player's key (never a GM's, read or write). */
   playerOnly?: boolean;
-  /** Only listed for the DM (any key): a DM-only read players would only get 403 from. */
-  dmOnly?: boolean;
+  /** Only listed for the GM (any key): a GM-only read players would only get 403 from. */
+  gmOnly?: boolean;
   props: Record<string, any>;
   required?: string[];
   /** The world API request to make; the path is relative to /api/worlds/:world. */
@@ -56,4 +56,10 @@ export interface Feature {
   start?: (d: Deps) => (() => void) | void;
   /** Folders under ALX_DATA_DIR this feature keeps files in; included in backups. */
   dataDirs?: string[];
+  /**
+   * House rules (mods, see features/mods and docs/MODS.md) this feature ships: the id of a rule file in the repo's
+   * mods/ folder, or a mod file object. A big system usually ships one whose `presets` switch its own settings on,
+   * so the GM turns it on under House rules.
+   */
+  houseRules?: unknown[];
 }

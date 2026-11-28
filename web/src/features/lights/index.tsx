@@ -4,8 +4,8 @@ import MyColour from './MyColour.tsx';
 
 const feature: WebFeature = {
   id: 'lights',
-  dmRoutes: [{ path: 'lights', element: <LightsPage /> }],
-  dmNav: [{ to: 'lights' }],
+  gmRoutes: [{ path: 'lights', element: <LightsPage /> }],
+  gmNav: [{ to: 'lights' }],
   playerRoutes: [{ path: 'lights', element: <MyColour /> }],
   playerNav: [{ to: 'lights', label: 'My light colour', icon: 'fa-lightbulb' }],
 };

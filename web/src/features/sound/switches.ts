@@ -1,5 +1,5 @@
 // A player's three sound switches for this device (music, ambience, sound
-// effects) and their volumes. They live on the gateway so the DM can see who
+// effects) and their volumes. They live on the gateway so the GM can see who
 // hears what; a copy is kept here so every part of the page agrees.
 import { useSyncExternalStore } from 'react';
 import type { WorldClient } from '@alx/client';
@@ -26,7 +26,7 @@ export async function loadSwitches(w: WorldClient) {
   try {
     const r = await w.call('GET', '/sound/me/switches', undefined, { device: deviceId() });
     set(from(r));
-    // Tell the DM this device is still here.
+    // Tell the GM this device is still here.
     if (r.music || r.ambience || r.sfx) void w.call('PUT', '/sound/me/switches', { device: deviceId() }).catch(() => {});
   } catch { set({ ...state, loaded: true }); }
 }

@@ -94,7 +94,7 @@ async function step(label: string, fn: () => Promise<unknown>) {
   try { await fn(); console.log(`  ✓ ${label}`); } catch (e: any) { console.log(`  ✗ ${label}: ${String(e.message).slice(0, 200)}`); }
 }
 
-const PASS = { admin: 'library admin 123', dm: 'dungeon master 123', player: 'player pass 123' };
+const PASS = { admin: 'library admin 123', gm: 'game master 123', player: 'player pass 123' };
 console.log('Seeding the demo world…');
 await call('POST', '/api/setup', undefined, { username: 'admin', password: PASS.admin });
 // The gateway admin signs in separately from the table (/admin/login).
@@ -108,21 +108,21 @@ await step('Argos provider and Discover assign the model jobs', async () => {
   await call('PUT', '/api/admin/models', admin, { jobs });
   console.log(`    jobs set: ${Object.keys(jobs).join(', ')}`);
 });
-const dmAcc = await call('POST', '/api/admin/accounts', admin, { username: 'dm', password: PASS.dm, displayName: 'The DM' });
-const dm = (await call('POST', '/api/auth/login', undefined, { username: 'dm', password: PASS.dm })).token as string;
-const world = await call('POST', '/api/admin/worlds', admin, { name: 'Saltreach', dmAccountId: dmAcc.account.id });
+const gmAcc = await call('POST', '/api/admin/accounts', admin, { username: 'gm', password: PASS.gm, displayName: 'The GM' });
+const gm = (await call('POST', '/api/auth/login', undefined, { username: 'gm', password: PASS.gm })).token as string;
+const world = await call('POST', '/api/admin/worlds', admin, { name: 'Saltreach', gmAccountId: gmAcc.account.id });
 const W = `/api/worlds/${world.slug}`;
 
 const players: Record<string, { token: string; id: string; name: string }> = {};
 for (const [user, character] of [['jess', 'Jessamine'], ['tom', 'Tomas'], ['ana', 'Anselm']]) {
-  const inv = await call('POST', `${W}/invites`, dm, { role: 'player' });
+  const inv = await call('POST', `${W}/invites`, gm, { role: 'player' });
   const j = await call('POST', '/api/join', undefined, { code: inv.code, username: user, password: PASS.player, characterName: character });
   players[user] = { token: j.token, id: j.account.id, name: character };
 }
 const { jess, tom, ana } = players;
 
-// Library: shared pages with DM secrets inside, and DM-only pages.
-const page = async (p: string, visibility: 'party' | 'dm', markdown: string) => (await call('PUT', `${W}/library/pages`, dm, { path: p, visibility, markdown })).id as string;
+// Library: shared pages with GM secrets inside, and GM-only pages.
+const page = async (p: string, visibility: 'party' | 'gm', markdown: string) => (await call('PUT', `${W}/library/pages`, gm, { path: p, visibility, markdown })).id as string;
 const ids: Record<string, string> = {};
 let audioSession = '';
 await step('library pages', async () => {
@@ -137,7 +137,7 @@ A fishing town on the Azure coast, ruled by a harbour council of seven captains.
 ## The harbour
 Fishing boats leave before dawn. The [[Greywater Ferry]] crosses to the far bank twice a day.
 
-> [!secret] DM
+> [!secret] GM
 > The harbour council secretly answers to [[Velmira]], the smuggler queen. Three of the seven captains are on her payroll.
 `);
   ids.ferry = await page('Places/Greywater Ferry', 'party', `---
@@ -158,56 +158,56 @@ knowledge: deep
 # Lantern of the Deep
 A brass lantern that hums near water. When lit underwater, it burns blue and does not go out.
 
-> [!secret] DM
+> [!secret] GM
 > It was made by the Drowned King to find his lost crown. Whoever carries it is slowly drawn toward the sea.
 `);
-  ids.velmira = await page('People/Velmira', 'dm', `# Velmira
+  ids.velmira = await page('People/Velmira', 'gm', `# Velmira
 The smuggler queen of the Azure coast. She keeps her treasury beneath the dark lighthouse and wants the Lantern of the Deep.
 `);
-  ids.king = await page('Secrets/The Drowned King', 'dm', `# The Drowned King
+  ids.king = await page('Secrets/The Drowned King', 'gm', `# The Drowned King
 The campaign's villain: a drowned sorcerer-king waiting beneath the bay for his crown. The party doesn't know he exists yet.
 `);
 });
 
 // Coin and items; the lantern links to its library page.
 await step('coin and items', async () => {
-  await call('POST', `${W}/live/ledger`, dm, { owner: jess.id, amountCp: 4250, note: 'Reward from the harbour council' });
-  await call('POST', `${W}/live/ledger`, dm, { owner: tom.id, amountCp: 380, note: 'Wages' });
-  await call('POST', `${W}/live/ledger`, dm, { owner: ana.id, amountCp: 1200, note: 'Wages' });
-  await call('POST', `${W}/live/ledger`, dm, { owner: 'party', amountCp: 2000, note: 'Shared loot' });
-  const lantern = await call('POST', `${W}/inventory`, dm, { owner: jess.id, name: 'Brass lantern', qty: 1, note: 'Hums near water', reason: 'Found in the lighthouse', pageId: ids.lantern });
-  await call('PUT', `${W}/itemcards/${lantern.id ?? lantern.item?.id}/page`, dm, { pageId: ids.lantern }).catch(() => null);
-  await call('POST', `${W}/inventory`, dm, { owner: jess.id, name: 'Arrows', qty: 20, reason: 'Bought in the market' });
-  await call('POST', `${W}/inventory`, dm, { owner: tom.id, name: 'Healing potion', qty: 2, reason: 'From the temple' });
-  await call('POST', `${W}/inventory`, dm, { owner: 'party', name: 'Rope (50 ft)', qty: 2, reason: 'Bought' });
+  await call('POST', `${W}/live/ledger`, gm, { owner: jess.id, amountCp: 4250, note: 'Reward from the harbour council' });
+  await call('POST', `${W}/live/ledger`, gm, { owner: tom.id, amountCp: 380, note: 'Wages' });
+  await call('POST', `${W}/live/ledger`, gm, { owner: ana.id, amountCp: 1200, note: 'Wages' });
+  await call('POST', `${W}/live/ledger`, gm, { owner: 'party', amountCp: 2000, note: 'Shared loot' });
+  const lantern = await call('POST', `${W}/inventory`, gm, { owner: jess.id, name: 'Brass lantern', qty: 1, note: 'Hums near water', reason: 'Found in the lighthouse', pageId: ids.lantern });
+  await call('PUT', `${W}/itemcards/${lantern.id ?? lantern.item?.id}/page`, gm, { pageId: ids.lantern }).catch(() => null);
+  await call('POST', `${W}/inventory`, gm, { owner: jess.id, name: 'Arrows', qty: 20, reason: 'Bought in the market' });
+  await call('POST', `${W}/inventory`, gm, { owner: tom.id, name: 'Healing potion', qty: 2, reason: 'From the temple' });
+  await call('POST', `${W}/inventory`, gm, { owner: 'party', name: 'Rope (50 ft)', qty: 2, reason: 'Bought' });
 });
 
 // World clock and events.
 await step('world clock and events', async () => {
-  const now = (await call('GET', `${W}/clock`, dm)).minutes as number;
-  await call('POST', `${W}/clock/events`, dm, { title: 'Harbour Festival', description: 'Boat races and a lantern parade.', start: now + 3 * 1440, kind: 'holiday', visibility: 'party' });
-  await call('POST', `${W}/clock/events`, dm, { title: 'Council meeting', description: 'New moon, Lantern Hall.', start: now + 1440 + 600, kind: 'custom', visibility: 'party' });
-  await call('POST', `${W}/clock/events`, dm, { title: "Velmira's shipment lands", description: 'At the dark lighthouse, after midnight.', start: now + 2 * 1440, kind: 'deadline', visibility: 'dm' });
-  await call('POST', `${W}/clock/advance`, dm, { preset: 'long-rest', reason: 'Rested at the Salty Dog inn' });
+  const now = (await call('GET', `${W}/clock`, gm)).minutes as number;
+  await call('POST', `${W}/clock/events`, gm, { title: 'Harbour Festival', description: 'Boat races and a lantern parade.', start: now + 3 * 1440, kind: 'holiday', visibility: 'party' });
+  await call('POST', `${W}/clock/events`, gm, { title: 'Council meeting', description: 'New moon, Lantern Hall.', start: now + 1440 + 600, kind: 'custom', visibility: 'party' });
+  await call('POST', `${W}/clock/events`, gm, { title: "Velmira's shipment lands", description: 'At the dark lighthouse, after midnight.', start: now + 2 * 1440, kind: 'deadline', visibility: 'gm' });
+  await call('POST', `${W}/clock/advance`, gm, { preset: 'long-rest', reason: 'Rested at the Salty Dog inn' });
 });
 
-// Broker: a normal question, a question about a secret, and a DM offer.
+// Broker: a normal question, a question about a secret, and a GM offer.
 await step('information broker', async () => {
   for (const [who, q] of [[jess, 'Who rules Saltmarsh?'], [tom, 'Who does the harbour council secretly answer to?'], [ana, 'How much is the Greywater Ferry?']] as const) {
     const quote = await call('POST', `${W}/broker/quote`, who.token, { question: q });
     await call('POST', `${W}/broker/ask`, who.token, { quoteId: quote.quoteId }).catch(() => null);
   }
-  await call('POST', `${W}/broker/notes`, dm, { topic: 'Lighthouse keeper', text: 'The old keeper drinks at the Salty Dog and talks for a pint.', knowledge: 'local' });
-  await call('POST', `${W}/broker/offers`, dm, { title: 'The dark lighthouse', teaser: 'I know why the light went out. Interested?', info: 'Someone paid the keeper to let it go dark. The coin was council silver.', priceCp: 1500, targets: 'party', fallbackHours: 72 });
+  await call('POST', `${W}/broker/notes`, gm, { topic: 'Lighthouse keeper', text: 'The old keeper drinks at the Salty Dog and talks for a pint.', knowledge: 'local' });
+  await call('POST', `${W}/broker/offers`, gm, { title: 'The dark lighthouse', teaser: 'I know why the light went out. Interested?', info: 'Someone paid the keeper to let it go dark. The coin was council silver.', priceCp: 1500, targets: 'party', fallbackHours: 72 });
 });
 
-// Audio: consent, mics, a recording with overlapping mics and a DM aside.
+// Audio: consent, mics, a recording with overlapping mics and a GM aside.
 await step('recording and live transcript', async () => {
   for (const p of [jess, tom, ana]) await call('POST', `${W}/audio/consent`, p.token, { agree: true });
-  const table = await call('POST', `${W}/audio/mics`, dm, { deviceId: 'demo-table', label: 'Table', mode: 'always', playersTranscript: true });
-  const headset = await call('POST', `${W}/audio/mics`, dm, { deviceId: 'demo-headset', label: 'DM headset', mode: 'hold-to-talk', playersTranscript: false, aside: true });
+  const table = await call('POST', `${W}/audio/mics`, gm, { deviceId: 'demo-table', label: 'Table', mode: 'always', playersTranscript: true });
+  const headset = await call('POST', `${W}/audio/mics`, gm, { deviceId: 'demo-headset', label: 'GM headset', mode: 'hold-to-talk', playersTranscript: false, aside: true });
   const tomMic = await call('POST', `${W}/audio/mics`, tom.token, { deviceId: 'demo-tom-phone', label: "Tomas's phone", mode: 'always' });
-  const sess = await call('POST', `${W}/audio/sessions`, dm, { name: 'Session 21' });
+  const sess = await call('POST', `${W}/audio/sessions`, gm, { name: 'Session 21' });
   const sid = sess.id ?? sess.session?.id;
   audioSession = sid;
   const WEBM = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01]);
@@ -229,52 +229,52 @@ await step('recording and live transcript', async () => {
   const up = (mic: any, token: string, seq: number, start: number, end: number, level: number, text: string) =>
     call('POST', `${W}/audio/sessions/${sid}/chunks?mic=${mic.id ?? mic.mic?.id}&seq=${seq}&start=${start}&end=${end}&level=${level}`, token, undefined, chunk(text, mic, end - start));
   // The table mic and Tomas's phone both hear Tomas: one merged line.
-  await up(table, dm, 0, 0, 5000, 0.4, 'We should ask the harbour council about the lighthouse.');
+  await up(table, gm, 0, 0, 5000, 0.4, 'We should ask the harbour council about the lighthouse.');
   await up(tomMic, tom.token, 0, 0, 5000, 0.9, 'We should ask the harbour council about the lighthouse.');
-  await up(table, dm, 1, 5000, 10000, 0.6, 'The ferry costs two silver. The lantern hums near water.');
-  // A DM aside on the headset: the table mic hears it too, but it stays DM-only.
-  await call('POST', `${W}/audio/sessions/${sid}/holds`, dm, { micId: headset.id ?? headset.mic?.id, kind: 'aside', start: 10000, end: 15000 });
-  await up(headset, dm, 0, 10000, 15000, 0.9, 'Remember Velmira owns three of the captains.');
-  await up(table, dm, 2, 10000, 15000, 0.3, 'Remember Velmira owns three of the captains.');
-  await up(table, dm, 3, 16000, 21000, 0.6, 'Jessamine casts Fireball at the smugglers on the pier.');
+  await up(table, gm, 1, 5000, 10000, 0.6, 'The ferry costs two silver. The lantern hums near water.');
+  // A GM aside on the headset: the table mic hears it too, but it stays GM-only.
+  await call('POST', `${W}/audio/sessions/${sid}/holds`, gm, { micId: headset.id ?? headset.mic?.id, kind: 'aside', start: 10000, end: 15000 });
+  await up(headset, gm, 0, 10000, 15000, 0.9, 'Remember Velmira owns three of the captains.');
+  await up(table, gm, 2, 10000, 15000, 0.3, 'Remember Velmira owns three of the captains.');
+  await up(table, gm, 3, 16000, 21000, 0.6, 'Jessamine casts Fireball at the smugglers on the pier.');
   await new Promise((r) => setTimeout(r, 2500));
 });
 
 // Sound: library, music by mood, an ambience scene, a pad, players' switches, a voice preset.
 await step('sound board and read-aloud', async () => {
-  await call('POST', `${W}/sound/rescan`, dm, {});
-  await call('POST', `${W}/sound/scenes`, dm, { name: 'Stormy night at the tavern', layers: [{ kind: 'rain', volume: 0.4 }, { kind: 'tavern', volume: 0.7 }, { kind: 'hearth', volume: 0.3 }] }).catch(() => null);
-  await call('POST', `${W}/sound/music/mood`, dm, { x: 0.8, y: 0.2, area: 'village' }).catch(() => null);
+  await call('POST', `${W}/sound/rescan`, gm, {});
+  await call('POST', `${W}/sound/scenes`, gm, { name: 'Stormy night at the tavern', layers: [{ kind: 'rain', volume: 0.4 }, { kind: 'tavern', volume: 0.7 }, { kind: 'hearth', volume: 0.3 }] }).catch(() => null);
+  await call('POST', `${W}/sound/music/mood`, gm, { x: 0.8, y: 0.2, area: 'village' }).catch(() => null);
   await call('PUT', `${W}/sound/me/switches`, tom.token, { deviceId: 'demo-tom-phone', music: true, ambience: true, sfx: false }).catch(() => null);
-  await call('POST', `${W}/voice/presets`, dm, { name: 'Narrator', voice: 'af_heart', speed: 1, effect: 'none', target: 'table' });
-  await call('POST', `${W}/voice/presets`, dm, { name: 'Old sailor', voice: 'am_michael', speed: 0.9, effect: 'radio', target: 'both' });
+  await call('POST', `${W}/voice/presets`, gm, { name: 'Narrator', voice: 'af_heart', speed: 1, effect: 'none', target: 'table' });
+  await call('POST', `${W}/voice/presets`, gm, { name: 'Old sailor', voice: 'am_michael', speed: 0.9, effect: 'radio', target: 'both' });
 });
 
 // Minerva is switched on before the session log is published, so publishing files the session and drafts its review.
 await step('Minerva: on, a first arc', async () => {
-  await call('POST', `${W}/minerva/enable`, dm, {});
-  await call('POST', `${W}/minerva/arcs`, dm, { title: 'The Dark Lighthouse' });
+  await call('POST', `${W}/minerva/enable`, gm, {});
+  await call('POST', `${W}/minerva/arcs`, gm, { title: 'The Dark Lighthouse' });
 });
 
 // Second-round features, if they are present.
 await step('session log: draft, date, publish', async () => {
-  await call('POST', `${W}/audio/sessions/${audioSession}/stop`, dm, {});
-  const d = await call('POST', `${W}/sessionlog/drafts`, dm, { audioSessionId: audioSession, title: 'Session 21: The dark lighthouse' });
+  await call('POST', `${W}/audio/sessions/${audioSession}/stop`, gm, {});
+  const d = await call('POST', `${W}/sessionlog/drafts`, gm, { audioSessionId: audioSession, title: 'Session 21: The dark lighthouse' });
   const did = d.id ?? d.draft?.id;
-  await call('POST', `${W}/sessionlog/drafts/${did}/date`, dm, { accept: true, minutes: 2 * 1440, reason: 'Two days on the coast road' }).catch(() => null);
-  await call('POST', `${W}/sessionlog/drafts/${did}/publish`, dm, {});
-  // A second draft stays unpublished, so the DM sees a review in progress.
-  await call('POST', `${W}/sessionlog/drafts`, dm, { audioSessionId: audioSession, title: 'Session 22 (draft)' });
+  await call('POST', `${W}/sessionlog/drafts/${did}/date`, gm, { accept: true, minutes: 2 * 1440, reason: 'Two days on the coast road' }).catch(() => null);
+  await call('POST', `${W}/sessionlog/drafts/${did}/publish`, gm, {});
+  // A second draft stays unpublished, so the GM sees a review in progress.
+  await call('POST', `${W}/sessionlog/drafts`, gm, { audioSessionId: audioSession, title: 'Session 22 (draft)' });
 });
 await step('Minerva: status, hooks, codex, a mystery, journals and goals', async () => {
   const M = `${W}/minerva`;
-  const put = (rel: string, body: string, extra: Record<string, unknown> = {}) => call('PUT', `${M}/page`, dm, { rel, body, ...extra });
+  const put = (rel: string, body: string, extra: Record<string, unknown> = {}) => call('PUT', `${M}/page`, gm, { rel, body, ...extra });
   // Two earlier sessions in the same arc, so a recurring face is worth a page.
-  const arc = (await call('GET', M, dm)).arc.slug as string;
+  const arc = (await call('GET', M, gm)).arc.slug as string;
   for (const [n, extra] of [[19, 'The party took the Greywater Ferry.'], [20, 'The party reached the harbour at dusk.']] as const) {
     await put(`chronicle/arcs/${arc}/sessions/session-${n}.md`, `# Session ${n}\n\n## Recap\n- ${extra}\n\n## People met\n- Mara Quill: the ferrywoman, who knows every crossing\n`, { level: 'party' });
   }
-  await put('dm/state/Campaign Status.md', `# Campaign Status
+  await put('gm/state/Campaign Status.md', `# Campaign Status
 
 ## Now
 The party is in Saltmarsh, two days after the coast road. The lighthouse has been dark for a month and the harbour council is nervous.
@@ -298,33 +298,33 @@ The party is in Saltmarsh, two days after the coast road. The lighthouse has bee
 ## Open questions
 - Does Jessamine's past with the keeper come up before the new moon?
 `);
-  await put('dm/hooks/The darkened lamp.md', '# The darkened lamp\nSomeone paid the keeper to put the light out. Aimed at Jessamine.\n', { heat: 'on' });
-  await put("dm/hooks/Velmira's payroll.md", "# Velmira's payroll\nThree of the seven captains answer to the smuggler queen.\n", { heat: 'simmering' });
-  await put('dm/hooks/The drowned bell.md', '# The drowned bell\nA bell heard under the water at the new moon.\n', { heat: 'sleeping' });
-  await call('POST', `${M}/codex`, dm, { name: 'Odo Fennick', kind: 'npc', section: 'appearances', text: 'Gave the party directions to the lighthouse.', session: 20 });
-  await call('POST', `${M}/codex`, dm, { name: 'Odo Fennick', section: 'secret', text: 'He is paid by Velmira every new moon to read the council ledger.' });
-  await call('POST', `${M}/codex`, dm, { name: 'Old Hennet', kind: 'npc', section: 'appearances', text: 'Kept the lighthouse lamp for thirty years.', session: 21 });
-  const mystery = await call('POST', `${M}/revelations`, dm, { title: 'Who darkened the lighthouse?', conclusion: 'Old Hennet, under threat from Velmira, who wants the harbour blind at the new moon.', clues: ['A ledger page in the cellar lists the darkened nights', 'The keeper washed oil from his hands before dawn', 'A smuggler boat moored near the rocks on every dark night'] });
-  await call('POST', `${M}/revelations/mark`, dm, { mystery: mystery.slug, clue: 1, player: 'Jessamine', session: 21 });
-  await call('POST', `${M}/revelations/mark`, dm, { mystery: mystery.slug, clue: 2, player: 'Tomas', session: 21 });
-  await call('POST', `${M}/revelations/mark`, dm, { mystery: mystery.slug, clue: 2, player: 'Jessamine', session: 21 });
-  await call('POST', `${M}/revelations/mark`, dm, { mystery: mystery.slug, player: 'Anselm', kind: 'theory', text: 'The keeper is being blackmailed' });
-  await call('POST', `${M}/goal`, dm, { player: 'Jessamine', goal: 'Find out why the keeper lied', heat: 'on', text: 'He taught her to swim as a child.' });
-  await call('POST', `${M}/goal`, dm, { player: 'Tomas', goal: 'Take the old sword to a smith', heat: 'ongoing' });
-  await call('POST', `${M}/goal`, dm, { player: 'Anselm', goal: 'Repay the debt to the ferry guild', heat: 'simmering' });
+  await put('gm/hooks/The darkened lamp.md', '# The darkened lamp\nSomeone paid the keeper to put the light out. Aimed at Jessamine.\n', { heat: 'on' });
+  await put("gm/hooks/Velmira's payroll.md", "# Velmira's payroll\nThree of the seven captains answer to the smuggler queen.\n", { heat: 'simmering' });
+  await put('gm/hooks/The drowned bell.md', '# The drowned bell\nA bell heard under the water at the new moon.\n', { heat: 'sleeping' });
+  await call('POST', `${M}/codex`, gm, { name: 'Odo Fennick', kind: 'npc', section: 'appearances', text: 'Gave the party directions to the lighthouse.', session: 20 });
+  await call('POST', `${M}/codex`, gm, { name: 'Odo Fennick', section: 'secret', text: 'He is paid by Velmira every new moon to read the council ledger.' });
+  await call('POST', `${M}/codex`, gm, { name: 'Old Hennet', kind: 'npc', section: 'appearances', text: 'Kept the lighthouse lamp for thirty years.', session: 21 });
+  const mystery = await call('POST', `${M}/revelations`, gm, { title: 'Who darkened the lighthouse?', conclusion: 'Old Hennet, under threat from Velmira, who wants the harbour blind at the new moon.', clues: ['A ledger page in the cellar lists the darkened nights', 'The keeper washed oil from his hands before dawn', 'A smuggler boat moored near the rocks on every dark night'] });
+  await call('POST', `${M}/revelations/mark`, gm, { mystery: mystery.slug, clue: 1, player: 'Jessamine', session: 21 });
+  await call('POST', `${M}/revelations/mark`, gm, { mystery: mystery.slug, clue: 2, player: 'Tomas', session: 21 });
+  await call('POST', `${M}/revelations/mark`, gm, { mystery: mystery.slug, clue: 2, player: 'Jessamine', session: 21 });
+  await call('POST', `${M}/revelations/mark`, gm, { mystery: mystery.slug, player: 'Anselm', kind: 'theory', text: 'The keeper is being blackmailed' });
+  await call('POST', `${M}/goal`, gm, { player: 'Jessamine', goal: 'Find out why the keeper lied', heat: 'on', text: 'He taught her to swim as a child.' });
+  await call('POST', `${M}/goal`, gm, { player: 'Tomas', goal: 'Take the old sword to a smith', heat: 'ongoing' });
+  await call('POST', `${M}/goal`, gm, { player: 'Anselm', goal: 'Repay the debt to the ferry guild', heat: 'simmering' });
   await put(`players/${jess.id}/journal/session-21.md`, '# Session 21\n\n## Notes\n- The keeper would not look me in the eye. He knew my name before I gave it.\n- Odo Fennick wanted us out of the ledger room. Why?\n');
   await put(`players/${jess.id}/bonds.md`, '# Bonds\n\n- Old Hennet, who taught me to swim\n- Mara Quill, the ferrywoman\n');
   await put(`players/${tom.id}/journal/session-21.md`, '# Session 21\n\n## Notes\n- The sword hummed again on the quay. Goblins, or something worse.\n');
   await put(`players/${jess.id}/shared.md`, '# Shared with the party\n\n## Shared\n- Jessamine grew up on this coast and knows the lighthouse keeper.\n');
-  // A player's own write waits for the DM.
+  // A player's own write waits for the GM.
   await call('POST', `${M}/me/journal`, jess.token, { text: 'Ask Mara Quill who she ferried at night during the dark weeks.' });
   await call('POST', `${M}/me/share`, tom.token, { text: 'My sword hums when goblins are near.' });
   // The published session was filed in the background: wait for its review to be drafted.
-  for (let i = 0; i < 100; i++) { const r = await call('GET', `${M}/review`, dm); if (r.drafts.some((d: any) => d.review.startsWith('session-'))) break; await new Promise((r) => setTimeout(r, 100)); }
+  for (let i = 0; i < 100; i++) { const r = await call('GET', `${M}/review`, gm); if (r.drafts.some((d: any) => d.review.startsWith('session-'))) break; await new Promise((r) => setTimeout(r, 100)); }
 });
-await step('DM agent chat', async () => {
-  const c = await call('POST', `${W}/agent/chats`, dm, { title: 'Prep' });
-  await call('POST', `${W}/agent/chats/${c.id ?? c.chat?.id}/messages`, dm, { text: 'Summarise Saltmarsh for me.' });
+await step('GM agent chat', async () => {
+  const c = await call('POST', `${W}/agent/chats`, gm, { title: 'Prep' });
+  await call('POST', `${W}/agent/chats/${c.id ?? c.chat?.id}/messages`, gm, { text: 'Summarise Saltmarsh for me.' });
 });
 
 // ---- newer features --------------------------------------------------------
@@ -340,7 +340,7 @@ The council clerk keeps a ledger of every cargo that crosses the quay.
 > Ask the clerk after dark: three cargoes a month are never written down. A captain can be paid to remember.
 
 > [!classified] Classified
-> Velmira's own ships are the unlisted cargoes. Not even the Information broker may say so until the DM decides.
+> Velmira's own ships are the unlisted cargoes. Not even the Information broker may say so until the GM decides.
 `);
   ids.broker = await page('Places/Dockside Rumours', 'broker', `# Dockside Rumours
 Sailors on the quay talk about a ship that never docks and a blue light under the bay. The broker knows who to ask, and for how many silver.
@@ -348,25 +348,25 @@ Sailors on the quay talk about a ship that never docks and a blue light under th
 });
 
 await step('people, a request and a message thread', async () => {
-  await call('POST', `${W}/people`, dm, { name: 'Odo Fennick', role: 'Harbour clerk', kind: 'neutral', attitude: 'Nervous', met: 'Session 21', visibility: 'party', pageId: ids.council });
-  await call('POST', `${W}/people`, dm, { name: 'Captain Brask', role: 'Harbour council', kind: 'rival', attitude: 'Suspicious', met: 'Session 21', visibility: 'party' });
-  await call('POST', `${W}/people`, dm, { name: 'Old Hennet', role: 'Lighthouse keeper', kind: 'ally', attitude: 'Chatty after a pint', visibility: 'party' });
-  await call('POST', `${W}/people`, dm, { name: 'Velmira', role: 'Smuggler queen', kind: 'rival', visibility: 'dm' });
+  await call('POST', `${W}/people`, gm, { name: 'Odo Fennick', role: 'Harbour clerk', kind: 'neutral', attitude: 'Nervous', met: 'Session 21', visibility: 'party', pageId: ids.council });
+  await call('POST', `${W}/people`, gm, { name: 'Captain Brask', role: 'Harbour council', kind: 'rival', attitude: 'Suspicious', met: 'Session 21', visibility: 'party' });
+  await call('POST', `${W}/people`, gm, { name: 'Old Hennet', role: 'Lighthouse keeper', kind: 'ally', attitude: 'Chatty after a pint', visibility: 'party' });
+  await call('POST', `${W}/people`, gm, { name: 'Velmira', role: 'Smuggler queen', kind: 'rival', visibility: 'gm' });
   await call('POST', `${W}/requests`, jess.token, { kind: 'question', title: 'Can I recall the keeper from my past?', body: 'Jessamine grew up on this coast. Would she know Old Hennet?' });
-  const t = await call('POST', `${W}/messages`, tom.token, { members: [dmAcc.account.id], title: 'A question about the lighthouse' });
+  const t = await call('POST', `${W}/messages`, tom.token, { members: [gmAcc.account.id], title: 'A question about the lighthouse' });
   await call('POST', `${W}/messages/${t.id}`, tom.token, { body: 'Can my character slip away to the dark lighthouse tonight?' });
 });
 
 await step('stage: a card shown, one staged', async () => {
-  const shown = await call('POST', `${W}/stage/cards`, dm, { kind: 'text', title: 'The lighthouse', text: 'A tall white tower on the headland. Its lamp has been dark for a month.', caption: 'Saltmarsh, dusk', show: true });
-  await call('POST', `${W}/stage/cards`, dm, { kind: 'text', title: 'A note under the door', text: 'Come to the Salty Dog at midnight. Tell no one. - a friend', caption: 'For later' });
-  await call('POST', `${W}/stage/cards`, dm, { kind: 'place', ref: ids.saltmarsh, title: 'Saltmarsh' });
+  const shown = await call('POST', `${W}/stage/cards`, gm, { kind: 'text', title: 'The lighthouse', text: 'A tall white tower on the headland. Its lamp has been dark for a month.', caption: 'Saltmarsh, dusk', show: true });
+  await call('POST', `${W}/stage/cards`, gm, { kind: 'text', title: 'A note under the door', text: 'Come to the Salty Dog at midnight. Tell no one. - a friend', caption: 'For later' });
+  await call('POST', `${W}/stage/cards`, gm, { kind: 'place', ref: ids.saltmarsh, title: 'Saltmarsh' });
   return shown;
 });
 
 await step('session chat and party chat', async () => {
-  await call('POST', `${W}/sessionchat/sessions/start`, dm, { title: 'Session 23' }).catch(() => null);
-  await call('POST', `${W}/sessionchat/chat/table`, dm, { body: 'Welcome back. Last time you reached the harbour; tonight the lighthouse.' });
+  await call('POST', `${W}/sessionchat/sessions/start`, gm, { title: 'Session 23' }).catch(() => null);
+  await call('POST', `${W}/sessionchat/chat/table`, gm, { body: 'Welcome back. Last time you reached the harbour; tonight the lighthouse.' });
   await call('POST', `${W}/sessionchat/chat/table`, jess.token, { body: 'We take the ferry first, right?' });
   await call('POST', `${W}/sessionchat/chat/party`, tom.token, { body: 'Keep your voices down, the clerk is listening.' });
   await call('POST', `${W}/sessionchat/chat/party`, ana.token, { body: 'I have the rope. Who has the lantern?' });
@@ -380,21 +380,21 @@ await step('a trade offer between players', async () => {
 });
 
 await step('WorldLore workspace (library) and a broker-level page', async () => {
-  await call('PUT', `${W}/worldlore/config`, dm, { kind: 'library', root: 'WorldLore', defaultLevel: 'broker' });
-  await call('POST', `${W}/worldlore/pages`, dm, { path: 'Saltmarsh/The Lantern Hall', title: 'The Lantern Hall', markdown: '# The Lantern Hall\nWhere the harbour council meets each new moon. Rumour says the cellar connects to the smugglers\' tunnels.\n', level: 'broker', by: 'the DM' });
-  await call('POST', `${W}/worldlore/pages`, dm, { path: 'Saltmarsh/Council secrets', title: 'Council secrets', markdown: '# Council secrets\nWho owes Velmira what. DM only.\n', level: 'dm', by: 'the DM' });
+  await call('PUT', `${W}/worldlore/config`, gm, { kind: 'library', root: 'WorldLore', defaultLevel: 'broker' });
+  await call('POST', `${W}/worldlore/pages`, gm, { path: 'Saltmarsh/The Lantern Hall', title: 'The Lantern Hall', markdown: '# The Lantern Hall\nWhere the harbour council meets each new moon. Rumour says the cellar connects to the smugglers\' tunnels.\n', level: 'broker', by: 'the GM' });
+  await call('POST', `${W}/worldlore/pages`, gm, { path: 'Saltmarsh/Council secrets', title: 'Council secrets', markdown: '# Council secrets\nWho owes Velmira what. GM only.\n', level: 'gm', by: 'the GM' });
 });
 
 await step('Sculpting history', async () => {
-  await call('POST', `${W}/sculpt/run`, dm, { template: 'NPC for quick RP', values: { name: 'Odo Fennick', role: 'harbour clerk' } });
-  await call('POST', `${W}/sculpt/run`, dm, { template: 'Tavern', values: { name: 'The Salty Dog' } });
+  await call('POST', `${W}/sculpt/run`, gm, { template: 'NPC for quick RP', values: { name: 'Odo Fennick', role: 'harbour clerk' } });
+  await call('POST', `${W}/sculpt/run`, gm, { template: 'Tavern', values: { name: 'The Salty Dog' } });
 });
 
 console.log(`
 Alexandria demo is running: ${base}
 
   Gateway admin   ${base}/admin/login   admin / ${PASS.admin}
-  Dungeon Master  ${base}/login         dm / ${PASS.dm}
+  Game Master  ${base}/login         gm / ${PASS.gm}
   Players         ${base}/login         jess, tom, ana / ${PASS.player}
 
 Fake models: ${m} as one Argos provider (chat, audit, audio, voice, embeddings, rerank)

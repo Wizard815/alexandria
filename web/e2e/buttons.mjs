@@ -1,18 +1,18 @@
-// Button crawler. Signs in to the seeded demo world and, for every DM page and
+// Button crawler. Signs in to the seeded demo world and, for every GM page and
 // every player page, at desktop and phone width:
 //   - clicks every visible button, link, tab and switch (skipping destructive ones),
 //   - fills and submits every form with sample values,
 //   - records console errors, page errors, failed requests (4xx/5xx except the
 //     expected 403/404) and dead controls (no request, no DOM change, no navigation).
 // Then it presses the destructive controls on throwaway items.
-// Run from web/: npm run build && node e2e/buttons.mjs   (BTN_PORT, BTN_SHOTS=<dir>, BTN_ONLY=dm|player)
+// Run from web/: npm run build && node e2e/buttons.mjs   (BTN_PORT, BTN_SHOTS=<dir>, BTN_ONLY=gm|player)
 import path from 'node:path';
-import { chromium, root, startScript, tmpDir, signIn, DM_ROUTES, PLAYER_ROUTES, quiet, INIT, DESTRUCTIVE } from './lib.mjs';
+import { chromium, root, startScript, tmpDir, signIn, GM_ROUTES, PLAYER_ROUTES, quiet, INIT, DESTRUCTIVE } from './lib.mjs';
 
 const PORT = Number(process.env.BTN_PORT || 8198);
 const base = `http://127.0.0.1:${PORT}`;
 const W = `${base}/w/saltreach`;
-const PASS = { dm: 'dungeon master 123', jess: 'player pass 123' };
+const PASS = { gm: 'game master 123', jess: 'player pass 123' };
 const t0 = Date.now();
 
 const { srv, out } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('btn'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
@@ -31,6 +31,9 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
   const { ctx, page } = await signIn(browser, base, user, PASS[user], viewport, mobile);
   await ctx.addInitScript(INIT);
   await ctx.addInitScript((v) => { try { localStorage.setItem('alx.thoughts.prefs', v); } catch { /* blocked */ } }, THOUGHTS_FOLDED);
+  // The GM crawl runs at the same time and sends quick events from the Table and the Quick events page; on a player they pop up
+  // as a modal over whatever page is under test. The player crawl tests pages, so it sees no quick events (tablenight.mjs tests the prompt).
+  if (user !== 'gm') await ctx.route(/\/api\/worlds\/[^/]+\/quick-events(\?.*)?$/, (r) => (r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.continue()));
   let reqs = 0, dialogs = 0, downloads = 0, popups = 0;
   let here = '';
   const bad = (m) => problems.push(`${tag} ${here}: ${m}`);
@@ -161,12 +164,12 @@ async function crawlRole({ user, label, viewport, mobile, routes, prefix }) {
 
 /** The destructive controls, pressed on throwaway items the crawler makes itself. */
 async function throwaways() {
-  const { ctx, page } = await signIn(browser, base, 'dm', PASS.dm, { width: 1280, height: 900 }, false);
+  const { ctx, page } = await signIn(browser, base, 'gm', PASS.gm, { width: 1280, height: 900 }, false);
   const bad = (m) => problems.push(`throwaways: ${m}`);
   page.on('pageerror', (e) => bad(`page error: ${e.message}`));
   page.on('dialog', (d) => { void d.accept().catch(() => {}); });
   page.on('response', (r) => { const s = r.status(); if (s >= 400 && s !== 403 && s !== 404) bad(`${s} ${r.request().method()} ${r.url().replace(base, '')}`); });
-  await page.goto(`${W}/dm/combat`);
+  await page.goto(`${W}/gm/combat`);
   await page.locator('main').waitFor();
   // Add a throwaway fighter, remove it, then add two and clear the tracker.
   const add = async (name) => {
@@ -181,7 +184,7 @@ async function throwaways() {
   await page.getByRole('button', { name: 'Clear the tracker' }).click();
   await page.waitForFunction(() => document.body.innerText.includes('No one in the fight yet'), null, { timeout: 8000 }).catch(() => bad('combat: Clear the tracker did not empty the tracker'));
   // A throwaway stage card: add it, then Delete it.
-  await page.goto(`${W}/dm/stage`);
+  await page.goto(`${W}/gm/stage`);
   await page.locator('main').waitFor();
   await page.locator('main select').first().selectOption({ label: 'Text handout' }).catch(() => {});
   await page.getByLabel(/heading/i).first().fill('Throwaway card').catch(() => {});
@@ -203,8 +206,8 @@ try {
   const jobs = [];
   const ONLY = process.env.BTN_ONLY;
   for (const [label, viewport, mobile] of [['1280', { width: 1280, height: 800 }, false], ['390', { width: 390, height: 844 }, true]]) {
-    if (ONLY !== 'player' && ONLY !== 'none') jobs.push(crawlRole({ user: 'dm', label, viewport, mobile, routes: DM_ROUTES, prefix: 'dm/' }));
-    if (ONLY !== 'dm' && ONLY !== 'none') jobs.push(crawlRole({ user: 'jess', label, viewport, mobile, routes: PLAYER_ROUTES, prefix: '' }));
+    if (ONLY !== 'player' && ONLY !== 'none') jobs.push(crawlRole({ user: 'gm', label, viewport, mobile, routes: GM_ROUTES, prefix: 'gm/' }));
+    if (ONLY !== 'gm' && ONLY !== 'none') jobs.push(crawlRole({ user: 'jess', label, viewport, mobile, routes: PLAYER_ROUTES, prefix: '' }));
   }
   await Promise.all(jobs);
 } catch (e) {

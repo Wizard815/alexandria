@@ -2,7 +2,7 @@
 // between), each optionally linked to a library page (LegendKeeper, Kanka
 // and the rest import into the library), "Ask the broker" about a person,
 // place or faction with a question the player can rewrite, and the notes and
-// goals the DM leaves for one player.
+// goals the GM leaves for one player.
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
@@ -24,8 +24,8 @@ const libraryHref = (pageId: string) => `../library?page=${encodeURIComponent(pa
 
 /** Whether this viewer can ask the broker here (players only, and only when the world uses it). */
 export function useCanAsk() {
-  const { isDM, info } = useWorld();
-  return !isDM && !isOff('broker', info.settings);
+  const { isGM, info } = useWorld();
+  return !isGM && !isOff('broker', info.settings);
 }
 
 // ---- the people module ----
@@ -135,38 +135,38 @@ export function AskModal({ subject, onClose }: { subject: Subject; onClose: () =
   );
 }
 
-// ---- from the DM ----
+// ---- from the GM ----
 
-export interface DmNote { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string; updatedAt: string }
+export interface GmNote { id: string; kind: 'note' | 'goal'; text: string; done: boolean; createdAt: string; updatedAt: string }
 
-/** Notes and goals the DM set for this player. Only that player and the DM see them; the player ticks goals. */
-/** The body of the "From the DM" module. Notes the player has not seen yet carry a New tag. */
-export function FromDm({ account, notes, dm, onChanged }: { account: string; notes: DmNote[]; dm: boolean; onChanged: () => void }) {
+/** Notes and goals the GM set for this player. Only that player and the GM see them; the player ticks goals. */
+/** The body of the "From the GM" module. Notes the player has not seen yet carry a New tag. */
+export function FromGm({ account, notes, gm, onChanged }: { account: string; notes: GmNote[]; gm: boolean; onChanged: () => void }) {
   const { w, info } = useWorld();
   const slug = info.slug;
   const act = useAction();
   const [text, setText] = useState('');
   const [kind, setKind] = useState<'note' | 'goal'>('goal');
-  const [editing, setEditing] = useState<DmNote | null>(null);
-  const seenKey = `sht-dm-seen:${slug ?? ''}:${account}`;
+  const [editing, setEditing] = useState<GmNote | null>(null);
+  const seenKey = `sht-gm-seen:${slug ?? ''}:${account}`;
   const [seenAt] = useState(() => { try { return localStorage.getItem(seenKey) ?? ''; } catch { return ''; } });
-  useEffect(() => { if (!dm) try { localStorage.setItem(seenKey, new Date().toISOString()); } catch { /* private mode */ } }, [dm, seenKey, notes]);
-  const isNew = (n: DmNote) => !dm && !!seenAt && n.updatedAt > seenAt && !n.done;
-  const call = (m: string, p: string, b?: unknown) => act.run(async () => { await w.call(m, `/sheet/${account}/dm-notes${p}`, b); onChanged(); });
+  useEffect(() => { if (!gm) try { localStorage.setItem(seenKey, new Date().toISOString()); } catch { /* private mode */ } }, [gm, seenKey, notes]);
+  const isNew = (n: GmNote) => !gm && !!seenAt && n.updatedAt > seenAt && !n.done;
+  const call = (m: string, p: string, b?: unknown) => act.run(async () => { await w.call(m, `/sheet/${account}/gm-notes${p}`, b); onChanged(); });
   const goals = notes.filter((n) => n.kind === 'goal'), plain = notes.filter((n) => n.kind === 'note');
-  const tag = (n: DmNote) => isNew(n) && <span className="chip gold" style={{ fontSize: 11 }}>New</span>;
+  const tag = (n: GmNote) => isNew(n) && <span className="chip gold" style={{ fontSize: 11 }}>New</span>;
   return (
-    <div className="stack tight" data-testid="from-dm">
-      <span className="tiny faint"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> {dm ? 'Only this player sees these.' : 'Only you see these. The DM can add more at any time.'}</span>
+    <div className="stack tight" data-testid="from-gm">
+      <span className="tiny faint"><i className="fa-solid fa-eye-slash" aria-hidden="true" /> {gm ? 'Only this player sees these.' : 'Only you see these. The GM can add more at any time.'}</span>
       <ErrorBox error={act.error} />
-      {!dm && !notes.length && <span className="tiny muted">Nothing yet. Secret notes and goals from the DM show up here.</span>}
+      {!gm && !notes.length && <span className="tiny muted">Nothing yet. Secret notes and goals from the GM show up here.</span>}
       {goals.length > 0 && <div className="stack tight">
         <span className="tiny faint">Goals</span>
         <ul className="sht-list">{goals.map((g) => (
           <li key={g.id}>
             <input type="checkbox" checked={g.done} aria-label={g.text} onChange={() => void call('PATCH', `/${g.id}`, { done: !g.done })} />
             <span className="grow small" style={g.done ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>{g.text}</span>{tag(g)}
-            {dm && <><button type="button" className="btn small ghost" aria-label="Edit" onClick={() => setEditing(g)}><i className="fa-solid fa-pen" aria-hidden="true" /></button><button type="button" className="btn small ghost" aria-label="Delete" onClick={() => void call('DELETE', `/${g.id}`)}>✕</button></>}
+            {gm && <><button type="button" className="btn small ghost" aria-label="Edit" onClick={() => setEditing(g)}><i className="fa-solid fa-pen" aria-hidden="true" /></button><button type="button" className="btn small ghost" aria-label="Delete" onClick={() => void call('DELETE', `/${g.id}`)}>✕</button></>}
           </li>
         ))}</ul>
       </div>}
@@ -175,18 +175,18 @@ export function FromDm({ account, notes, dm, onChanged }: { account: string; not
         <ul className="sht-list">{plain.map((n) => (
           <li key={n.id} style={{ alignItems: 'flex-start' }}>
             <span className="grow small" style={{ whiteSpace: 'pre-line' }}>{n.text}</span>{tag(n)}
-            {dm && <><button type="button" className="btn small ghost" aria-label="Edit" onClick={() => setEditing(n)}><i className="fa-solid fa-pen" aria-hidden="true" /></button><button type="button" className="btn small ghost" aria-label="Delete" onClick={() => void call('DELETE', `/${n.id}`)}>✕</button></>}
+            {gm && <><button type="button" className="btn small ghost" aria-label="Edit" onClick={() => setEditing(n)}><i className="fa-solid fa-pen" aria-hidden="true" /></button><button type="button" className="btn small ghost" aria-label="Delete" onClick={() => void call('DELETE', `/${n.id}`)}>✕</button></>}
           </li>
         ))}</ul>
       </div>}
-      {dm && (
+      {gm && (
         <div className="stack tight">
           {!notes.length && <span className="tiny muted">Leave this player a secret note or a goal. Nobody else sees it.</span>}
           <div className="row" style={{ gap: 4 }}>
             <select className="sht-in" aria-label="Note or goal" value={kind} onChange={(e) => setKind(e.target.value as any)}><option value="goal">Goal</option><option value="note">Note</option></select>
             <input className="sht-in" style={{ flex: 1 }} aria-label="Text for the player" placeholder={kind === 'goal' ? 'Find out who lights the lamp' : 'You dream of a drowned bell…'} value={text} maxLength={2000}
               onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) { void call('POST', '', { kind, text: text.trim() }); setText(''); } }} />
-            <button type="button" className="btn small primary" disabled={!text.trim() || act.busy} data-testid="dm-note-add" onClick={() => { void call('POST', '', { kind, text: text.trim() }); setText(''); }}>Add</button>
+            <button type="button" className="btn small primary" disabled={!text.trim() || act.busy} data-testid="gm-note-add" onClick={() => { void call('POST', '', { kind, text: text.trim() }); setText(''); }}>Add</button>
           </div>
         </div>
       )}

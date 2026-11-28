@@ -1,0 +1,32 @@
+{
+  "kit": 2,
+  "id": "hidden-death-saves",
+  "name": "Hidden death saves",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "The GM rolls death saving throws in secret, so the table never knows how close a friend is.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [
+      "combat"
+    ],
+    "worksWith": [
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Hidden death saves (house rule)",
+      "text": "When a character is dying, the **GM rolls their death saving throws in secret** and tracks the result. The players only learn the outcome when the character stabilizes, wakes or dies. A Medicine check (DC 10) reveals whether they are stable."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "death save",
+      "death saving",
+      "dying"
+    ],
+    "gm": "Death saves are rolled by the GM in secret here. Record them with death_save, but do not reveal successes or failures to players; tell them only stable, awake or dead. A DC 10 Medicine check reveals stable or not.",
+    "player": "At this table the GM rolls death saves in secret, so do not guess how close a dying character is. A DC 10 Medicine check tells whether they are stable."
+  }
+}

@@ -1,22 +1,22 @@
 // World context for a sculpt, resolved once per request without a model:
 // the clock's date and season, the party, the current location, page excerpts,
-// and the DM-only word runs the leak check compares against.
+// and the GM-only word runs the leak check compares against.
 import { createHash } from 'node:crypto';
 import type { Deps } from '../../app.ts';
 import { all, one } from '../../core/db.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { getClock } from '../clock/api.ts';
-import { dmOnlyGrams, grams } from '../agent/leak.ts';
+import { gmOnlyGrams, grams } from '../agent/leak.ts';
 
 export interface Overrides { location?: string; partyLevel?: number | string }
 
 const PLAYER: Viewer = { accountId: 'sculpt-player-view', role: 'player' };
-const AI: Viewer = { accountId: 'sculpt-dm-view', role: 'dm', audience: 'ai' };
+const AI: Viewer = { accountId: 'sculpt-gm-view', role: 'gm', audience: 'ai' };
 
 export const bodyHash = (body: string) => createHash('sha256').update(body).digest('hex').slice(0, 32);
 const excerpt = (s: string, n: number) => s.replace(/^#+\s.*$/gm, ' ').replace(/> \[!\w+\][^\n]*/g, ' ').replace(/[*_`>#]/g, '').replace(/\s+/g, ' ').trim().slice(0, n);
 
-/** The text of `> [!secret]` blocks in a page body: what stays DM-only on a page Sculpting saved. */
+/** The text of `> [!secret]` blocks in a page body: what stays GM-only on a page Sculpting saved. */
 export function secretText(md: string): string {
   const out: string[] = [];
   let on = false;
@@ -40,14 +40,14 @@ export interface RenderCtx {
   page(ref: string): { title: string; excerpt: string; id: string } | null;
   /** Can a player open this page? */
   playerCanSee(ref: string): boolean;
-  /** DM-only word runs. Pages Sculpting saved count only for their secret blocks. */
-  dmGrams(): Set<string>;
+  /** GM-only word runs. Pages Sculpting saved count only for their secret blocks. */
+  gmGrams(): Set<string>;
 }
 
 export function makeCtx(d: Deps, worldId: string, player: boolean, overrides: Overrides = {}): RenderCtx {
   let vars: Record<string, string> | null = null;
   let level: number | null = null;
-  let dm: Set<string> | null = null;
+  let gm: Set<string> | null = null;
   const pages = new Map<string, { title: string; excerpt: string; id: string } | null>();
 
   const pageId = (ref: string): string | null => {
@@ -114,7 +114,7 @@ export function makeCtx(d: Deps, worldId: string, player: boolean, overrides: Ov
       const id = pageId(ref);
       if (id) {
         try {
-          // Players get the player copy; a DM template the AI copy, which has no classified text.
+          // Players get the player copy; a GM template the AI copy, which has no classified text.
           const pg: any = d.library.get(worldId, id, player ? PLAYER : AI);
           out = { id, title: String(pg.title), excerpt: excerpt(String(pg.body ?? ''), 600) };
         } catch { out = null; }
@@ -128,23 +128,23 @@ export function makeCtx(d: Deps, worldId: string, player: boolean, overrides: Ov
       if (!ids.length) return true; // not a page: just text
       return ids.some((id) => { try { d.library.get(worldId, id, PLAYER); return true; } catch { return false; } });
     },
-    dmGrams() {
-      if (dm) return dm;
+    gmGrams() {
+      if (gm) return gm;
       let saved = new Map<string, string>();
       try { saved = new Map(all<any>(d.db, 'SELECT page_id, body_hash FROM sculpt_player_pages WHERE world_id = ?', worldId).map((r) => [r.page_id, r.body_hash])); } catch { /* older database */ }
       const skipped: string[] = [];
-      dm = dmOnlyGrams(d.db, worldId, (pid, body) => { if (saved.get(pid) === bodyHash(body)) { skipped.push(body); return true; } return false; });
-      for (const b of skipped) for (const g of grams(secretText(b))) dm.add(g);
-      return dm;
+      gm = gmOnlyGrams(d.db, worldId, (pid, body) => { if (saved.get(pid) === bodyHash(body)) { skipped.push(body); return true; } return false; });
+      for (const b of skipped) for (const g of grams(secretText(b))) gm.add(g);
+      return gm;
     },
   };
   return c;
 }
 
-/** The first run of DM-only words this text repeats, if any. */
+/** The first run of GM-only words this text repeats, if any. */
 export function firstLeak(rc: RenderCtx, text: string): string | null {
-  const dm = rc.dmGrams();
-  if (!dm.size) return null;
-  for (const g of grams(text)) if (dm.has(g)) return g;
+  const gm = rc.gmGrams();
+  if (!gm.size) return null;
+  for (const g of grams(text)) if (gm.has(g)) return g;
   return null;
 }

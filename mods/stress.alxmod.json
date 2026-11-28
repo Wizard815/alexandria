@@ -1,0 +1,95 @@
+{
+  "kit": 2,
+  "id": "stress",
+  "name": "Stress",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Horror and hardship build stress; at the limit a character breaks with a flaw for the session.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "sheet",
+      "combat",
+      "assistant"
+    ]
+  },
+  "options": {
+    "max": {
+      "type": "int",
+      "default": 6,
+      "min": 3,
+      "max": 12,
+      "label": "Stress before breaking"
+    }
+  },
+  "triggers": [
+    {
+      "on": "longRest",
+      "resource": "stress",
+      "add": -2
+    }
+  ],
+  "sheet": {
+    "title": "Stress",
+    "resources": [
+      "stress"
+    ]
+  },
+  "gmBand": {
+    "chips": [
+      "stress"
+    ],
+    "actions": [
+      "add",
+      "relieve"
+    ]
+  },
+  "resources": [
+    {
+      "id": "stress",
+      "label": "Stress",
+      "icon": "fa-brain",
+      "max": "$max",
+      "start": 0
+    }
+  ],
+  "actions": [
+    {
+      "id": "add",
+      "label": "Add stress",
+      "by": "gm",
+      "resource": "stress",
+      "add": 1,
+      "askReason": true,
+      "effect": {
+        "chat": "{name} gains stress ({note})"
+      }
+    },
+    {
+      "id": "relieve",
+      "label": "Relieve",
+      "by": "gm",
+      "resource": "stress",
+      "add": -1,
+      "askReason": true
+    }
+  ],
+  "rules": [
+    {
+      "term": "Stress (house rule)",
+      "text": "Terrifying sights, failed saves against fear and grim losses add **stress**. A long rest takes 2 away. At the limit the character **breaks**: they gain a short-term madness or a flaw for the rest of the session, then drop to half the limit."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "stress",
+      "fear",
+      "horror",
+      "madness",
+      "sanity"
+    ],
+    "gm": "Stress is on: add 1 for terrifying sights, failed fear saves and grim losses (2 for the truly awful). At the limit the character breaks: give a short-term madness or flaw for the session, then set stress to half. A long rest removes 2.",
+    "player": "Stress builds from horror and hardship and a long rest takes 2 off. At the limit your character breaks for the session, so rest and find comfort when you can."
+  }
+}

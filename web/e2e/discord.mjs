@@ -1,6 +1,6 @@
 // End-to-end test of the Discord bot on the demo world, against the stand-in Discord from the librarian tests
-// (librarian/test/discord-fake.ts): the DM pastes a token and a server id on DM → Setup → Discord, the bot connects,
-// the DM picks channels; Jess gets a link code on Settings & account → Discord, "types" /link in Discord, then /roll
+// (librarian/test/discord-fake.ts): the GM pastes a token and a server id on GM → Setup → Discord, the bot connects,
+// the GM picks channels; Jess gets a link code on Settings & account → Discord, "types" /link in Discord, then /roll
 // and /ask. Screenshots go to the e2e temp folder (path printed).
 // Run from web/: npm run build && node --experimental-strip-types e2e/discord.mjs
 import path from 'node:path';
@@ -35,10 +35,10 @@ const replyTo = (i) => until(`the reply to /${i.data.name}`, () => {
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(out, 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const browser = await chromium.launch();
 try {
-  const { page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1280, height: 900 });
+  const { page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1280, height: 900 });
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !quiet(m.text())) problems.push(`console: ${m.text()}`); });
-  await page.goto(`${W}/dm/discord`);
+  await page.goto(`${W}/gm/discord`);
   await page.getByLabel('Bot token').fill(GOOD_TOKEN);
   await page.getByRole('button', { name: 'Save token' }).click();
   await page.getByLabel('Server id').fill(GUILD);
@@ -48,8 +48,8 @@ try {
   await page.getByLabel('Dice channel').selectOption({ label: '#rolls' }).catch(() => problems.push('no dice channel'));
   await page.getByRole('button', { name: 'Send a test' }).click();
   await page.getByText('Test message sent').waitFor({ timeout: 8000 }).catch(() => problems.push('the test post failed'));
-  await page.screenshot({ path: path.join(out, '1-dm-discord-setup.png'), fullPage: true });
-  note('DM connected the bot and picked channels');
+  await page.screenshot({ path: path.join(out, '1-gm-discord-setup.png'), fullPage: true });
+  note('GM connected the bot and picked channels');
 
   const pl = await signIn(browser, base, 'jess', 'player pass 123', { width: 390, height: 844 }, true);
   const pp = pl.page;
@@ -73,8 +73,8 @@ try {
   note(`/recap -> ${String(await replyTo(fake.interaction(JESS, 'recap'))).slice(0, 160)}`);
 
   await page.reload();
-  await page.getByText('Brindle').or(page.getByText('jess_d')).first().waitFor({ timeout: 8000 }).catch(() => problems.push('the DM page does not list the linked player'));
-  await page.screenshot({ path: path.join(out, '4-dm-linked-players.png'), fullPage: true });
+  await page.getByText('Brindle').or(page.getByText('jess_d')).first().waitFor({ timeout: 8000 }).catch(() => problems.push('the GM page does not list the linked player'));
+  await page.screenshot({ path: path.join(out, '4-gm-linked-players.png'), fullPage: true });
 } finally {
   await browser.close();
   srv.kill();

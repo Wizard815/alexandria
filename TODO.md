@@ -48,14 +48,14 @@ The weeks are estimates and will move. The order matters more than the dates.
 |---|---|---|---|---|
 | 1 | 16–22 Nov | Phone test shapes (needs your Fold sizes) | CI; Admin → Models with the five model jobs | **M0** |
 | 2–3 | 23 Nov–6 Dec | Phone redesign: player screens | Gateway admin sign-in | |
-| 4 | 7–13 Dec | Phone redesign: DM assistant | World clock and calendar | **M1** |
+| 4 | 7–13 Dec | Phone redesign: GM assistant | World clock and calendar | **M1** |
 | 5 | 14–20 Dec | World date on screens, home events | Broker: auto-delivery, scope, "Other", site link | **M2** |
 | 6–7 | 21 Dec–3 Jan | *(holidays: light week)* Item cards | Game modules: SRD 5.2 and 5.1, import | |
 | 8 | 4–10 Jan | Item cards on every screen | Intake capabilities, Kanka relations and calendars, push API | **M3** |
 | 9–10 | 11–24 Jan | Agent chat panel, statblock to combat | Two harnesses, agent tools, audit model and the 40-question test | **M4** |
 | 11–12 | 25 Jan–7 Feb | Desktop app shell (Tauri), audio setup screen | Audio upload, consent, storage, backups | |
 | 13–14 | 8–21 Feb | Mic modes and hold keys, speaker groups | Speech to text, mic merge, asides across mics | **M5** |
-| 15 | 22–28 Feb | Transcript island, keyword cards | Transcript views (DM and players) | **M6** |
+| 15 | 22–28 Feb | Transcript island, keyword cards | Transcript views (GM and players) | **M6** |
 | 16–17 | 1–14 Mar | Session log page and review | Summary drafts, proposed date changes, travel | **M7** |
 | 18–20 | 15 Mar–4 Apr | Soundboard, mood map, ambience mixer, player switches | Music and ambience streaming, Spotify | **M8** |
 | 21 | 5–11 Apr | Speak menu, voice presets | Kokoro connection | **M9** |
@@ -95,13 +95,13 @@ than all at the end.
 - [ ] **`deploy/examples`:** Argos, whisper server, Kokoro, each as an
   override file
 - [ ] **Leak test helper:** one shared function every new test calls to
-  scan a player response for DM-only text
+  scan a player response for GM-only text
 
 **Done when:** CI is green, Admin → Models reaches your Argos, and the
 four test shapes run.
 
 ## M1: Phone redesign and sign-in (weeks 2–4) · PLAN §15, §13
-- [ ] **Design drafts:** three player screens and the DM assistant at
+- [ ] **Design drafts:** three player screens and the GM assistant at
   phone and Fold-inner sizes. You pick one direction.
 - [ ] **New phone shell:** bottom tabs (Home, Live, Library, Broker, Bag),
   bottom sheets, a "More" sheet
@@ -109,28 +109,28 @@ four test shapes run.
   the Fold opens or closes
 - [ ] **Player screens redone phone-first:** Home, Live, Library, Broker,
   Bag, Me, Messages, Calendar
-- [ ] **The DM assistant:** initiative and turn, HP and conditions, quick
+- [ ] **The GM assistant:** initiative and turn, HP and conditions, quick
   actions, approvals and broker queues, a placeholder for the agent chat
 - [ ] **`/admin/login`:** separate admin sessions, an optional authenticator
   app, an optional allowed-network list
 - [ ] **Tests:** every screen at all four shapes; admin and table sessions
   can't cross
 
-**Done when:** every player screen and the DM assistant pass all four
+**Done when:** every player screen and the GM assistant pass all four
 shapes, and you've checked it on your Fold.
 
 ## M2: World clock and broker (weeks 4–5) · PLAN §14, §1.1–1.4
 - [ ] **World clock:** the date and time in the world's calendar, with
-  the calendar from the source or set by the DM
+  the calendar from the source or set by the GM
 - [ ] **The broker clock** moves onto it, keeping existing waits
-- [ ] **The world date** shows in the top bar for the DM and players
+- [ ] **The world date** shows in the top bar for the GM and players
 - [ ] **Home pages:** today's events plus upcoming ones, with a per-person
   range of 3, 7 or 30 days
-- [ ] **DM buttons:** Long rest, Short rest, Next day, Set date. Changes
+- [ ] **GM buttons:** Long rest, Short rest, Next day, Set date. Changes
   are logged and can be undone.
-- [ ] **Broker delivery mode per tier** (Auto or DM reviews); Guarded is
-  always the DM
-- [ ] **Broker scope:** world only, plus real-world topics the DM allows;
+- [ ] **Broker delivery mode per tier** (Auto or GM reviews); Guarded is
+  always the GM
+- [ ] **Broker scope:** world only, plus real-world topics the GM allows;
   others are refused in character
 - [ ] **"Other":** free rules and item questions, not shown as a price tier
 - [ ] **World site link** setting, shown on the broker page
@@ -152,25 +152,25 @@ shapes, and you've checked it on your Fold.
   map markers
 - [ ] **LegendKeeper:** calendars, timelines, maps as pages
 - [ ] **Push intake:** `POST /api/intake/<source>/entries` with a source key
-- [ ] **Tests:** an item linked to a DM-only page shows players nothing from
+- [ ] **Tests:** an item linked to a GM-only page shows players nothing from
   it; leak tests for every new Kanka or LegendKeeper kind
 
-## M4: DM agent and question routing (weeks 9–10) · PLAN §6, §1.5
+## M4: GM agent and question routing (weeks 9–10) · PLAN §6, §1.5
 - [ ] **Two harnesses on one chat model:**
-  - DM: everything, plus write tools you confirm
+  - GM: everything, plus write tools you confirm
   - Player: player copies and read tools only
 - [ ] **New MCP tools:** combat (read, add a combatant, damage,
   conditions), world clock, game module lookup
 - [ ] **Statblocks:** from a prompt or a page, saved to the library, with
   "Add to combat"
-- [ ] **Agent chat panel** on DM desktop pages and in the DM phone assistant
+- [ ] **Agent chat panel** on GM desktop pages and in the GM phone assistant
 - [ ] **The player Ask chat** uses the player harness
 - [ ] **The audit model labels questions:** scope, intent and type.
-  Spoiler hunting goes to the DM.
-- [ ] **DM spoiler tags** on pages and topics
+  Spoiler hunting goes to the GM.
+- [ ] **GM spoiler tags** on pages and topics
 - [ ] **A 40-question test set** for spoilers, the villain, stats and
-  off-topic questions. No DM text may reach players, and every spoiler goes
-  to the DM.
+  off-topic questions. No GM text may reach players, and every spoiler goes
+  to the GM.
 - [ ] Every agent action is in the audit log
 
 ## M5: Desktop app and audio (weeks 11–14) · PLAN §12, §3
@@ -197,7 +197,7 @@ shapes, and you've checked it on your Fold.
   `uploads/`
 - [ ] **Tests:**
   - three mics give one line each
-  - an aside is DM-only on every mic
+  - an aside is GM-only on every mic
   - the merge beats the best single mic on the test recording
   - backup and restore round-trip
 
@@ -207,20 +207,20 @@ shapes, and you've checked it on your Fold.
   - opacity 20–100%, colour, text size
   - minimise it to a pill
   - on phones, a bottom drawer
-- [ ] **The players' view and the DM's view** of the same transcript; the
-  DM can mark a line DM-only afterwards
+- [ ] **The players' view and the GM's view** of the same transcript; the
+  GM can mark a line GM-only afterwards
 - [ ] **Keyword highlights** from the game module and library titles, with
   hover cards. Players get player copies only, and no highlight when only a
-  DM-only page matches.
+  GM-only page matches.
 
 ## M7: Session log (weeks 16–17) · PLAN §8, §14
 - [ ] **A summary draft** from the transcript (without asides), combat,
   loot, coin, the broker and quick events
-- [ ] **DM review:** edit by hand, or ask the agent to revise. Versions are
+- [ ] **GM review:** edit by hand, or ask the agent to revise. Versions are
   kept.
 - [ ] **A proposed date change** (travel and rests) in the same review;
   travel goes into the log
-- [ ] **Approve** runs the leak check (DM-only text and asides), then
+- [ ] **Approve** runs the leak check (GM-only text and asides), then
   publishes to players and offline
 - [ ] **The world calendar** shows sessions, summaries, travel and rests by
   in-world day
@@ -235,7 +235,7 @@ shapes, and you've checked it on your Fold.
 - [ ] **Ambience:** layers (rain, cave, tavern, market, wind, fire) and
   saved scenes, which can be tied to areas
 - [ ] **Players' switches** for music, ambience and effects, per device,
-  all starting off; the DM sees who has them on
+  all starting off; the GM sees who has them on
 - [ ] **Spotify:** sign-in, event to playlist mapping, plays on your Spotify
   device
 
@@ -243,7 +243,7 @@ shapes, and you've checked it on your Fold.
 - [ ] **Highlight text, then right-click → Speak,** with a preset picker
 - [ ] **Voice presets in settings:** voice, speed, pitch, effect and
   speaker group
-- [ ] Sending DM-only text to players' devices asks you first
+- [ ] Sending GM-only text to players' devices asks you first
 
 ## M10: Phone apps (weeks 22–23) · PLAN §12
 - [ ] **Tauri builds for Android and iOS** of the same app; Capacitor if

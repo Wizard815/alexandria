@@ -1,5 +1,5 @@
 // Labelled example lines for Active mode's narration scan. The scan asks the
-// audit model what a DM's narration calls for; with the embeddings job set the
+// audit model what a GM's narration calls for; with the embeddings job set the
 // examples nearest the lines in the batch ride along in the prompt (few-shot by
 // similarity), so the model sees how a close case was labelled: which lines
 // call for sound, an item, coins or the clock, and which only mention them.

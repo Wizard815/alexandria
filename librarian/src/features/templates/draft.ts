@@ -1,6 +1,6 @@
-// The assistant's side of making a template: draft one from what the DM describes (asking a few questions back), and
+// The assistant's side of making a template: draft one from what the GM describes (asking a few questions back), and
 // derive a guide from example pages (their common structure). Both work with no model: the structure comes from rules
-// and the pages themselves, and a chat model, when set, only improves the wording. Nothing here is saved; the DM edits
+// and the pages themselves, and a chat model, when set, only improves the wording. Nothing here is saved; the GM edits
 // the draft and saves it.
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, type ChatMessage } from '../../core/ai.ts';
@@ -8,19 +8,19 @@ import type { Viewer } from '../../core/policy.ts';
 import { cleanSpec, cleanStep, KIND_LABEL, type Kind, type Spec, type Step, type TemplateInput } from './spec.ts';
 
 interface Task { re: RegExp; name: string; noun: string; triggers: string[]; sections: string[]; folder: string; generator: string }
-// What the DM is most likely making, from their words: a name, triggers and a sensible page structure for each.
+// What the GM is most likely making, from their words: a name, triggers and a sensible page structure for each.
 const TASKS: Task[] = [
-  { re: /\b(towns?|villages?|cit(?:y|ies)|hamlets?|settlements?|ports?)\b/i, name: 'Towns', noun: 'town', triggers: ['town', 'village', 'city', 'hamlet', 'settlement'], sections: ['Overview', 'Geography & layout', 'People & culture', 'Places of note', 'Power & factions', 'Neighbours & trade', 'Rumours & hooks', 'Secrets (DM)'], folder: 'Places', generator: 'town' },
-  { re: /\b(taverns?|inns?|alehouses?)\b/i, name: 'Taverns', noun: 'tavern', triggers: ['tavern', 'inn'], sections: ['Overview', 'Owner & staff', 'Menu & prices', 'Rooms', 'Regulars', 'Rumours', 'Secrets (DM)'], folder: 'Places', generator: 'tavern' },
-  { re: /\b(shops?|stores?|merchants?|markets?|smith(?:y|ies)?)\b/i, name: 'Shops', noun: 'shop', triggers: ['shop', 'store', 'merchant'], sections: ['Overview', 'Owner', 'Stock & prices', 'Haggling', 'Secrets (DM)'], folder: 'Places/Shops', generator: 'shop' },
-  { re: /\b(npcs?|characters?|villains?|nobles?)\b/i, name: 'NPCs', noun: 'NPC', triggers: ['npc', 'character', 'villain'], sections: ['Look', 'Voice & manner', 'Wants', 'Ties', 'Hooks', 'Secrets (DM)'], folder: 'People', generator: 'npc' },
-  { re: /\b(dungeons?|caves?|ruins?|lairs?|crypts?)\b/i, name: 'Dungeons', noun: 'dungeon', triggers: ['dungeon', 'cave', 'ruin', 'lair', 'crypt'], sections: ['Overview', 'History', 'Areas', 'Inhabitants', 'Traps & hazards', 'Treasure', 'Secrets (DM)'], folder: 'Places/Dungeons', generator: 'dungeon' },
-  { re: /\b(factions?|guilds?|orders?|cults?|houses?)\b/i, name: 'Factions', noun: 'faction', triggers: ['faction', 'guild', 'order', 'cult'], sections: ['Overview', 'Leaders', 'Goals', 'Resources', 'Allies & rivals', 'Hooks', 'Secrets (DM)'], folder: 'Factions', generator: 'faction' },
-  { re: /\b(regions?|kingdoms?|provinces?|countr(?:y|ies)|islands?)\b/i, name: 'Regions', noun: 'region', triggers: ['region', 'kingdom', 'province', 'island'], sections: ['Overview', 'Geography', 'Settlements', 'Peoples', 'History', 'Dangers', 'Secrets (DM)'], folder: 'Places', generator: 'region' },
-  { re: /\b(quests?|adventures?|missions?)\b/i, name: 'Quests', noun: 'quest', triggers: ['quest', 'adventure', 'mission'], sections: ['Hook', 'Goal', 'Locations', 'Opposition', 'Twist', 'Rewards', 'Secrets (DM)'], folder: 'Quests', generator: 'quest' },
+  { re: /\b(towns?|villages?|cit(?:y|ies)|hamlets?|settlements?|ports?)\b/i, name: 'Towns', noun: 'town', triggers: ['town', 'village', 'city', 'hamlet', 'settlement'], sections: ['Overview', 'Geography & layout', 'People & culture', 'Places of note', 'Power & factions', 'Neighbours & trade', 'Rumours & hooks', 'Secrets (GM)'], folder: 'Places', generator: 'town' },
+  { re: /\b(taverns?|inns?|alehouses?)\b/i, name: 'Taverns', noun: 'tavern', triggers: ['tavern', 'inn'], sections: ['Overview', 'Owner & staff', 'Menu & prices', 'Rooms', 'Regulars', 'Rumours', 'Secrets (GM)'], folder: 'Places', generator: 'tavern' },
+  { re: /\b(shops?|stores?|merchants?|markets?|smith(?:y|ies)?)\b/i, name: 'Shops', noun: 'shop', triggers: ['shop', 'store', 'merchant'], sections: ['Overview', 'Owner', 'Stock & prices', 'Haggling', 'Secrets (GM)'], folder: 'Places/Shops', generator: 'shop' },
+  { re: /\b(npcs?|characters?|villains?|nobles?)\b/i, name: 'NPCs', noun: 'NPC', triggers: ['npc', 'character', 'villain'], sections: ['Look', 'Voice & manner', 'Wants', 'Ties', 'Hooks', 'Secrets (GM)'], folder: 'People', generator: 'npc' },
+  { re: /\b(dungeons?|caves?|ruins?|lairs?|crypts?)\b/i, name: 'Dungeons', noun: 'dungeon', triggers: ['dungeon', 'cave', 'ruin', 'lair', 'crypt'], sections: ['Overview', 'History', 'Areas', 'Inhabitants', 'Traps & hazards', 'Treasure', 'Secrets (GM)'], folder: 'Places/Dungeons', generator: 'dungeon' },
+  { re: /\b(factions?|guilds?|orders?|cults?|houses?)\b/i, name: 'Factions', noun: 'faction', triggers: ['faction', 'guild', 'order', 'cult'], sections: ['Overview', 'Leaders', 'Goals', 'Resources', 'Allies & rivals', 'Hooks', 'Secrets (GM)'], folder: 'Factions', generator: 'faction' },
+  { re: /\b(regions?|kingdoms?|provinces?|countr(?:y|ies)|islands?)\b/i, name: 'Regions', noun: 'region', triggers: ['region', 'kingdom', 'province', 'island'], sections: ['Overview', 'Geography', 'Settlements', 'Peoples', 'History', 'Dangers', 'Secrets (GM)'], folder: 'Places', generator: 'region' },
+  { re: /\b(quests?|adventures?|missions?)\b/i, name: 'Quests', noun: 'quest', triggers: ['quest', 'adventure', 'mission'], sections: ['Hook', 'Goal', 'Locations', 'Opposition', 'Twist', 'Rewards', 'Secrets (GM)'], folder: 'Quests', generator: 'quest' },
   { re: /\b(monsters?|creatures?|beasts?)\b/i, name: 'Monsters', noun: 'monster', triggers: ['monster', 'creature', 'beast'], sections: ['Look', 'Behaviour', 'Lair', 'Tactics', 'Lore'], folder: 'Bestiary', generator: 'monster' },
 ];
-const GENERIC: Task = { re: /$^/, name: '', noun: 'page', triggers: [], sections: ['Overview', 'Details', 'Hooks', 'Secrets (DM)'], folder: '', generator: 'npc' };
+const GENERIC: Task = { re: /$^/, name: '', noun: 'page', triggers: [], sections: ['Overview', 'Details', 'Hooks', 'Secrets (GM)'], folder: '', generator: 'npc' };
 
 const NATIONS: Record<string, string> = {
   japanese: 'Japan', chinese: 'China', korean: 'Korea', english: 'England', scottish: 'Scotland', irish: 'Ireland', welsh: 'Wales', french: 'France',
@@ -41,7 +41,7 @@ const titleCase = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
 
 export interface Draft { template: TemplateInput; questions: string[]; notes: string[]; usedModel: boolean }
 
-/** A draft from the DM's words alone (no model): the starting point the model improves, and the answer without one. */
+/** A draft from the GM's words alone (no model): the starting point the model improves, and the answer without one. */
 export function heuristicDraft(kind: Kind, description: string): Draft {
   const text = description.trim();
   const task = taskFor(text);
@@ -60,17 +60,17 @@ export function heuristicDraft(kind: Kind, description: string): Draft {
       questions.push(`Which real-world ${task.noun === 'page' ? 'place' : task.noun} should it draw on when a request names none?`);
     }
     steps.push({ kind: 'exemplars', text: `Read two existing ${task.noun} pages and follow how they are structured.` });
-    steps.push({ kind: 'instruction', text: 'Draft the page with the sections below; anything the players must not read goes in a > [!secret] block; save it DM-only and cite every source.' });
+    steps.push({ kind: 'instruction', text: 'Draft the page with the sections below; anything the players must not read goes in a > [!secret] block; save it GM-only and cite every source.' });
     spec = { task: `Make a ${task.noun}`, instructions: text, steps, sections: task.sections, tone: '', folder: task.folder, exemplars: [], always: false };
     questions.push(`Which sections must every ${task.noun} page have, and in what order?`, 'Which existing pages are the best examples to follow?');
     if (!task.folder) questions.push('Which library folder should new pages go in?');
   } else if (kind === 'generator') {
     spec = { generator: task.generator, fields: task.sections.filter((s) => !/secret/i.test(s)).map((s) => ({ name: s, hint: '' })), sections: task.sections, instructions: text, folder: task.folder ? `Generated/${task.noun}` : '' };
-    questions.push('Which fields must every result have?', 'Should results be saved for the players or DM only?');
+    questions.push('Which fields must every result have?', 'Should results be saved for the players or GM only?');
   } else if (kind === 'macro') {
     const params = [...new Set([...text.matchAll(/\{\{?\s*([A-Za-z_]\w*)\s*\}?\}/g)].map((m) => m[1]))];
     spec = { prompt: text, params: (params.length ? params : ['details']).map((p) => ({ name: p, label: titleCase(p.replace(/_/g, ' ')), default: '' })), mode: 'propose', tools: '' };
-    if (!params.length) spec.prompt = `${text}\n\nDetails from the DM: {{details}}`;
+    if (!params.length) spec.prompt = `${text}\n\nDetails from the GM: {{details}}`;
     questions.push('Should the macro do it at once, or propose each change for you to approve?', 'Which tools may it use?');
   } else if (kind === 'assist') {
     const panes = ['combat', 'sound', 'library', 'inbox', 'scenes', 'clock', 'stage', 'generators', 'minerva'].filter((p) => new RegExp(`\\b${p}`, 'i').test(text)).slice(0, 3);
@@ -79,8 +79,22 @@ export function heuristicDraft(kind: Kind, description: string): Draft {
   } else if (kind === 'shop') {
     spec = { shopType: task.noun === 'shop' ? 'general store' : task.noun, guide: text, stock: [], priceNotes: '' };
     questions.push('What should every shop like this stock?', 'Are prices higher or lower than the book?');
+  } else if (kind === 'event') {
+    const low = text.toLowerCase();
+    const places = ['town', 'city', 'village', 'market', 'tavern', 'road', 'woods', 'cave', 'dungeon', 'ruins', 'coast', 'mountains', 'swamp'].filter((p) => new RegExp(`\\b${p}`, 'i').test(low) || (p === 'woods' && /\bforest/.test(low)));
+    spec = { places, theme: text.split(/[.\n]/)[0].slice(0, 200), instructions: text, tone: '', choices: 3, checks: true, maxRewardCp: 100, consequences: 'Note what each choice leads to for the GM: who saw it, who might remember.' };
+    questions.push('Which places should these events fit (town, road, woods, cave, dungeon...)?', 'How much coin may one event give or take?', 'Should every event have a skill check?');
+    return { template: { kind, name: (head || (places.length ? `${titleCase(places[0])} events` : 'Quick events')).slice(0, 80), description: text.slice(0, 500), triggers: ['quick event', 'event', 'happens'], enabled: true, spec: cleanSpec(kind, spec) }, questions, notes: [], usedModel: false };
+  } else if (kind === 'spell') {
+    const lv = /\bcantrips?\b/i.test(text) ? [0, 0] : (() => { const m = text.match(/\blevel\s*(\d)(?:\s*(?:-|to)\s*(\d))?/i) ?? text.match(/\b(\d)(?:st|nd|rd|th)[- ]level/i); return m ? [Number(m[1]), Number(m[2] ?? m[1])] : [0, 9]; })();
+    const schools = ['Abjuration', 'Conjuration', 'Divination', 'Enchantment', 'Evocation', 'Illusion', 'Necromancy', 'Transmutation'].filter((x) => new RegExp(x.slice(0, 6), 'i').test(text));
+    const classes = ['Bard', 'Cleric', 'Druid', 'Paladin', 'Ranger', 'Sorcerer', 'Warlock', 'Wizard'].filter((x) => new RegExp(`\\b${x}`, 'i').test(text));
+    const lines = ['Fire', 'Frost', 'Lightning', 'Healing', 'Shadow', 'Water', 'Earth', 'Air', 'Light', 'Blood'].filter((x) => new RegExp(`\\b${x}`, 'i').test(text));
+    spec = { minLevel: lv[0], maxLevel: lv[1], schools, classes, lines, balance: 'Match the damage, area and duration of SRD spells of the same level; a rider costs damage.', mana: '', naming: '', instructions: text, higherLevels: true };
+    questions.push('Which levels and schools should new spells be?', 'Which classes (or spell lines) get them?', 'Any rule for their mana cost?');
+    return { template: { kind, name: (head || (lines[0] ? `${lines[0]} spells` : 'New spells')).slice(0, 80), description: text.slice(0, 500), triggers: ['spell', 'cantrip'], enabled: true, spec: cleanSpec(kind, spec) }, questions, notes: [], usedModel: false };
   } else {
-    const body = [`# {name}`, '', ...task.sections.flatMap((s) => (/secret/i.test(s) ? [`## ${s.replace(/\s*\(DM\)/i, '')}`, '> [!secret] DM', '> ', ''] : [`## ${s}`, '', '']))].join('\n');
+    const body = [`# {name}`, '', ...task.sections.flatMap((s) => (/secret/i.test(s) ? [`## ${s.replace(/\s*\(GM\)/i, '')}`, '> [!secret] GM', '> ', ''] : [`## ${s}`, '', '']))].join('\n');
     spec = { folder: task.folder, titlePattern: '{name}', sections: task.sections, tags: task.noun === 'page' ? [] : [task.noun.toLowerCase()], body };
     questions.push('Which folder and tags should new pages get?');
   }
@@ -97,15 +111,17 @@ const SPEC_SHAPE: Record<Kind, string> = {
   assist: '{"layout": "one|cols|rows|grid|side", "panes": ["library", "assistant"], "prompt": "what to ask the assistant"}',
   shop: '{"shopType": "...", "guide": "how shops like this are stocked and run", "stock": ["..."], "priceNotes": "..."}',
   library: '{"folder": "...", "titlePattern": "{name}", "sections": ["..."], "tags": ["..."], "body": "the page skeleton in Markdown"}',
+  event: '{"places": ["town|city|village|market|tavern|road|woods|cave|dungeon|ruins|coast|mountains|swamp"], "theme": "...", "instructions": "how these quick events go", "tone": "...", "choices": 3, "checks": true, "maxRewardCp": 100, "consequences": "how the GM notes what a choice leads to"}',
+  spell: '{"minLevel": 0, "maxLevel": 3, "schools": ["Evocation"], "classes": ["Wizard"], "lines": ["Fire"], "balance": "how strong a spell of each level is", "mana": "a mana cost note", "naming": "...", "instructions": "...", "higherLevels": true}',
 };
 
 const SYSTEM = (kind: Kind) => [
-  `You draft a DM template for the tabletop campaign app Alexandria: a ${KIND_LABEL[kind]}.`,
-  'Use the DM\'s own words where you can and never invent campaign facts. Steps are things the assistant does before it writes; web steps search only for the real-world reference, never for the DM\'s own names.',
+  `You draft a GM template for the tabletop campaign app Alexandria: a ${KIND_LABEL[kind]}.`,
+  'Use the GM\'s own words where you can and never invent campaign facts. Steps are things the assistant does before it writes; web steps search only for the real-world reference, never for the GM\'s own names.',
   'Return one JSON object: {"name": "...", "description": "one sentence", "triggers": ["words in a request that call for it"], "spec": ' + SPEC_SHAPE[kind] + ', "questions": ["up to 3 short questions about what is still unclear"]}.',
 ].join('\n');
 
-/** Draft a template from the DM's description (and their answers to earlier questions). */
+/** Draft a template from the GM's description (and their answers to earlier questions). */
 export async function draftTemplate(d: Deps, kind: Kind, description: string, answers: { q: string; a: string }[] = [], current?: TemplateInput | null): Promise<Draft> {
   const base = heuristicDraft(kind, [description, ...answers.map((x) => x.a)].join('\n'));
   if (current) base.template = { ...base.template, ...current, spec: cleanSpec(kind, { ...base.template.spec, ...(current.spec as object) }) };
@@ -114,7 +130,7 @@ export async function draftTemplate(d: Deps, kind: Kind, description: string, an
   if (!hasJob(d, 'chat')) return base;
   const msgs: ChatMessage[] = [
     { role: 'system', content: SYSTEM(kind) },
-    { role: 'user', content: `The DM wants:\n${description.slice(0, 4000)}${answers.length ? `\n\nTheir answers:\n${answers.map((x) => `- ${x.q} ${x.a}`).join('\n').slice(0, 3000)}` : ''}\n\nStarting draft:\n${JSON.stringify({ name: base.template.name, triggers: base.template.triggers, spec: base.template.spec }).slice(0, 4000)}` },
+    { role: 'user', content: `The GM wants:\n${description.slice(0, 4000)}${answers.length ? `\n\nTheir answers:\n${answers.map((x) => `- ${x.q} ${x.a}`).join('\n').slice(0, 3000)}` : ''}\n\nStarting draft:\n${JSON.stringify({ name: base.template.name, triggers: base.template.triggers, spec: base.template.spec }).slice(0, 4000)}` },
   ];
   const j: any = await chatJson(d, 'chat', msgs).catch(() => null);
   if (!j || typeof j !== 'object') return base;
@@ -138,7 +154,7 @@ function mergeSpec(kind: Kind, base: Spec, add: any): any {
   }
   if (kind === 'guide' && Array.isArray(add?.steps)) {
     const steps = add.steps.map(cleanStep).filter(Boolean) as Step[];
-    // A web step the model dropped stays: the DM asked for research.
+    // A web step the model dropped stays: the GM asked for research.
     for (const s of (base as any).steps as Step[]) if (s.kind === 'web' && !steps.some((x) => x.kind === 'web')) steps.splice(Math.min(steps.length, 2), 0, s);
     out.steps = steps.length ? steps : (base as any).steps;
   }
@@ -203,7 +219,7 @@ export async function deriveGuide(d: Deps, worldId: string, viewer: Viewer, page
     { kind: 'library', text: `Search the world library for lore about the ${noun} and the region it is in.` },
     ...(st.links || noun === 'town' ? [{ kind: 'neighbours' as const, text: `Find the neighbouring places it links to (location links, relations, the map) and keep it consistent with them.` }] : []),
     { kind: 'exemplars', text: `Read the example pages (${pages.map((p) => p.title).join(', ')}) and follow their structure.` },
-    { kind: 'instruction', text: `Use the sections below in this order${st.secrets ? '; DM-only details go in a > [!secret] block' : ''}${st.links ? '; link places and people with [[wikilinks]]' : ''}; about ${Math.max(100, Math.round(st.words / 50) * 50)} words.` },
+    { kind: 'instruction', text: `Use the sections below in this order${st.secrets ? '; GM-only details go in a > [!secret] block' : ''}${st.links ? '; link places and people with [[wikilinks]]' : ''}; about ${Math.max(100, Math.round(st.words / 50) * 50)} words.` },
   ];
   const triggers = [...new Set([...st.tags.filter((t) => task.triggers.includes(t)), ...task.triggers])].slice(0, 8);
   const notes = [`Derived from ${pages.length} page${pages.length === 1 ? '' : 's'}: ${pages.map((p) => p.title).join(', ')}.`, `Sections most of them share: ${st.sections.length ? st.sections.join(' · ') : 'none (no common headings)'}.`];

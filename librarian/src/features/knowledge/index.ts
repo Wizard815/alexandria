@@ -1,14 +1,14 @@
-// Knowledge: where the DM sees how current everything the AI knows about the
+// Knowledge: where the GM sees how current everything the AI knows about the
 // world is, and refreshes it all in one step (refresh.ts).
 //
-//   GET  /api/worlds/:world/knowledge                  (DM) status: sources, pictures, index, story bible, Minerva, the last refresh
-//   POST /api/worlds/:world/knowledge/refresh  {full?}  (DM) start "Refresh world" (202), 409 when one is running
-//   POST /api/worlds/:world/knowledge/refresh/stop     (DM) stop it
-//   MCP  refresh_world (DM write key)
+//   GET  /api/worlds/:world/knowledge                  (GM) status: sources, pictures, index, story bible, Minerva, the last refresh
+//   POST /api/worlds/:world/knowledge/refresh  {full?}  (GM) start "Refresh world" (202), 409 when one is running
+//   POST /api/worlds/:world/knowledge/refresh/stop     (GM) stop it
+//   MCP  refresh_world (GM write key)
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { all, one, run } from '../../core/db.ts';
 import { now } from '../../core/util.ts';
 import { ctx, me } from '../../routes/_shared.ts';
@@ -51,14 +51,14 @@ const feature: Feature = {
   worldMount: 'knowledge',
   worldRoutes: (d: Deps) => {
     const r = Router({ mergeParams: true });
-    r.get('/', requireDM, (_req, res) => { res.json(knowledgeStatus(d, ctx(res).world.id)); });
-    r.post('/refresh', requireDM, (req, res) => {
+    r.get('/', requireGM, (_req, res) => { res.json(knowledgeStatus(d, ctx(res).world.id)); });
+    r.post('/refresh', requireGM, (req, res) => {
       const w = ctx(res).world.id;
       const st = startRefresh(d, w, { by: me(res), full: req.body?.full === true });
       audit(d, w, me(res), 'world.refresh', st.id);
       res.status(202).json({ started: true, refresh: st });
     });
-    r.post('/refresh/stop', requireDM, (_req, res) => { res.json({ stopped: stopRefresh(d, ctx(res).world.id) }); });
+    r.post('/refresh/stop', requireGM, (_req, res) => { res.json({ stopped: stopRefresh(d, ctx(res).world.id) }); });
     return r;
   },
   mcpTools: [{

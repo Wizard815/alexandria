@@ -10,12 +10,12 @@ credit lines are shown in World settings → Game module and on the Rules page.
 
 | id | Name | Source |
 |----|------|--------|
-| `dnd-2024` (default for new worlds) | D&D 2024 (SRD 5.2) | System Reference Document 5.2 |
-| `dnd-2014` | D&D 5e 2014 (SRD 5.1) | System Reference Document 5.1 |
+| `dnd-2024` (default for new worlds) | 5e 2024 (SRD 5.2) | System Reference Document 5.2 |
+| `dnd-2014` | 5e 2014 (SRD 5.1) | System Reference Document 5.1 |
 
 Each world turns on one or more modules **in an order**. When two enabled
 modules define the same term (same name and kind), the earlier module wins.
-A DM changes this under World settings → Game module, or with
+A GM changes this under World settings → Game module, or with
 `PUT /api/worlds/:world/modules/enabled { "ids": ["house", "dnd-2024"] }`.
 
 ## The module format
@@ -64,7 +64,7 @@ A JSON file:
     `components[]`, `duration`, `concentration`, `ritual`, `classes[]`.
 - Limits: 20,000 terms per module and about 24 MB in all.
 
-## Importing (DM only, always preview first)
+## Importing (GM only, always preview first)
 
 World settings → Game module → **Import**, or the API:
 
@@ -139,10 +139,10 @@ can be set with `kind`. `maxItems` (default 5000) bounds the import.
 
 World settings → Game module → Import → **Open5e** or **5e SRD API**.
 
-- `GET …/modules/sources` (DM) lists Open5e's books (`key`, name,
+- `GET …/modules/sources` (GM) lists Open5e's books (`key`, name,
   publisher, game system, licence) and the 5e SRD API editions. The same
   list is the agent tool `list_content_books`; `import_content` imports
-  (a write the DM approves).
+  (a write the GM approves).
 - **open5e** reads `https://api.open5e.com/v2/` (or `base`): spells,
   creatures, magic items, gear, conditions, feats, backgrounds and species
   of the chosen books (at most 12 per module). Terms get the same `data`
@@ -162,6 +162,18 @@ World settings → Game module → Import → **Open5e** or **5e SRD API**.
   download (kept 15 minutes). The credit line names each book, its
   publisher and licence (OGL 1.0a or CC-BY-4.0) and is shown in Credits.
 
+### Open5e is a house rule
+
+Open5e and the 5e SRD API ship as a house rule, `mods/open5e.alxmod.json`.
+Each world turns it on under **House rules** (its preset sets the world
+setting `open5e`). While it is off, the Open5e and 5e SRD API tabs leave
+World settings → Game module, and the `open5e` and `dnd5eapi` import types
+and `GET /modules/sources` answer 403 ("turn it on under House rules"), so
+the assistant's `list_content_books` and `import_content` cannot pull either.
+The server's content library below is not a mod: books the admin keeps there
+are offered to every world under Available either way. The code is
+`features/open5e`; the converters stay in `features/modules`.
+
 ### The server content library (admins)
 
 Admin → Sources → **Content library** pulls a book once onto the server and
@@ -178,7 +190,7 @@ is labelled 5e 2024 or 5e 2014 (Open5e's Kobold Press and Level Up books are
   overwrite). `POST /api/admin/content/:id/refresh` pulls the same request
   again; `DELETE /api/admin/content/:id` removes it from every world.
 - A world cannot import its own copy under a library module's id.
-- `POST /api/worlds/:world/modules/feed { "id": "open5e-tob" }` (DM) puts a
+- `POST /api/worlds/:world/modules/feed { "id": "open5e-tob" }` (GM) puts a
   module's spells into the Codex and its items into the shop's item
   database, for a library module or an earlier import ("Add spells & items"
   in World settings → Game module).
@@ -192,7 +204,7 @@ Codex and the shop. When another enabled module has an entry of the same name, t
 **Put back** undoes it; **Only left out** lists what the world skipped. Copies already added to the Codex
 or the shop stay there; remove those in the Codex or the shop.
 
-| Route (DM) | Does |
+| Route (GM) | Does |
 |---|---|
 | `GET /api/worlds/:w/modules/browse/:id?q=&kind=&left=1&offset=&limit=` | counts, total, left-out count and a page of entries |
 | `GET /api/worlds/:w/modules/browse/:id/:termId` | one entry in full |
@@ -221,14 +233,14 @@ secrets):
     ("Ashes" does not match "Ash").
   - It covers the enabled modules' terms and aliases, and library page titles
     and aliases **the caller can see**. For a player that means pages with a
-    player copy only; a DM-only page's title never matches for a player.
+    player copy only; a GM-only page's title never matches for a player.
   - A world page beats a module term of the same name.
   - Plain actions such as "Dash" or "Help" match only through their longer
     aliases ("Dash action"), so ordinary sentences are not full of
     highlights.
 - `GET /card/:source/:id` the hover card. `source` is `module` (id from a
   match) or `library` (a page id; players get only the player copy, and a
-  DM-only page is a 404).
+  GM-only page is a 404).
 
 MCP tools: `lookup_rule`, `lookup_term`, `read_term`.
 

@@ -1,4 +1,4 @@
-// Gateway admin → Overview: the worlds, what is being read from where, who is waiting on a DM, what the
+// Gateway admin → Overview: the worlds, what is being read from where, who is waiting on a GM, what the
 // guards stopped, the model jobs and the devices. Every number comes from the admin API; a part with
 // nothing to show says so.
 import { Link } from 'react-router-dom';
@@ -12,7 +12,7 @@ import { Bars, HealthPill, useConnStatuses } from '../../features/gwstatus/ConnS
 import { ago, clock } from '../../features/gwstatus/api.ts';
 
 const RUN: Record<string, 'ok' | 'bad' | 'teal' | ''> = { ok: 'ok', error: 'bad', stopped: '', running: 'teal' };
-const MODEL_NAMES: Record<string, string> = { chat: 'Chat (Minerva and The Broker)', audit: 'Audit (decisions)', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Historian (embeddings)', rerank: 'Arbiter (rerank)' };
+const MODEL_NAMES: Record<string, string> = { chat: 'Chat (GM and players)', audit: 'Audit (decisions)', audio: 'Audio (speech to text)', voice: 'Voice (text to speech)', extra: 'Extra (embeddings)', rerank: 'Rerank' };
 const SEEN: Record<string, [string, 'ok' | 'warn' | 'bad' | '']> = { loaded: ['Warm', 'ok'], unloaded: ['Not loaded', 'warn'], unknown: ['Status unknown', ''], missing: ['Model not found', 'bad'], unreachable: ['Not reachable', 'bad'] };
 
 interface Gw {
@@ -48,11 +48,11 @@ export default function AdminOverview() {
 
   const g = gw.data;
   const waiting = g ? g.waiting.questions + g.waiting.brokerDeals : null;
-  const people = g ? (g.roles.dm ?? 0) + (g.roles.player ?? 0) + (g.roles.guest ?? 0) : null;
+  const people = g ? (g.roles.gm ?? 0) + (g.roles.player ?? 0) + (g.roles.guest ?? 0) : null;
 
   return (
     <div className="page">
-      <PageHead title="Overview" lead="The gateway: its worlds, connections, models and devices, and who is waiting on a DM. Being an admin does not open a world's secrets; you need to be its DM.">
+      <PageHead title="Overview" lead="The gateway: its worlds, connections, models and devices, and who is waiting on a GM. Being an admin does not open a world's secrets; you need to be its GM.">
         <button type="button" className="btn" onClick={download} disabled={backup.busy}>{backup.busy && !backup.offline ? 'Preparing…' : 'Download backup'}</button>
       </PageHead>
       <ErrorBox error={o.error || backup.error || gw.error} />
@@ -71,8 +71,8 @@ export default function AdminOverview() {
         <>
           <div className="tiles">
             <Tile label="Worlds" value={d.worlds} sub={`${conns.data?.length ?? 0} connections · ${d.sources.length} sources`} />
-            <Tile label="Connected now" value={d.liveConnections} sub={g ? `${d.accounts} accounts · ${g.roles.dm ?? 0} DM, ${g.roles.player ?? 0} players, ${g.roles.guest ?? 0} guests in worlds` : `${d.accounts} accounts`} />
-            <Tile label="Waiting on the DM" value={waiting ?? '…'} tone={waiting ? 'warn' : ''} sub={g ? `${g.waiting.questions} question${g.waiting.questions === 1 ? '' : 's'} · ${g.waiting.brokerDeals} broker deal${g.waiting.brokerDeals === 1 ? '' : 's'}` : undefined} />
+            <Tile label="Connected now" value={d.liveConnections} sub={g ? `${d.accounts} accounts · ${g.roles.gm ?? 0} GM, ${g.roles.player ?? 0} players, ${g.roles.guest ?? 0} guests in worlds` : `${d.accounts} accounts`} />
+            <Tile label="Waiting on the GM" value={waiting ?? '…'} tone={waiting ? 'warn' : ''} sub={g ? `${g.waiting.questions} question${g.waiting.questions === 1 ? '' : 's'} · ${g.waiting.brokerDeals} broker deal${g.waiting.brokerDeals === 1 ? '' : 's'}` : undefined} />
             <Tile label="Guard, last 7 days" value={g ? g.guard.blocked7d : '…'} tone={g?.guard.blocked7d ? 'warn' : 'ok'} sub={g ? (g.guard.blocked7d ? `stopped; latest ${when(g.guard.last)}` : 'nothing had to be stopped') : undefined} />
             <Tile label="Library pages" value={d.pages.toLocaleString()} sub={people !== null ? `${people} people with a seat` : undefined} />
           </div>
@@ -146,7 +146,7 @@ export default function AdminOverview() {
                   <tr key={r.id}>
                     <td>{r.source}</td><td>{r.world}</td><td className="small">{when(r.started_at)}</td>
                     <td><Pill tone={RUN[r.status] ?? ''}>{r.status}</Pill>{r.error && <span className="tiny" style={{ color: 'var(--danger-text)' }}>{r.error}</span>}</td>
-                    <td className="small">{r.stats.pages ?? 0} · {r.stats.shared ?? 0} shared · {r.stats.dmOnly ?? 0} DM-only{r.stats.removed ? ` · ${r.stats.removed} removed` : ''}</td>
+                    <td className="small">{r.stats.pages ?? 0} · {r.stats.shared ?? 0} shared · {r.stats.gmOnly ?? 0} GM-only{r.stats.removed ? ` · ${r.stats.removed} removed` : ''}</td>
                   </tr>
                 ))}</tbody>
               </table></div></div>

@@ -1,4 +1,4 @@
-// The DM's page for her assistant: the campaign status first, then the arc, the
+// The GM's page for her assistant: the campaign status first, then the arc, the
 // threads by heat, the review queue, promotion suggestions, the revelations
 // board and a panel for each player. Phone-friendly: one column, tabs scroll.
 import { useRef, useState } from 'react';
@@ -109,7 +109,7 @@ function Now({ s, reload, onReview, queue }: { s: State; reload: () => Promise<v
   const [text, setText] = useState('');
   const [arcTitle, setArcTitle] = useState('');
   const body = s.status?.body ?? '';
-  const save = () => act.run(async () => { await w.call('PUT', '/minerva/page', { rel: 'dm/state/Campaign Status.md', body: text }); setEdit(false); await reload(); });
+  const save = () => act.run(async () => { await w.call('PUT', '/minerva/page', { rel: 'gm/state/Campaign Status.md', body: text }); setEdit(false); await reload(); });
   const threads = s.threads ?? [];
   return (
     <div className="mn-grid">
@@ -149,7 +149,7 @@ function Now({ s, reload, onReview, queue }: { s: State; reload: () => Promise<v
           <div style={{ padding: '14px 16px 6px' }}><h2 style={{ margin: 0 }}>Threads</h2></div>
           {threads.length ? threads.map((t) => (
             <div key={t.rel} className="list-item"><Heat h={t.heat} /><span className="stack tight grow"><strong style={{ fontWeight: 500 }}>{t.title}</strong><span className="tiny muted">{t.kind === 'hook' ? 'A hook' : `A player's goal`}</span></span></div>
-          )) : <p className="muted small" style={{ margin: 0, padding: '4px 16px 14px' }}>No hooks or goals yet. Ask her to start one, or add a page in dm/hooks.</p>}
+          )) : <p className="muted small" style={{ margin: 0, padding: '4px 16px 14px' }}>No hooks or goals yet. Ask her to start one, or add a page in gm/hooks.</p>}
         </section>
         <section className="card flush" aria-label="Promotion suggestions">
           <div style={{ padding: '14px 16px 6px' }}><h2 style={{ margin: 0 }}>Worth a page</h2><p className="tiny muted" style={{ margin: '4px 0 0' }}>People who keep coming up and have no codex page yet.</p></div>

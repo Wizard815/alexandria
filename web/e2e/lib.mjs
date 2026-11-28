@@ -34,8 +34,8 @@ export async function signIn(browser, base, user, pass, viewport, mobile, landin
   return { ctx, page };
 }
 
-export const DM_ROUTES = ['', 'codex', 'combat', 'quick', 'party', 'inbox', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'recordings', 'stage', 'screens', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect', 'phone', 'shops', 'items', 'templates'];
-export const PLAYER_ROUTES = ['', 'live', 'library', 'codex', 'broker', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect', 'rules', 'chat', 'sessionlog', 'bible', 'stage', 'audio', 'recordings', 'journal', 'shop'];
+export const GM_ROUTES = ['', 'codex', 'combat', 'quick', 'party', 'inbox', 'approvals', 'broker', 'clock', 'sessionlog', 'bible', 'sound', 'audio', 'recordings', 'stage', 'screens', 'chat', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'rules', 'sculpt', 'generators', 'worldlore', 'minerva', 'settings', 'connect', 'phone', 'shops', 'items', 'templates', 'house-rules', 'downtime'];
+export const PLAYER_ROUTES = ['', 'live', 'library', 'codex', 'broker', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect', 'rules', 'chat', 'sessionlog', 'bible', 'stage', 'audio', 'recordings', 'journal', 'shop', 'house-rules', 'downtime'];
 
 /** Console noise that is expected: permission checks (403/404), fonts, ResizeObserver. */
 export const quiet = (t) => /Failed to load resource.*(40[34])|fonts\.g|net::ERR_|ResizeObserver/.test(t);
@@ -46,7 +46,7 @@ export const DESTRUCTIVE = /delete|remove|sign out|log ?out|wipe|unload|end (the
 export const INIT = () => {
   const SEL = 'button, a[href], [role=button], [role=tab], [role=switch], [role=menuitem], summary, input[type=checkbox], input[type=radio]';
   const visible = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
-  const region = (e) => e.closest('#alx-dock') ? 'dock' : e.closest('[role=dialog], [aria-modal=true], .modal') ? 'overlay' : e.closest('nav, .topbar, .side, .dm-phonebar, .bottomnav, .sheet, .side-foot') ? 'shell' : 'main';
+  const region = (e) => e.closest('#alx-dock') ? 'dock' : e.closest('[role=dialog], [aria-modal=true], .modal') ? 'overlay' : e.closest('nav, .topbar, .side, .gm-phonebar, .bottomnav, .sheet, .side-foot') ? 'shell' : 'main';
   const label = (e) => (e.getAttribute('aria-label') || e.innerText || e.getAttribute('title') || e.getAttribute('href') || e.getAttribute('name') || 'unnamed').trim().replace(/\s+/g, ' ').slice(0, 60);
   window.__crawl = {
     list() {

@@ -86,7 +86,7 @@ function Provider({ p }: { p: Prov }) {
         <div className="stack tight" data-testid="argos-config">
           <p className="small" style={{ margin: 0 }}><strong>Keep these models resident.</strong> Pick the snippet for the router Argos uses{p.pool ? ` (this one reports ${p.pool.enabled ? 'pool' : p.pool.router || 'group'})` : ''}:</p>
           <ul className="tiny" style={{ margin: 0, paddingLeft: 18 }}>
-            <li><strong>Group router</strong> (the default): a <code>dnd</code> group with <code>persistent: true</code>, <code>swap: false</code>, <code>exclusive: false</code>, so these models all stay loaded and no other group can evict them. Plus <code>ttl: 0</code> so idle time never unloads them.</li>
+            <li><strong>Group router</strong> (the default): an <code>alexandria</code> group with <code>persistent: true</code>, <code>swap: false</code>, <code>exclusive: false</code>, so these models all stay loaded and no other group can evict them. Plus <code>ttl: 0</code> so idle time never unloads them.</li>
             <li><strong>Pool router:</strong> models share the GPUs while they fit. List them under <code>pool.persistent</code> so they are never evicted for another model, and give each a <code>vram</code> so the pool can plan.</li>
           </ul>
           <div className="row">

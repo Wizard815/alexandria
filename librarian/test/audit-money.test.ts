@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { boot, type Kit } from './audit-kit.ts';
 
 let k: Kit;
-before(async () => { k = await boot(); await k.ok('POST', k.w('/live/ledger'), k.T.dm, { owner: k.ID.jess, amountCp: 100, note: 'start' }); });
+before(async () => { k = await boot(); await k.ok('POST', k.w('/live/ledger'), k.T.gm, { owner: k.ID.jess, amountCp: 100, note: 'start' }); });
 after(() => k?.close());
 const coin = async (who: string) => (await k.ok('GET', k.w(`/live/ledger?owner=${who === 'party' ? 'party' : 'me'}`), who === 'party' ? k.T.jess : k.T[who])).cp as number;
 const total = async () => (await coin('jess')) + (await coin('tom')) + (await coin('party'));
@@ -44,8 +44,8 @@ test('Audit_Money: a coin request cannot be paid twice, nor beyond what is asked
 });
 
 test('Audit_Money: a broker offer paid by two players at once is paid once; the party pouch cannot go negative', async () => {
-  await k.ok('POST', k.w('/live/ledger'), k.T.dm, { owner: 'party', amountCp: 50, note: 'pouch' });
-  const offer = await k.ok('POST', k.w('/broker/offers'), k.T.dm, { title: 'A rumour', info: 'Something', priceCp: 40, targets: 'party' });
+  await k.ok('POST', k.w('/live/ledger'), k.T.gm, { owner: 'party', amountCp: 50, note: 'pouch' });
+  const offer = await k.ok('POST', k.w('/broker/offers'), k.T.gm, { title: 'A rumour', info: 'Something', priceCp: 40, targets: 'party' });
   const before = await total();
   const pays = await Promise.all([k.call('POST', k.w(`/broker/offers/${offer.id}/pay`), k.T.jess, { from: 'party' }), k.call('POST', k.w(`/broker/offers/${offer.id}/pay`), k.T.tom, { from: 'party' })]);
   assert.equal(pays.filter((r) => r.status === 200).length, 1, `${pays.map((r) => r.status)}`);
@@ -54,7 +54,7 @@ test('Audit_Money: a broker offer paid by two players at once is paid once; the 
 });
 
 test('Audit_Money: item moves cannot create or lose items, and a stack move of more than there is is refused', async () => {
-  const it = await k.ok('POST', k.w('/inventory'), k.T.dm, { owner: k.ID.jess, name: 'Arrow', qty: 5, reason: 'quiver' });
+  const it = await k.ok('POST', k.w('/inventory'), k.T.gm, { owner: k.ID.jess, name: 'Arrow', qty: 5, reason: 'quiver' });
   const moves = await Promise.all(Array.from({ length: 8 }, () => k.call('POST', k.w(`/inventory/${it.id}/move`), k.T.jess, { to: 'party', qty: 1 })));
   const ok = moves.filter((r) => r.status === 200).length;
   const mine = await k.ok('GET', k.w('/inventory?owner=me'), k.T.jess);

@@ -124,7 +124,7 @@ test('Idle_APageOnlyTouchedIsNotEmbeddedAgain', async () => {
 
 test('Idle_APageTheModelRefusesStaysRefusedAfterARestart', async () => {
   const { k } = await world();
-  const r = { id: 'pg_x', scope: 'dm', updated_at: '2026-01-01T00:00:00Z' };
+  const r = { id: 'pg_x', scope: 'gm', updated_at: '2026-01-01T00:00:00Z' };
   noteRefused(r);
   assert.equal(isBackedOff(r), true);
   assert.equal(one<any>(k.deps.db, 'SELECT tries FROM embed_backoff WHERE page_id = ?', 'pg_x').tries, 1, 'kept in the database');

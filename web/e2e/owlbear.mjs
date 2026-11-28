@@ -3,7 +3,7 @@
 // answers for that address) that speaks the Owlbear SDK's message protocol: it frames the extension, keeps the scene's
 // items and room metadata, and draws the map and fog on a canvas so the screenshots show what a table would see.
 //
-// Checked: the DM makes a link key on DM → Setup → Owlbear Rodeo; the GM pastes it in the popover; the table screen's map
+// Checked: the GM makes a link key on GM → Setup → Owlbear Rodeo; the GM pastes it in the popover; the table screen's map
 // picture lands in the scene with Alexandria's fog on it; a reveal in Alexandria reaches Owlbear; with "Owlbear leads",
 // fog drawn with Owlbear's tools comes back to Alexandria (and hides a party pin from players); a player's popover links
 // to the world and never gets the key.
@@ -128,8 +128,8 @@ const watch = (page, who) => {
 
 try {
   // ---- 1. Alexandria: a party map on the table screen, fog on with a room revealed ------------------------------------
-  const { page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1400, height: 900 }, false, /\/w\/saltreach/);
-  watch(page, 'dm');
+  const { page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1400, height: 900 }, false, /\/w\/saltreach/);
+  watch(page, 'gm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
     const r = await fetch(`${base}/api/worlds/saltreach${p}`, { method, headers: { ...(raw ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${token}` }, body: raw ? raw : body ? JSON.stringify(body) : undefined });
@@ -152,12 +152,12 @@ try {
   await api('PUT', '/fog/map/world/enabled', { pic: PIC, enabled: true });
   await api('POST', '/fog/map/world/ops', { pic: PIC, op: { k: 'c', x: 0.5, y: 0.5, r: 0.12, v: 1 } });
 
-  // ---- 2. DM → Setup → Owlbear Rodeo: the address and a link key ----------------------------------------------------------
-  await page.goto(`${W}/dm/owlbear`);
+  // ---- 2. GM → Setup → Owlbear Rodeo: the address and a link key ----------------------------------------------------------
+  await page.goto(`${W}/gm/owlbear`);
   await page.getByTestId('owlbear-page').waitFor({ timeout: 8000 });
   const manifest = await page.getByTestId('owlbear-manifest').innerText();
   check(manifest === `${base}/owlbear/manifest.json`, `manifest address: ${manifest}`);
-  check((await page.getByTestId('owlbear-online').innerText()).includes('Not set up'), 'dm page: not set up before a key');
+  check((await page.getByTestId('owlbear-online').innerText()).includes('Not set up'), 'gm page: not set up before a key');
   await page.getByRole('button', { name: 'Make a link key' }).click();
   const key = await (await page.getByTestId('owlbear-key').elementHandle()).innerText();
   check(/^alx_obr_/.test(key), `a link key is shown: ${key}`);
@@ -202,9 +202,9 @@ try {
   await api('POST', '/fog/map/world/ops', { pic: PIC, op: { k: 'r', x: 0.05, y: 0.05, w: 0.25, h: 0.3, v: 1 } });
   check(await until(async () => (await foggedAt(room, 0.15, 0.15)) === false, 8000), 'Owlbear follows a reveal made in Alexandria');
   check((await room.evaluate(() => window.obr.items.filter((i) => i.layer === 'FOG').length)) === 1, 'still one fog shape, updated in place');
-  const dmPage = await until(async () => { await page.reload(); return (await page.getByTestId('owlbear-online').innerText()).includes('Connected') ? true : null; }, 8000, 800);
-  check(!!dmPage, 'dm page: the extension shows as connected');
-  await shot(page, '2-dm-owlbear-page.png');
+  const gmPage = await until(async () => { await page.reload(); return (await page.getByTestId('owlbear-online').innerText()).includes('Connected') ? true : null; }, 8000, 800);
+  check(!!gmPage, 'gm page: the extension shows as connected');
+  await shot(page, '2-gm-owlbear-page.png');
 
   // ---- 5. Owlbear leads: the GM's own fog comes back to Alexandria ----------------------------------------------------------
   await api('POST', '/map/world/marks', { kind: 'pin', x: 85, y: 50, label: 'ZZ-OBR-HIDDEN', visibility: 'party' });

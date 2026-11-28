@@ -1,4 +1,4 @@
-// The DM's Screens page: one card per display, an Open button for each, and (where the browser can) a choice of which physical
+// The GM's Screens page: one card per display, an Open button for each, and (where the browser can) a choice of which physical
 // monitor each one opens on.
 import { useEffect, useState } from 'react';
 import { PageHead } from '../../ui/index.tsx';
@@ -6,7 +6,7 @@ import { useWorld } from '../../lib/world.tsx';
 import { canManageWindows, detectMonitors, openDisplay, type Monitor } from './open.ts';
 import { panelUrl } from './names.ts';
 import { PANELS } from './panels.tsx';
-import { DM_NAMES } from '../../lib/dmnames.ts';
+import { GM_NAMES } from '../../lib/gmnames.ts';
 import { useAssignments, useMainPrefs } from './prefs.ts';
 import './screens.css';
 
@@ -24,7 +24,7 @@ export default function ScreensPage() {
     setProblem('');
     try { setMonitors(await detectMonitors()); } catch { setProblem('The browser did not allow it. Allow “window management” for this site (the padlock by the address) and try again.'); }
   };
-  // If the DM already said yes on an earlier visit, pick the monitors up without asking again.
+  // If the GM already said yes on an earlier visit, pick the monitors up without asking again.
   useEffect(() => {
     if (!can) return;
     void (navigator.permissions as any)?.query?.({ name: 'window-management' }).then((s: any) => { if (s.state === 'granted') void find(); }).catch(() => {});
@@ -35,7 +35,7 @@ export default function ScreensPage() {
 
   const displays: { id: string; title: string; icon: string; url: string; name: string; about: string }[] = [
     { id: 'side', title: 'Side screen', icon: 'fa-table-columns', url: `${base}/screen/side`, name: 'alx-side', about: 'A tall screen beside yours: stack the assistant, transcript, initiative and approvals.' },
-    { id: 'players', title: DM_NAMES['screen-players'].label, icon: DM_NAMES['screen-players'].icon, url: `${base}/screen/players`, name: 'alx-players', about: 'The TV facing the players: staged cards, handouts and scenes. Only what players may see.' },
+    { id: 'players', title: GM_NAMES['screen-players'].label, icon: GM_NAMES['screen-players'].icon, url: `${base}/screen/players`, name: 'alx-players', about: 'The TV facing the players: staged cards, handouts and scenes. Only what players may see.' },
     { id: 'table', title: 'Table screen', icon: 'fa-chess-board', url: `${base}/screen/table`, name: 'alx-table', about: 'The screen lying face up on the table: battle map and initiative, big. Players’ view only, even from your login.' },
   ];
   const Pick = ({ id }: { id: string }) => monitors ? (
@@ -55,7 +55,7 @@ export default function ScreensPage() {
         <h2>A four-monitor table</h2>
         <ol className="small" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 4 }}>
           <li><strong>Main</strong> (landscape, in front of you): this app, the way you use it now.</li>
-          <li><strong>Side</strong> (portrait, to its right): the DM side screen, a stack of assistant, transcript, initiative and approvals.</li>
+          <li><strong>Side</strong> (portrait, to its right): the GM side screen, a stack of assistant, transcript, initiative and approvals.</li>
           <li><strong>TV</strong> (facing the players): the Players’ screen.</li>
           <li><strong>Table</strong> (face up, in the middle of everyone): the battle map and initiative.</li>
         </ol>

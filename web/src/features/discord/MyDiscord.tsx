@@ -17,7 +17,7 @@ export default function MyDiscord() {
     <div className="stack loose">
       <PageHead title="Discord" lead="Use your character from your table's Discord server: roll dice, ask your Squire, read the last recap, and get The Broker's answers as Discord messages." />
       <ErrorBox error={me.error || act.error} />
-      {!m.available && <div className="card muted">Your DM has not set up a Discord bot for this world yet.</div>}
+      {!m.available && <div className="card muted">Your GM has not set up a Discord bot for this world yet.</div>}
       {m.available && m.linked && (
         <div className="card stack">
           <div><i className="fa-solid fa-circle-check" aria-hidden="true" /> Linked to <strong>{m.linked.discordName || 'your Discord account'}</strong>{m.serverName ? <> on <strong>{m.serverName}</strong></> : null}.</div>

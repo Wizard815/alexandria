@@ -1,5 +1,5 @@
 // The pieces of the assistant chat that both layouts draw: the chat switcher, the messages with their approval cards
-// and sources, and the dictation button. `phone` swaps the desktop classes for the DM phone's big-target ones; the
+// and sources, and the dictation button. `phone` swaps the desktop classes for the GM phone's big-target ones; the
 // state and behaviour live in Chat.tsx, so there is one chat, not a desktop one and a phone copy.
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -29,9 +29,11 @@ export function GuideBox({ guides, phone }: { guides: GuideNote[]; phone?: boole
   );
 }
 export interface Act { id: string; tool: string; summary: string; call: unknown; args?: Record<string, unknown>; status: string; result: string | null; createdAt: string; auto?: boolean; alwaysAsk?: boolean; decidedAt?: string | null }
-export interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean }
+/** `incognito`: not saved; never listed, and deleted when it is left. */
+export interface ChatState { id: string; messages: Msg[]; actions: Act[]; busy: boolean; incognito?: boolean }
 export interface Live { text: string; status: string; queue?: string }
-export interface ChatRow { id: string; title: string; updatedAt: string }
+/** A chat in the list: `folder` is its path ('' = top level), `template` the template it was started from ('' = a main chat). */
+export interface ChatRow { id: string; title: string; updatedAt: string; folder?: string; template?: string }
 export type Item = { t: 'msg'; m: Msg } | { t: 'act'; a: Act };
 
 /** [Title] in a reply becomes a [[wikilink]] when it names a page the reply drew on. */
@@ -50,12 +52,19 @@ export interface Switcher {
   renaming: string | null; setRenaming: (v: string | null) => void;
   confirmDel: boolean; setConfirmDel: (v: boolean) => void;
   open: (id: string) => void; fresh?: () => void; rename: (id: string, title: string) => void; remove: () => void;
+  /** The open chat's title, wherever it is listed (main or template chats). */
+  titleOf?: (id: string) => string;
 }
 
-/** Switch between past chats; rename or delete the open one. */
+/** How many chats the recent dropdown lists. */
+export const RECENT = 15;
+
+/** Switch between recent chats; rename or delete the open one. */
 export function ChatSwitcher({ phone, s }: { phone?: boolean; s: Switcher }) {
   const { chat, list, busy, renaming, setRenaming, confirmDel, setConfirmDel } = s;
   const btn = (extra: string) => (phone ? `b ${extra}`.trim() : `btn small ${extra}`.trim());
+  // The dropdown is for a session: the most recent chats only (the tree has them all).
+  const recent = list.slice(0, RECENT);
   return (
     <div className={phone ? 'row ag-chats ask-chats' : 'row ag-chats'} aria-label="Your chats" data-testid="ag-chats">
       {renaming !== null && chat ? (
@@ -69,13 +78,13 @@ export function ChatSwitcher({ phone, s }: { phone?: boolean; s: Switcher }) {
           <label className="grow" style={{ flex: 1, minWidth: 0 }}><span className="sr-only">Switch chat</span>
             <select style={{ width: '100%' }} value={chat?.id ?? ''} onChange={(e) => { if (e.target.value) s.open(e.target.value); }} data-testid="ag-chat-select">
               {!chat && <option value="">New chat</option>}
-              {list.map((c) => <option key={c.id} value={c.id}>{c.title || 'New chat'} · {new Date(c.updatedAt).toLocaleDateString()}</option>)}
-              {chat && !list.some((c) => c.id === chat.id) && <option value={chat.id}>New chat</option>}
+              {recent.map((c) => <option key={c.id} value={c.id}>{c.title || 'New chat'}{c.folder ? ` (${c.folder})` : ''} · {new Date(c.updatedAt).toLocaleDateString()}</option>)}
+              {chat && !recent.some((c) => c.id === chat.id) && <option value={chat.id}>{chat.incognito ? 'Incognito chat' : s.titleOf?.(chat.id) || 'New chat'}</option>}
             </select>
           </label>
-          {chat && !confirmDel && <>
+          {chat && !confirmDel && !chat.incognito && <>
             {phone && s.fresh && <button type="button" className="b" aria-label="New chat" title="New chat" disabled={busy} onClick={() => s.fresh?.()} data-testid="ag-new"><i className="fa-solid fa-plus" aria-hidden="true" /></button>}
-            <button type="button" className={btn('ghost')} aria-label="Rename this chat" title="Rename this chat" onClick={() => setRenaming(list.find((c) => c.id === chat.id)?.title ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /></button>
+            <button type="button" className={btn('ghost')} aria-label="Rename this chat" title="Rename this chat" onClick={() => setRenaming(s.titleOf?.(chat.id) ?? list.find((c) => c.id === chat.id)?.title ?? '')}><i className="fa-solid fa-pen" aria-hidden="true" /></button>
             <button type="button" className={btn('ghost')} aria-label="Delete this chat" title="Delete this chat" onClick={() => setConfirmDel(true)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>
           </>}
           {chat && confirmDel && <>
@@ -187,7 +196,7 @@ export function ActionCard({ a, phone, auto, decide, tools = {} }: { a: Act; pho
   );
 }
 
-/** Say a tool name the way the DM would ("lore_delete" -> "lore delete", "publish_*" -> "publish"). */
+/** Say a tool name the way the GM would ("lore_delete" -> "lore delete", "publish_*" -> "publish"). */
 const plain = (t: string) => t.replace(/[_*]+$/, '').replace(/_/g, ' ');
 
 /** The chat's mode: "Ask first" (every change waits for a card) or "Auto" (changes are applied at once, except the tools that always ask). */
@@ -212,9 +221,9 @@ export function AutoSwitch({ phone, on, saving, onToggle, alwaysAsk, trusted = [
   );
 }
 
-/** Messages and the actions waiting on the DM, in the order they happened. */
-export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLink, onNavigate, decide, retry, cardTools }: {
-  phone?: boolean; items: Item[]; live: Live | null; isDM: boolean; auto?: boolean; retry?: () => void; cardTools?: CardTools;
+/** Messages and the actions waiting on the GM, in the order they happened. */
+export function ChatMessages({ phone, items, live, isGM, auto, libraryHref, onLink, onNavigate, decide, retry, cardTools }: {
+  phone?: boolean; items: Item[]; live: Live | null; isGM: boolean; auto?: boolean; retry?: () => void; cardTools?: CardTools;
   libraryHref: (id: string) => string; onLink: (e: React.MouseEvent) => void; onNavigate: (href: string) => void;
   decide: (a: Act, d: 'approve' | 'reject') => void;
 }) {
@@ -240,7 +249,7 @@ export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLi
             ))}
           </ul>
         );
-        const timing = isDM && m.role === 'assistant' && m.timings && m.status !== 'working' ? <span title={timingTitle(m.timings)}>{timingText(m.timings)}</span> : null;
+        const timing = isGM && m.role === 'assistant' && m.timings && m.status !== 'working' ? <span title={timingTitle(m.timings)}>{timingText(m.timings)}</span> : null;
         const stamp = m.status === 'working' ? null : <time dateTime={m.at} title={new Date(m.at).toLocaleString()} className={phone ? 'sub' : undefined}>{clock(m.at)}</time>;
         if (phone) {
           return (

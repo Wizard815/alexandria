@@ -3,7 +3,7 @@
 // Foundry is self-hosted and its modules run in the browser with full network
 // access, so one small module does it all: the Alexandria Bridge module,
 // served by this feature as a Foundry manifest (GET /api/foundry/module.json)
-// so the DM installs it in Foundry by URL. In the GM's Foundry tab it talks to
+// so the GM installs it in Foundry by URL. In the GM's Foundry tab it talks to
 // this server with a bridge key (/api/foundry/bridge/*, open to any origin:
 // the key is the only way in, no cookies). In every player's tab it only
 // draws Alexandria's fog over the scene.
@@ -15,7 +15,7 @@
 //     scene is linked to that Alexandria map), or an Alexandria map picture
 //     becomes a new Foundry scene.
 //   - Tokens on a linked scene show on the Alexandria map (moved live, hidden
-//     ones only for the DM, fog hides the rest like any mark). The DM, or a
+//     ones only for the GM, fog hides the rest like any mark). The GM, or a
 //     player for their own character, can move a token from Alexandria.
 //   - Fog: Alexandria's fog of the linked map picture is drawn over the scene
 //     in Foundry; player tokens that move in Foundry uncover fog around them.
@@ -28,17 +28,17 @@ import { fileURLToPath } from 'node:url';
 import express, { Router, type Express, type Request, type Response } from 'express';
 import { marked } from 'marked';
 import type { Deps } from '../../app.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
 import { combatViewFor } from '../../core/combatView.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { dmAnd, only } from '../../core/events.ts';
+import { gmAnd, only } from '../../core/events.ts';
 import { FOG_ASPECT, fogLayers, markUnderFog } from '../../core/fog.ts';
 import { safePagePath } from '../../core/library.ts';
 import { DEFAULT_SETTINGS, featureSetting, type Viewer, type WorldSettings } from '../../core/policy.ts';
 import { HttpError, id as newId, now, parseJson, secret, sha256 } from '../../core/util.ts';
 import { writeZip } from '../../core/zipstream.ts';
 import { imageVisibleTo } from '../../intake/records.ts';
-import { ctx, isDM, me, names, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, names, settings } from '../../routes/_shared.ts';
 import { fogOf, saveFog } from '../fog/index.ts';
 import { maxBytes, mayRead } from '../libfiles/index.ts';
 import { sniffFile } from '../libfiles/sniff.ts';
@@ -61,7 +61,7 @@ const PIC_RE = /^(lib|imp):[A-Za-z0-9_-]{1,80}$/;
 
 const settingsOf = (db: DB, worldId: string): WorldSettings => ({ ...DEFAULT_SETTINGS, ...parseJson(one<any>(db, 'SELECT settings FROM worlds WHERE id = ?', worldId)?.settings ?? '{}', {}) });
 const opt = <T,>(s: WorldSettings, k: string) => featureSetting<T>(s, k);
-const dmOnly = (v: { role: string }) => v.role === 'dm';
+const gmOnly = (v: { role: string }) => v.role === 'gm';
 
 const int = (v: unknown): number | null | undefined => (v === undefined ? undefined : v === null || v === '' ? null : Number.isFinite(Number(v)) ? Math.trunc(Number(v)) : undefined);
 const strList = (v: unknown, max = 40) => (Array.isArray(v) ? v.slice(0, max).map((x) => String(x ?? '').trim().slice(0, 60)).filter(Boolean) : []);
@@ -91,10 +91,10 @@ function moduleConfig(db: DB, w: string, s: WorldSettings) {
 
 /** Sheet and combat screens refresh after a change from Foundry. */
 function changed(d: Deps, worldId: string, aid: string, combat: boolean) {
-  d.hub.emit(worldId, 'sheet', { accountId: aid }, dmAnd(aid));
+  d.hub.emit(worldId, 'sheet', { accountId: aid }, gmAnd(aid));
   if (combat) { const s = settingsOf(d.db, worldId); d.hub.emitPer(worldId, 'combat', (v) => combatViewFor(d.db, worldId, v, s)); }
 }
-const ping = (d: Deps, w: string) => d.hub.emit(w, 'foundry', {}, dmOnly);
+const ping = (d: Deps, w: string) => d.hub.emit(w, 'foundry', {}, gmOnly);
 
 function queue(db: DB, worldId: string, kind: string, payload: unknown): number {
   run(db, 'INSERT INTO foundry_outbox (world_id, kind, payload, created_at) VALUES (?, ?, ?, ?)', worldId, kind, JSON.stringify(payload), now());
@@ -118,11 +118,11 @@ function upsertActor(db: DB, worldId: string, id: string, name: string, owners: 
 
 interface TokenRow { world_id: string; scene_id: string; token_id: string; mark_id: string; want_x: number | null; want_y: number | null }
 
-/** Tell the screens a token mark changed: the DM always, players only when it is not hidden and not under fog (before or after). */
+/** Tell the screens a token mark changed: the GM always, players only when it is not hidden and not under fog (before or after). */
 function emitMark(d: Deps, w: string, mapId: string, markId: string, hidden: boolean, at: { x: number; y: number }[]) {
   const fog = fogLayers(d.db, w, mapId);
   const seen = !hidden && at.some((p) => !markUnderFog(fog, { kind: 'pin', data: p }));
-  d.hub.emit(w, 'map-mark', { id: markId, map_id: mapId }, (v) => v.role === 'dm' || seen);
+  d.hub.emit(w, 'map-mark', { id: markId, map_id: mapId }, (v) => v.role === 'gm' || seen);
 }
 
 function dropToken(d: Deps, w: string, t: TokenRow) {
@@ -137,7 +137,7 @@ function dropTokens(d: Deps, w: string, sceneId: string) {
   for (const t of all<TokenRow>(d.db, 'SELECT * FROM foundry_tokens WHERE world_id = ? AND scene_id = ?', w, sceneId)) dropToken(d, w, t);
 }
 
-/** Uncover the fog around a player token, when the DM turned that on. */
+/** Uncover the fog around a player token, when the GM turned that on. */
 function reveal(d: Deps, w: string, sc: SceneRow, p: { x: number; y: number }, s: WorldSettings): boolean {
   if (!opt<boolean>(s, 'foundryFog') || !sc.map_id || !sc.pic) return false;
   const op = revealAround(p, opt<number>(s, 'foundryRevealSquares') ?? 0, sc.grid_frac);
@@ -168,14 +168,14 @@ function upsertToken(d: Deps, w: string, owner: string, sc: SceneRow, t: any, s:
   if (mark) {
     const old = parseJson<any>(mark.data, {});
     const moved = !samePos(old, at);
-    if (JSON.stringify(old) === JSON.stringify(data) && !!mark.hidden_by_dm === hidden && mark.map_id === sc.map_id) return { moved: false, name };
-    run(db, 'UPDATE map_marks SET data = ?, hidden_by_dm = ?, map_id = ? WHERE id = ?', JSON.stringify(data), hidden ? 1 : 0, sc.map_id, mark.id);
-    emitMark(d, w, sc.map_id, mark.id, hidden && !!mark.hidden_by_dm, [old, at]);
+    if (JSON.stringify(old) === JSON.stringify(data) && !!mark.hidden_by_gm === hidden && mark.map_id === sc.map_id) return { moved: false, name };
+    run(db, 'UPDATE map_marks SET data = ?, hidden_by_gm = ?, map_id = ? WHERE id = ?', JSON.stringify(data), hidden ? 1 : 0, sc.map_id, mark.id);
+    emitMark(d, w, sc.map_id, mark.id, hidden && !!mark.hidden_by_gm, [old, at]);
     return { moved, name };
   }
   if (row) run(db, 'DELETE FROM foundry_tokens WHERE world_id = ? AND scene_id = ? AND token_id = ?', w, sc.scene_id, t.id);
   const id = newId('mk_');
-  run(db, "INSERT INTO map_marks (id, world_id, map_id, author_id, kind, data, visibility, hidden_by_dm, created_at) VALUES (?, ?, ?, ?, 'pin', ?, 'party', ?, ?)", id, w, sc.map_id, owner, JSON.stringify(data), hidden ? 1 : 0, now());
+  run(db, "INSERT INTO map_marks (id, world_id, map_id, author_id, kind, data, visibility, hidden_by_gm, created_at) VALUES (?, ?, ?, ?, 'pin', ?, 'party', ?, ?)", id, w, sc.map_id, owner, JSON.stringify(data), hidden ? 1 : 0, now());
   run(db, 'INSERT INTO foundry_tokens (world_id, scene_id, token_id, mark_id) VALUES (?, ?, ?, ?)', w, sc.scene_id, t.id, id);
   emitMark(d, w, sc.map_id, id, hidden, [at]);
   return { moved: true, name };
@@ -277,7 +277,7 @@ function applyEvent(d: Deps, w: string, owner: string, s: WorldSettings, e: any)
       if (!rolls.length) return '';
       const sess = currentSession(db, w);
       if (!sess) return '';
-      // The roller: the linked actor's player, else a player with that display name, else the DM (named in the text).
+      // The roller: the linked actor's player, else a player with that display name, else the GM (named in the text).
       let author = (typeof e.actorId === 'string' && linkOf(db, w, e.actorId)?.account_id) || null;
       const who = text(e.who, 60);
       if (!author) {
@@ -288,7 +288,7 @@ function applyEvent(d: Deps, w: string, owner: string, s: WorldSettings, e: any)
       }
       const label = text(e.label, 60);
       const roll = rollFrom(rolls, [author ? '' : who, label, 'Foundry'].filter(Boolean).join(' · '));
-      const row = addMessage(db, w, { sessionId: sess.id, channel: 'table', authorId: author ?? owner, role: author ? 'player' : 'dm', body: `/roll ${roll.expr} ${roll.note}`.slice(0, 2000), roll });
+      const row = addMessage(db, w, { sessionId: sess.id, channel: 'table', authorId: author ?? owner, role: author ? 'player' : 'gm', body: `/roll ${roll.expr} ${roll.note}`.slice(0, 2000), roll });
       firstTime(db, w, `msg:${row.id}`);
       for (const m of all<any>(db, 'SELECT account_id, role FROM members WHERE world_id = ?', w)) {
         const v = { accountId: m.account_id, role: m.role };
@@ -394,12 +394,12 @@ function bridgeOf(db: DB, req: Request) {
   if (!token.startsWith(KEY_PREFIX)) throw new HttpError(401, 'Send the Foundry bridge key');
   const b = one<any>(db, 'SELECT * FROM foundry_bridges WHERE key_hash = ?', sha256(token));
   if (!b) throw new HttpError(401, 'That Foundry bridge key is not valid (made a new one?)');
-  // The key belongs to a DM; a DM who lost the world loses the bridge.
-  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", b.world_id, b.created_by)) throw new HttpError(403, 'The DM who made this key no longer runs the world');
+  // The key belongs to a GM; a GM who lost the world loses the bridge.
+  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'gm'", b.world_id, b.created_by)) throw new HttpError(403, 'The GM who made this key no longer runs the world');
   run(db, 'UPDATE foundry_bridges SET last_seen_at = ? WHERE world_id = ?', now(), b.world_id);
   return b;
 }
-const bridgeViewer = (b: any): Viewer => ({ accountId: b.created_by, role: 'dm' } as Viewer);
+const bridgeViewer = (b: any): Viewer => ({ accountId: b.created_by, role: 'gm' } as Viewer);
 
 /** Where this server is reached, for the manifest's links. ALX_PUBLIC_URL wins over what the request says. */
 const baseUrl = (d: Deps, req: Request) => d.env.ALX_PUBLIC_URL?.replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`;
@@ -547,7 +547,7 @@ function appRoutes(app: Express, d: Deps) {
     res.end(pic.bytes);
   });
 
-  // A scene's picture from Foundry (the DM asked to bring the scene in): it becomes a library map and the scene is linked to it.
+  // A scene's picture from Foundry (the GM asked to bring the scene in): it becomes a library map and the scene is linked to it.
   r.post('/scenes/:id/image', express.raw({ type: () => true, limit: maxBytes(d) }), (req, res) => {
     const b = bridgeOf(db, req);
     const w = b.world_id;
@@ -580,8 +580,8 @@ function worldRoutes(d: Deps) {
     res.json(scenesOf(db, w).filter((x) => x.map_id && x.pic && pictureVisible(d, w, x.pic, v)).map((x) => ({ mapId: x.map_id, pic: x.pic, name: x.name })));
   });
 
-  // Move a token from Alexandria (its mark id, or its name on a linked scene). The DM any token; a player their own character's.
-  r.put('/tokens/:ref', requirePlayerOrDM, (req, res) => {
+  // Move a token from Alexandria (its mark id, or its name on a linked scene). The GM any token; a player their own character's.
+  r.put('/tokens/:ref', requirePlayerOrGM, (req, res) => {
     const w = W(res);
     const s = settings(res);
     const ref = String(req.params.ref);
@@ -592,10 +592,10 @@ function worldRoutes(d: Deps) {
       t = hits[0];
     }
     const mark = t ? one<any>(db, 'SELECT * FROM map_marks WHERE id = ?', t.mark_id) : null;
-    if (!t || !mark || (!isDM(res) && mark.hidden_by_dm)) throw new HttpError(404, 'No such token');
+    if (!t || !mark || (!isGM(res) && mark.hidden_by_gm)) throw new HttpError(404, 'No such token');
     const data = parseJson<any>(mark.data, {});
-    if (!isDM(res)) {
-      if (!opt<boolean>(s, 'foundryPlayersMove')) throw new HttpError(403, 'Only the DM moves tokens in this world');
+    if (!isGM(res)) {
+      if (!opt<boolean>(s, 'foundryPlayersMove')) throw new HttpError(403, 'Only the GM moves tokens in this world');
       if (!data.token?.account || data.token.account !== me(res)) throw new HttpError(403, 'You can only move your own character’s token');
     }
     const p = pos(req.body?.x, req.body?.y);
@@ -605,13 +605,13 @@ function worldRoutes(d: Deps) {
     run(db, 'UPDATE foundry_tokens SET want_x = ?, want_y = ? WHERE world_id = ? AND scene_id = ? AND token_id = ?', p.x, p.y, w, t.scene_id, t.token_id);
     const sc = sceneOf(db, w, t.scene_id);
     const uncovered = !!sc && data.token?.player === true && reveal(d, w, sc, p, s);
-    emitMark(d, w, mark.map_id, mark.id, !!mark.hidden_by_dm, [before, p]);
+    emitMark(d, w, mark.map_id, mark.id, !!mark.hidden_by_gm, [before, p]);
     activity(db, w, 'out', `${data.label ?? 'A token'} moved from Alexandria${uncovered ? ' (fog uncovered)' : ''}`);
     ping(d, w);
     res.json({ ok: true, x: p.x, y: p.y, uncovered });
   });
 
-  r.use(requireDM);
+  r.use(requireGM);
 
   r.get('/', (_req, res) => {
     const w = W(res);
@@ -636,8 +636,8 @@ function worldRoutes(d: Deps) {
       actors: linksOf(db, w).map((l) => ({ id: l.actor_id, name: l.name, owners: parseJson(l.owners, []), accountId: l.account_id, player: l.account_id ? nm[l.account_id] ?? null : null, seenAt: l.seen_at })),
       scenes: scenesOf(db, w).map((x) => ({
         id: x.scene_id, name: x.name, active: !!x.active, hasPicture: !!x.img, mapId: x.map_id, pic: x.pic, picName: picName(x.pic),
-        tokens: x.map_id ? all<any>(db, 'SELECT m.id, m.data, m.hidden_by_dm FROM foundry_tokens t JOIN map_marks m ON m.id = t.mark_id WHERE t.world_id = ? AND t.scene_id = ? ORDER BY m.created_at', w, x.scene_id)
-          .map((m) => { const dd = parseJson<any>(m.data, {}); return { id: m.id, name: dd.label, x: dd.x, y: dd.y, hidden: !!m.hidden_by_dm, player: dd.token?.account ? nm[dd.token.account] ?? null : null }; }) : [],
+        tokens: x.map_id ? all<any>(db, 'SELECT m.id, m.data, m.hidden_by_gm FROM foundry_tokens t JOIN map_marks m ON m.id = t.mark_id WHERE t.world_id = ? AND t.scene_id = ? ORDER BY m.created_at', w, x.scene_id)
+          .map((m) => { const dd = parseJson<any>(m.data, {}); return { id: m.id, name: dd.label, x: dd.x, y: dd.y, hidden: !!m.hidden_by_gm, player: dd.token?.account ? nm[dd.token.account] ?? null : null }; }) : [],
       })),
       statuses: statusMap(opt(s, 'foundryStatuses')),
       activity: all<any>(db, 'SELECT dir, text, at FROM foundry_activity WHERE world_id = ? ORDER BY id DESC LIMIT 50', w),
@@ -839,7 +839,7 @@ const feature: Feature = {
     foundryRollsIn: { type: 'boolean', default: true },
     foundryRollsOut: { type: 'boolean', default: false },
     foundryPushMax: { type: 'boolean', default: false },
-    foundryMapLevel: { type: 'enum', default: 'party', values: ['party', 'dm'] },
+    foundryMapLevel: { type: 'enum', default: 'party', values: ['party', 'gm'] },
     foundryHpPath: { type: 'string', default: 'system.attributes.hp.value', max: 120 },
     foundryMaxPath: { type: 'string', default: 'system.attributes.hp.max', max: 120 },
     foundryTempPath: { type: 'string', default: 'system.attributes.hp.temp', max: 120 },
@@ -850,7 +850,7 @@ const feature: Feature = {
   appRoutes,
   mcpTools: [
     {
-      name: 'foundry_status', dmOnly: true,
+      name: 'foundry_status', gmOnly: true,
       description: 'The Foundry VTT connection: whether the bridge is online, which Foundry actors are linked to which players, the Foundry scenes (and the Alexandria map each is linked to, with its tokens and their positions on the 0-100 map grid), and the latest things that moved between Foundry and Alexandria.',
       props: {}, call: () => ({ method: 'GET', path: '/foundry' }),
     },

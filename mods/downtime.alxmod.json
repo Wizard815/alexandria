@@ -1,0 +1,342 @@
+{
+  "kit": 2,
+  "id": "downtime",
+  "name": "DownTime",
+  "version": "1.1.0",
+  "author": "Wizard",
+  "summary": "Downtime activities from common to legendary. The GM presses Downtime when days pass and each player picks what to spend them on, skips, or makes a new activity. Progress, rewards and a log of what was done, when and for how long.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["clock"],
+    "worksWith": ["sheet", "table", "codex", "assistant", "inventory"]
+  },
+  "options": {
+    "dayHours": {
+      "type": "int",
+      "default": 8,
+      "min": 1,
+      "max": 24,
+      "label": "Hours in a downtime day",
+      "help": "A task of fewer hours a day (a daily vigil) fits beside others."
+    },
+    "playerNew": {
+      "type": "enum",
+      "values": [
+        "approve",
+        "free",
+        "off"
+      ],
+      "default": "approve",
+      "label": "Players making new activities",
+      "help": "approve: the GM sets its tier and reward first (work still counts); free: it starts at once; off: only the GM makes them."
+    },
+    "advanceClock": {
+      "type": "boolean",
+      "default": true,
+      "label": "The Downtime button moves the world clock",
+      "help": "By the days of downtime, with the reason \"Downtime\"."
+    },
+    "autoReward": {
+      "type": "boolean",
+      "default": false,
+      "label": "Give rewards as soon as a task is done",
+      "help": "Off: the GM presses Give reward."
+    }
+  },
+  "presets": {
+    "downtimeOn": true,
+    "downtimeDayHours": "$dayHours",
+    "downtimePlayerNew": "$playerNew",
+    "downtimeAdvanceClock": "$advanceClock",
+    "downtimeAutoReward": "$autoReward",
+    "downtimePremade": [
+      {
+        "id": "pre-work",
+        "name": "Work a job",
+        "tier": "common",
+        "summary": "Earn a living at a trade or for a local employer. Pays for a modest lifestyle and a little more.",
+        "repeatable": true,
+        "reward": {
+          "text": "A day's wages",
+          "cp": 100
+        },
+        "tags": [
+          "money"
+        ]
+      },
+      {
+        "id": "pre-carouse",
+        "name": "Carouse",
+        "tier": "common",
+        "summary": "A night out in town: rumours, new friends and the odd complication.",
+        "repeatable": true,
+        "reward": {
+          "text": "A rumour or a new contact (GM's choice)"
+        },
+        "tags": [
+          "social"
+        ]
+      },
+      {
+        "id": "pre-pray",
+        "name": "Religious service",
+        "tier": "common",
+        "summary": "Serve at a temple. Builds standing with the faith and its clergy.",
+        "repeatable": true,
+        "tags": [
+          "social"
+        ]
+      },
+      {
+        "id": "pre-gather",
+        "name": "Gather herbs and supplies",
+        "tier": "common",
+        "summary": "Forage the wilds near town for herbs, reagents or food.",
+        "repeatable": true,
+        "reward": {
+          "item": "Bundle of herbs"
+        },
+        "tags": [
+          "craft"
+        ]
+      },
+      {
+        "id": "pre-recuperate",
+        "name": "Recuperate",
+        "tier": "common",
+        "summary": "Rest and recover from a lingering wound, disease or poison.",
+        "days": 3,
+        "tags": [
+          "rest"
+        ]
+      },
+      {
+        "id": "pre-rumours",
+        "name": "Chase rumours",
+        "tier": "uncommon",
+        "summary": "Spend time and coin in the right places to learn what is being whispered.",
+        "reward": {
+          "text": "A useful rumour (GM's choice)"
+        },
+        "tags": [
+          "social",
+          "lore"
+        ]
+      },
+      {
+        "id": "pre-research",
+        "name": "Research lore",
+        "tier": "uncommon",
+        "summary": "Dig through libraries, archives or sages for answers about a person, place or thing.",
+        "reward": {
+          "text": "What the research turned up"
+        },
+        "tags": [
+          "lore"
+        ]
+      },
+      {
+        "id": "pre-scroll-low",
+        "name": "Scribe a low-level scroll",
+        "tier": "uncommon",
+        "summary": "Copy a cantrip or 1st-level spell you know onto a scroll.",
+        "reward": {
+          "item": "Spell scroll"
+        },
+        "tags": [
+          "craft",
+          "magic"
+        ]
+      },
+      {
+        "id": "pre-craft-mundane",
+        "name": "Craft an item",
+        "tier": "uncommon",
+        "summary": "Make armour, a weapon, a tool or other gear with the right tools and materials.",
+        "days": 5,
+        "tags": [
+          "craft"
+        ]
+      },
+      {
+        "id": "pre-pit-fight",
+        "name": "Pit fighting",
+        "tier": "rare",
+        "summary": "Fight in the arena circuit for a week of bouts and a purse at the end.",
+        "reward": {
+          "text": "Prize purse",
+          "cp": 5000
+        },
+        "tags": [
+          "money",
+          "combat"
+        ]
+      },
+      {
+        "id": "pre-craft-uncommon",
+        "name": "Craft an uncommon magic item",
+        "tier": "rare",
+        "summary": "Enchant an item with the formula, materials and spell it needs.",
+        "days": 10,
+        "tags": [
+          "craft",
+          "magic"
+        ]
+      },
+      {
+        "id": "pre-train",
+        "name": "Train a language or tool",
+        "tier": "very-rare",
+        "summary": "Learn a new language or tool proficiency from a teacher.",
+        "reward": {
+          "text": "The new language or tool proficiency"
+        },
+        "tags": [
+          "training"
+        ]
+      },
+      {
+        "id": "pre-craft-rare",
+        "name": "Craft a rare magic item",
+        "tier": "very-rare",
+        "summary": "A long enchantment that needs rare materials and focus.",
+        "days": 50,
+        "tags": [
+          "craft",
+          "magic"
+        ]
+      },
+      {
+        "id": "pre-vigil",
+        "name": "Legendary vigil",
+        "tier": "legendary",
+        "summary": "An hour of ritual every day for a week: a vow, a prayer at dawn, a promise kept.",
+        "days": 7,
+        "hoursPerDay": 1,
+        "reward": {
+          "text": "A boon (GM's choice)"
+        },
+        "tags": [
+          "daily"
+        ]
+      },
+      {
+        "id": "pre-master",
+        "name": "Study under a master",
+        "tier": "legendary",
+        "summary": "An hour or two a day under a legendary teacher for three months.",
+        "days": 90,
+        "hoursPerDay": 2,
+        "reward": {
+          "text": "A feat or epic boon (GM's choice)"
+        },
+        "tags": [
+          "daily",
+          "training"
+        ]
+      },
+      {
+        "id": "pre-stronghold",
+        "name": "Build a stronghold",
+        "tier": "legendary",
+        "summary": "Raise a keep, tower or temple for the party. Everyone's work counts toward it.",
+        "days": 90,
+        "tags": [
+          "money",
+          "group"
+        ],
+        "group": true
+      },
+      {
+        "id": "pre-craft-legendary",
+        "name": "Craft a legendary item",
+        "tier": "legendary",
+        "summary": "Months of work on an artifact-grade item, usually with a quest for its materials.",
+        "days": 180,
+        "tags": [
+          "craft",
+          "magic"
+        ]
+      },
+      {
+        "id": "pre-study-spell",
+        "name": "Study a spell",
+        "tier": "uncommon",
+        "summary": "Study a new spell from a text, a scroll or a mentor. Each downtime day counts toward learning it.",
+        "link": {
+          "kind": "spell-study"
+        },
+        "tags": [
+          "magic",
+          "codex"
+        ]
+      },
+      {
+        "id": "pre-group-business",
+        "name": "Run a business together",
+        "tier": "rare",
+        "group": true,
+        "summary": "The party opens a tavern, shop or trading post and works it together. Everyone's days count toward getting it on its feet.",
+        "reward": {
+          "text": "The business is open and pays the party a share each month."
+        },
+        "tags": [
+          "money",
+          "business",
+          "group"
+        ]
+      },
+      {
+        "id": "pre-group-drill",
+        "name": "Party training regimen",
+        "tier": "uncommon",
+        "group": true,
+        "summary": "Drill together: formations, signals and covering each other in a fight.",
+        "reward": {
+          "text": "Once per long rest, the party may take a free Help action together in combat."
+        },
+        "tags": [
+          "training",
+          "combat",
+          "group"
+        ]
+      },
+      {
+        "id": "pre-group-festival",
+        "name": "Throw a festival",
+        "tier": "rare",
+        "group": true,
+        "summary": "Plan and hold a festival for the town: music, food, games. Good for the party's name.",
+        "reward": {
+          "text": "The town remembers the party kindly."
+        },
+        "tags": [
+          "social",
+          "reputation",
+          "group"
+        ]
+      },
+      {
+        "id": "pre-group-expedition",
+        "name": "Plan an expedition",
+        "tier": "uncommon",
+        "group": true,
+        "summary": "Gather maps, supplies and rumours for the next journey together.",
+        "reward": {
+          "text": "Advantage on the first navigation or foraging check of the journey."
+        },
+        "tags": [
+          "travel",
+          "research",
+          "group"
+        ]
+      }
+    ]
+  },
+  "rules": [
+    {
+      "term": "Downtime (house rule)",
+      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the GM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the GM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The GM can add or take away time, stop a task midway, and set a reward for finishing. **Personal** activities are one character's own; **group** activities (a stronghold, a business, party training) are shared: anyone in the party can put days into them, their progress is pooled, and the reward goes to the party."
+    }
+  ]
+}

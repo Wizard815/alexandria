@@ -1,0 +1,32 @@
+{
+  "kit": 2,
+  "id": "free-feat",
+  "name": "A free feat at 1st level",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Every character starts with one feat they qualify for, on top of their class and background.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "sheet",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Free starting feat (house rule)",
+      "text": "Every character gains **one feat** at 1st level that they meet the prerequisites for, in addition to anything from their background or species."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "feat",
+      "level 1",
+      "character creation",
+      "new character"
+    ],
+    "gm": "Each character takes one extra feat at 1st level (prerequisites apply). When helping make a character, offer a feat that fits the build.",
+    "player": "At this table each character gets one free feat at 1st level (it must meet the prerequisites). Suggest feats that fit their class and play style."
+  }
+}

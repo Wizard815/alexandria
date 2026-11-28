@@ -43,7 +43,7 @@ export default function MacroBar() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (role !== 'dm') return note ? <div className="toast" role="status">{note}</div> : null;
+  if (role !== 'gm') return note ? <div className="toast" role="status">{note}</div> : null;
   const pinned = (macros.data ?? []).filter((m) => m.pinned);
   return (
     <>

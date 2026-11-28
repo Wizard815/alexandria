@@ -1,0 +1,174 @@
+{
+  "type": "alexandria-templates",
+  "version": 1,
+  "name": "Starter macro templates",
+  "exported": "2026-11-27T00:00:00.000Z",
+  "alexandria": "0.1.0",
+  "templates": [
+    {
+      "kind": "macro",
+      "name": "Start the session",
+      "description": "Recap, weather and the opening scene.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "prompt": "Start session for {{party}}: post a three-line recap of last session to the table chat, roll today's weather for {{place}}, and propose an opening scene.",
+        "params": [
+          {
+            "name": "party",
+            "label": "Party",
+            "default": "the party"
+          },
+          {
+            "name": "place",
+            "label": "Where they are",
+            "default": ""
+          }
+        ],
+        "mode": "propose",
+        "tools": ""
+      }
+    },
+    {
+      "kind": "macro",
+      "name": "End the session",
+      "description": "Wrap up: XP, loot and notes.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "prompt": "End the session: list what the party did, propose XP or a milestone, list loot to hand out, and write GM notes on open threads.",
+        "params": [],
+        "mode": "propose",
+        "tools": ""
+      }
+    },
+    {
+      "kind": "macro",
+      "name": "Long rest",
+      "description": "Run a long rest the house-rule way.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "prompt": "The party takes a long rest at {{place}}. Advance the clock, run house-rule rest effects, and propose a night encounter only if the place is dangerous.",
+        "params": [
+          {
+            "name": "place",
+            "label": "Where",
+            "default": "camp"
+          }
+        ],
+        "mode": "propose",
+        "tools": ""
+      }
+    },
+    {
+      "kind": "macro",
+      "name": "Shop visit",
+      "description": "Open a shop for the party.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "prompt": "The party visits a {{type}} in {{place}}. Make or open the shop, with a keeper and today's stock.",
+        "params": [
+          {
+            "name": "type",
+            "label": "Kind of shop",
+            "default": "general store"
+          },
+          {
+            "name": "place",
+            "label": "Where",
+            "default": ""
+          }
+        ],
+        "mode": "propose",
+        "tools": ""
+      }
+    },
+    {
+      "kind": "macro",
+      "name": "Travel day",
+      "description": "A day of travel with a check and an event.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "prompt": "The party travels from {{from}} to {{to}}. Advance the clock by a day, roll a navigation check, and propose one event on the road.",
+        "params": [
+          {
+            "name": "from",
+            "label": "From",
+            "default": ""
+          },
+          {
+            "name": "to",
+            "label": "To",
+            "default": ""
+          }
+        ],
+        "mode": "propose",
+        "tools": ""
+      }
+    },
+    {
+      "kind": "macro",
+      "name": "Quick NPC",
+      "description": "An NPC on the spot.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "prompt": "Make a quick NPC for {{role}} in {{place}}: name, look, voice and a want, and add them to the library.",
+        "params": [
+          {
+            "name": "role",
+            "label": "Role",
+            "default": "guard"
+          },
+          {
+            "name": "place",
+            "label": "Where",
+            "default": ""
+          }
+        ],
+        "mode": "propose",
+        "tools": ""
+      }
+    },
+    {
+      "kind": "macro",
+      "name": "Loot the room",
+      "description": "Fair loot for the room.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "prompt": "The party searches {{room}}. Propose fitting loot for level {{level}}, with one clue to the next lead.",
+        "params": [
+          {
+            "name": "room",
+            "label": "Room",
+            "default": "the room"
+          },
+          {
+            "name": "level",
+            "label": "Party level",
+            "default": "3"
+          }
+        ],
+        "mode": "propose",
+        "tools": ""
+      }
+    },
+    {
+      "kind": "macro",
+      "name": "Downtime day",
+      "description": "Open the downtime prompt for everyone.",
+      "triggers": [],
+      "enabled": true,
+      "spec": {
+        "prompt": "A day of downtime passes. Open the house rule downtime prompt for every player, and list what each is working on.",
+        "params": [],
+        "mode": "propose",
+        "tools": ""
+      }
+    }
+  ]
+}

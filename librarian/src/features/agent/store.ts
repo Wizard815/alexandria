@@ -2,7 +2,7 @@
 // the log of replies the leak check blocked.
 import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
-import { id, now, parseJson } from '../../core/util.ts';
+import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { alwaysAsk } from './auto.ts';
 
 export const SCHEMA = `
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS agent_chats (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  harness TEXT NOT NULL CHECK (harness IN ('dm', 'player')),
+  harness TEXT NOT NULL CHECK (harness IN ('gm', 'player')),
   title TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -61,14 +61,27 @@ CREATE TABLE IF NOT EXISTS agent_leaks (
 
 export interface Citation { kind: 'page' | 'transcript' | 'term' | 'web'; id: string; title: string; path?: string; snippet?: string; sessionId?: string }
 
-export const newChat = (db: DB, worldId: string, accountId: string, harness: 'dm' | 'player', title = '') => {
-  const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), created_at: now(), updated_at: now() };
-  run(db, 'INSERT INTO agent_chats (id, world_id, account_id, harness, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', c.id, c.world_id, c.account_id, c.harness, c.title, c.created_at, c.updated_at);
+/**
+ * A chat's folder as stored: a path of up to 6 names split by "/", each trimmed and at most 60 characters, '' for the
+ * top level. Anything that is not a string is refused.
+ */
+export const chatFolder = (v: unknown): string => {
+  if (v === null || v === '') return '';
+  if (typeof v !== 'string') throw new HttpError(400, 'folder must be text');
+  const parts = v.split('/').map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (parts.length > 6) throw new HttpError(400, 'Folders go at most 6 deep');
+  if (parts.some((p) => p.length > 60)) throw new HttpError(400, 'A folder name is at most 60 characters');
+  return parts.join('/');
+};
+
+export const newChat = (db: DB, worldId: string, accountId: string, harness: 'gm' | 'player', title = '', o: { folder?: string; template?: string; incognito?: boolean } = {}) => {
+  const c = { id: id('chat_'), world_id: worldId, account_id: accountId, harness, title: title.slice(0, 120), folder: o.folder ?? '', template: (o.template ?? '').slice(0, 80), incognito: o.incognito ? 1 : 0, created_at: now(), updated_at: now() };
+  run(db, 'INSERT INTO agent_chats (id, world_id, account_id, harness, title, folder, template, incognito, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', c.id, c.world_id, c.account_id, c.harness, c.title, c.folder, c.template, c.incognito, c.created_at, c.updated_at);
   return c;
 };
 
 export const ownChat = (db: DB, worldId: string, accountId: string, chatId: string) =>
-  one<{ id: string; world_id: string; account_id: string; harness: 'dm' | 'player'; title: string; created_at: string; updated_at: string }>(db, 'SELECT * FROM agent_chats WHERE id = ? AND world_id = ? AND account_id = ?', chatId, worldId, accountId);
+  one<{ id: string; world_id: string; account_id: string; harness: 'gm' | 'player'; title: string; created_at: string; updated_at: string }>(db, 'SELECT * FROM agent_chats WHERE id = ? AND world_id = ? AND account_id = ?', chatId, worldId, accountId);
 
 export const addMessage = (db: DB, chatId: string, role: 'user' | 'assistant', content: string, extra: { status?: 'done' | 'working' | 'error'; citations?: Citation[]; context?: unknown; blocked?: boolean } = {}) => {
   const m = { id: id('msg_'), chat_id: chatId, role, content, status: extra.status ?? 'done', created_at: now() };
@@ -98,7 +111,7 @@ export interface Timings {
   fast?: boolean;
   /** Time the player leak gate spent checking sentences. */
   gateMs?: number;
-  /** The DM harness only: the titles of the library matches the first message was given, best first. */
+  /** The GM harness only: the titles of the library matches the first message was given, best first. */
   hits?: string[];
 }
 
@@ -121,7 +134,7 @@ export const messageView = (m: any) => ({
 /** The guides a reply follows ("Using guide: Towns") and what each step did, shown above the reply. */
 export const setGuideNotes = (db: DB, msgId: string, notes: unknown[]) => { run(db, 'UPDATE agent_messages SET guides = ? WHERE id = ?', JSON.stringify(notes), msgId); };
 
-/** A chat with its messages and the actions waiting on the DM. */
+/** A chat with its messages and the actions waiting on the GM. */
 export function chatView(db: DB, chatId: string) {
   const c = one<any>(db, 'SELECT * FROM agent_chats WHERE id = ?', chatId)!;
   // A run that died with the server never finishes: show it as failed.
@@ -129,10 +142,26 @@ export function chatView(db: DB, chatId: string) {
   run(db, `UPDATE agent_messages SET status = 'error', content = 'The agent was interrupted. Ask again.' WHERE chat_id = ? AND status = 'working' AND created_at < ?`, chatId, stale);
   const msgs = all<any>(db, 'SELECT * FROM agent_messages WHERE chat_id = ? ORDER BY created_at, rowid', chatId).map(messageView);
   const actions = all<any>(db, 'SELECT * FROM agent_actions WHERE chat_id = ? ORDER BY created_at, rowid', chatId).map(actionView);
-  return { id: c.id, harness: c.harness, title: c.title, createdAt: c.created_at, updatedAt: c.updated_at, messages: msgs, actions, busy: msgs.some((m) => m.status === 'working') };
+  return { id: c.id, harness: c.harness, title: c.title, incognito: !!c.incognito, createdAt: c.created_at, updatedAt: c.updated_at, messages: msgs, actions, busy: msgs.some((m) => m.status === 'working') };
 }
 
 export const actionView = (a: any) => ({
   id: a.id, chatId: a.chat_id, tool: a.tool, args: parseJson(a.args, {}), summary: a.summary, call: parseJson(a.call, {}),
   status: a.status, result: a.result ? String(a.result).slice(0, 2000) : null, auto: !!a.auto, alwaysAsk: alwaysAsk(a.tool), createdAt: a.created_at, decidedAt: a.decided_at,
 });
+
+
+/** An incognito chat nobody has written to for this long is deleted (its screen was closed without leaving it). */
+export const INCOGNITO_IDLE_MS = 6 * 60 * 60_000;
+
+/**
+ * Delete this account's incognito chats: the ones idle too long, or (`all`) every one but `keep`. A chat whose reply is
+ * still being written is left until it finishes.
+ */
+export function dropIncognito(db: DB, worldId: string, accountId: string, harness: string, o: { all?: boolean; keep?: string } = {}): number {
+  const idle = new Date(Date.now() - INCOGNITO_IDLE_MS).toISOString();
+  const rows = all<{ id: string }>(db, `SELECT c.id FROM agent_chats c WHERE c.world_id = ? AND c.account_id = ? AND c.harness = ? AND c.incognito = 1 AND c.id <> ? AND (? = 1 OR c.updated_at < ?)
+    AND NOT EXISTS (SELECT 1 FROM agent_messages m WHERE m.chat_id = c.id AND m.status = 'working')`, worldId, accountId, harness, o.keep ?? '', o.all ? 1 : 0, idle);
+  for (const r of rows) run(db, 'DELETE FROM agent_chats WHERE id = ?', r.id);
+  return rows.length;
+}

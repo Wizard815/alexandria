@@ -4,13 +4,13 @@
 //
 //   GET  /api/worlds/:world/search?q=&kinds=&limit=&semantic=
 //   GET  /api/worlds/:world/search/status        (embedding progress)
-//   POST /api/worlds/:world/search/reindex       (DM: embed what is stale now)
-//   POST /api/worlds/:world/search/build         (DM: one bulk pass over the whole world, embeddings and story bible, as a job)
+//   POST /api/worlds/:world/search/reindex       (GM: embed what is stale now)
+//   POST /api/worlds/:world/search/build         (GM: one bulk pass over the whole world, embeddings and story bible, as a job)
 //   MCP  search_world
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { hasJob } from '../../core/ai.ts';
 import { HttpError, int } from '../../core/util.ts';
 import { ctx } from '../../routes/_shared.ts';
@@ -43,15 +43,15 @@ const feature: Feature = {
     r.get('/status', (_req, res) => {
       const c = ctx(res);
       const semantic = hasJob(d, 'extra');
-      res.json({ semantic, ...(c.viewer.role === 'dm' ? embeddingCoverage(d, c.world.id) : {}) });
+      res.json({ semantic, ...(c.viewer.role === 'gm' ? embeddingCoverage(d, c.world.id) : {}) });
     });
 
-    r.post('/reindex', requireDM, async (_req, res) => {
+    r.post('/reindex', requireGM, async (_req, res) => {
       res.json(await syncEmbeddings(d, { maxPages: 200 }));
     });
 
-    // DM: drop every vector of this world and read it all again, in one bulk pass (a job).
-    r.post('/reembed', requireDM, async (_req, res) => {
+    // GM: drop every vector of this world and read it all again, in one bulk pass (a job).
+    r.post('/reembed', requireGM, async (_req, res) => {
       const c = ctx(res);
       vectorStore(d.db).deleteWorld(c.world.id);
       d.library.changed(c.world.id);
@@ -59,9 +59,9 @@ const feature: Feature = {
       res.json({ ok: true, ...cov, started: startBulkBuild(d, c.world.id, { embeddings: true }) });
     });
 
-    // DM: embed and read into the story bible everything that is waiting, in one fast pass (a job), instead of a few pages a tick.
+    // GM: embed and read into the story bible everything that is waiting, in one fast pass (a job), instead of a few pages a tick.
     // Body: { embeddings?: boolean, bible?: boolean } (both by default). 202 when it started, 200 with started: false when it was already running.
-    r.post('/build', requireDM, (req, res) => {
+    r.post('/build', requireGM, (req, res) => {
       const c = ctx(res);
       const b = req.body ?? {};
       const what = { embeddings: b.embeddings !== false, bible: b.bible !== false };

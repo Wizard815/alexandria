@@ -174,13 +174,13 @@ export function genCity(o: MapOpts = {}): MapResult {
     landmarks.push({ n: landmarks.length + 1, x, y, name: nm, kind: lm.kind });
     c.ops.push({ t: 'circle', x: X(x), y: Y(y), r: 15, fill: '#fffaf0', stroke: '#2a2520', sw: 1.8 });
     c.ops.push({ t: 'text', x: X(x), y: Y(y) + 4, s: String(landmarks.length), size: 12, fill: '#1f1b18', anchor: 'middle', bold: true });
-    key.push({ n: String(landmarks.length), name: nm === lm.kind ? nm : `${nm}`, text: `${lm.kind === nm ? '' : cap(lm.kind) + '. '}${lm.note} Found in the ${dName}.`, dm: chance(r, 0.5) ? pick(r, ['A rival asks for a favour here.', 'The person in charge is being blackmailed.', 'A locked room holds something the watch would like to find.', 'A stranger waits here with a message for the party.', 'An old debt will come due on this doorstep.']) : undefined });
+    key.push({ n: String(landmarks.length), name: nm === lm.kind ? nm : `${nm}`, text: `${lm.kind === nm ? '' : cap(lm.kind) + '. '}${lm.note} Found in the ${dName}.`, gm: chance(r, 0.5) ? pick(r, ['A rival asks for a favour here.', 'The person in charge is being blackmailed.', 'A locked room holds something the watch would like to find.', 'A stranger waits here with a message for the party.', 'An old debt will come due on this doorstep.']) : undefined });
   }
   c.ops.push({ t: 'text', x: X(cx), y: Y(cy) + 28, s: 'MARKET', size: 10, fill: '#5a4d3a', anchor: 'middle', bold: true });
   dist.forEach((d, i) => {
     if (d.name === 'Market quarter') { key.push({ n: `D${i + 1}`, name: d.name, text: 'The great square and the busiest streets around it.' }); return; }
     key.push({ n: `D${i + 1}`, name: d.name, text: pick(r, ['Crowded, loud and busy from dawn.', 'Quiet streets of tall, narrow houses.', 'Cobbled lanes, smoke from many chimneys.', 'Mostly workshops, with the clatter to prove it.', 'Wide streets, high walls and few windows at street level.', 'Old and crooked, with more alleys than streets.']) });
-    c.ops.push({ t: 'text', x: X(d.x), y: Y(d.y) + 3, s: d.name.toUpperCase(), size: 9, fill: '#3a2f20', anchor: 'middle', bold: true, dm: false });
+    c.ops.push({ t: 'text', x: X(d.x), y: Y(d.y) + 3, s: d.name.toUpperCase(), size: 9, fill: '#3a2f20', anchor: 'middle', bold: true, gm: false });
   });
   const title = o.title ?? placeName('town', 'common', r, avoid);
   c.ops.push({ t: 'text', x: PX, y: 26, s: title, size: 20, fill: '#2a2218', bold: true });

@@ -1,4 +1,4 @@
-// Short "use when ..." descriptions with one example each, for the DM harness.
+// Short "use when ..." descriptions with one example each, for the GM harness.
 // The registered descriptions say what a tool returns; these say when to pick
 // it, which is what a model choosing among many tools needs. A tool not listed
 // here keeps its registered description. The details of each argument stay in
@@ -22,7 +22,7 @@ export const CONCISE: Record<string, string> = {
   library_sharing: 'Use to see what players can read in the library right now and who each page, file and folder is shared with. Example: "what have I shared with the players".',
   share_library_item: 'Use to share a library page, file or folder with everyone, chosen players or nobody, and optionally tell the players. Example: "send the harbour map to Jess and Tom".',
   list_transfers: 'Use to see coin and items given between players and the party. Example: "who passed gold to whom last session".',
-  save_page: 'Use to create or replace a library page (DM-only unless visibility is party). Example: "file a new DM page about the mill under Places".',
+  save_page: 'Use to create or replace a library page (GM-only unless visibility is party). Example: "file a new GM page about the mill under Places".',
   add_person: 'Use to add a new NPC to the People list. Example: "put Edda the ratcatcher on the NPC list".',
   add_quote: 'Use to record something an NPC said. Example: "save the line the mayor said about taxes".',
   schedule_session: 'Use to put a real-life game night on the calendar; work out dates like "next Friday" from today\'s real date in the context. Example: "book our next real-life game for the 9th at eight".',
@@ -58,7 +58,10 @@ export const CONCISE: Record<string, string> = {
   get_world_date: 'Use for the current in-world date, time, season and moon. Example: "what is the date and season in the story".',
   list_world_events: 'Use for in-world events (holidays, deadlines) in the coming days. Example: "what festivals are coming up in the next ten days".',
   advance_world_time: 'Use to move the in-world clock forward, for a rest or travel. Example: "three days pass on the road".',
-  add_world_event: 'Use to put an in-world event on the world calendar. Example: "mark a market day on the in-game calendar for next week".',
+  add_world_event: 'Use to put an in-world event on the world calendar, on a date or with after {amount, unit} from now. Example: "the tax collector comes back in 3 months".',
+  list_someday_events: 'Use to see world events the GM has not dated yet. Example: "what did I want to happen someday".',
+  add_someday_event: 'Use to keep a world event with no date yet. Example: "someday the dragon under the bay wakes, no date yet".',
+  remove_someday_event: 'Use to drop an undated world event, after dating it or when it is off. Example: "forget the dragon idea".',
   world_sources: 'Use to see where the library comes from (connected apps, last sync). Example: "is my Kanka import connected and when did it last sync".',
   generate: 'Use to roll an NPC, monster, tavern or loot hoard from tables, with no model. Example: "invent a wandering bard for the road".',
   generate_map: 'Use to generate a dungeon, cave, castle, tavern, city, region or battle map. Example: "sketch a ruined keep layout".',
@@ -84,7 +87,7 @@ export const CONCISE: Record<string, string> = {
   list_spells: 'Use to find spells in the world\'s Codex by name or filters (level, school, class, damage, save, concentration). Example: "which level 2 fire spells are there".',
   read_spell: 'Use to read one Codex spell in full after list_spells gave its id. Example: "read me Scorching Ray from the codex".',
   list_spell_recipes: 'Use to see the spell crafting recipes and their tiers. Example: "what recipes lead to Fireball".',
-  draft_spell_recipe: 'Use to suggest a spell crafting recipe (a draft the DM approves). Example: "suggest a recipe: Fire Bolt plus Burning Hands teaches Scorching Ray, INT 13".',
+  draft_spell_recipe: 'Use to suggest a spell crafting recipe (a draft the GM approves). Example: "suggest a recipe: Fire Bolt plus Burning Hands teaches Scorching Ray, INT 13".',
   generate_names: 'Use to roll names by race and gender. Example: "six dwarven surnames".',
   search_items: 'Use to look up items in the world\'s item database (what shops can stock) and their prices. Example: "what potions do we have priced in the item list".',
   list_shops: 'Use to see the world\'s shops and whether each is open, closed or hidden. Example: "which shops are open right now".',
@@ -124,7 +127,7 @@ export const CONCISE: Record<string, string> = {
   list_sound_library: 'Use to see tracks, ambience layers and effects the sound board has. Example: "which tracks and ambience loops are on the board".',
   list_sound_scenes: 'Use to see saved ambience scenes and pads. Example: "which ambience presets exist".',
   get_sound_now: 'Use to see what is playing now. Example: "what is on the speakers at the moment".',
-  play_music: 'Use to start background music by mood, also when the DM asks for a feel for a place. Example: "go for something sneaky", "something spooky for the cellar" or "start battle music".',
+  play_music: 'Use to start background music by mood, also when the GM asks for a feel for a place. Example: "go for something sneaky", "something spooky for the cellar" or "start battle music".',
   stop_music: 'Use to fade out the music. Example: "kill the soundtrack".',
   play_ambience: 'Use to set ambience such as rain or a tavern crowd. Example: "give me a crackling campfire in the background".',
   play_sfx: 'Use to play one sound effect. Example: "ring a bell" or "a wolf howls".',
@@ -136,7 +139,7 @@ export const CONCISE: Record<string, string> = {
   list_scenes: 'Use to see the saved scenes (one-button room presets). Example: "which scenes do I have saved".',
   activate_scene: 'Use to activate a saved scene, which sets the players\' TV, sound, lights and table map at once. Example: "go to the tavern scene" or "run the boss fight scene".',
   hide_stage_card: 'Use to take a card off the table screen. Example: "clear the handout from the screen".',
-  list_approvals: 'Use to see what waits for the DM\'s sign-off (coin requests, item changes, disputes). Example: "what needs my yes or no".',
+  list_approvals: 'Use to see what waits for the GM\'s sign-off (coin requests, item changes, disputes). Example: "what needs my yes or no".',
   decide_approval: 'Use to approve, edit or reject a coin request or item change. Example: "go ahead and OK Ana\'s item change".',
   move_item: 'Use to move an item between the party and a player. Example: "hand the shield over from the stash to Tomas".',
   list_map_marks: 'Use to see the pins and routes on a map. Example: "what have we pinned on the region map".',

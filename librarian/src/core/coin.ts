@@ -7,7 +7,7 @@ export const balance = (db: DB, worldId: string, owner: string) =>
 
 /**
  * What a purse can spend right now: its approved balance less coin already promised to debits still waiting for the
- * DM. Pending credits never count (they may be refused). Every spend check uses this, inside the same transaction as
+ * GM. Pending credits never count (they may be refused). Every spend check uses this, inside the same transaction as
  * the debit it guards, so a waiting debit approved later can never overdraw the purse.
  */
 export const spendable = (db: DB, worldId: string, owner: string) =>

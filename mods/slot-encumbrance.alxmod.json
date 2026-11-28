@@ -1,0 +1,33 @@
+{
+  "kit": 2,
+  "id": "slot-encumbrance",
+  "name": "Slot inventory",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Characters carry a number of items equal to their Strength score; bulky things take two slots.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "inventory",
+      "sheet",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Slot encumbrance (house rule)",
+      "text": "A character carries **items equal to their Strength score**. Most items take **1 slot**; heavy armour, two-handed weapons and big bundles take **2**; small things (rings, a potion or two, 100 coins) take none. Past the limit you are **encumbered** (speed -10 feet and disadvantage on Dexterity checks)."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "encumbrance",
+      "carry",
+      "inventory slots",
+      "too heavy"
+    ],
+    "gm": "Slot inventory is on: a character carries items equal to their Strength score, bulky items take 2 slots, tiny ones none; over the limit means speed -10 feet and disadvantage on Dexterity checks. Use it when the party picks up loot.",
+    "player": "At this table you carry items equal to your Strength score (bulky ones count as 2), so pick what to bring. Over that you are slowed."
+  }
+}

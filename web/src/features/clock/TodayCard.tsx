@@ -4,7 +4,7 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, Loading, useAction } from '../../ui/index.tsx';
 import { dayWord, type ClockState, type WEvent } from './shared.tsx';
 
-interface Upcoming extends ClockState { days: number; today: WEvent[]; upcoming: WEvent[] }
+export interface Upcoming extends ClockState { days: number; today: WEvent[]; upcoming: WEvent[] }
 
 export default function TodayCard() {
   const { w } = useWorld();
@@ -41,13 +41,13 @@ export default function TodayCard() {
   );
 }
 
-function EventList({ events }: { events: WEvent[] }) {
+export function EventList({ events }: { events: WEvent[] }) {
   return (
     <ul className="stack tight" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
       {events.map((e, i) => (
         <li key={`${e.id}-${e.occursAt}-${i}`}>
           <strong style={{ fontWeight: 500 }}>{e.title}</strong>{' '}
-          <span className="tiny muted">{dayWord(e.daysAway)} · {e.occursLabel}{e.visibility === 'dm' ? ' · DM only' : ''}</span>
+          <span className="tiny muted">{dayWord(e.daysAway)} · {e.occursLabel}{e.visibility === 'gm' ? ' · GM only' : ''}</span>
           {e.description && <div className="small muted">{e.description}</div>}
         </li>
       ))}

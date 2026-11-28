@@ -1,0 +1,33 @@
+{
+  "kit": 2,
+  "id": "gritty-rests",
+  "name": "Gritty realism rests",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "A short rest is 8 hours and a long rest is 7 days, for slower, grittier campaigns.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [
+      "clock"
+    ],
+    "worksWith": [
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Gritty realism (house rule)",
+      "text": "A **short rest takes 8 hours** (a night's sleep) and a **long rest takes 7 days** of rest somewhere safe. Spells and features keep their usual recovery; only the time changes."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "short rest",
+      "long rest",
+      "resting",
+      "gritty"
+    ],
+    "gm": "Gritty realism is on: a short rest is 8 hours and a long rest is 7 days somewhere safe. When advancing the clock for a rest, use 8 hours or 7 days, not the usual 1 or 8 hours.",
+    "player": "Gritty realism is on at this table: a short rest is 8 hours and a long rest is 7 days somewhere safe, so plan spells and hit dice around fewer rests."
+  }
+}

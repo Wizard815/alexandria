@@ -1,4 +1,4 @@
-// Which guides a DM request calls for. A guide is used when the DM names it ("use guide Towns", "follow the Towns
+// Which guides a GM request calls for. A guide is used when the GM names it ("use guide Towns", "follow the Towns
 // guide"), or when one of its trigger words is in a request to make something ("make a village by the river").
 // Pure, so it is unit tested without a world.
 import { GUIDE_KINDS, type Kind } from './spec.ts';
@@ -8,7 +8,7 @@ export interface GuideMatch<T extends Matchable = Matchable> { t: T; why: 'named
 
 /** A request to make or change something: a trigger word alone ("how big is the town?") is not one. */
 export const CREATE = /\b(make|makes|making|create|creating|write|writing|draft|drafting|generate|build|design|prep|prepare|flesh(?:ing)? out|invent|come up with|new|add|stock|plan|roll up|need an?)\b/i;
-/** "no guide", "without the guide": the DM turns guides off for this message. */
+/** "no guide", "without the guide": the GM turns guides off for this message. */
 export const NO_GUIDE = /\b(no guides?|without (?:a|the|any|my) guides?|skip the guides?)\b/i;
 /** Talking about guides and templates themselves ("make a guide for towns") is not a request a guide should steer. */
 const ABOUT_GUIDES = /\b(guides?|templates?)\b/i;
@@ -22,7 +22,7 @@ export function triggerRe(trigger: string): RegExp {
   return new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${base}(?:s|es)?${plural})(?![\\p{L}\\p{N}])`, 'iu');
 }
 
-/** The guide the DM named in the message, as they wrote it ("Towns" from "use guide Towns: ..."), or null. */
+/** The guide the GM named in the message, as they wrote it ("Towns" from "use guide Towns: ..."), or null. */
 export function namedGuide(text: string): string | null {
   const pats = [
     /\b(?:use|using|follow|following|apply|with)\s+(?:the\s+|my\s+)?guide\s*[:=]?\s*["“']?([^"”'.,;:!?\n]{1,80})/i,

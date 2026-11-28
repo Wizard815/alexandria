@@ -1,0 +1,148 @@
+{
+  "kit": 2,
+  "id": "hirelings",
+  "name": "Hirelings",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Keep track of the party's hirelings: their job, daily wage and loyalty.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "table",
+      "assistant"
+    ]
+  },
+  "records": {
+    "hireling": {
+      "label": "Hireling",
+      "plural": "Hirelings",
+      "title": "name",
+      "fields": {
+        "name": "text",
+        "job": {
+          "type": "text",
+          "label": "Job"
+        },
+        "wage": {
+          "type": "int",
+          "default": 2,
+          "min": 0,
+          "label": "Wage (gp a day)"
+        },
+        "loyalty": {
+          "type": "int",
+          "default": 5,
+          "min": 0,
+          "max": 10,
+          "label": "Loyalty"
+        },
+        "status": {
+          "type": "enum",
+          "values": [
+            "hired",
+            "gone"
+          ],
+          "default": "hired",
+          "label": "Status"
+        }
+      }
+    }
+  },
+  "recordActions": [
+    {
+      "id": "hire",
+      "label": "Hire someone",
+      "by": "gm",
+      "record": "hireling",
+      "do": "create",
+      "ask": [
+        "name",
+        "job",
+        "wage"
+      ],
+      "effect": {
+        "chat": "{hireling.name} joins the party as {hireling.job}."
+      }
+    },
+    {
+      "id": "loyalty",
+      "label": "Change loyalty",
+      "by": "gm",
+      "record": "hireling",
+      "do": "add",
+      "field": "loyalty",
+      "amount": "ask",
+      "where": {
+        "status": "hired"
+      }
+    },
+    {
+      "id": "dismiss",
+      "label": "Let go",
+      "by": "gm",
+      "record": "hireling",
+      "do": "set",
+      "set": {
+        "status": "gone"
+      },
+      "where": {
+        "status": "hired"
+      },
+      "effect": {
+        "chat": "{hireling.name} leaves the party."
+      }
+    }
+  ],
+  "views": [
+    {
+      "id": "party",
+      "title": "Hirelings",
+      "record": "hireling",
+      "place": "player",
+      "columns": [
+        "name",
+        "job",
+        "wage",
+        "loyalty"
+      ],
+      "where": {
+        "status": "hired"
+      }
+    },
+    {
+      "id": "gm",
+      "title": "Hirelings",
+      "record": "hireling",
+      "place": "gm",
+      "columns": [
+        "name",
+        "job",
+        "wage",
+        "loyalty",
+        "status"
+      ],
+      "actions": [
+        "loyalty",
+        "dismiss"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "term": "Hirelings (house rule)",
+      "text": "Hirelings are paid **daily** (2 gp skilled, 2 sp unskilled). **Loyalty** runs 0 to 10: fair pay, shares of treasure and kindness raise it; danger without reward and abuse lower it. At 0 they leave or betray the party; in a crisis the GM may test loyalty with a d10 against it."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "hireling",
+      "hire",
+      "henchman",
+      "retainer",
+      "torchbearer"
+    ],
+    "gm": "Hirelings are on: track each one's wage and loyalty (0-10). Propose a loyalty change when the party pays, shares treasure or puts them in danger; in a crisis roll d10 against loyalty (over it, they flee or refuse). At 0 they leave.",
+    "player": "The party's hirelings are listed with their wage and loyalty. Paying fairly and sharing treasure keeps them loyal."
+  }
+}

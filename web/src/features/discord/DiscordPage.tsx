@@ -1,4 +1,4 @@
-// DM → Setup → Discord: the bot token, the server, which channels get recaps
+// GM → Setup → Discord: the bot token, the server, which channels get recaps
 // and rolls, what players get as Discord messages, and who is linked.
 import { useEffect, useState } from 'react';
 import { Empty, ErrorBox, Field, Loading, PageHead, Switch, useAction, useToast } from '../../ui/index.tsx';
@@ -113,7 +113,7 @@ export default function DiscordPage() {
         {d.brokerDms && <label className="row small"><Switch label="Include The Broker's answer in the DM (off: only a note to open the app)" checked={d.brokerText} onChange={(x) => void save({ brokerText: x })} /> Include The Broker's answer in the DM (off: only a note to open the app)</label>}
         <label className="row small"><Switch label="Players can /ask their Squire in Discord" checked={d.helper} onChange={(x) => void save({ helper: x })} /> Players can /ask their Squire in Discord</label>
         <label className="row small"><Switch label="Bot on" checked={d.enabled} onChange={(x) => void save({ enabled: x })} /> Bot on</label>
-        <p className="small muted">Nothing DM-only is ever posted. A player's /ask answer and /recap are only shown to them unless they choose to share. Your requests to the local models still go first.</p>
+        <p className="small muted">Nothing GM-only is ever posted. A player's /ask answer and /recap are only shown to them unless they choose to share. Your requests to the local models still go first.</p>
       </section>
 
       <section className="card stack">

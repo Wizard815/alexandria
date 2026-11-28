@@ -66,7 +66,7 @@ export function McpToolReview({ connection, onClose, onDone }: { connection: Con
           </div>
         )}
         <datalist id="mcp-tools">{(guess?.tools ?? []).map((t) => <option key={t} value={t} />)}</datalist>
-        <p className="tiny muted" style={{ margin: 0 }}>Only tools that read are ever called. With a read tool, the list makes the index and each page is read the first time it is opened or searched for, then in the background within the source's budget. A page whose record has no visibility field stays DM-only.</p>
+        <p className="tiny muted" style={{ margin: 0 }}>Only tools that read are ever called. With a read tool, the list makes the index and each page is read the first time it is opened or searched for, then in the background within the source's budget. A page whose record has no visibility field stays GM-only.</p>
         <ErrorBox error={save.error} />
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn primary" disabled={save.busy || !list.trim()} onClick={() => void apply()}>Save tools</button></div>
       </div>

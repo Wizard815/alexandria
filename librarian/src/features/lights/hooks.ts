@@ -1,4 +1,4 @@
-// Event hooks: lights that follow the game. Every hook is off until the DM
+// Event hooks: lights that follow the game. Every hook is off until the GM
 // turns it on for the world.
 //
 // The hooks compare the game's own tables against what they saw last time

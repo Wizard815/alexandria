@@ -1,5 +1,5 @@
 // Chats between people in a world. Only people in a chat can read it; the
-// DM is not in a chat unless added. Chats auto-delete unless the starter keeps them.
+// GM is not in a chat unless added. Chats auto-delete unless the starter keeps them.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';
@@ -100,7 +100,7 @@ function NewChat({ members, onClose, onDone }: { members: { id: string; display_
       <div className="row">
         {members.map((m) => (
           <button key={m.id} type="button" role="checkbox" aria-checked={pick.includes(m.id)} className={`btn small${pick.includes(m.id) ? ' on' : ''}`} onClick={() => toggle(m.id)}>
-            {m.character_name || m.display_name}{m.role === 'dm' ? ' (DM)' : ''}
+            {m.character_name || m.display_name}{m.role === 'gm' ? ' (GM)' : ''}
           </button>
         ))}
       </div>

@@ -1,0 +1,297 @@
+{
+  "type": "alexandria-templates",
+  "version": 1,
+  "name": "Starter generator templates",
+  "exported": "2026-11-27T00:00:00.000Z",
+  "alexandria": "0.1.0",
+  "templates": [
+    {
+      "kind": "generator",
+      "name": "Tavern",
+      "description": "A tavern with a keeper, a menu and something going on.",
+      "triggers": [
+        "tavern",
+        "inn",
+        "pub"
+      ],
+      "enabled": true,
+      "spec": {
+        "generator": "tavern",
+        "fields": [
+          {
+            "name": "name",
+            "hint": "Two nouns or 'The <adjective> <noun>'"
+          },
+          {
+            "name": "keeper",
+            "hint": "Name and one trait"
+          },
+          {
+            "name": "menu",
+            "hint": "Three dishes with prices"
+          },
+          {
+            "name": "regulars",
+            "hint": "Three regulars with a quirk each"
+          }
+        ],
+        "sections": [
+          "Look",
+          "Keeper",
+          "Menu",
+          "Regulars",
+          "Tonight"
+        ],
+        "instructions": "Always add one thing happening tonight the party can join.",
+        "folder": "Places/Taverns"
+      }
+    },
+    {
+      "kind": "generator",
+      "name": "Shopkeeper NPC",
+      "description": "A shopkeeper with a deal and a problem.",
+      "triggers": [
+        "shopkeeper",
+        "merchant"
+      ],
+      "enabled": true,
+      "spec": {
+        "generator": "npc",
+        "fields": [
+          {
+            "name": "name",
+            "hint": "Fits the region"
+          },
+          {
+            "name": "trade",
+            "hint": "What they sell"
+          },
+          {
+            "name": "deal",
+            "hint": "A discount or trade they offer"
+          },
+          {
+            "name": "problem",
+            "hint": "Something they need help with"
+          }
+        ],
+        "sections": [
+          "Look",
+          "Trade",
+          "Deal",
+          "Problem"
+        ],
+        "instructions": "Keep it to what the GM needs at the counter.",
+        "folder": "People/Merchants"
+      }
+    },
+    {
+      "kind": "generator",
+      "name": "Villain",
+      "description": "A villain with a plan and a clock.",
+      "triggers": [
+        "villain",
+        "antagonist",
+        "bbeg"
+      ],
+      "enabled": true,
+      "spec": {
+        "generator": "npc",
+        "fields": [
+          {
+            "name": "name",
+            "hint": ""
+          },
+          {
+            "name": "goal",
+            "hint": "What they want"
+          },
+          {
+            "name": "plan",
+            "hint": "Three steps toward it"
+          },
+          {
+            "name": "lieutenants",
+            "hint": "Two named helpers"
+          },
+          {
+            "name": "weakness",
+            "hint": "How the party can hurt the plan"
+          }
+        ],
+        "sections": [
+          "Goal",
+          "Plan",
+          "Lieutenants",
+          "Weakness",
+          "If no one stops them"
+        ],
+        "instructions": "Each plan step should be something the party can notice and stop.",
+        "folder": "People/Villains"
+      }
+    },
+    {
+      "kind": "generator",
+      "name": "Random encounter",
+      "description": "A road or wilderness encounter that is more than a fight.",
+      "triggers": [
+        "encounter",
+        "random encounter",
+        "on the road"
+      ],
+      "enabled": true,
+      "spec": {
+        "generator": "encounter",
+        "fields": [
+          {
+            "name": "who",
+            "hint": "Creatures or people"
+          },
+          {
+            "name": "want",
+            "hint": "What they want right now"
+          },
+          {
+            "name": "twist",
+            "hint": "Something unexpected"
+          }
+        ],
+        "sections": [
+          "Set-up",
+          "What they want",
+          "Twist",
+          "If it turns to a fight"
+        ],
+        "instructions": "Offer a way to talk, sneak or trade, not only fight.",
+        "folder": "Encounters"
+      }
+    },
+    {
+      "kind": "generator",
+      "name": "Monster",
+      "description": "A monster stat block with tactics.",
+      "triggers": [
+        "monster",
+        "creature"
+      ],
+      "enabled": true,
+      "spec": {
+        "generator": "monster",
+        "fields": [
+          {
+            "name": "name",
+            "hint": ""
+          },
+          {
+            "name": "cr",
+            "hint": "Challenge rating"
+          },
+          {
+            "name": "habitat",
+            "hint": ""
+          },
+          {
+            "name": "tactics",
+            "hint": "How it fights"
+          }
+        ],
+        "sections": [
+          "Look",
+          "Tactics",
+          "Stats"
+        ],
+        "instructions": "Keep the stat block in 5e format.",
+        "folder": "Bestiary"
+      }
+    },
+    {
+      "kind": "generator",
+      "name": "Names",
+      "description": "Names that fit a culture.",
+      "triggers": [
+        "names",
+        "name list"
+      ],
+      "enabled": true,
+      "spec": {
+        "generator": "names",
+        "fields": [
+          {
+            "name": "culture",
+            "hint": "Which culture or region"
+          },
+          {
+            "name": "count",
+            "hint": "How many"
+          }
+        ],
+        "sections": [
+          "Names"
+        ],
+        "instructions": "Give a short meaning or note for each name.",
+        "folder": ""
+      }
+    },
+    {
+      "kind": "generator",
+      "name": "Rumours",
+      "description": "A batch of rumours for a place.",
+      "triggers": [
+        "rumour",
+        "rumor",
+        "gossip"
+      ],
+      "enabled": true,
+      "spec": {
+        "generator": "rumours",
+        "fields": [
+          {
+            "name": "place",
+            "hint": ""
+          },
+          {
+            "name": "count",
+            "hint": "How many, default 6"
+          }
+        ],
+        "sections": [
+          "Rumours"
+        ],
+        "instructions": "Mark each one true, half true or false for the GM.",
+        "folder": "Places"
+      }
+    },
+    {
+      "kind": "generator",
+      "name": "Treasure hoard",
+      "description": "A hoard that fits the level and the owner.",
+      "triggers": [
+        "treasure",
+        "loot",
+        "hoard"
+      ],
+      "enabled": true,
+      "spec": {
+        "generator": "treasure",
+        "fields": [
+          {
+            "name": "level",
+            "hint": "Party level"
+          },
+          {
+            "name": "owner",
+            "hint": "Who it belonged to"
+          }
+        ],
+        "sections": [
+          "Coins",
+          "Valuables",
+          "Magic items",
+          "A clue"
+        ],
+        "instructions": "Include one item that hints at the next adventure.",
+        "folder": "Items/Hoards"
+      }
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-// Broker v2: question classification (secrets never leak), DM notes and page
+// Broker v2: question classification (secrets never leak), GM notes and page
 // rules, special offers, free giving between players, coin requests and
 // item pictures.
 import { test, before, after } from 'node:test';
@@ -59,23 +59,23 @@ before(async () => {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Brokerland Two', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Brokerland Two', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
-  P.salt = await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
+  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown })).id;
+  P.salt = await page('places/Saltmarsh', 'party', `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
   P.hearts = await page('lore/Hearts', 'party', `---\nknowledge: deep\n---\n# The Hearts\nThe nine Hearts were forged before the sundering to bind the elder storms.\n`);
   P.road = await page('party/Road', 'party', `---\nknowledge: common\n---\n# The road north\nThe party took the road north past the burned mill near Greywater ford.\n`);
-  P.velmira = await page('dm/Velmira', 'dm', `# Velmira\nVelmira the smuggler queen keeps her treasury beneath the lighthouse.\n`);
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 2000, note: 'Starting coin' });
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.tom, amountCp: 20, note: 'Starting coin' });
+  P.velmira = await page('gm/Velmira', 'gm', `# Velmira\nVelmira the smuggler queen keeps her treasury beneath the lighthouse.\n`);
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.jess, amountCp: 2000, note: 'Starting coin' });
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.tom, amountCp: 20, note: 'Starting coin' });
 });
 
 after(async () => {
@@ -87,10 +87,10 @@ test('TestBrokerClassify_SecretQuestionNeverReachesPlayers', async () => {
   const k = await ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });
   const questions = ['Who does the harbour council of Saltmarsh secretly answer to?', 'Where does Velmira keep her treasury?'];
   for (const question of questions) {
-    // The DM sees why it is a secret, with the DM-side lines.
-    const c = await ok('POST', `${B()}/classify`, T.dm, { question });
+    // The GM sees why it is a secret, with the GM-side lines.
+    const c = await ok('POST', `${B()}/classify`, T.gm, { question });
     assert.equal(c.verdict, 'secret', `${question}: ${c.reason}`);
-    assert.ok(JSON.stringify(c.dmEvidence).includes('Velmira'));
+    assert.ok(JSON.stringify(c.gmEvidence).includes('Velmira'));
     assert.equal(c.player, null);
     // The player gets the same reply as for a question nobody can answer.
     const q = await ok('POST', `${B()}/quote`, T.jess, { question });
@@ -109,15 +109,15 @@ test('TestBrokerClassify_SecretQuestionNeverReachesPlayers', async () => {
   noSecrets('list', mine, questions.join(' '));
   assert.ok(mine.requests.every((r: any) => r.classification === undefined));
   noSecrets('MCP list', await mcp(k.key, 'list_broker_requests'), questions.join(' '));
-  // The DM's list carries the classification and evidence.
-  const dmList = await ok('GET', B(), T.dm);
-  const r = dmList.requests.find((x: any) => x.status === 'pricing');
+  // The GM's list carries the classification and evidence.
+  const gmList = await ok('GET', B(), T.gm);
+  const r = gmList.requests.find((x: any) => x.status === 'pricing');
   assert.equal(r.classification.verdict, 'secret');
   assert.ok(r.classification.reason);
 });
 
 test('TestBrokerClassify_SharedQuestionCitesPlayerCopyOnly', async () => {
-  const c = await ok('POST', `${B()}/classify`, T.dm, { question: 'Who rules Saltmarsh?' });
+  const c = await ok('POST', `${B()}/classify`, T.gm, { question: 'Who rules Saltmarsh?' });
   assert.equal(c.verdict, 'shared', c.reason);
   assert.equal(c.type, 'who');
   assert.ok(c.player.answer.includes('harbour council of seven captains'));
@@ -126,59 +126,59 @@ test('TestBrokerClassify_SharedQuestionCitesPlayerCopyOnly', async () => {
   assert.ok(c.entities.some((e: any) => e.id === P.salt && e.shared));
 });
 
-test('TestBrokerNotes_DMNotesAreSoldAndCiteSafely', async () => {
-  // A note tied to a DM-only page cites "the broker's own sources", never the page title.
-  const n = await ok('POST', `${B()}/notes`, T.dm, { topic: 'Greywater ford ferryman toll', text: 'The ferryman at Greywater ford charges two silver a head, double after dark.', knowledge: 'local', pageId: P.velmira });
+test('TestBrokerNotes_GMNotesAreSoldAndCiteSafely', async () => {
+  // A note tied to a GM-only page cites "the broker's own sources", never the page title.
+  const n = await ok('POST', `${B()}/notes`, T.gm, { topic: 'Greywater ford ferryman toll', text: 'The ferryman at Greywater ford charges two silver a head, double after dark.', knowledge: 'local', pageId: P.velmira });
   assert.equal(n.page_title, 'Velmira');
   const q = await ok('POST', `${B()}/quote`, T.jess, { question: 'What does the ferryman at Greywater ford charge?' });
   assert.equal(q.secret, false);
   assert.equal(q.tier, 'local');
   const a = await ok('POST', `${B()}/ask`, T.jess, { quoteId: q.quoteId });
-  await ok('POST', `${B()}/${a.id}/deliver`, T.dm);
+  await ok('POST', `${B()}/${a.id}/deliver`, T.gm);
   const got = (await ok('GET', B(), T.jess)).requests.find((x: any) => x.id === a.id);
   assert.ok(got.answer.includes('two silver a head'));
   noSecrets('note answer', got);
   // Turning the note off: the broker no longer knows it.
-  await ok('PATCH', `${B()}/notes/${n.id}`, T.dm, { active: false });
+  await ok('PATCH', `${B()}/notes/${n.id}`, T.gm, { active: false });
   assert.equal((await ok('POST', `${B()}/quote`, T.jess, { question: 'What does the ferryman at Greywater ford charge?' })).secret, true);
-  // Save a DM answer as a note.
-  const saved = await ok('POST', `${B()}/${a.id}/note`, T.dm, { text: 'The ferryman is called Old Brann.' });
+  // Save a GM answer as a note.
+  const saved = await ok('POST', `${B()}/${a.id}/note`, T.gm, { text: 'The ferryman is called Old Brann.' });
   assert.equal(saved.from_request, a.id);
   assert.equal((await call('GET', `${B()}/notes`, T.jess)).status, 403);
 });
 
 test('TestBrokerRules_NeverSellAndMultiplier', async () => {
   const before_ = await ok('POST', `${B()}/quote`, T.jess, { question: 'Who rules Saltmarsh?' });
-  await ok('PUT', `${B()}/rules/${P.salt}`, T.dm, { multiplier: 3, knowledge: 'deep' });
+  await ok('PUT', `${B()}/rules/${P.salt}`, T.gm, { multiplier: 3, knowledge: 'deep' });
   const after_ = await ok('POST', `${B()}/quote`, T.jess, { question: 'Who rules Saltmarsh?' });
   assert.equal(after_.tier, 'deep');
   assert.ok(after_.cost_cp > before_.cost_cp);
-  await ok('PUT', `${B()}/rules/${P.hearts}`, T.dm, { neverSell: true });
-  const c = await ok('POST', `${B()}/classify`, T.dm, { question: 'What were the nine Hearts forged to bind?' });
+  await ok('PUT', `${B()}/rules/${P.hearts}`, T.gm, { neverSell: true });
+  const c = await ok('POST', `${B()}/classify`, T.gm, { question: 'What were the nine Hearts forged to bind?' });
   assert.equal(c.verdict, 'secret');
   assert.equal((await ok('POST', `${B()}/quote`, T.jess, { question: 'What were the nine Hearts forged to bind?' })).secret, true);
-  const rules = await ok('GET', `${B()}/rules`, T.dm);
+  const rules = await ok('GET', `${B()}/rules`, T.gm);
   assert.equal(rules.length, 2);
-  await ok('DELETE', `${B()}/rules/${P.salt}`, T.dm);
-  await ok('DELETE', `${B()}/rules/${P.hearts}`, T.dm);
+  await ok('DELETE', `${B()}/rules/${P.salt}`, T.gm);
+  await ok('DELETE', `${B()}/rules/${P.hearts}`, T.gm);
 });
 
-test('TestBroker_RefuseModeTurnsAwayAndOnlyDMSeesIt', async () => {
-  const cfg = await ok('GET', `${B()}/config`, T.dm);
-  await ok('PUT', `${B()}/config`, T.dm, { ...cfg, unknown: 'refuse' });
+test('TestBroker_RefuseModeTurnsAwayAndOnlyGMSeesIt', async () => {
+  const cfg = await ok('GET', `${B()}/config`, T.gm);
+  await ok('PUT', `${B()}/config`, T.gm, { ...cfg, unknown: 'refuse' });
   const q = await ok('POST', `${B()}/quote`, T.jess, { question: 'Where does Velmira keep her treasury?' });
   assert.equal(q.refused, true);
   noSecrets('refused quote', q);
   const a = await ok('POST', `${B()}/ask`, T.jess, { quoteId: q.quoteId });
   assert.equal(a.status, 'noted');
   assert.ok(!(await ok('GET', B(), T.jess)).requests.some((x: any) => x.id === a.id));
-  assert.ok((await ok('GET', B(), T.dm)).requests.some((x: any) => x.id === a.id && x.status === 'noted'));
-  await ok('PUT', `${B()}/config`, T.dm, { ...cfg, unknown: 'dm' });
+  assert.ok((await ok('GET', B(), T.gm)).requests.some((x: any) => x.id === a.id && x.status === 'noted'));
+  await ok('PUT', `${B()}/config`, T.gm, { ...cfg, unknown: 'gm' });
 });
 
 test('TestBrokerOffers_TargetPayDeclineExpire', async () => {
   // To Jess only: Tom never sees it.
-  const o = await ok('POST', `${B()}/offers`, T.dm, { title: 'The lighthouse keeper', teaser: 'I know who pays the keeper.', info: 'The keeper is paid in pearls by someone on the council.', priceCp: 500, targets: [ID.jess], expiresSessions: 1 });
+  const o = await ok('POST', `${B()}/offers`, T.gm, { title: 'The lighthouse keeper', teaser: 'I know who pays the keeper.', info: 'The keeper is paid in pearls by someone on the council.', priceCp: 500, targets: [ID.jess], expiresSessions: 1 });
   assert.equal((await ok('GET', `${B()}/offers`, T.tom)).length, 0);
   const seen = (await ok('GET', `${B()}/offers`, T.jess))[0];
   assert.equal(seen.title, 'The lighthouse keeper');
@@ -192,7 +192,7 @@ test('TestBrokerOffers_TargetPayDeclineExpire', async () => {
   assert.equal((await call('POST', `${B()}/offers/${o.id}/pay`, T.jess, {})).status, 409);
 
   // To the party: one decline keeps it open for the other.
-  const p = await ok('POST', `${B()}/offers`, T.dm, { title: 'A map of the caves', info: 'Third tunnel on the left.', priceCp: 100, targets: 'party', fallbackHours: 5 });
+  const p = await ok('POST', `${B()}/offers`, T.gm, { title: 'A map of the caves', info: 'Third tunnel on the left.', priceCp: 100, targets: 'party', fallbackHours: 5 });
   assert.equal((await ok('POST', `${B()}/offers/${p.id}/decline`, T.tom)).status, 'open');
   assert.ok(!(await ok('GET', `${B()}/offers`, T.tom)).some((x: any) => x.id === p.id));
   assert.ok((await ok('GET', `${B()}/offers`, T.jess)).some((x: any) => x.id === p.id));
@@ -201,19 +201,19 @@ test('TestBrokerOffers_TargetPayDeclineExpire', async () => {
   // Session-based expiry follows the calendar.
   const start = new Date(Date.now() + 86400_000).toISOString();
   const end = new Date(Date.now() + 86400_000 + 4 * 3600_000).toISOString();
-  await ok('POST', `/api/worlds/${W}/calendar`, T.dm, { title: 'Game night', startsAt: start, endsAt: end });
-  const s = await ok('POST', `${B()}/offers`, T.dm, { title: 'Until next session', info: 'x', priceCp: 1, targets: 'party', expiresSessions: 1 });
+  await ok('POST', `/api/worlds/${W}/calendar`, T.gm, { title: 'Game night', startsAt: start, endsAt: end });
+  const s = await ok('POST', `${B()}/offers`, T.gm, { title: 'Until next session', info: 'x', priceCp: 1, targets: 'party', expiresSessions: 1 });
   assert.equal(Date.parse(s.expires_at), Date.parse(end));
   // Once its time has passed it disappears.
-  const e = await ok('POST', `${B()}/offers`, T.dm, { title: 'Short-lived', info: 'y', priceCp: 1, targets: 'party', fallbackHours: 1 });
+  const e = await ok('POST', `${B()}/offers`, T.gm, { title: 'Short-lived', info: 'y', priceCp: 1, targets: 'party', fallbackHours: 1 });
   run(deps.db, 'UPDATE broker_offers SET fallback_at = ? WHERE id = ?', new Date(Date.now() - 1000).toISOString(), e.id);
   assert.ok(!(await ok('GET', `${B()}/offers`, T.jess)).some((x: any) => x.id === e.id));
-  assert.equal((await ok('GET', `${B()}/offers`, T.dm)).find((x: any) => x.id === e.id).status, 'expired');
+  assert.equal((await ok('GET', `${B()}/offers`, T.gm)).find((x: any) => x.id === e.id).status, 'expired');
   assert.equal((await call('POST', `${B()}/offers/${e.id}/pay`, T.jess, {})).status, 404);
 });
 
 test('TestTransfers_CoinRequestFundsAnOffer', async () => {
-  const o = await ok('POST', `${B()}/offers`, T.dm, { title: 'Who hired the assassin', info: 'A dockside fence named Pell.', priceCp: 300, targets: [ID.tom], fallbackHours: 48 });
+  const o = await ok('POST', `${B()}/offers`, T.gm, { title: 'Who hired the assassin', info: 'A dockside fence named Pell.', priceCp: 300, targets: [ID.tom], fallbackHours: 48 });
   assert.equal((await call('POST', `${B()}/offers/${o.id}/pay`, T.tom, {})).status, 402);
   const rq = await ok('POST', `${I()}/coin-requests`, T.tom, { to: 'party', amountCp: 280, note: 'For the broker', offerId: o.id });
   const inc = await ok('GET', `${I()}/coin-requests`, T.jess);
@@ -224,8 +224,8 @@ test('TestTransfers_CoinRequestFundsAnOffer', async () => {
   assert.equal(await coin('jess'), jessBefore - 280);
   assert.equal(await coin('tom'), 300);
   assert.equal((await ok('POST', `${B()}/offers/${o.id}/pay`, T.tom, {})).status, 'paid');
-  // Gives are never pending, and the DM sees them.
-  const ap = await ok('GET', `/api/worlds/${W}/approvals`, T.dm);
+  // Gives are never pending, and the GM sees them.
+  const ap = await ok('GET', `/api/worlds/${W}/approvals`, T.gm);
   assert.ok(ap.counts.transfers >= 1);
   assert.ok(ap.transfers.some((t: any) => t.kind === 'coin' && t.amount_cp === 280));
   assert.equal(ap.coin.length, 0);
@@ -241,17 +241,17 @@ test('TestTransfers_GiveCoinChecksAndSetting', async () => {
   // Into and out of the party purse.
   await ok('POST', `${I()}/coin/transfer`, T.jess, { to: 'party', amountCp: 50 });
   await ok('POST', `${I()}/coin/transfer`, T.tom, { from: 'party', to: 'me', amountCp: 20 });
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { playerTransfers: false });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { playerTransfers: false });
   assert.equal((await call('POST', `${I()}/coin/transfer`, T.jess, { to: ID.tom, amountCp: 1 })).status, 403);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { playerTransfers: true });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { playerTransfers: true });
 });
 
 test('TestTransfers_MoveSplitMergeItems', async () => {
-  const rope = await ok('POST', I(), T.dm, { owner: ID.jess, name: 'Rope (50 ft)', qty: 3, reason: 'Bought in town', dmNote: 'One is frayed' });
+  const rope = await ok('POST', I(), T.gm, { owner: ID.jess, name: 'Rope (50 ft)', qty: 3, reason: 'Bought in town', gmNote: 'One is frayed' });
   const m = await ok('POST', `${I()}/${rope.id}/move`, T.jess, { to: 'party', qty: 1 });
   assert.equal(m.left.qty, 2);
   assert.equal(m.moved.owner, 'party');
-  assert.equal(m.moved.dm_note, undefined);
+  assert.equal(m.moved.gm_note, undefined);
   // Moving more to the party stacks with what's there.
   const m2 = await ok('POST', `${I()}/${rope.id}/move`, T.jess, { to: 'party', qty: 1 });
   assert.equal(m2.moved.id, m.moved.id);
@@ -262,9 +262,9 @@ test('TestTransfers_MoveSplitMergeItems', async () => {
   assert.equal((await call('POST', `${I()}/${rope.id}/move`, T.jess, { to: ID.tom, qty: 5 })).status, 400);
   const toms = (await ok('GET', `${I()}?owner=me`, T.tom)).items;
   assert.ok(toms.some((x: any) => x.name === 'Rope (50 ft)' && x.qty === 1 && x.status === 'approved'));
-  // The DM still has the private note on every stack.
-  const dmView = (await ok('GET', `${I()}?owner=${ID.tom}`, T.dm)).items.find((x: any) => x.name === 'Rope (50 ft)');
-  assert.equal(dmView.dm_note, 'One is frayed');
+  // The GM still has the private note on every stack.
+  const gmView = (await ok('GET', `${I()}?owner=${ID.tom}`, T.gm)).items.find((x: any) => x.name === 'Rope (50 ft)');
+  assert.equal(gmView.gm_note, 'One is frayed');
 });
 
 test('TestItemImages_UploadSniffAndVisibility', async () => {
@@ -277,7 +277,7 @@ test('TestItemImages_UploadSniffAndVisibility', async () => {
   const raw = await fetch(`${base}${I()}/images`, { method: 'POST', headers: { 'Content-Type': 'image/png', Authorization: `Bearer ${T.jess}` }, body: png });
   assert.equal(raw.status, 201);
 
-  const lamp = await ok('POST', I(), T.dm, { owner: ID.jess, name: 'Brass lamp', image: up.id, reason: 'Found it' });
+  const lamp = await ok('POST', I(), T.gm, { owner: ID.jess, name: 'Brass lamp', image: up.id, reason: 'Found it' });
   assert.equal(lamp.image, up.id);
   const img = await call('GET', `${I()}/images/${up.id}`, T.jess);
   assert.equal(img.status, 200);
@@ -287,12 +287,12 @@ test('TestItemImages_UploadSniffAndVisibility', async () => {
   await ok('POST', `${I()}/${lamp.id}/move`, T.jess, { to: 'party' });
   assert.equal((await call('GET', `${I()}/images/${up.id}`, T.tom)).status, 200);
   // Links: http(s) only.
-  assert.equal((await call('POST', I(), T.dm, { owner: 'party', name: 'Odd', image: 'javascript:alert(1)', reason: 'test' })).status, 400);
-  assert.equal((await ok('POST', I(), T.dm, { owner: 'party', name: 'Shield', image: 'https://example.com/shield.png', reason: 'Loot' })).image, 'https://example.com/shield.png');
+  assert.equal((await call('POST', I(), T.gm, { owner: 'party', name: 'Odd', image: 'javascript:alert(1)', reason: 'test' })).status, 400);
+  assert.equal((await ok('POST', I(), T.gm, { owner: 'party', name: 'Shield', image: 'https://example.com/shield.png', reason: 'Loot' })).image, 'https://example.com/shield.png');
 });
 
 test('TestBroker_MCPOfferAndNoteTools', async () => {
-  const dk = await ok('POST', '/api/keys', T.dm, { scope: 'scribe', worldId: W, label: 'dm ai', access: 'write' });
+  const dk = await ok('POST', '/api/keys', T.gm, { scope: 'scribe', worldId: W, label: 'gm ai', access: 'write' });
   const pk = await ok('POST', '/api/keys', T.tom, { scope: 'scribe', worldId: W, label: 'tom ai', access: 'read' });
   const list = async (key: string) => JSON.stringify((await call('POST', '/mcp', key, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).body);
   assert.ok((await list(dk.key)).includes('send_broker_offer'));

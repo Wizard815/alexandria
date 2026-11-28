@@ -14,7 +14,7 @@ const rowHeight = () => (typeof window !== 'undefined' && window.matchMedia?.('(
 /** Room left under the last row so the floating dock never covers it. */
 const END_PAD = 84;
 
-export function Tree({ rows, selected, onOpen, onSaveFolder, saved, badge, onShare }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; onSaveFolder?: (ids: string[], label: string) => void; saved: Set<string>; /** The DM's who-can-see badge for a page or folder (replaces the level chip). */ badge?: (n: Node) => ReactNode; /** The DM's Share button on a page or folder row. */ onShare?: (n: Node) => void }) {
+export function Tree({ rows, selected, onOpen, onSaveFolder, saved, badge, onShare }: { rows: PageRow[]; selected: string | null; onOpen: (id: string) => void; onSaveFolder?: (ids: string[], label: string) => void; saved: Set<string>; /** The GM's who-can-see badge for a page or folder (replaces the level chip). */ badge?: (n: Node) => ReactNode; /** The GM's Share button on a page or folder row. */ onShare?: (n: Node) => void }) {
   const tree = useMemo(() => buildTree(rows), [rows]);
   const [ROW, setRow] = useState(rowHeight);
   useEffect(() => {
@@ -89,7 +89,7 @@ export function Tree({ rows, selected, onOpen, onSaveFolder, saved, badge, onSha
                 {n.page ? (n.page.icon?.glyph ? <Icon icon={n.page.icon} size={13} /> : <i className="fa-regular fa-file-lines lib-ico" aria-hidden="true" />) : <i className={`fa-solid ${r.depth === 0 ? 'fa-database' : isOpen ? 'fa-folder-open' : 'fa-folder'} lib-ico`} aria-hidden="true" />}
                 <span className="lib-row-label">{n.label}{n.hint && <span className="lib-hint"> ({n.hint})</span>}</span>
                 {n.page?.playersSee && n.page.visibility !== 'party' && <i className="fa-solid fa-eye lib-eye" title="Players can read another copy of this page" aria-label="Players can read another copy" />}
-                {badge ? badge(n) : n.page?.visibility && n.page.visibility !== 'party' && n.page.visibility !== 'dm' && <LevelChip level={n.page.visibility} />}
+                {badge ? badge(n) : n.page?.visibility && n.page.visibility !== 'party' && n.page.visibility !== 'gm' && <LevelChip level={n.page.visibility} />}
                 {n.page && saved.has(n.page.id) && <i className="fa-solid fa-download lib-saved-ico" title="Saved for offline" aria-label="Saved for offline" />}
                 {!n.page && <span className="lib-count">{n.count}</span>}
               </button>
@@ -117,7 +117,7 @@ export const TREE_CSS = `
 .lib-eye { color: var(--teal); font-size: 11px; flex: 0 0 auto; }
 .lib-count { font-size: 12px; color: var(--faint); }
 .lib-hint { color: var(--faint); font-weight: 400; font-size: 12px; }
-.lib-dm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
+.lib-gm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
 .lib-saved-ico { color: var(--teal); font-size: 11px; }
 .lib-row-save { opacity: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 4px 6px; }
 .lib-row:hover .lib-row-save, .lib-row-save:focus-visible, .lib-row.on .lib-row-save { opacity: 1; }

@@ -1,4 +1,4 @@
-// Client library for Alexandria D&D World API
+// Client library for Alexandria TTRPG World API
 import axios, { AxiosInstance } from 'axios';
 
 import type {
@@ -15,7 +15,7 @@ import type {
   Item,
   TravelLog,
   Transcript,
-  DmNote,
+  GmNote,
 } from '@alexandria/schema';
 
 export class DndClient {

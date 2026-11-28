@@ -13,7 +13,7 @@ const W = 1600, H = 1000;
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 export default function Whiteboard() {
-  const { w, me, isDM, info, nameOf } = useWorld();
+  const { w, me, isGM, info, nameOf } = useWorld();
   const [doc, setDoc] = useState<Doc>({ shapes: [] });
   const [version, setVersion] = useState(0);
   const [pending, setPending] = useState<Shape[]>([]);
@@ -79,7 +79,7 @@ export default function Whiteboard() {
     if (pending.some((p) => p.id === s.id)) setPending((x) => x.filter((p) => p.id !== s.id));
     else setRemoved((x) => [...x, s.id]);
   };
-  const canWipe = isDM || info.settings.whiteboardWipe === 'all';
+  const canWipe = isGM || info.settings.whiteboardWipe === 'all';
   const wipe = () => { if (confirm('Wipe the whole board for everyone? The old board stays in History.')) void a.run(async () => { await w.call('POST', '/whiteboard/wipe', { confirm: true }); setPending([]); setRemoved([]); await load(); }); };
 
   return (

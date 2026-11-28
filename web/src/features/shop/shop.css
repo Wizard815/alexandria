@@ -1,4 +1,4 @@
-/* The Shop: players' page and the DM's Shops and Items pages. */
+/* The Shop: players' page and the GM's Shops and Items pages. */
 .shop-pick { text-align: left; display: flex; flex-direction: column; gap: 4px; cursor: pointer; width: 100%; font: inherit; color: inherit; }
 .shop-pick.on { border-color: var(--accent); background: var(--accent-bg); }
 .shop-keeper { padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--panel-2); border-radius: 6px; }

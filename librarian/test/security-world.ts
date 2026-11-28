@@ -16,10 +16,10 @@ export interface H {
 export interface Seed {
   W: string;
   W2: string;
-  T: Record<'admin' | 'ads' | 'dm' | 'dm2' | 'jess' | 'tom' | 'guest', string>;
-  ID: Record<'dm' | 'dm2' | 'jess' | 'tom' | 'guest', string>;
+  T: Record<'admin' | 'ads' | 'gm' | 'gm2' | 'jess' | 'tom' | 'guest', string>;
+  ID: Record<'gm' | 'gm2' | 'jess' | 'tom' | 'guest', string>;
   /** Read and write scribe keys. */
-  K: Record<'jessRead' | 'tomRead' | 'guestRead' | 'dmRead' | 'dmWrite', string>;
+  K: Record<'jessRead' | 'tomRead' | 'guestRead' | 'gmRead' | 'gmWrite', string>;
   pages: Record<string, { id: string; path: string }>;
   ids: Record<string, string[]>;
   push: { sourceId: string; key: string };
@@ -33,20 +33,20 @@ export async function makeAccounts(h: H): Promise<Seed> {
   const ID: any = {};
   T.admin = (await h.ok('POST', '/api/setup', null, { username: 'wizard', password: PW })).token;
   T.ads = (await h.ok('POST', '/api/admin-auth/login', null, { username: 'wizard', password: PW })).token;
-  for (const [k, name] of [['dm', 'dungeon'], ['dm2', 'dungeon2']] as const) {
-    ID[k] = (await h.ok('POST', '/api/admin/accounts', T.ads, { username: name, password: 'dm password 123' })).account.id;
-    T[k] = (await h.ok('POST', '/api/auth/login', null, { username: name, password: 'dm password 123' })).token;
+  for (const [k, name] of [['gm', 'dungeon'], ['gm2', 'dungeon2']] as const) {
+    ID[k] = (await h.ok('POST', '/api/admin/accounts', T.ads, { username: name, password: 'gm password 123' })).account.id;
+    T[k] = (await h.ok('POST', '/api/auth/login', null, { username: name, password: 'gm password 123' })).token;
   }
-  const W = (await h.ok('POST', '/api/admin/worlds', T.ads, { name: 'Harbourtown', dmAccountId: ID.dm })).id;
-  const W2 = (await h.ok('POST', '/api/admin/worlds', T.ads, { name: 'Elsewhere', dmAccountId: ID.dm2 })).id;
+  const W = (await h.ok('POST', '/api/admin/worlds', T.ads, { name: 'Harbourtown', gmAccountId: ID.gm })).id;
+  const W2 = (await h.ok('POST', '/api/admin/worlds', T.ads, { name: 'Elsewhere', gmAccountId: ID.gm2 })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await h.ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await h.ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await h.ok('POST', '/api/join', null, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : 'Tomas' });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
   {
-    const inv = await h.ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'guest' });
+    const inv = await h.ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'guest' });
     const j = await h.ok('POST', '/api/join', null, { code: inv.code, username: 'visitor', password: 'guest pass 1234', characterName: 'Visitor' });
     T.guest = j.token;
     ID.guest = j.account.id;
@@ -55,8 +55,8 @@ export async function makeAccounts(h: H): Promise<Seed> {
   K.guestRead = (await h.ok('POST', '/api/keys', T.guest, { scope: 'scribe', worldId: W, label: 'guest read', access: 'read' })).key;
   K.jessRead = (await h.ok('POST', '/api/keys', T.jess, { scope: 'scribe', worldId: W, label: 'jess read', access: 'read' })).key;
   K.tomRead = (await h.ok('POST', '/api/keys', T.tom, { scope: 'scribe', worldId: W, label: 'tom read', access: 'read' })).key;
-  K.dmRead = (await h.ok('POST', '/api/keys', T.dm, { scope: 'scribe', worldId: W, label: 'dm read', access: 'read' })).key;
-  K.dmWrite = (await h.ok('POST', '/api/keys', T.dm, { scope: 'scribe', worldId: W, label: 'dm write', access: 'write' })).key;
+  K.gmRead = (await h.ok('POST', '/api/keys', T.gm, { scope: 'scribe', worldId: W, label: 'gm read', access: 'read' })).key;
+  K.gmWrite = (await h.ok('POST', '/api/keys', T.gm, { scope: 'scribe', worldId: W, label: 'gm write', access: 'write' })).key;
   return { W, W2, T, ID, K, pages: {}, ids: {}, push: { sourceId: '', key: '' } };
 }
 
@@ -65,13 +65,13 @@ const PNG = (token: string) => new Uint8Array([...Buffer.from([0x89, 0x50, 0x4e,
 /** Every secret spot in the product. One unique marker each. */
 export async function seedContent(h: H, S: Seed) {
   const { W, T, ID } = S;
-  const dm = (m: string, u: string, b?: unknown, hdr?: Record<string, string>) => h.ok(m, `/api/worlds/${W}${u}`, T.dm, b, hdr);
+  const gm = (m: string, u: string, b?: unknown, hdr?: Record<string, string>) => h.ok(m, `/api/worlds/${W}${u}`, T.gm, b, hdr);
   const as = (who: 'jess' | 'tom') => (m: string, u: string, b?: unknown) => h.ok(m, `/api/worlds/${W}${u}`, T[who], b);
   const jess = as('jess');
   const tom = as('tom');
   const pushId = (k: string, v: any) => { (S.ids[k] ??= []).push(String(v)); };
   const page = async (key: string, path: string, visibility: string, md: string, fm: Record<string, unknown> = {}) => {
-    const r = await dm('PUT', '/library/pages', { path, visibility, body: md, frontmatter: fm });
+    const r = await gm('PUT', '/library/pages', { path, visibility, body: md, frontmatter: fm });
     S.pages[key] = { id: r.id, path: r.path };
     pushId('page', r.id); pushId('page', r.path);
     return r;
@@ -79,61 +79,61 @@ export async function seedContent(h: H, S: Seed) {
 
   // ---- pages: whole pages at each level --------------------------------------------------
   const sharedTitle = 'Harbour Lore';
-  await page('dm', 'dm/Smuggler Queen.md', 'dm', `# ${mark('dm_page', ['dm'], 'a DM-only page')} Smuggler Queen\nThe harbour council secretly answers to the smuggler queen ${tok('dm_page')}.\n`, { title: `Smuggler Queen ${tok('dm_page')}` });
-  // A DM-only title the speech model must never be sent (the transcription hint) and players must never read in a transcript line.
-  await page('dm_hint', 'dm/Hint Marker.md', 'dm', '# Hint marker\nA title only the DM may know.\n', { title: `Drowned Marker ${mark('dm_title_hint', ['dm'], 'a DM-only page title (never in the transcription hint or a players transcript line)')}` });
-  await page('broker', 'broker/Dockside Rumour.md', 'broker', `# Dockside Rumour\nThe lighthouse keeper sells fog charts to the harbour council ${mark('broker_page', ['dm'], 'a broker-level page')}.\n`, { title: `Dockside Rumour ${tok('broker_page')}`, knowledge: 'local' });
-  await page('classified', 'classified/Vault.md', 'classified', `# Vault\nThe harbour council keeps a vault. ${mark('classified_page', ['dm'], 'a classified page', { ai: false, long: true })}\n`, { title: 'Vault' });
+  await page('gm', 'gm/Smuggler Queen.md', 'gm', `# ${mark('gm_page', ['gm'], 'a GM-only page')} Smuggler Queen\nThe harbour council secretly answers to the smuggler queen ${tok('gm_page')}.\n`, { title: `Smuggler Queen ${tok('gm_page')}` });
+  // A GM-only title the speech model must never be sent (the transcription hint) and players must never read in a transcript line.
+  await page('gm_hint', 'gm/Hint Marker.md', 'gm', '# Hint marker\nA title only the GM may know.\n', { title: `Drowned Marker ${mark('gm_title_hint', ['gm'], 'a GM-only page title (never in the transcription hint or a players transcript line)')}` });
+  await page('broker', 'broker/Dockside Rumour.md', 'broker', `# Dockside Rumour\nThe lighthouse keeper sells fog charts to the harbour council ${mark('broker_page', ['gm'], 'a broker-level page')}.\n`, { title: `Dockside Rumour ${tok('broker_page')}`, knowledge: 'local' });
+  await page('classified', 'classified/Vault.md', 'classified', `# Vault\nThe harbour council keeps a vault. ${mark('classified_page', ['gm'], 'a classified page', { ai: false, long: true })}\n`, { title: 'Vault' });
   // The page path itself shows in the audit log.
-  await page('audit', `dm/${mark('audit_path', ['dm'], 'a DM page path (shows in the audit log)')}.md`, 'dm', '# Audit marker page\nNothing here.\n');
+  await page('audit', `gm/${mark('audit_path', ['gm'], 'a GM page path (shows in the audit log)')}.md`, 'gm', '# Audit marker page\nNothing here.\n');
 
   // ---- one shared page with a secret in every kind of place ------------------------------
   const shared = [
     `# ${sharedTitle}`,
-    `The harbour is run by a council of seven captains. ${mark('public_page', ['dm', 'jess', 'tom'], 'a shared paragraph (control)')}`,
+    `The harbour is run by a council of seven captains. ${mark('public_page', ['gm', 'jess', 'tom'], 'a shared paragraph (control)')}`,
     '',
-    `> [!secret] DM`,
-    `> ${mark('secret_block', ['dm'], 'a secret callout in a shared page')}`,
+    `> [!secret] GM`,
+    `> ${mark('secret_block', ['gm'], 'a secret callout in a shared page')}`,
     '',
     '> [!broker]',
-    `> ${mark('broker_block', ['dm'], 'a broker callout in a shared page')}`,
+    `> ${mark('broker_block', ['gm'], 'a broker callout in a shared page')}`,
     '',
     '> [!classified]',
-    `> ${mark('classified_block', ['dm'], 'a classified callout in a shared page', { ai: false, long: true })}`,
+    `> ${mark('classified_block', ['gm'], 'a classified callout in a shared page', { ai: false, long: true })}`,
     '',
-    '<!-- dm -->',
-    mark('dm_comment_block', ['dm'], 'an html dm comment block'),
-    '<!-- /dm -->',
+    '<!-- gm -->',
+    mark('gm_comment_block', ['gm'], 'an html gm comment block'),
+    '<!-- /gm -->',
     '',
-    `%% ${mark('percent_comment', ['dm'], 'an Obsidian %% comment')} %%`,
+    `%% ${mark('percent_comment', ['gm'], 'an Obsidian %% comment')} %%`,
     '',
     '## Secrets',
-    mark('secret_heading', ['dm'], 'a section headed Secrets'),
+    mark('secret_heading', ['gm'], 'a section headed Secrets'),
     '',
     '## Broker',
-    mark('broker_heading', ['dm'], 'a section headed Broker'),
+    mark('broker_heading', ['gm'], 'a section headed Broker'),
     '',
     '## Classified',
-    mark('classified_heading', ['dm'], 'a section headed Classified', { ai: false, long: true }),
+    mark('classified_heading', ['gm'], 'a section headed Classified', { ai: false, long: true }),
     '',
     '## Public ending',
-    `The captains meet at dusk. See also [[Smuggler Queen ${tok('dm_page')}]].`,
+    `The captains meet at dusk. See also [[Smuggler Queen ${tok('gm_page')}]].`,
   ].join('\n');
   await page('shared', 'lore/Harbour Lore.md', 'party', shared, {
     title: sharedTitle,
     aliases: ['Old Harbour'],
     tags: ['lore'],
-    dm_aliases: [mark('dm_alias', ['dm'], 'a DM-only alias')],
-    secret: { note: mark('secret_fm', ['dm'], 'a secret: frontmatter key'), allies: [`[[Smuggler Queen ${tok('dm_page')}]]`] },
-    dm_notes: mark('dm_fm_key', ['dm'], 'a dm_ frontmatter key'),
-    broker_price: mark('broker_fm_key', ['dm'], 'a broker_ frontmatter key'),
-    classified_secret: mark('classified_fm_key', ['dm'], 'a classified_ frontmatter key', { ai: false, long: true }),
-    parents: [`[[Smuggler Queen ${tok('dm_page')}]]`],
+    gm_aliases: [mark('gm_alias', ['gm'], 'a GM-only alias')],
+    secret: { note: mark('secret_fm', ['gm'], 'a secret: frontmatter key'), allies: [`[[Smuggler Queen ${tok('gm_page')}]]`] },
+    gm_notes: mark('gm_fm_key', ['gm'], 'a gm_ frontmatter key'),
+    broker_price: mark('broker_fm_key', ['gm'], 'a broker_ frontmatter key'),
+    classified_secret: mark('classified_fm_key', ['gm'], 'a classified_ frontmatter key', { ai: false, long: true }),
+    parents: [`[[Smuggler Queen ${tok('gm_page')}]]`],
   });
 
   // ---- an imported page: fact groups, secret blocks, map pins, tags --------------------------
   const sid = (await h.ok('POST', `/api/admin/worlds/${W}/sources`, T.ads, { kind: 'push', name: 'Tool', config: {}, defaultVisibility: 'party' })).id;
-  const key = (await dm('POST', `/intake/sources/${sid}/keys`, { label: 'crawl' })).key;
+  const key = (await gm('POST', `/intake/sources/${sid}/keys`, { label: 'crawl' })).key;
   S.push = { sourceId: sid, key };
   const p = (text: string) => ({ kind: 'paragraph', content: [{ text }] });
   const row = (k: string, v: string) => ({ key: k, value: [{ text: v }] });
@@ -142,47 +142,47 @@ export async function seedContent(h: H, S: Seed) {
       {
         externalId: 'imp-hall', title: 'Imported Hall', visibility: 'party', type: 'page',
         blocks: [
-          p(`The hall has a high roof. ${mark('import_public', ['dm', 'jess', 'tom'], 'an imported shared paragraph (control)')}`),
-          { kind: 'secret', children: [p(mark('import_secret_block', ['dm'], 'an imported secret block'))] },
-          { kind: 'secret', level: 'broker', children: [p(mark('import_broker_block', ['dm'], 'an imported broker block'))] },
-          { kind: 'secret', level: 'classified', children: [p(mark('import_classified_block', ['dm'], 'an imported classified block', { ai: false, long: true }))] },
-          { kind: 'map', title: 'Hall map', pins: [{ name: 'Front door', lat: 1, lng: 1 }, { name: mark('dm_pin', ['dm'], 'a DM-only map pin on an imported map'), lat: 2, lng: 2, dm: true }, { name: mark('dm_link_pin', ['dm'], 'a map pin that links a DM page'), lat: 3, lng: 3, ref: 'imp-dm' }] },
+          p(`The hall has a high roof. ${mark('import_public', ['gm', 'jess', 'tom'], 'an imported shared paragraph (control)')}`),
+          { kind: 'secret', children: [p(mark('import_secret_block', ['gm'], 'an imported secret block'))] },
+          { kind: 'secret', level: 'broker', children: [p(mark('import_broker_block', ['gm'], 'an imported broker block'))] },
+          { kind: 'secret', level: 'classified', children: [p(mark('import_classified_block', ['gm'], 'an imported classified block', { ai: false, long: true }))] },
+          { kind: 'map', title: 'Hall map', pins: [{ name: 'Front door', lat: 1, lng: 1 }, { name: mark('gm_pin', ['gm'], 'a GM-only map pin on an imported map'), lat: 2, lng: 2, gm: true }, { name: mark('gm_link_pin', ['gm'], 'a map pin that links a GM page'), lat: 3, lng: 3, ref: 'imp-gm' }] },
         ],
         properties: [
-          { title: 'Facts', rows: [row('Seats', `Two hundred ${mark('fact_public', ['dm', 'jess', 'tom'], 'a public fact row (control)')}`)] },
-          { title: 'Secrets', rows: [row('Trapdoor', mark('dm_fact_group', ['dm'], 'a DM fact group'))] },
-          { title: 'Notes', dm: true, rows: [row('Warden', mark('dm_flag_group', ['dm'], 'a fact group flagged dm'))] },
-          { title: 'Broker', rows: [row('Bribe', mark('broker_fact_group', ['dm'], 'a broker fact group'))] },
-          { title: 'Classified', rows: [row('Hidden door', mark('classified_fact_group', ['dm'], 'a classified fact group', { ai: false, long: true }))] },
+          { title: 'Facts', rows: [row('Seats', `Two hundred ${mark('fact_public', ['gm', 'jess', 'tom'], 'a public fact row (control)')}`)] },
+          { title: 'Secrets', rows: [row('Trapdoor', mark('gm_fact_group', ['gm'], 'a GM fact group'))] },
+          { title: 'Notes', gm: true, rows: [row('Warden', mark('gm_flag_group', ['gm'], 'a fact group flagged gm'))] },
+          { title: 'Broker', rows: [row('Bribe', mark('broker_fact_group', ['gm'], 'a broker fact group'))] },
+          { title: 'Classified', rows: [row('Hidden door', mark('classified_fact_group', ['gm'], 'a classified fact group', { ai: false, long: true }))] },
         ],
       },
-      { externalId: 'imp-dm', title: 'Imported Dungeon', visibility: 'dm', blocks: [p(`Cells below. ${mark('import_dm_page', ['dm'], 'an imported DM-only page')}`)] },
-      { externalId: 'imp-class-tag', title: 'Tagged Classified', visibility: 'party', tags: ['classified'], blocks: [p(mark('tag_classified_page', ['dm'], 'a page tagged classified', { ai: false, long: true }))] },
-      { externalId: 'imp-broker-tag', title: 'Tagged Broker', visibility: 'party', tags: ['broker'], blocks: [p(mark('tag_broker_page', ['dm'], 'a page tagged broker'))] },
+      { externalId: 'imp-gm', title: 'Imported Dungeon', visibility: 'gm', blocks: [p(`Cells below. ${mark('import_gm_page', ['gm'], 'an imported GM-only page')}`)] },
+      { externalId: 'imp-class-tag', title: 'Tagged Classified', visibility: 'party', tags: ['classified'], blocks: [p(mark('tag_classified_page', ['gm'], 'a page tagged classified', { ai: false, long: true }))] },
+      { externalId: 'imp-broker-tag', title: 'Tagged Broker', visibility: 'party', tags: ['broker'], blocks: [p(mark('tag_broker_page', ['gm'], 'a page tagged broker'))] },
     ],
   });
   // Private relations, timelines, map markers and calendars from a source.
   const rec = (sql: string, ...a: unknown[]) => run(h.deps.db, sql, ...a);
-  for (const [ext, vis, label] of [['r-dm', 'dm', mark('rel_dm', ['dm'], 'a DM-only imported relation')], ['r-party', 'party', 'friend of']] as const) {
-    rec('INSERT INTO intake_relations (world_id, source_id, external_id, from_ref, to_ref, label, attitude, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', W, sid, ext, 'imp-hall', 'imp-dm', label, null, vis);
+  for (const [ext, vis, label] of [['r-gm', 'gm', mark('rel_gm', ['gm'], 'a GM-only imported relation')], ['r-party', 'party', 'friend of']] as const) {
+    rec('INSERT INTO intake_relations (world_id, source_id, external_id, from_ref, to_ref, label, attitude, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', W, sid, ext, 'imp-hall', 'imp-gm', label, null, vis);
   }
-  for (const [ext, vis, name] of [['t-dm', 'dm', mark('timeline_dm', ['dm'], 'a DM-only imported timeline')], ['t-party', 'party', 'Founding']] as const) {
-    rec('INSERT INTO intake_timelines (world_id, source_id, external_id, name, visibility, data) VALUES (?, ?, ?, ?, ?, ?)', W, sid, ext, name, vis, JSON.stringify([{ name: 'Era', events: [{ name: vis === 'dm' ? tok('timeline_dm') : 'Founded', start: 1 }] }]));
+  for (const [ext, vis, name] of [['t-gm', 'gm', mark('timeline_gm', ['gm'], 'a GM-only imported timeline')], ['t-party', 'party', 'Founding']] as const) {
+    rec('INSERT INTO intake_timelines (world_id, source_id, external_id, name, visibility, data) VALUES (?, ?, ?, ?, ?, ?)', W, sid, ext, name, vis, JSON.stringify([{ name: 'Era', events: [{ name: vis === 'gm' ? tok('timeline_gm') : 'Founded', start: 1 }] }]));
   }
-  for (const [ext, vis, name] of [['m-dm', 'dm', mark('marker_dm', ['dm'], 'a DM-only imported map marker')], ['m-party', 'party', 'Harbour']] as const) {
+  for (const [ext, vis, name] of [['m-gm', 'gm', mark('marker_gm', ['gm'], 'a GM-only imported map marker')], ['m-party', 'party', 'Harbour']] as const) {
     rec('INSERT INTO intake_markers (world_id, source_id, external_id, map_ref, name, latitude, longitude, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', W, sid, ext, 'imp-hall', name, 1, 2, vis);
   }
 
-  // Calendars and pictures a source gave (the generic API's calendars and images). A picture follows its page: it is the DM's alone when the
-  // picture itself is DM-only or its page is. Each picture's name carries its marker, so a page's `pictures` list cannot leak a DM-only second picture.
+  // Calendars and pictures a source gave (the generic API's calendars and images). A picture follows its page: it is the GM's alone when the
+  // picture itself is GM-only or its page is. Each picture's name carries its marker, so a page's `pictures` list cannot leak a GM-only second picture.
   const cal = (name: string) => JSON.stringify({ name, epochYear: 0, months: [{ name: 'First', days: 30 }], weekdays: ['Day'] });
-  for (const [ext, vis, name] of [['c-dm', 'dm', mark('calendar_dm', ['dm'], 'a DM-only imported calendar')], ['c-party', 'party', 'Harbour calendar']] as const) {
+  for (const [ext, vis, name] of [['c-gm', 'gm', mark('calendar_gm', ['gm'], 'a GM-only imported calendar')], ['c-party', 'party', 'Harbour calendar']] as const) {
     rec('INSERT INTO intake_calendars (world_id, source_id, external_id, name, definition, visibility, current) VALUES (?, ?, ?, ?, ?, ?, ?)', W, sid, ext, name, cal(name), vis, null);
   }
   for (const [ext, vis, page, text] of [
-    ['img-a-party', 'party', 'imp-hall', mark('import_image_party', ['dm', 'jess', 'tom'], 'an imported picture of a shared page (control)')],
-    ['img-b-dm', 'dm', 'imp-hall', mark('import_image_dm', ['dm'], 'a DM-only imported picture of a shared page')],
-    ['img-c-dmpage', 'party', 'imp-dm', mark('import_image_dmpage', ['dm'], 'an imported picture of a DM-only page')],
+    ['img-a-party', 'party', 'imp-hall', mark('import_image_party', ['gm', 'jess', 'tom'], 'an imported picture of a shared page (control)')],
+    ['img-b-gm', 'gm', 'imp-hall', mark('import_image_gm', ['gm'], 'a GM-only imported picture of a shared page')],
+    ['img-c-dmpage', 'party', 'imp-gm', mark('import_image_dmpage', ['gm'], 'an imported picture of a GM-only page')],
   ] as const) {
     const bytes = PNG(text);
     const iid = `img_${ext}`;
@@ -190,221 +190,227 @@ export async function seedContent(h: H, S: Seed) {
     pushId('intakeimage', iid);
   }
 
-  // ---- items: DM notes, a picture, a player's proposal ---------------------------------------
-  await h.ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 50000, note: 'Starting coin' });
-  await h.ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.tom, amountCp: 900, note: 'Starting coin' });
-  const img = await h.call('POST', `/api/worlds/${W}/inventory/images`, T.dm, PNG(mark('item_image', ['dm', 'jess'], 'a picture on a player item')), { 'Content-Type': 'image/png' });
+  // ---- items: GM notes, a picture, a player's proposal ---------------------------------------
+  await h.ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.jess, amountCp: 50000, note: 'Starting coin' });
+  await h.ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.tom, amountCp: 900, note: 'Starting coin' });
+  const img = await h.call('POST', `/api/worlds/${W}/inventory/images`, T.gm, PNG(mark('item_image', ['gm', 'jess'], 'a picture on a player item')), { 'Content-Type': 'image/png' });
   if (img.status >= 300) throw new Error(`item image ${img.status} ${img.text}`);
   pushId('image', img.json.id);
-  const ring = await dm('POST', '/inventory', { owner: ID.jess, name: 'Plain Ring', qty: 1, note: 'It looks plain', dmNote: mark('item_dm_note', ['dm'], 'a DM note on a player item'), reason: 'found it' });
+  const ring = await gm('POST', '/inventory', { owner: ID.jess, name: 'Plain Ring', qty: 1, note: 'It looks plain', gmNote: mark('item_gm_note', ['gm'], 'a GM note on a player item'), reason: 'found it' });
   pushId('item', ring.id);
-  pushId('item', (await dm('POST', '/inventory', { owner: 'party', name: 'Rope', qty: 1, dmNote: mark('item_dm_note_party', ['dm'], 'a DM note on a party item'), reason: 'stash' })).id);
-  pushId('item', (await dm('POST', '/inventory', { owner: ID.jess, name: 'Painted Shield', qty: 1, image: img.json.id, reason: 'prize' })).id);
-  await dm('PATCH', `/inventory/${ring.id}`, { dmNote: mark('item_dm_note_edit', ['dm'], 'a DM note changed later (alert history)'), qty: 2, reason: 'tweak' });
-  pushId('item', (await dm('POST', '/inventory', { owner: ID.tom, name: 'Tom Dagger', qty: 1, note: mark('tom_item_note', ['dm', 'tom'], "an item note on tom's own item"), reason: 'gift' })).id);
-  const lantern = await jess('POST', '/inventory', { owner: 'me', name: 'Lantern', qty: 1, note: mark('jess_item_proposal', ['dm', 'jess'], "a player's proposed item"), reason: mark('jess_item_reason', ['dm', 'jess'], "a player's reason for a proposal") });
+  pushId('item', (await gm('POST', '/inventory', { owner: 'party', name: 'Rope', qty: 1, gmNote: mark('item_gm_note_party', ['gm'], 'a GM note on a party item'), reason: 'stash' })).id);
+  pushId('item', (await gm('POST', '/inventory', { owner: ID.jess, name: 'Painted Shield', qty: 1, image: img.json.id, reason: 'prize' })).id);
+  await gm('PATCH', `/inventory/${ring.id}`, { gmNote: mark('item_gm_note_edit', ['gm'], 'a GM note changed later (alert history)'), qty: 2, reason: 'tweak' });
+  pushId('item', (await gm('POST', '/inventory', { owner: ID.tom, name: 'Tom Dagger', qty: 1, note: mark('tom_item_note', ['gm', 'tom'], "an item note on tom's own item"), reason: 'gift' })).id);
+  const lantern = await jess('POST', '/inventory', { owner: 'me', name: 'Lantern', qty: 1, note: mark('jess_item_proposal', ['gm', 'jess'], "a player's proposed item"), reason: mark('jess_item_reason', ['gm', 'jess'], "a player's reason for a proposal") });
   pushId('item', lantern.id);
 
   // ---- people ---------------------------------------------------------------------------------
-  pushId('person', (await dm('POST', '/people', { name: `Warden ${mark('person_dm', ['dm'], 'a DM-only person')}`, role: mark('person_dm_role', ['dm'], 'role of a DM-only person'), visibility: 'dm' })).id);
-  const odda = await dm('POST', '/people', { name: 'Odda Brightwater', role: 'Innkeeper', attitude: 'friendly', visibility: 'party' });
+  pushId('person', (await gm('POST', '/people', { name: `Warden ${mark('person_gm', ['gm'], 'a GM-only person')}`, role: mark('person_gm_role', ['gm'], 'role of a GM-only person'), visibility: 'gm' })).id);
+  const odda = await gm('POST', '/people', { name: 'Odda Brightwater', role: 'Innkeeper', attitude: 'friendly', visibility: 'party' });
   pushId('person', odda.id);
-  await dm('POST', `/people/${odda.id}/quotes`, { text: mark('quote_dm', ['dm'], 'a DM-only quote of a shared person'), said: 'Day 1', visibility: 'dm' });
-  await dm('POST', `/people/${odda.id}/quotes`, { text: mark('quote_party', ['dm', 'jess', 'tom'], 'a shared quote (control)'), said: 'Day 1', visibility: 'party' });
-  await dm('POST', `/people/${odda.id}/recalls`, { accountId: ID.jess, text: mark('recall_jess', ['dm', 'jess', 'tom'], 'a recall shown to the party'), success: true });
-  await dm('PUT', `/people/${odda.id}/note`, { body: mark('person_note_dm', ['dm'], "the DM's own note on a shared person") });
+  await gm('POST', `/people/${odda.id}/quotes`, { text: mark('quote_gm', ['gm'], 'a GM-only quote of a shared person'), said: 'Day 1', visibility: 'gm' });
+  await gm('POST', `/people/${odda.id}/quotes`, { text: mark('quote_party', ['gm', 'jess', 'tom'], 'a shared quote (control)'), said: 'Day 1', visibility: 'party' });
+  await gm('POST', `/people/${odda.id}/recalls`, { accountId: ID.jess, text: mark('recall_jess', ['gm', 'jess', 'tom'], 'a recall shown to the party'), success: true });
+  await gm('PUT', `/people/${odda.id}/note`, { body: mark('person_note_gm', ['gm'], "the GM's own note on a shared person") });
   await jess('PUT', `/people/${odda.id}/note`, { body: mark('person_note_jess', ['jess'], "jess's private note (only me)") });
   await tom('PUT', `/people/${odda.id}/note`, { body: mark('person_note_tom', ['tom'], "tom's private note (only me)") });
   await jess('PUT', '/profiles/me/blocks', { section: 'story', title: 'Past', body: mark('profile_me', ['jess'], "jess's profile block (only me)"), visibility: 'me' });
-  await jess('PUT', '/profiles/me/blocks', { section: 'goals', title: 'Goal', body: mark('profile_dm', ['dm', 'jess'], "jess's profile block shared with the DM"), visibility: 'dm' });
+  await jess('PUT', '/profiles/me/blocks', { section: 'goals', title: 'Goal', body: mark('profile_gm', ['gm', 'jess'], "jess's profile block shared with the GM"), visibility: 'gm' });
   await tom('PUT', '/profiles/me/blocks', { section: 'story', title: 'Past', body: mark('profile_tom_me', ['tom'], "tom's profile block (only me)"), visibility: 'me' });
 
   // ---- map marks -----------------------------------------------------------------------------
-  await dm('POST', '/map/world/marks', { kind: 'note', x: 10, y: 10, text: mark('mark_dm', ['dm'], "a DM-only map mark"), visibility: 'dm' });
+  await gm('POST', '/map/world/marks', { kind: 'note', x: 10, y: 10, text: mark('mark_gm', ['gm'], "a GM-only map mark"), visibility: 'gm' });
   await jess('POST', '/map/world/marks', { kind: 'note', x: 20, y: 20, text: mark('mark_jess_me', ['jess'], "jess's own map mark"), visibility: 'me' });
   await tom('POST', '/map/world/marks', { kind: 'note', x: 25, y: 25, text: mark('mark_tom_me', ['tom'], "tom's own map mark"), visibility: 'me' });
-  const hidden = await tom('POST', '/map/world/marks', { kind: 'note', x: 30, y: 30, text: mark('mark_tom_hidden', ['dm', 'tom'], 'a party mark the DM hid', { eventsOk: true }), visibility: 'party' });
-  await dm('PATCH', `/map/world/marks/${hidden.id}`, { hidden: true });
+  const hidden = await tom('POST', '/map/world/marks', { kind: 'note', x: 30, y: 30, text: mark('mark_tom_hidden', ['gm', 'tom'], 'a party mark the GM hid', { eventsOk: true }), visibility: 'party' });
+  await gm('PATCH', `/map/world/marks/${hidden.id}`, { hidden: true });
 
   // ---- combat: hidden combatants and monster HP -----------------------------------------------
-  const num = (id: string, n: number, where: string) => markNum(id, ['dm'], where, n);
-  await dm('PUT', '/live/combat', { active: true });
-  await dm('POST', '/live/combatants', { name: `Ambusher ${mark('hidden_foe', ['dm'], 'a hidden combatant')}`, initiative: 12, hp: num('hidden_hp', 73917, 'hp of a hidden combatant'), hidden: true });
-  await dm('POST', '/live/combatants', { name: 'Goblin', initiative: 10, hp: num('monster_hp', 82614, 'monster HP'), maxHp: 82614, ac: 17 });
-  await dm('POST', '/live/combatants', { name: 'Jessamine', initiative: 14, hp: 22, accountId: ID.jess });
+  const num = (id: string, n: number, where: string) => markNum(id, ['gm'], where, n);
+  await gm('PUT', '/live/combat', { active: true });
+  await gm('POST', '/live/combatants', { name: `Ambusher ${mark('hidden_foe', ['gm'], 'a hidden combatant')}`, initiative: 12, hp: num('hidden_hp', 73917, 'hp of a hidden combatant'), hidden: true });
+  await gm('POST', '/live/combatants', { name: 'Goblin', initiative: 10, hp: num('monster_hp', 82614, 'monster HP'), maxHp: 82614, ac: 17 });
+  await gm('POST', '/live/combatants', { name: 'Jessamine', initiative: 14, hp: 22, accountId: ID.jess });
 
   // ---- clock events ----------------------------------------------------------------------------
-  await dm('POST', '/clock/events', { title: mark('clock_dm', ['dm'], 'a DM-only clock event'), description: mark('clock_dm_desc', ['dm'], 'description of a DM-only clock event'), start: 100, visibility: 'dm' });
-  await dm('POST', '/clock/events', { title: 'Harvest festival', description: mark('clock_party', ['dm', 'jess', 'tom'], 'a shared clock event (control)'), start: 200, visibility: 'party' });
+  await gm('POST', '/clock/events', { title: mark('clock_gm', ['gm'], 'a GM-only clock event'), description: mark('clock_gm_desc', ['gm'], 'description of a GM-only clock event'), start: 100, visibility: 'gm' });
+  await gm('POST', '/clock/events', { title: 'Harvest festival', description: mark('clock_party', ['gm', 'jess', 'tom'], 'a shared clock event (control)'), start: 200, visibility: 'party' });
 
   // ---- the broker ---------------------------------------------------------------------------------
-  await dm('PATCH', '/settings', { brokerEnabled: true });
-  await dm('POST', '/broker/notes', { topic: 'smugglers', text: mark('broker_note', ['dm'], 'a broker note (only sold when asked)'), knowledge: 'local' });
-  await dm('PUT', '/broker/spoilers', { topics: [mark('broker_spoiler', ['dm'], 'a guarded broker topic')] });
-  await dm('POST', '/broker/offers', { title: `Offer ${mark('offer_tom_title', ['dm', 'tom'], 'title of an offer to tom')}`, teaser: mark('offer_tom_teaser', ['dm', 'tom'], 'teaser of an offer to tom'), info: mark('offer_tom_info', ['dm'], 'the information of an offer to tom (unpaid)'), priceCp: 100, targets: [ID.tom] });
-  await dm('POST', '/broker/offers', { title: `Offer ${mark('offer_jess_title', ['dm', 'jess'], 'title of an offer to jess')}`, teaser: mark('offer_jess_teaser', ['dm', 'jess'], 'teaser of an offer to jess'), info: mark('offer_jess_info', ['dm'], 'the information of an offer to jess (unpaid)'), priceCp: 100, targets: [ID.jess] });
-  // A question whose DM-side evidence is the DM page.
+  await gm('PATCH', '/settings', { brokerEnabled: true });
+  await gm('POST', '/broker/notes', { topic: 'smugglers', text: mark('broker_note', ['gm'], 'a broker note (only sold when asked)'), knowledge: 'local' });
+  await gm('PUT', '/broker/spoilers', { topics: [mark('broker_spoiler', ['gm'], 'a guarded broker topic')] });
+  await gm('POST', '/broker/offers', { title: `Offer ${mark('offer_tom_title', ['gm', 'tom'], 'title of an offer to tom')}`, teaser: mark('offer_tom_teaser', ['gm', 'tom'], 'teaser of an offer to tom'), info: mark('offer_tom_info', ['gm'], 'the information of an offer to tom (unpaid)'), priceCp: 100, targets: [ID.tom] });
+  await gm('POST', '/broker/offers', { title: `Offer ${mark('offer_jess_title', ['gm', 'jess'], 'title of an offer to jess')}`, teaser: mark('offer_jess_teaser', ['gm', 'jess'], 'teaser of an offer to jess'), info: mark('offer_jess_info', ['gm'], 'the information of an offer to jess (unpaid)'), priceCp: 100, targets: [ID.jess] });
+  // A question whose GM-side evidence is the GM page.
   for (const [who, f, id] of [['jess', jess, 'broker_q_jess'], ['tom', tom, 'broker_q_tom']] as const) {
-    const q = await f('POST', '/broker/quote', { question: `Who secretly answers to the smuggler queen in the harbour council? ${mark(id, ['dm', who], `a question ${who} put to the broker`)}`, length: 'short' });
+    const q = await f('POST', '/broker/quote', { question: `Who secretly answers to the smuggler queen in the harbour council? ${mark(id, ['gm', who], `a question ${who} put to the broker`)}`, length: 'short' });
     if (q.quoteId) { try { await f('POST', '/broker/ask', { quoteId: q.quoteId }); } catch { /* may be refused: still stored */ } }
   }
-  await dm('POST', '/broker/classify', { question: 'Who secretly answers to the smuggler queen in the harbour council?' }).catch(() => {});
+  await gm('POST', '/broker/classify', { question: 'Who secretly answers to the smuggler queen in the harbour council?' }).catch(() => {});
 
-  // ---- the shop: a hidden shop, DM notes, a hidden stock line, the keeper's secret, a DM-only location ------------------
-  const hiddenItem = await dm('POST', '/shop/items', { name: `Glass Key ${mark('shop_item_hidden_line', ['dm'], 'an item stocked only on a hidden line')}`, cost: '5 gp', dmNotes: mark('shop_item_dm_notes', ['dm'], 'DM notes on an item in the item database') });
-  const saleItem = await dm('POST', '/shop/items', { name: 'Harbour Lantern', cost: '2 gp', description: `A brass lantern. ${mark('shop_item_public', ['dm', 'jess', 'tom'], 'the description of an item on sale in an open shop (control)')}`, dmNotes: mark('shop_item_dm_notes_sale', ['dm'], 'DM notes on an item on sale in an open shop') });
-  const openShop = await dm('POST', '/shop/shops', {
-    name: 'Harbour Chandlery', kind: 'general', status: 'open', description: `Ropes and lamps. ${mark('shop_open_desc', ['dm', 'jess', 'tom'], 'the description of an open shop (control)')}`,
-    haggle: mark('shop_haggle', ['dm'], "a shop's haggle note"), dmNotes: mark('shop_dm_notes', ['dm'], "a shop's DM notes"), locationPageId: S.pages.dm.id,
-    keeper: { name: 'Odda Wick', look: 'Tall and thin', voice: 'Low', personality: 'Kind', secret: mark('shop_keeper_secret', ['dm'], "a shopkeeper's secret") },
-    stock: [{ itemId: saleItem.id, qty: 5, dmNote: mark('shop_line_note', ['dm'], 'a DM note on a stock line') }, { itemId: hiddenItem.id, qty: 1, hidden: true }],
+  // ---- the shop: a hidden shop, GM notes, a hidden stock line, the keeper's secret, a GM-only location ------------------
+  const hiddenItem = await gm('POST', '/shop/items', { name: `Glass Key ${mark('shop_item_hidden_line', ['gm'], 'an item stocked only on a hidden line')}`, cost: '5 gp', gmNotes: mark('shop_item_gm_notes', ['gm'], 'GM notes on an item in the item database') });
+  const saleItem = await gm('POST', '/shop/items', { name: 'Harbour Lantern', cost: '2 gp', description: `A brass lantern. ${mark('shop_item_public', ['gm', 'jess', 'tom'], 'the description of an item on sale in an open shop (control)')}`, gmNotes: mark('shop_item_gm_notes_sale', ['gm'], 'GM notes on an item on sale in an open shop') });
+  const openShop = await gm('POST', '/shop/shops', {
+    name: 'Harbour Chandlery', kind: 'general', status: 'open', description: `Ropes and lamps. ${mark('shop_open_desc', ['gm', 'jess', 'tom'], 'the description of an open shop (control)')}`,
+    haggle: mark('shop_haggle', ['gm'], "a shop's haggle note"), gmNotes: mark('shop_gm_notes', ['gm'], "a shop's GM notes"), locationPageId: S.pages.gm.id,
+    keeper: { name: 'Odda Wick', look: 'Tall and thin', voice: 'Low', personality: 'Kind', secret: mark('shop_keeper_secret', ['gm'], "a shopkeeper's secret") },
+    stock: [{ itemId: saleItem.id, qty: 5, gmNote: mark('shop_line_note', ['gm'], 'a GM note on a stock line') }, { itemId: hiddenItem.id, qty: 1, hidden: true }],
   });
   pushId('shop', openShop.id);
-  pushId('shop', (await dm('POST', '/shop/shops', { name: `Smuggler Den ${mark('shop_hidden_name', ['dm'], 'the name of a hidden shop')}`, kind: 'fence', status: 'hidden', description: mark('shop_hidden_desc', ['dm'], 'the description of a hidden shop'), stock: [{ itemId: saleItem.id, qty: 1 }] })).id);
-  await dm('POST', '/live/ledger', { owner: ID.jess, amountCp: 1000, note: 'Shop money' });
-  // A town with DM notes, a reputation note and a deal: what the keeper remembers is the DM's.
-  await dm('POST', '/shop/towns', { name: 'Harbour Town', pricePct: 10, description: 'Busy docks.', dmNotes: mark('shop_town_dm_notes', ['dm'], "a town's DM notes"), shopIds: [openShop.id] });
-  await dm('PUT', `/shop/shops/${openShop.id}/memory/${ID.tom}`, { rep: 20, note: mark('shop_rep_note', ['dm'], "the DM's note on a player's reputation with a keeper") });
-  await dm('POST', `/shop/shops/${openShop.id}/deals`, { accountId: ID.tom, pct: 10, note: mark('shop_deal_note', ['dm'], 'why the DM gave a player a deal') });
+  pushId('shop', (await gm('POST', '/shop/shops', { name: `Smuggler Den ${mark('shop_hidden_name', ['gm'], 'the name of a hidden shop')}`, kind: 'fence', status: 'hidden', description: mark('shop_hidden_desc', ['gm'], 'the description of a hidden shop'), stock: [{ itemId: saleItem.id, qty: 1 }] })).id);
+  await gm('POST', '/live/ledger', { owner: ID.jess, amountCp: 1000, note: 'Shop money' });
+  // A town with GM notes, a reputation note and a deal: what the keeper remembers is the GM's.
+  await gm('POST', '/shop/towns', { name: 'Harbour Town', pricePct: 10, description: 'Busy docks.', gmNotes: mark('shop_town_gm_notes', ['gm'], "a town's GM notes"), shopIds: [openShop.id] });
+  await gm('PUT', `/shop/shops/${openShop.id}/memory/${ID.tom}`, { rep: 20, note: mark('shop_rep_note', ['gm'], "the GM's note on a player's reputation with a keeper") });
+  await gm('POST', `/shop/shops/${openShop.id}/deals`, { accountId: ID.tom, pct: 10, note: mark('shop_deal_note', ['gm'], 'why the GM gave a player a deal') });
   await jess('POST', `/shop/shops/${openShop.id}/buy`, { stockId: openShop.stock.find((l: any) => l.name === 'Harbour Lantern').id, qty: 1 });
 
   // ---- the table: transcript, chat, whiteboard -----------------------------------------------------------
   const db = h.deps.db;
   const asid = 'ses_crawl';
-  run(db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by, stopped_at) VALUES (?, ?, ?, ?, ?, ?)', asid, W, 'Crawl night', new Date(Date.now() - 3_600_000).toISOString(), ID.dm, new Date(Date.now() - 1_800_000).toISOString());
-  run(db, 'INSERT INTO audio_mics (id, world_id, account_id, device_id, label, mode, players_transcript, aside, room, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 'mic_aside', W, ID.dm, 'dev1', 'Aside mic', 'always', 0, 1, 0, new Date().toISOString());
-  const line = (n: number, audience: string, text: string, sources = '[]') => run(db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_account, speaker_label, text, words, sources, audience, rev, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', `lin_${n}`, asid, W, n * 4000, n * 4000 + 3000, null, n === 1 ? 'Jessamine' : 'DM', text, '[]', sources, audience, 1, new Date().toISOString());
-  line(1, 'players', `We reached the harbour at dawn ${mark('transcript_public', ['dm', 'jess', 'tom'], 'a players transcript line (control)')} and met the captains.`);
-  line(2, 'dm', `Behind the screen ${mark('transcript_dm', ['dm'], 'a DM-only transcript line')} the queen is waiting.`);
-  line(3, 'dm', `Whispered aside ${mark('transcript_aside', ['dm'], 'a DM aside line')} do not publish.`, JSON.stringify(['mic_aside']));
-  const draft = await dm('POST', '/sessionlog/drafts', { audioSessionId: asid, title: 'Crawl night' });
+  run(db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by, stopped_at) VALUES (?, ?, ?, ?, ?, ?)', asid, W, 'Crawl night', new Date(Date.now() - 3_600_000).toISOString(), ID.gm, new Date(Date.now() - 1_800_000).toISOString());
+  run(db, 'INSERT INTO audio_mics (id, world_id, account_id, device_id, label, mode, players_transcript, aside, room, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 'mic_aside', W, ID.gm, 'dev1', 'Aside mic', 'always', 0, 1, 0, new Date().toISOString());
+  const line = (n: number, audience: string, text: string, sources = '[]') => run(db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_account, speaker_label, text, words, sources, audience, rev, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', `lin_${n}`, asid, W, n * 4000, n * 4000 + 3000, null, n === 1 ? 'Jessamine' : 'GM', text, '[]', sources, audience, 1, new Date().toISOString());
+  line(1, 'players', `We reached the harbour at dawn ${mark('transcript_public', ['gm', 'jess', 'tom'], 'a players transcript line (control)')} and met the captains.`);
+  line(2, 'gm', `Behind the screen ${mark('transcript_gm', ['gm'], 'a GM-only transcript line')} the queen is waiting.`);
+  line(3, 'gm', `Whispered aside ${mark('transcript_aside', ['gm'], 'a GM aside line')} do not publish.`, JSON.stringify(['mic_aside']));
+  const draft = await gm('POST', '/sessionlog/drafts', { audioSessionId: asid, title: 'Crawl night' });
   pushId('draft', draft.id);
-  await dm('PUT', `/sessionlog/drafts/${draft.id}`, { markdown: `## Recap\n- ${mark('sessionlog_draft', ['dm'], 'an unpublished session log draft')}\n` });
-  const draft2 = await dm('POST', '/sessionlog/drafts', { audioSessionId: asid, title: 'Published night' });
+  await gm('PUT', `/sessionlog/drafts/${draft.id}`, { markdown: `## Recap\n- ${mark('sessionlog_draft', ['gm'], 'an unpublished session log draft')}\n` });
+  const draft2 = await gm('POST', '/sessionlog/drafts', { audioSessionId: asid, title: 'Published night' });
   pushId('draft', draft2.id);
-  await dm('PUT', `/sessionlog/drafts/${draft2.id}`, { markdown: `## Recap\n- The party reached the harbour. ${mark('sessionlog_public', ['dm', 'jess', 'tom'], 'a published session summary (control)')}\n` });
-  await dm('POST', `/sessionlog/drafts/${draft2.id}/publish`, {});
+  await gm('PUT', `/sessionlog/drafts/${draft2.id}`, { markdown: `## Recap\n- The party reached the harbour. ${mark('sessionlog_public', ['gm', 'jess', 'tom'], 'a published session summary (control)')}\n` });
+  await gm('POST', `/sessionlog/drafts/${draft2.id}/publish`, {});
 
-  await dm('POST', '/sessionchat/sessions/start', { title: 'Crawl night' });
+  await gm('POST', '/sessionchat/sessions/start', { title: 'Crawl night' });
   await jess('POST', '/sessionchat/chat/party', { body: mark('chat_party', ['jess', 'tom'], 'a party chat message (players only)') });
   await tom('POST', '/sessionchat/chat/party', { body: mark('chat_party_tom', ['jess', 'tom'], 'another party chat message') });
-  await jess('POST', '/sessionchat/chat/table', { body: mark('chat_table', ['dm', 'jess', 'tom'], 'a table chat message (control)') });
+  await jess('POST', '/sessionchat/chat/table', { body: mark('chat_table', ['gm', 'jess', 'tom'], 'a table chat message (control)') });
   const thread = await jess('POST', '/messages', { members: [ID.tom], title: 'Plans' });
   pushId('thread', thread.id);
-  await jess('POST', `/messages/${thread.id}`, { body: mark('thread_jt', ['jess', 'tom'], 'a player to player chat (the DM is not in it)') });
-  const dmThread = await dm('POST', '/messages', { members: [ID.tom], title: 'Psst' });
-  pushId('thread', dmThread.id);
-  await dm('POST', `/messages/${dmThread.id}`, { body: mark('thread_dm_tom', ['dm', 'tom'], 'a DM to tom chat') });
-  await jess('POST', '/requests', { kind: 'question', title: mark('request_jess', ['dm', 'jess'], "jess's change request"), body: 'Please let me add a rope.', visibility: 'dm' });
-  await tom('POST', '/requests', { kind: 'question', title: mark('request_tom', ['dm', 'tom'], "tom's change request"), body: 'A dagger.', visibility: 'dm' });
-  await dm('POST', '/quick-events', { kind: 'save', title: 'Falling rocks', prompt: 'A rockslide!', skill: 'Dexterity', dc: 17, successText: mark('qe_success', ['dm'], 'success text of an open quick event'), failText: mark('qe_fail', ['dm'], 'fail text of an open quick event') });
-  await dm('POST', '/quick-events', { kind: 'recall', title: mark('qe_tom_title', ['dm', 'tom'], 'title of a quick event sent to tom'), prompt: 'You remember something.', audience: [ID.tom], dc: 12, successText: mark('qe_tom_success', ['dm'], 'success text of a quick event for tom') });
+  await jess('POST', `/messages/${thread.id}`, { body: mark('thread_jt', ['jess', 'tom'], 'a player to player chat (the GM is not in it)') });
+  const gmThread = await gm('POST', '/messages', { members: [ID.tom], title: 'Psst' });
+  pushId('thread', gmThread.id);
+  await gm('POST', `/messages/${gmThread.id}`, { body: mark('thread_gm_tom', ['gm', 'tom'], 'a GM to tom chat') });
+  await jess('POST', '/requests', { kind: 'question', title: mark('request_jess', ['gm', 'jess'], "jess's change request"), body: 'Please let me add a rope.', visibility: 'gm' });
+  await tom('POST', '/requests', { kind: 'question', title: mark('request_tom', ['gm', 'tom'], "tom's change request"), body: 'A dagger.', visibility: 'gm' });
+  await gm('POST', '/quick-events', { kind: 'save', title: 'Falling rocks', prompt: 'A rockslide!', skill: 'Dexterity', dc: 17, successText: mark('qe_success', ['gm'], 'success text of an open quick event'), failText: mark('qe_fail', ['gm'], 'fail text of an open quick event') });
+  await gm('POST', '/quick-events', { kind: 'recall', title: mark('qe_tom_title', ['gm', 'tom'], 'title of a quick event sent to tom'), prompt: 'You remember something.', audience: [ID.tom], dc: 12, successText: mark('qe_tom_success', ['gm'], 'success text of a quick event for tom') });
   // A resolved check: tom passes, jess fails; each sees only their own result text.
-  const check = await dm('POST', '/quick-events', { kind: 'save', title: 'Rope bridge', prompt: 'The bridge sways.', skill: 'Dexterity', dc: 15, successText: mark('qe_pass_tom', ['dm', 'tom'], 'success text: shown to the one who passed'), failText: mark('qe_fail_jess', ['dm', 'jess'], 'fail text: shown to the one who failed') });
+  const check = await gm('POST', '/quick-events', { kind: 'save', title: 'Rope bridge', prompt: 'The bridge sways.', skill: 'Dexterity', dc: 15, successText: mark('qe_pass_tom', ['gm', 'tom'], 'success text: shown to the one who passed'), failText: mark('qe_fail_jess', ['gm', 'jess'], 'fail text: shown to the one who failed') });
   await tom('POST', `/quick-events/${check.id}/respond`, { roll: 20, modifier: 0 });
   await jess('POST', `/quick-events/${check.id}/respond`, { roll: 1, modifier: 0 });
-  await dm('POST', `/quick-events/${check.id}/resolve`, {});
-  await jess('POST', '/inventory/coin/transfer', { from: 'me', to: ID.tom, amountCp: 5, note: mark('transfer_note', ['dm', 'jess', 'tom'], 'a note on coin given between players (the DM sees transfers)') });
+  await gm('POST', `/quick-events/${check.id}/resolve`, {});
+  await jess('POST', '/inventory/coin/transfer', { from: 'me', to: ID.tom, amountCp: 5, note: mark('transfer_note', ['gm', 'jess', 'tom'], 'a note on coin given between players (the GM sees transfers)') });
   await jess('POST', '/sessionchat/trades', { to: ID.tom, offerCp: 10, wantCp: 3, note: mark('trade_note', ['jess', 'tom'], 'a trade offer between players (players only)') });
-  await dm('POST', '/calendar', { title: 'Game night', startsAt: new Date(Date.now() + 86400_000).toISOString(), endsAt: new Date(Date.now() + 90000_000).toISOString(), location: 'The Gull and Anchor' });
-  const board = await dm('PUT', '/whiteboard', { baseVersion: 0, doc: { shapes: [{ type: 'text', text: mark('whiteboard_dm', ['dm', 'jess', 'tom'], 'a whiteboard drawing (the board is shared)') }] } });
+  await gm('POST', '/calendar', { title: 'Game night', startsAt: new Date(Date.now() + 86400_000).toISOString(), endsAt: new Date(Date.now() + 90000_000).toISOString(), location: 'The Gull and Anchor' });
+  const board = await gm('PUT', '/whiteboard', { baseVersion: 0, doc: { shapes: [{ type: 'text', text: mark('whiteboard_gm', ['gm', 'jess', 'tom'], 'a whiteboard drawing (the board is shared)') }] } });
   void board;
 
   // ---- the stage ---------------------------------------------------------------------------------------
-  const stageImg = await h.call('POST', `/api/worlds/${W}/stage/images`, T.dm, PNG(mark('stage_image', ['dm'], 'a stage picture not shown yet')), { 'Content-Type': 'image/png' });
+  const stageImg = await h.call('POST', `/api/worlds/${W}/stage/images`, T.gm, PNG(mark('stage_image', ['gm'], 'a stage picture not shown yet')), { 'Content-Type': 'image/png' });
   if (stageImg.status >= 300) throw new Error(`stage image ${stageImg.status} ${stageImg.text}`);
   pushId('stageimage', stageImg.json.id);
-  pushId('card', (await dm('POST', '/stage/cards', { kind: 'text', title: mark('stage_card', ['dm'], 'a stage card in staging'), text: mark('stage_card_text', ['dm'], 'text of a stage card in staging') })).id);
-  pushId('card', (await dm('POST', '/stage/cards', { kind: 'image', ref: stageImg.json.id, title: 'Backdrop' })).id);
-  pushId('card', (await dm('POST', '/stage/cards', { kind: 'text', title: mark('stage_card_tom', ['dm', 'tom'], 'a stage card shown to tom only'), text: 'Just for you.', show: true, to: [ID.tom] })).id);
+  pushId('card', (await gm('POST', '/stage/cards', { kind: 'text', title: mark('stage_card', ['gm'], 'a stage card in staging'), text: mark('stage_card_text', ['gm'], 'text of a stage card in staging') })).id);
+  pushId('card', (await gm('POST', '/stage/cards', { kind: 'image', ref: stageImg.json.id, title: 'Backdrop' })).id);
+  pushId('card', (await gm('POST', '/stage/cards', { kind: 'text', title: mark('stage_card_tom', ['gm', 'tom'], 'a stage card shown to tom only'), text: 'Just for you.', show: true, to: [ID.tom] })).id);
 
   // ---- files in the library: each one's name and its bytes carry the marker -------------------------------------
   const lib = async (query: string, bytes: Uint8Array | string, name: string) => {
-    const r = await h.call('POST', `/api/worlds/${W}/files?${query}&name=${encodeURIComponent(name)}`, T.dm, bytes, { 'Content-Type': 'application/octet-stream' });
+    const r = await h.call('POST', `/api/worlds/${W}/files?${query}&name=${encodeURIComponent(name)}`, T.gm, bytes, { 'Content-Type': 'application/octet-stream' });
     if (r.status >= 300) throw new Error(`library file ${r.status} ${r.text}`);
     pushId('libfile', r.json.id);
     return r.json;
   };
-  await lib(`page=${S.pages.shared.id}&level=party&kind=handout`, PNG(mark('libfile_party', ['dm', 'jess', 'tom'], 'a party-level file on a shared page (control)')), `${tok('libfile_party')}.png`);
-  await lib(`page=${S.pages.shared.id}&level=dm&kind=map`, PNG(mark('libfile_dm_on_party', ['dm'], 'a DM-level file on a shared page')), `${tok('libfile_dm_on_party')}.png`);
-  await lib(`page=${S.pages.shared.id}&level=broker&kind=item`, PNG(mark('libfile_broker', ['dm'], 'a broker-level file on a shared page')), `${tok('libfile_broker')}.png`);
-  await lib(`page=${S.pages.shared.id}&level=classified&kind=rules`, mark('libfile_classified', ['dm'], 'a classified file on a shared page', { ai: false, long: true }), 'vault-notes.txt');
-  await lib(`page=${S.pages.dm.id}&level=party&kind=handout`, PNG(mark('libfile_on_dmpage', ['dm'], 'a party-level file attached to a DM-only page')), `${tok('libfile_on_dmpage')}.png`);
+  await lib(`page=${S.pages.shared.id}&level=party&kind=handout`, PNG(mark('libfile_party', ['gm', 'jess', 'tom'], 'a party-level file on a shared page (control)')), `${tok('libfile_party')}.png`);
+  await lib(`page=${S.pages.shared.id}&level=gm&kind=map`, PNG(mark('libfile_gm_on_party', ['gm'], 'a GM-level file on a shared page')), `${tok('libfile_gm_on_party')}.png`);
+  await lib(`page=${S.pages.shared.id}&level=broker&kind=item`, PNG(mark('libfile_broker', ['gm'], 'a broker-level file on a shared page')), `${tok('libfile_broker')}.png`);
+  await lib(`page=${S.pages.shared.id}&level=classified&kind=rules`, mark('libfile_classified', ['gm'], 'a classified file on a shared page', { ai: false, long: true }), 'vault-notes.txt');
+  await lib(`page=${S.pages.gm.id}&level=party&kind=handout`, PNG(mark('libfile_on_dmpage', ['gm'], 'a party-level file attached to a GM-only page')), `${tok('libfile_on_dmpage')}.png`);
 
   // ---- library sharing: per-player shares, folder rules (also for pages and files added later), a file given alone ----
-  // Rule-lifted pages are DM-level, so a player assistant may be sent them (ai stays true) but only that player's.
-  await page('share_page_jess', 'Shared/Jess Only.md', 'dm', `A page only Jess was sent. ${mark('share_page_jess', ['dm', 'jess'], 'a DM page shared with Jess only')}`);
-  await dm('PUT', '/libshare/share', { kind: 'page', id: S.pages.share_page_jess.id, mode: 'players', players: [ID.jess], notify: true });
-  await page('share_folder_tom', 'Tom Folder/Open.md', 'dm', `In a folder shared with Tom. ${mark('share_folder_tom', ['dm', 'tom'], 'a DM page in a folder shared with Tom only')}`);
-  await page('share_folder_classified', 'Tom Folder/Sealed.md', 'classified', `Sealed. ${mark('share_folder_classified', ['dm'], 'a classified page inside a shared folder', { long: true, ai: false })}`);
-  await page('share_folder_broker', 'Tom Folder/Broker.md', 'broker', `For sale. ${mark('share_folder_broker', ['dm'], 'a broker page inside a shared folder')}`);
-  await dm('PUT', '/libshare/share', { kind: 'folder', sourceId: '', path: 'Tom Folder', mode: 'players', players: [ID.tom], confirm: true });
-  await lib(`page=${S.pages.share_page_jess.id}&level=dm`, PNG(mark('share_file_jess', ['dm', 'jess'], 'a file given to Jess only')), `${tok('share_file_jess')}.png`).then((f) => dm('PUT', '/libshare/share', { kind: 'file', id: f.id, mode: 'players', players: [ID.jess], notify: true }));
+  // Rule-lifted pages are GM-level, so a player assistant may be sent them (ai stays true) but only that player's.
+  await page('share_page_jess', 'Shared/Jess Only.md', 'gm', `A page only Jess was sent. ${mark('share_page_jess', ['gm', 'jess'], 'a GM page shared with Jess only')}`);
+  await gm('PUT', '/libshare/share', { kind: 'page', id: S.pages.share_page_jess.id, mode: 'players', players: [ID.jess], notify: true });
+  await page('share_folder_tom', 'Tom Folder/Open.md', 'gm', `In a folder shared with Tom. ${mark('share_folder_tom', ['gm', 'tom'], 'a GM page in a folder shared with Tom only')}`);
+  await page('share_folder_classified', 'Tom Folder/Sealed.md', 'classified', `Sealed. ${mark('share_folder_classified', ['gm'], 'a classified page inside a shared folder', { long: true, ai: false })}`);
+  await page('share_folder_broker', 'Tom Folder/Broker.md', 'broker', `For sale. ${mark('share_folder_broker', ['gm'], 'a broker page inside a shared folder')}`);
+  await gm('PUT', '/libshare/share', { kind: 'folder', sourceId: '', path: 'Tom Folder', mode: 'players', players: [ID.tom], confirm: true });
+  await lib(`page=${S.pages.share_page_jess.id}&level=gm`, PNG(mark('share_file_jess', ['gm', 'jess'], 'a file given to Jess only')), `${tok('share_file_jess')}.png`).then((f) => gm('PUT', '/libshare/share', { kind: 'file', id: f.id, mode: 'players', players: [ID.jess], notify: true }));
   // Added to Tom's folder after the rule: the rule covers them (Tom only), never a classified file.
-  await page('share_folder_later', 'Tom Folder/Later/Added After.md', 'dm', `Filed after the folder was shared. ${mark('share_folder_later', ['dm', 'tom'], 'a DM page added to a folder after it was shared with Tom')}`);
-  await lib(`page=${S.pages.share_folder_later.id}&level=dm`, PNG(mark('share_folder_later_file', ['dm', 'tom'], 'a DM file added to a folder after it was shared with Tom')), `${tok('share_folder_later_file')}.png`);
-  await lib(`page=${S.pages.share_folder_later.id}&level=classified`, mark('share_folder_later_classified', ['dm'], 'a classified file added to a folder shared with Tom', { long: true, ai: false }), 'later-sealed.txt');
-  // A file given to Jess alone, on a DM page she cannot open: she gets the file, never the page.
-  await page('share_file_home_page', 'Handouts/Behind The Screen.md', 'dm', `The page a handout hangs on. ${mark('share_file_home_page', ['dm'], 'a DM page holding a file given to Jess alone')}`);
-  await lib(`page=${S.pages.share_file_home_page.id}&level=dm`, PNG(mark('share_file_alone_jess', ['dm', 'jess'], 'a file given to Jess alone, its page hidden')), `${tok('share_file_alone_jess')}.png`).then((f) => dm('PUT', '/libshare/share', { kind: 'file', id: f.id, mode: 'players', players: [ID.jess], notify: true }));
+  await page('share_folder_later', 'Tom Folder/Later/Added After.md', 'gm', `Filed after the folder was shared. ${mark('share_folder_later', ['gm', 'tom'], 'a GM page added to a folder after it was shared with Tom')}`);
+  await lib(`page=${S.pages.share_folder_later.id}&level=gm`, PNG(mark('share_folder_later_file', ['gm', 'tom'], 'a GM file added to a folder after it was shared with Tom')), `${tok('share_folder_later_file')}.png`);
+  await lib(`page=${S.pages.share_folder_later.id}&level=classified`, mark('share_folder_later_classified', ['gm'], 'a classified file added to a folder shared with Tom', { long: true, ai: false }), 'later-sealed.txt');
+  // A file given to Jess alone, on a GM page she cannot open: she gets the file, never the page.
+  await page('share_file_home_page', 'Handouts/Behind The Screen.md', 'gm', `The page a handout hangs on. ${mark('share_file_home_page', ['gm'], 'a GM page holding a file given to Jess alone')}`);
+  await lib(`page=${S.pages.share_file_home_page.id}&level=gm`, PNG(mark('share_file_alone_jess', ['gm', 'jess'], 'a file given to Jess alone, its page hidden')), `${tok('share_file_alone_jess')}.png`).then((f) => gm('PUT', '/libshare/share', { kind: 'file', id: f.id, mode: 'players', players: [ID.jess], notify: true }));
 
   // ---- generators, sculpting, voice, sound --------------------------------------------------------
-  await page('item_dm', 'items/Whisper Blade.md', 'dm', `# Whisper Blade\nA dagger. ${mark('quickgen_item', ['dm'], 'a DM-only page tagged item (quick-gen draws from it)')}\n`, { title: `Whisper Blade ${tok('quickgen_item')}`, tags: ['item'], rarity: 'rare' });
-  await page('item_class', 'items/Hollow Crown.md', 'classified', `# Hollow Crown\n${mark('quickgen_item_class', ['dm'], 'a classified page tagged item', { ai: false, long: true })}\n`, { title: 'Hollow Crown', tags: ['item'], rarity: 'rare' });
-  await dm('POST', '/sculpt/templates', { name: `Tavern ${mark('sculpt_template', ['dm'], 'a sculpt template name')}`, description: '', perspective: 'dm', fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}', target: { kind: 'none' } }).catch(() => {});
-  await dm('POST', '/sculpt/run', { template: 'npc', values: { name: mark('sculpt_history', ['dm'], 'a value in Sculpting history') } }).catch(() => {});
-  await dm('POST', '/voice/presets', { name: mark('voice_preset', ['dm'], 'a voice preset name'), voice: 'af_heart', speed: 1 }).catch(() => {});
+  await page('item_gm', 'items/Whisper Blade.md', 'gm', `# Whisper Blade\nA dagger. ${mark('quickgen_item', ['gm'], 'a GM-only page tagged item (quick-gen draws from it)')}\n`, { title: `Whisper Blade ${tok('quickgen_item')}`, tags: ['item'], rarity: 'rare' });
+  await page('item_class', 'items/Hollow Crown.md', 'classified', `# Hollow Crown\n${mark('quickgen_item_class', ['gm'], 'a classified page tagged item', { ai: false, long: true })}\n`, { title: 'Hollow Crown', tags: ['item'], rarity: 'rare' });
+  await gm('POST', '/sculpt/templates', { name: `Tavern ${mark('sculpt_template', ['gm'], 'a sculpt template name')}`, description: '', perspective: 'gm', fields: [{ key: 'name', label: 'Name', type: 'text' }], body: '# {{name}}', target: { kind: 'none' } }).catch(() => {});
+  await gm('POST', '/sculpt/run', { template: 'npc', values: { name: mark('sculpt_history', ['gm'], 'a value in Sculpting history') } }).catch(() => {});
+  await gm('POST', '/voice/presets', { name: mark('voice_preset', ['gm'], 'a voice preset name'), voice: 'af_heart', speed: 1 }).catch(() => {});
 
   // ---- WorldLore: the agent's own wiki, with broker and classified pages -------------------------------------
-  await dm('PUT', '/worldlore/config', { kind: 'library', root: 'WorldLore', defaultLevel: 'dm' }).catch(() => {});
-  await dm('POST', '/worldlore/pages', { path: 'WorldLore/Broker Lore', title: 'Broker Lore', markdown: `# Broker Lore\n${mark('lore_broker', ['dm'], 'a WorldLore page at level broker')}\n`, level: 'broker' }).catch(() => {});
-  await dm('POST', '/worldlore/pages', { path: 'WorldLore/Classified Lore', title: 'Classified Lore', markdown: `# Classified Lore\n${mark('lore_classified', ['dm'], 'a WorldLore page at level classified', { ai: false, long: true })}\n`, level: 'classified' }).catch(() => {});
+  await gm('PUT', '/worldlore/config', { kind: 'library', root: 'WorldLore', defaultLevel: 'gm' }).catch(() => {});
+  await gm('POST', '/worldlore/pages', { path: 'WorldLore/Broker Lore', title: 'Broker Lore', markdown: `# Broker Lore\n${mark('lore_broker', ['gm'], 'a WorldLore page at level broker')}\n`, level: 'broker' }).catch(() => {});
+  await gm('POST', '/worldlore/pages', { path: 'WorldLore/Classified Lore', title: 'Classified Lore', markdown: `# Classified Lore\n${mark('lore_classified', ['gm'], 'a WorldLore page at level classified', { ai: false, long: true })}\n`, level: 'classified' }).catch(() => {});
 
-  // ---- Minerva: the DM's agent and her campaign memory (docs/MINERVA.md §5) ------------------------------------------------------
-  // Her name is the DM's alone; dm/ is the DM's; a player's root is theirs and the DM's; the "Shared with the party" lines are the table's;
+  // ---- Minerva: the GM's agent and her campaign memory (docs/MINERVA.md §5) ------------------------------------------------------
+  // Her name is the GM's alone; gm/ is the GM's; a player's root is theirs and the GM's; the "Shared with the party" lines are the table's;
   // a codex page open to the party keeps its secret block; broker and classified vault pages follow their levels.
-  await dm('PATCH', '/settings', { agentName: mark('minerva_name', ['dm'], "the name the DM gave the assistant (never shown to a player)") });
-  await dm('POST', '/minerva/enable', {});
-  const mv = (rel: string, body: string, extra: Record<string, unknown> = {}) => dm('PUT', '/minerva/page', { rel, body, ...extra });
-  await mv('dm/state/Campaign Status.md', `# Campaign Status\n\n## Now\n${mark('minerva_dm_status', ['dm'], "text in Minerva's Campaign Status")}\n`);
-  await mv('dm/hidden-lore/Truth.md', `# Truth\n${mark('minerva_dm_lore', ['dm'], 'text in a page under Minerva dm/')}\n`);
-  await mv(`dm/players/${ID.jess}.md`, `# Jess\n\n## Table notes\n${mark('minerva_dm_player_note', ['dm'], "Minerva's private note on a player")}\n`);
-  await mv(`players/${ID.jess}/journal/session-1.md`, `# Session 1\n\n## Notes\n- ${mark('minerva_player_root', ['dm', 'jess'], "a line in jess's own Minerva player root (journal)")}\n`);
-  await mv(`players/${ID.tom}/journal/session-1.md`, `# Session 1\n\n## Notes\n- ${mark('minerva_player_root_tom', ['dm', 'tom'], "a line in tom's own player root (journal)")}\n`);
-  await mv(`players/${ID.jess}/shared.md`, `# Shared with the party\n\n## Shared\n- ${mark('minerva_shared_section', ['dm', 'jess', 'tom'], 'the "Shared with the party" lines of jess (visible to the other players)')}\n`);
-  await mv(`players/${ID.jess}/profile.md`, `# Jess\n\n> [!secret]\n> ${mark('minerva_profile_secret', ['dm'], 'a secret block in a player profile')}\n`);
-  await mv('codex/characters/npc/Harbour Warden.md', `# Harbour Warden\n\nKnown to the party: ${mark('minerva_codex_party', ['dm', 'jess', 'tom'], 'a party-level part of a codex page (control)')}\n\n> [!secret]\n> ${mark('minerva_codex_secret', ['dm'], 'a secret block in a codex page open to the party')}\n`, { level: 'party' });
+  await gm('PATCH', '/settings', { agentName: mark('minerva_name', ['gm'], "the name the GM gave the assistant (never shown to a player)") });
+  await gm('POST', '/minerva/enable', {});
+  const mv = (rel: string, body: string, extra: Record<string, unknown> = {}) => gm('PUT', '/minerva/page', { rel, body, ...extra });
+  await mv('gm/state/Campaign Status.md', `# Campaign Status\n\n## Now\n${mark('minerva_gm_status', ['gm'], "text in Minerva's Campaign Status")}\n`);
+  await mv('gm/hidden-lore/Truth.md', `# Truth\n${mark('minerva_gm_lore', ['gm'], 'text in a page under Minerva gm/')}\n`);
+  await mv(`gm/players/${ID.jess}.md`, `# Jess\n\n## Table notes\n${mark('minerva_gm_player_note', ['gm'], "Minerva's private note on a player")}\n`);
+  await mv(`players/${ID.jess}/journal/session-1.md`, `# Session 1\n\n## Notes\n- ${mark('minerva_player_root', ['gm', 'jess'], "a line in jess's own Minerva player root (journal)")}\n`);
+  await mv(`players/${ID.tom}/journal/session-1.md`, `# Session 1\n\n## Notes\n- ${mark('minerva_player_root_tom', ['gm', 'tom'], "a line in tom's own player root (journal)")}\n`);
+  await mv(`players/${ID.jess}/shared.md`, `# Shared with the party\n\n## Shared\n- ${mark('minerva_shared_section', ['gm', 'jess', 'tom'], 'the "Shared with the party" lines of jess (visible to the other players)')}\n`);
+  await mv(`players/${ID.jess}/profile.md`, `# Jess\n\n> [!secret]\n> ${mark('minerva_profile_secret', ['gm'], 'a secret block in a player profile')}\n`);
+  await mv('codex/characters/npc/Harbour Warden.md', `# Harbour Warden\n\nKnown to the party: ${mark('minerva_codex_party', ['gm', 'jess', 'tom'], 'a party-level part of a codex page (control)')}\n\n> [!secret]\n> ${mark('minerva_codex_secret', ['gm'], 'a secret block in a codex page open to the party')}\n`, { level: 'party' });
   // Minerva's own analysis aimed at a player character's party-level codex page (the Anselm hook leak): written through codex_upsert it lands in a secret block.
-  await dm('POST', '/minerva/codex', { name: 'Jessamine', kind: 'pc', section: 'notes', text: `Hook aimed at Jessamine: ${mark('minerva_codex_upsert_analysis', ['dm'], "Minerva's analysis written to a player character's party-level codex page with codex_upsert (must land in a secret block)")}` });
-  await mv('codex/lore/Broker Rumour.md', `# Broker Rumour\n${mark('minerva_codex_broker', ['dm'], 'a broker-level codex page')}\n`, { level: 'broker' });
-  await mv('codex/lore/Sealed Vault.md', `# Sealed Vault\n${mark('minerva_codex_classified', ['dm'], 'a classified codex page', { ai: false, long: true })}\n`, { level: 'classified' });
-  const myst = await dm('POST', '/minerva/revelations', { title: 'Who rang the sunken bell?', conclusion: mark('minerva_revelation', ['dm'], "a revelation's conclusion (until a player reaches it)"), clues: [mark('minerva_clue_found', ['dm', 'jess'], 'a clue jess found (in her knowledge)'), 'A second clue', 'A third clue'] });
-  await dm('POST', '/minerva/revelations/mark', { mystery: myst.slug, clue: 1, player: ID.jess, session: 1 });
-  await jess('POST', '/minerva/me/journal', { text: mark('minerva_draft', ['dm', 'jess'], "a journal line jess wrote that waits on the DM's review (draft)") });
+  await gm('POST', '/minerva/codex', { name: 'Jessamine', kind: 'pc', section: 'notes', text: `Hook aimed at Jessamine: ${mark('minerva_codex_upsert_analysis', ['gm'], "Minerva's analysis written to a player character's party-level codex page with codex_upsert (must land in a secret block)")}` });
+  await mv('codex/lore/Broker Rumour.md', `# Broker Rumour\n${mark('minerva_codex_broker', ['gm'], 'a broker-level codex page')}\n`, { level: 'broker' });
+  await mv('codex/lore/Sealed Vault.md', `# Sealed Vault\n${mark('minerva_codex_classified', ['gm'], 'a classified codex page', { ai: false, long: true })}\n`, { level: 'classified' });
+  const myst = await gm('POST', '/minerva/revelations', { title: 'Who rang the sunken bell?', conclusion: mark('minerva_revelation', ['gm'], "a revelation's conclusion (until a player reaches it)"), clues: [mark('minerva_clue_found', ['gm', 'jess'], 'a clue jess found (in her knowledge)'), 'A second clue', 'A third clue'] });
+  await gm('POST', '/minerva/revelations/mark', { mystery: myst.slug, clue: 1, player: ID.jess, session: 1 });
+  await jess('POST', '/minerva/me/journal', { text: mark('minerva_draft', ['gm', 'jess'], "a journal line jess wrote that waits on the GM's review (draft)") });
 
   // ---- the agent: chats and pending actions -----------------------------------------------------------------------
-  const chat = await dm('POST', '/agent/chats', { title: mark('agent_chat_dm', ['dm'], "the DM agent's chat title") });
+  const chat = await gm('POST', '/agent/chats', { title: mark('agent_chat_gm', ['gm'], "the GM agent's chat title") });
   pushId('agentchat', chat.id);
   const pchat = await jess('POST', '/agent/chats', { title: mark('agent_chat_jess', ['jess'], "jess's agent chat title") });
   pushId('agentchat', pchat.id);
-  run(db, 'INSERT INTO agent_messages (id, chat_id, role, content, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', 'agm_seed', chat.id, 'user', mark('agent_msg_dm', ['dm'], 'a message in the DM agent chat'), 'done', new Date().toISOString());
-  run(db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 'aga_seed', W, chat.id, ID.dm, 'add_person', JSON.stringify({ name: 'x' }), mark('agent_action', ['dm'], 'a pending agent action'), 'pending', new Date().toISOString());
+  run(db, 'INSERT INTO agent_messages (id, chat_id, role, content, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', 'agm_seed', chat.id, 'user', mark('agent_msg_gm', ['gm'], 'a message in the GM agent chat'), 'done', new Date().toISOString());
+  run(db, 'INSERT INTO agent_actions (id, world_id, chat_id, account_id, tool, args, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 'aga_seed', W, chat.id, ID.gm, 'add_person', JSON.stringify({ name: 'x' }), mark('agent_action', ['gm'], 'a pending agent action'), 'pending', new Date().toISOString());
 
-  // ---- spells: DM notes on spells and recipes, homebrew nobody may read, hidden and draft recipes, a player's sheet and requests ----------
-  await dm('PATCH', '/settings', { spellCrafting: true, spellMana: true });
-  await dm('PUT', '/spells/s/srd:fireball/meta', { public: true, dmNotes: mark('spell_dm_note', ['dm'], "the DM's note on a public spell") });
-  const hbHidden = await dm('POST', '/spells/s', { name: `Veil ${mark('spell_hidden_name', ['dm'], 'the name of a homebrew spell no player knows (result of a hidden recipe)')}`, level: 3, castingTime: 'Action', range: 'Self', components: 'V', duration: '1 hour', text: mark('spell_hidden_text', ['dm'], 'the text of a homebrew spell no player knows') });
-  const hbJess = await dm('POST', '/spells/s', { name: 'Tidecall', level: 1, castingTime: 'Action', range: '30 feet', components: 'V, S', duration: 'Instantaneous', text: mark('spell_known_jess', ['dm', 'jess'], 'the text of a homebrew spell only jess knows'), dmNotes: mark('spell_known_note', ['dm'], "the DM's note on a spell jess knows") });
-  await dm('POST', '/spells/s', { name: 'Harbour Light', level: 0, castingTime: 'Action', range: 'Touch', components: 'V', duration: '1 hour', text: mark('spell_public', ['dm', 'jess', 'tom'], 'the text of a public homebrew spell (control)'), public: true });
-  await dm('POST', `/spells/characters/${ID.jess}/known`, { spellId: hbJess.id });
-  await dm('POST', `/spells/characters/${ID.jess}/known`, { spellId: 'srd:fire-bolt' });
+  // ---- spells: GM notes on spells and recipes, homebrew nobody may read, hidden and draft recipes, a player's sheet and requests ----------
+  await gm('PATCH', '/settings', { spellCrafting: true, spellMana: true });
+  await gm('PUT', '/spells/s/srd:fireball/meta', { public: true, gmNotes: mark('spell_gm_note', ['gm'], "the GM's note on a public spell") });
+  const hbHidden = await gm('POST', '/spells/s', { name: `Veil ${mark('spell_hidden_name', ['gm'], 'the name of a homebrew spell no player knows (result of a hidden recipe)')}`, level: 3, castingTime: 'Action', range: 'Self', components: 'V', duration: '1 hour', text: mark('spell_hidden_text', ['gm'], 'the text of a homebrew spell no player knows') });
+  const hbJess = await gm('POST', '/spells/s', { name: 'Tidecall', level: 1, castingTime: 'Action', range: '30 feet', components: 'V, S', duration: 'Instantaneous', text: mark('spell_known_jess', ['gm', 'jess'], 'the text of a homebrew spell only jess knows'), gmNotes: mark('spell_known_note', ['gm'], "the GM's note on a spell jess knows") });
+  await gm('POST', '/spells/s', { name: 'Harbour Light', level: 0, castingTime: 'Action', range: 'Touch', components: 'V', duration: '1 hour', text: mark('spell_public', ['gm', 'jess', 'tom'], 'the text of a public homebrew spell (control)'), public: true });
+  await gm('POST', `/spells/characters/${ID.jess}/known`, { spellId: hbJess.id });
+  await gm('POST', `/spells/characters/${ID.jess}/known`, { spellId: 'srd:fire-bolt' });
   pushId('spell', hbHidden.id); pushId('spell', hbJess.id);
-  await dm('POST', '/spells/recipes', { result: 'Scorching Ray', prereqs: ['Fire Bolt', 'Tidecall'], stats: { int: 13 }, dmNotes: mark('recipe_dm_note', ['dm'], "the DM's note on a visible recipe") });
-  await dm('POST', '/spells/recipes', { result: hbHidden.id, prereqs: ['Fire Bolt'], visibility: 'hidden', dmNotes: mark('recipe_hidden_note', ['dm'], "the DM's note on a hidden recipe") });
-  await dm('POST', '/spells/recipes', { result: 'Fireball', prereqs: ['Tidecall'], draft: true, dmNotes: mark('recipe_draft_note', ['dm'], "the DM's note on a draft recipe from the assistant") });
-  await jess('PUT', '/spells/characters/me', { class: `Tidecaller ${mark('spell_sheet_jess', ['dm', 'jess'], "jess's class on her spell sheet")}`, level: 3, abilities: { int: 14 } });
+  await gm('POST', '/spells/recipes', { result: 'Scorching Ray', prereqs: ['Fire Bolt', 'Tidecall'], stats: { int: 13 }, gmNotes: mark('recipe_gm_note', ['gm'], "the GM's note on a visible recipe") });
+  await gm('POST', '/spells/recipes', { result: hbHidden.id, prereqs: ['Fire Bolt'], visibility: 'hidden', gmNotes: mark('recipe_hidden_note', ['gm'], "the GM's note on a hidden recipe") });
+  await gm('POST', '/spells/recipes', { result: 'Fireball', prereqs: ['Tidecall'], draft: true, gmNotes: mark('recipe_draft_note', ['gm'], "the GM's note on a draft recipe from the assistant") });
+  await jess('PUT', '/spells/characters/me', { class: `Tidecaller ${mark('spell_sheet_jess', ['gm', 'jess'], "jess's class on her spell sheet")}`, level: 3, abilities: { int: 14 } });
   const rid = (await jess('GET', '/spells/recipes')).recipes.find((x: any) => x.result.name === 'Scorching Ray')?.id;
-  if (rid) await jess('POST', '/spells/learn', { recipeId: rid, note: mark('spell_learn_note', ['dm', 'jess'], "jess's note on her request to learn a spell") });
+  if (rid) await jess('POST', '/spells/learn', { recipeId: rid, note: mark('spell_learn_note', ['gm', 'jess'], "jess's note on her request to learn a spell") });
+
+  // ---- downtime: the GM's note and a hidden reward on jess's task; jess's own task and its log are hers and the GM's ----------------
+  await gm('PUT', '/mods/downtime/enabled', { on: true });
+  await gm('POST', '/downtime/tasks', { player: ID.jess, activityId: 'pre-research', gmNote: mark('downtime_gm_note', ['gm'], "the GM's private note on a player's downtime task"),
+    reward: { text: mark('downtime_hidden_reward', ['gm'], 'a hidden downtime reward the player has not earned yet'), hidden: true } });
+  await jess('POST', '/downtime/tasks', { activity: { name: `Letters home ${mark('downtime_jess_task', ['gm', 'jess'], "jess's own downtime activity, waiting for the GM")}`, tier: 'common' } });
 
   // ---- source keys: a per-user key's page, a blanket key's page, the keys' own secrets ---------------------------------------------
   // jess's key sees her own private page; tom's sees his; a blanket key (tom's, claimed so) sees everything, and nothing it returns may reach a player.
@@ -412,59 +418,59 @@ export async function seedContent(h: H, S: Seed) {
   const tomKey = mark('key_secret_tom', [], "the secret of tom's source key");
   const blanketKey = mark('key_secret_blanket', [], 'the secret of a blanket source key');
   KANKA_WORLD.entities.push(
-    { id: 1, name: 'Harbour Guild', entry: `The guild meets at dawn. ${mark('key_public', ['dm', 'jess', 'tom'], 'a public page of the Kanka source (control)')}`, priv: false },
-    { id: 2, name: 'Jessamine Backstory', entry: `Jessamine grew up in the salt flats. ${mark('key_page_jess', ['dm', 'jess'], "a page only jess's per-user key sees")}`, priv: true,
-      posts: [{ name: 'Dark truth', entry: mark('key_page_jess_secret', ['dm'], "a secret post on jess's key page"), visibility_id: 2 }] },
-    { id: 3, name: 'Tomas Backstory', entry: `Tomas served the red fleet. ${mark('key_page_tom', ['dm', 'tom'], "a page only tom's per-user key sees")}`, priv: true },
-    { id: 4, name: 'Blanket Only', entry: `The duke is a puppet. ${mark('blanket_page', ['dm'], 'a page only a blanket key reaches')}`, priv: true },
+    { id: 1, name: 'Harbour Guild', entry: `The guild meets at dawn. ${mark('key_public', ['gm', 'jess', 'tom'], 'a public page of the Kanka source (control)')}`, priv: false },
+    { id: 2, name: 'Jessamine Backstory', entry: `Jessamine grew up in the salt flats. ${mark('key_page_jess', ['gm', 'jess'], "a page only jess's per-user key sees")}`, priv: true,
+      posts: [{ name: 'Dark truth', entry: mark('key_page_jess_secret', ['gm'], "a secret post on jess's key page"), visibility_id: 2 }] },
+    { id: 3, name: 'Tomas Backstory', entry: `Tomas served the red fleet. ${mark('key_page_tom', ['gm', 'tom'], "a page only tom's per-user key sees")}`, priv: true },
+    { id: 4, name: 'Blanket Only', entry: `The duke is a puppet. ${mark('blanket_page', ['gm'], 'a page only a blanket key reaches')}`, priv: true },
   );
   Object.assign(KANKA_WORLD.sees, { [jessKey]: [1, 2], [tomKey]: [1, 3], [blanketKey]: 'all' });
-  const kankaSrc = (await h.ok('POST', `/api/admin/worlds/${W}/sources`, T.ads, { kind: 'kanka-api', name: 'Kanka', config: { campaignId: CAMPAIGN, token: TOKENS.dm, apiUrl: KANKA_API }, defaultVisibility: 'party' })).id;
+  const kankaSrc = (await h.ok('POST', `/api/admin/worlds/${W}/sources`, T.ads, { kind: 'kanka-api', name: 'Kanka', config: { campaignId: CAMPAIGN, token: TOKENS.gm, apiUrl: KANKA_API }, defaultVisibility: 'party' })).id;
   await h.ok('POST', `/api/admin/sources/${kankaSrc}/sync?wait=1`, T.ads);
   for (const [who, secret] of [['jess', jessKey], ['tom', tomKey]] as const) {
     const k = await h.ok('POST', `/api/worlds/${W}/source-keys`, T[who], { sourceId: kankaSrc, secret, label: `${who} Kanka`, trust: 'per-user' });
-    await dm('PATCH', `/source-keys/${k.id}`, { trust: 'per-user' });
+    await gm('PATCH', `/source-keys/${k.id}`, { trust: 'per-user' });
     await h.ok('POST', `/api/worlds/${W}/source-keys/${k.id}/refresh`, T[who]);
   }
   await h.ok('POST', `/api/worlds/${W}/source-keys`, T.tom, { sourceId: kankaSrc, secret: blanketKey, label: 'Shared key', trust: 'blanket' });
-  // tom's agent asks for the blanket page: it is escalated, and the DM's queue holds what it found.
+  // tom's agent asks for the blanket page: it is escalated, and the GM's queue holds what it found.
   await h.ok('GET', `/api/worlds/${W}/source-keys/lookup?q=Blanket&question=${encodeURIComponent('What does the duke hide?')}`, T.tom);
   const ext = (n: number) => ({ id: one<any>(h.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', W, `kanka:${n}`).id as string, path: '' });
   S.pages.keyJess = ext(2);
   S.pages.keyTom = ext(3);
 
-  // ---- the search log: a DM's own search about a secret is kept for the DM's admin pages, never for players or a non-DM admin ----------
-  await dm('GET', `/library/search?q=${encodeURIComponent(`who really killed the harbour master ${mark('dm_search_query', ['dm'], 'the words of a DM search about a secret (the admin search log)')}`)}`);
+  // ---- the search log: a GM's own search about a secret is kept for the GM's admin pages, never for players or a non-GM admin ----------
+  await gm('GET', `/library/search?q=${encodeURIComponent(`who really killed the harbour master ${mark('gm_search_query', ['gm'], 'the words of a GM search about a secret (the admin search log)')}`)}`);
   await h.ok('GET', `/api/worlds/${W}/library/search?q=${encodeURIComponent('smuggler queen')}`, T.jess);
 
   // ---- semantic index and story bible: rows that must vanish when a permission changes ------------------------------------------------
   // Everything is embedded and extracted (as the background jobs do), then a share is revoked and a page is hidden at its source:
   // the party vectors and facts of the demoted page and the lifted ones of the revoked share must be gone at once, before any read.
   const indexAll = async () => { await syncEmbeddings(h.deps, { maxPages: 5000 }); await syncBible(h.deps, { maxPages: 5000 }); };
-  await page('bible_party', 'bible/Harbour Ledger.md', 'party', `# Harbour Ledger\nThe harbour ledger lists every ship that docked this year ${mark('bible_party', ['dm', 'jess', 'tom'], 'a shared page the story bible and related pages read (control)')}.\n`);
-  await page('bible_dm', 'bible/Ledger Cheat.md', 'dm', `# Ledger Cheat\nThe harbour ledger is forged by the smuggler queen ${mark('bible_dm', ['dm'], 'a DM-only page whose text must never reach a player related reason or bible')}.\n`);
-  const revoked = await page('share_revoked', 'bible/Revoked Share.md', 'dm', `# Revoked Share\nThe harbour ledger hides a second book ${mark('share_revoked', ['dm'], 'a DM page shared with jess and then unshared (its lifted vectors and facts must be gone)')}.\n`);
-  await dm('POST', `/library/pages/${revoked.id}/share`, { to: [ID.jess] });
-  const pushEntry = (visibility: string) => h.ok('POST', `/api/intake/${sid}/entries`, key, { entries: [{ externalId: 'imp-demote', title: 'Demoted Ledger', visibility, type: 'page', blocks: [p(`The harbour ledger was once public ${mark('demoted_page', ['dm'], 'a page hidden at its source after it was shared (its party vectors and facts must be gone at once)')}.`)] }] });
+  await page('bible_party', 'bible/Harbour Ledger.md', 'party', `# Harbour Ledger\nThe harbour ledger lists every ship that docked this year ${mark('bible_party', ['gm', 'jess', 'tom'], 'a shared page the story bible and related pages read (control)')}.\n`);
+  await page('bible_gm', 'bible/Ledger Cheat.md', 'gm', `# Ledger Cheat\nThe harbour ledger is forged by the smuggler queen ${mark('bible_gm', ['gm'], 'a GM-only page whose text must never reach a player related reason or bible')}.\n`);
+  const revoked = await page('share_revoked', 'bible/Revoked Share.md', 'gm', `# Revoked Share\nThe harbour ledger hides a second book ${mark('share_revoked', ['gm'], 'a GM page shared with jess and then unshared (its lifted vectors and facts must be gone)')}.\n`);
+  await gm('POST', `/library/pages/${revoked.id}/share`, { to: [ID.jess] });
+  const pushEntry = (visibility: string) => h.ok('POST', `/api/intake/${sid}/entries`, key, { entries: [{ externalId: 'imp-demote', title: 'Demoted Ledger', visibility, type: 'page', blocks: [p(`The harbour ledger was once public ${mark('demoted_page', ['gm'], 'a page hidden at its source after it was shared (its party vectors and facts must be gone at once)')}.`)] }] });
   await pushEntry('party');
   await indexAll();
   const seesLifted = (await h.ok('GET', `/api/worlds/${W}/bible?q=harbour`, T.jess)).subjects.some((x: any) => JSON.stringify(x).includes(tok('share_revoked')));
   const haveFacts = Number(one<any>(h.deps.db, 'SELECT count(*) AS n FROM bible_facts WHERE world_id = ?', W)!.n) > 0; // a harness without a chat model has no bible
   if (haveFacts && !seesLifted) throw new Error('seed: the shared page should be in jess\'s story bible before it is revoked');
-  await dm('DELETE', `/library/pages/${revoked.id}/share`);
-  await pushEntry('dm');
+  await gm('DELETE', `/library/pages/${revoked.id}/share`);
+  await pushEntry('gm');
   const demoted = one<any>(h.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', W, 'imp-demote')!.id as string;
   const rows = Number(one<any>(h.deps.db, `SELECT (SELECT count(*) FROM search_chunks WHERE page_id IN (?, ?) AND scope IN ('party', 'lifted')) + (SELECT count(*) FROM bible_facts WHERE page_id IN (?, ?) AND scope IN ('party', 'lifted')) AS n`, revoked.id, demoted, revoked.id, demoted)!.n);
   if (rows !== 0) throw new Error(`seed: ${rows} vectors or facts of an unshared and a hidden page are still there`);
   await indexAll();
 
   // ---- another world: nothing of it reaches this one ---------------------------------------------------------------------
-  const dm2 = (m: string, u: string, b?: unknown) => h.ok(m, `/api/worlds/${S.W2}${u}`, T.dm2, b);
-  await dm2('PUT', '/library/pages', { path: 'w2/Other Secret.md', visibility: 'dm', body: `# Other\n${mark('w2_dm_page', ['dm2'], 'a DM page of another world')}\n` });
-  await dm2('PUT', '/library/pages', { path: 'w2/Other Classified.md', visibility: 'classified', body: `# Other classified\n${mark('w2_classified', ['dm2'], 'a classified page of another world', { ai: false, long: true })}\n` });
-  await dm2('PUT', '/library/pages', { path: 'w2/Other Public.md', visibility: 'party', body: `# Other public\n${mark('w2_public', ['dm2'], 'a shared page of another world')}\n` });
+  const gm2 = (m: string, u: string, b?: unknown) => h.ok(m, `/api/worlds/${S.W2}${u}`, T.gm2, b);
+  await gm2('PUT', '/library/pages', { path: 'w2/Other Secret.md', visibility: 'gm', body: `# Other\n${mark('w2_gm_page', ['gm2'], 'a GM page of another world')}\n` });
+  await gm2('PUT', '/library/pages', { path: 'w2/Other Classified.md', visibility: 'classified', body: `# Other classified\n${mark('w2_classified', ['gm2'], 'a classified page of another world', { ai: false, long: true })}\n` });
+  await gm2('PUT', '/library/pages', { path: 'w2/Other Public.md', visibility: 'party', body: `# Other public\n${mark('w2_public', ['gm2'], 'a shared page of another world')}\n` });
 }
 
 /** The fake Kanka the crawl's sources read (see sourcekeys-fake.ts): filled in by seedContent. */
-export const KANKA_WORLD = { entities: [] as FakeEntity[], sees: { [TOKENS.dm]: 'all' } as Record<string, number[] | 'all'> };
+export const KANKA_WORLD = { entities: [] as FakeEntity[], sees: { [TOKENS.gm]: 'all' } as Record<string, number[] | 'all'> };
 export type { Who };

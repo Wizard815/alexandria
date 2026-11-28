@@ -1,5 +1,5 @@
 // Gateway status: per-connection calls and health, the world mirror, files held from sources, and the search log.
-// Admins only; never a token; and an admin who is not a world's DM gets counts, not page paths, file names or search words.
+// Admins only; never a token; and an admin who is not a world's GM gets counts, not page paths, file names or search words.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -33,14 +33,14 @@ const call = async (method: string, url: string, token?: string, body?: unknown)
   return { status: r.status, body: json, text };
 };
 
-// An admin (the DM of world A), another account who is the DM of world B and a player in A.
+// An admin (the GM of world A), another account who is the GM of world B and a player in A.
 const setup = (await call('POST', '/api/setup', undefined, { username: 'wizard', password: PW })).body;
 const T = setup.token as string;
 const adminId = setup.account.id as string;
 const bob = (await call('POST', '/api/admin/accounts', T, { username: 'bob', password: 'bob password 123' })).body.account;
 const jess = (await call('POST', '/api/admin/accounts', T, { username: 'jess', password: 'jess password 123' })).body.account;
-const A = (await call('POST', '/api/admin/worlds', T, { name: 'Alpha Isles', dmAccountId: adminId })).body.id as string;
-const B = (await call('POST', '/api/admin/worlds', T, { name: 'Beta Reach', dmAccountId: bob.id })).body.id as string;
+const A = (await call('POST', '/api/admin/worlds', T, { name: 'Alpha Isles', gmAccountId: adminId })).body.id as string;
+const B = (await call('POST', '/api/admin/worlds', T, { name: 'Beta Reach', gmAccountId: bob.id })).body.id as string;
 await call('PUT', `/api/admin/worlds/${A}/members/${jess.id}`, T, { role: 'player' });
 const bobT = (await call('POST', '/api/auth/login', undefined, { username: 'bob', password: 'bob password 123' })).body.token as string;
 const jessT = (await call('POST', '/api/auth/login', undefined, { username: 'jess', password: 'jess password 123' })).body.token as string;
@@ -137,14 +137,14 @@ test('TestGatewayStatus_CleanErrorTextCutsSecrets', () => {
 
 // ---- the mirror --------------------------------------------------------------------------------------------------------------------
 
-const DMTEXT = 'SECRET-DM-PAGE-PATH';
+const GMTEXT = 'SECRET-GM-PAGE-PATH';
 test('TestGatewayStatus_MirrorCountsFilesAndRecordsACopyThatCouldNotBeWritten', async () => {
   assert.equal((await page(A, T, 'lore/Harbour.md', 'party', 'The harbour.')).status, 200);
-  assert.equal((await page(A, T, `dm/${DMTEXT}.md`, 'dm', 'Hidden.')).status, 200);
+  assert.equal((await page(A, T, `gm/${GMTEXT}.md`, 'gm', 'Hidden.')).status, 200);
   const first = (await call('GET', '/api/admin/gwstatus/mirror', T)).body;
   const a = first.worlds.find((w: any) => w.id === A);
   assert.equal(first.enabled, true);
-  assert.equal(a.view, 'dm');
+  assert.equal(a.view, 'gm');
   assert.equal(a.copies.vault.files, 2);
   assert.equal(a.copies.party.files, 1, 'only the shared page has a party copy');
   assert.equal(a.copies.api.files, 1);
@@ -159,7 +159,7 @@ test('TestGatewayStatus_MirrorCountsFilesAndRecordsACopyThatCouldNotBeWritten', 
   const broken = (await call('GET', '/api/admin/gwstatus/mirror', T)).body.worlds.find((w: any) => w.id === A);
   assert.ok(broken.failures >= 1);
   const f = broken.failed.find((x: any) => x.path.includes('Child'));
-  assert.ok(f, 'the failed copy is listed for the DM');
+  assert.ok(f, 'the failed copy is listed for the GM');
   assert.ok(f.error.length > 0 && !f.error.includes(data), 'the data folder is not in the message');
   // "Rewrite mirror" writes every copy again; the copy that cannot be written stays listed, the others stay fine.
   const rw = await call('POST', `/api/admin/gwstatus/mirror/${A}/rewrite`, T);
@@ -175,8 +175,8 @@ test('TestGatewayStatus_MirrorCountsFilesAndRecordsACopyThatCouldNotBeWritten', 
   assert.ok(true);
 });
 
-test('TestGatewayStatus_AnAdminWhoIsNotTheDmSeesMirrorCountsButNoPagePaths', async () => {
-  assert.equal((await page(B, bobT, `dm/${DMTEXT}-B.md`, 'dm', 'Hidden in B.')).status, 200);
+test('TestGatewayStatus_AnAdminWhoIsNotTheGmSeesMirrorCountsButNoPagePaths', async () => {
+  assert.equal((await page(B, bobT, `gm/${GMTEXT}-B.md`, 'gm', 'Hidden in B.')).status, 200);
   assert.equal((await page(B, bobT, 'lore/Port.md', 'party', 'The port.')).status, 200);
   assert.equal((await page(B, bobT, 'lore/Dup2.md', 'party', 'File.')).status, 200);
   assert.equal((await page(B, bobT, 'lore/Dup2.md/Child.md', 'party', 'Folder.')).status, 200);
@@ -187,22 +187,22 @@ test('TestGatewayStatus_AnAdminWhoIsNotTheDmSeesMirrorCountsButNoPagePaths', asy
   assert.ok(b.failures >= 1, 'the count is shown');
   assert.equal(b.copies.vault.files >= 3, true);
   const bText = JSON.stringify(b);
-  for (const hidden of [`${DMTEXT}-B`, 'Dup2', 'Child', 'Port']) assert.ok(!bText.includes(hidden), `world B's row held ${hidden}`);
+  for (const hidden of [`${GMTEXT}-B`, 'Dup2', 'Child', 'Port']) assert.ok(!bText.includes(hidden), `world B's row held ${hidden}`);
   // The rewrite answer is the same counts.
   const rw = await call('POST', `/api/admin/gwstatus/mirror/${B}/rewrite`, T);
   assert.equal(rw.status, 200);
-  assert.ok(!rw.text.includes('Dup2') && !rw.text.includes(DMTEXT));
+  assert.ok(!rw.text.includes('Dup2') && !rw.text.includes(GMTEXT));
 });
 
 // ---- files -------------------------------------------------------------------------------------------------------------------------
 
-test('TestGatewayStatus_SourceFilesShowSizesAndHideDmOnlyNamesFromAnAdminWhoIsNotTheDm', async () => {
+test('TestGatewayStatus_SourceFilesShowSizesAndHideGmOnlyNamesFromAnAdminWhoIsNotTheGm', async () => {
   initRecords(deps.db);
   run(deps.db, `INSERT INTO sources (id, world_id, kind, name) VALUES ('src_b', ?, 'kanka', 'Beta Kanka')`, B);
   const img = (id: string, world: string, source: string, name: string, vis: string, size: number, kind = 'picture') =>
     run(deps.db, `INSERT INTO intake_images (id, world_id, source_id, external_id, name, marker, mime, size, data, visibility, page_external, at, kind) VALUES (?, ?, ?, ?, ?, '', 'image/png', ?, ?, ?, NULL, ?, ?)`, id, world, source, id, name, size, Buffer.from('x'), vis, '2026-02-02T10:00:00.000Z', kind);
-  img('img_a1', A, 'src_k', 'alpha-map.png', 'dm', 4000, 'map');
-  img('img_b1', B, 'src_b', 'DM-ONLY-DUNGEON.png', 'dm', 9000);
+  img('img_a1', A, 'src_k', 'alpha-map.png', 'gm', 4000, 'map');
+  img('img_b1', B, 'src_b', 'GM-ONLY-DUNGEON.png', 'gm', 9000);
   img('img_b2', B, 'src_b', 'party-crest.png', 'party', 1000);
   const r = await call('GET', '/api/admin/gwstatus/files', T);
   assert.equal(r.status, 200);
@@ -211,7 +211,7 @@ test('TestGatewayStatus_SourceFilesShowSizesAndHideDmOnlyNamesFromAnAdminWhoIsNo
   const aSrc = a.sources.find((s: any) => s.id === 'src_k');
   assert.equal(aSrc.count, 1);
   assert.equal(aSrc.bytes, 4000);
-  assert.equal(aSrc.files[0].name, 'alpha-map.png', 'the DM-admin sees names');
+  assert.equal(aSrc.files[0].name, 'alpha-map.png', 'the GM-admin sees names');
   assert.equal(aSrc.canSync, true);
   assert.equal(aSrc.lastFetchedAt, '2026-02-02T10:00:00.000Z');
   assert.equal(b.view, 'counts');
@@ -219,14 +219,14 @@ test('TestGatewayStatus_SourceFilesShowSizesAndHideDmOnlyNamesFromAnAdminWhoIsNo
   assert.equal(bSrc.count, 2);
   assert.equal(bSrc.bytes, 10000);
   assert.equal(bSrc.hiddenCount, 2, 'a party file whose page is not shared is hidden too');
-  assert.ok(!JSON.stringify(b).includes('DM-ONLY-DUNGEON') && !JSON.stringify(b).includes('party-crest'));
+  assert.ok(!JSON.stringify(b).includes('GM-ONLY-DUNGEON') && !JSON.stringify(b).includes('party-crest'));
   assert.ok(r.body.totals.pictures.bytes >= 14000);
   assert.ok(!JSON.stringify(r.body).includes('data'), 'no picture bytes');
 });
 
 test('TestGatewayStatus_OnlyLibraryFilesCanBeDeletedAndOnlyOnesTheAdminMaySee', async () => {
   const pg = (await page(A, T, 'lore/Map.md', 'party', 'A map.')).body;
-  const pgB = (await page(B, bobT, 'dm/Vault.md', 'dm', 'A vault.')).body;
+  const pgB = (await page(B, bobT, 'gm/Vault.md', 'gm', 'A vault.')).body;
   const folderA = path.join(data, 'libfiles', A);
   const folderB = path.join(data, 'libfiles', B);
   fs.mkdirSync(folderA, { recursive: true }); fs.mkdirSync(folderB, { recursive: true });
@@ -235,16 +235,16 @@ test('TestGatewayStatus_OnlyLibraryFilesCanBeDeletedAndOnlyOnesTheAdminMaySee', 
     run(deps.db, `INSERT INTO libfiles_files (id, world_id, page_id, name, kind, level, mime, family, size, at) VALUES (?, ?, ?, ?, 'handout', ?, 'text/plain', 'text', 5, '2026-03-03T00:00:00.000Z')`, id, world, pageId, name, level);
   };
   add('lf_a', A, pg.id, 'harbour-chart.txt', 'party', folderA);
-  add('lf_b', B, pgB.id, 'DM-VAULT-NOTES.txt', 'dm', folderB);
+  add('lf_b', B, pgB.id, 'GM-VAULT-NOTES.txt', 'gm', folderB);
   const list = (await call('GET', '/api/admin/gwstatus/files', T)).body;
   assert.equal(list.worlds.find((w: any) => w.id === A).library.files[0].name, 'harbour-chart.txt');
   const bl = list.worlds.find((w: any) => w.id === B).library;
   assert.equal(bl.count, 1);
   assert.equal(bl.files[0].name, null);
   assert.equal(bl.files[0].hidden, true);
-  assert.ok(!JSON.stringify(list).includes('DM-VAULT-NOTES'));
+  assert.ok(!JSON.stringify(list).includes('GM-VAULT-NOTES'));
   assert.ok(list.totals.libraryFiles.onDiskBytes >= 10);
-  // A DM-only file of a world the admin does not run cannot be deleted from here (not found).
+  // A GM-only file of a world the admin does not run cannot be deleted from here (not found).
   assert.equal((await call('DELETE', '/api/admin/gwstatus/files/library/lf_b', T)).status, 404);
   assert.ok(fs.existsSync(path.join(folderB, 'lf_b')));
   // One the admin may open goes, bytes and all, and the audit says so.
@@ -284,10 +284,10 @@ test('TestGatewayStatus_SearchLogKeepsWordsAndCountsButNeverTitles', async () =>
   assert.equal(all(deps.db, 'SELECT id FROM gwstatus_searches WHERE world_id = ?', A).length, n);
 });
 
-test('TestGatewayStatus_SearchPanelsShowWordsToTheDmAdminAndOnlyCountsForOtherWorlds', async () => {
+test('TestGatewayStatus_SearchPanelsShowWordsToTheGmAdminAndOnlyCountsForOtherWorlds', async () => {
   forgetRecentSearches();
   const SECRET_Q = 'where hides the glimmerjar traitor';
-  assert.equal((await page(B, bobT, 'dm/Traitor.md', 'dm', 'The glimmerjar traitor hides in the cellar.')).status, 200);
+  assert.equal((await page(B, bobT, 'gm/Traitor.md', 'gm', 'The glimmerjar traitor hides in the cellar.')).status, 200);
   assert.ok((await search(B, bobT, SECRET_Q)).status === 200);
   assert.ok((await search(B, bobT, 'glimmerjar')).body.length >= 1);
   const s = await call('GET', '/api/admin/gwstatus/searches?days=7', T);
@@ -295,7 +295,7 @@ test('TestGatewayStatus_SearchPanelsShowWordsToTheDmAdminAndOnlyCountsForOtherWo
   const b = s.body.worlds.find((w: any) => w.id === B);
   const a = s.body.worlds.find((w: any) => w.id === A);
   assert.equal(b.view, 'counts');
-  assert.equal(a.view, 'dm');
+  assert.equal(a.view, 'gm');
   assert.ok(b.searches >= 2);
   // World B's words are in nothing the admin gets; world A's are.
   assert.ok(!s.text.includes('glimmerjar'), 'the words of a world the admin does not run never come back');
@@ -309,8 +309,8 @@ test('TestGatewayStatus_SearchPanelsShowWordsToTheDmAdminAndOnlyCountsForOtherWo
   assert.equal(s.body.retentionDays, 30);
 });
 
-test('TestGatewayStatus_DraftPagesAreMadeOnlyByTheDmOfThatWorldForQueriesThatFoundNothing', async () => {
-  // Not the DM of B: refused, and nothing is written.
+test('TestGatewayStatus_DraftPagesAreMadeOnlyByTheGmOfThatWorldForQueriesThatFoundNothing', async () => {
+  // Not the GM of B: refused, and nothing is written.
   assert.equal((await call('POST', '/api/admin/gwstatus/searches/draft', T, { world: B })).status, 403);
   assert.equal(one(deps.db, `SELECT 1 FROM pages WHERE world_id = ? AND path LIKE 'drafts/%'`, B), undefined);
   assert.equal((await call('POST', '/api/admin/gwstatus/searches/draft', T, { world: 'nope' })).status, 404);
@@ -322,7 +322,7 @@ test('TestGatewayStatus_DraftPagesAreMadeOnlyByTheDmOfThatWorldForQueriesThatFou
   assert.equal(r.body.created.length, 1);
   const pg = one<any>(deps.db, 'SELECT * FROM pages WHERE id = ?', r.body.created[0].pageId)!;
   assert.equal(pg.path, 'drafts/unicorn-stables.md');
-  assert.equal(pg.visibility, 'dm', 'a draft is DM-only');
+  assert.equal(pg.visibility, 'gm', 'a draft is GM-only');
   assert.equal(pg.player_body, null);
   // A player cannot read it, and it no longer shows as missing.
   assert.ok(!JSON.stringify((await search(A, jessT, 'unicorn')).body).includes('Unicorn'));

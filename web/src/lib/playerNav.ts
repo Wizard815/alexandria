@@ -10,7 +10,7 @@ export interface NavItem { to: string; label: string; icon: string }
 const CORE: NavItem[] = ([
   ['', 'Home', 'fa-house'], ['live', 'Live', 'fa-tower-broadcast'], ['library', 'Library', 'fa-book'], ['broker', 'Broker', 'fa-scale-balanced'],
   ['inventory', 'Inventory', 'fa-sack-dollar'], ['people', 'People', 'fa-users'], ['me', 'Me', 'fa-user'], ['map', 'Map', 'fa-map'],
-  ['messages', 'Messages', 'fa-envelope'], ['calendar', 'Calendar', 'fa-calendar'], ['ask', 'Ask the DM', 'fa-circle-question'], ['whiteboard', 'Whiteboard', 'fa-chalkboard'],
+  ['messages', 'Messages', 'fa-envelope'], ['calendar', 'Calendar', 'fa-calendar'], ['ask', 'Ask the GM', 'fa-circle-question'], ['whiteboard', 'Whiteboard', 'fa-chalkboard'],
 ] as [string, string, string][]).map(([to, label, icon]) => ({ to, label, icon }));
 
 /** Every page, core first and then the features' (the desktop top bar shows this list as is). */
@@ -21,7 +21,7 @@ export const FALLBACK_GROUP = 'More';
 const GROUP_OF: Record<string, string> = {};
 const put = (g: (typeof GROUPS)[number], ...ids: string[]) => ids.forEach((id) => { GROUP_OF[id] = g; });
 put('At the table', '', 'live', 'assistant', 'stage', 'chat', 'rules', 'whiteboard', 'map', 'ask');
-put('My character', 'sheet', 'me', 'inventory', 'codex', 'journal');
+put('My character', 'sheet', 'me', 'inventory', 'codex', 'downtime', 'journal');
 put('World', 'library', 'people', 'encounters', 'calendar', 'bible', 'log', 'broker', 'shop', 'messages');
 // Device and table setup: the phone as a microphone, its recordings, and the colour the room lights show on your turn.
 put('Settings & account', 'audio', 'recordings', 'lights', 'discord', 'my-keys', 'connect');
@@ -36,13 +36,14 @@ export function isOff(to: string, settings: unknown): boolean {
   if (to === 'calendar') return s.calendar === 'off';
   if (to === 'assistant') return s.brokerEnabled === false && s.agentPlayerHelper === false;
   if (to === 'my-keys') return s.sourceKeysPlayers === false;
+  if (to === 'downtime') return (s as any).downtimeOn !== true;
   return false;
 }
 export const availableLinks = (settings: unknown): NavItem[] => allLinks().filter((l) => !isOff(l.to, settings));
 
 /**
  * The default tabs, in order of how much a player at the table needs them:
- * Home (what is on tonight), Live (initiative, HP, the DM's cards and events),
+ * Home (what is on tonight), Live (initiative, HP, the GM's cards and events),
  * Ask (the broker and the table helper) and Inventory (coins and items). Me and
  * the rest are one tap away under More; Me takes a slot when Ask is switched off.
  */

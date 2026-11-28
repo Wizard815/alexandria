@@ -1,0 +1,170 @@
+{
+  "kit": 2,
+  "id": "training",
+  "name": "Training",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Learn a language or a tool proficiency in downtime: pay the trainer and finish the days.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "sheet",
+      "assistant"
+    ]
+  },
+  "records": {
+    "course": {
+      "label": "Training",
+      "plural": "Training",
+      "owned": true,
+      "title": "skill",
+      "fields": {
+        "skill": {
+          "type": "text",
+          "label": "Language or tool"
+        },
+        "trainer": {
+          "type": "text",
+          "label": "Trainer"
+        },
+        "days": {
+          "type": "int",
+          "default": 10,
+          "min": 1,
+          "max": 250,
+          "label": "Days needed"
+        },
+        "done": {
+          "type": "int",
+          "default": 0,
+          "min": 0,
+          "label": "Days trained"
+        },
+        "status": {
+          "type": "enum",
+          "values": [
+            "training",
+            "learned",
+            "stopped"
+          ],
+          "default": "training",
+          "label": "Status"
+        }
+      }
+    }
+  },
+  "recordActions": [
+    {
+      "id": "start",
+      "label": "Start training",
+      "by": "owner",
+      "record": "course",
+      "do": "create",
+      "ask": [
+        "skill",
+        "trainer"
+      ],
+      "effect": {
+        "chat": "{name} begins training in {course.skill}."
+      }
+    },
+    {
+      "id": "days",
+      "label": "Add training days",
+      "by": "gm",
+      "record": "course",
+      "do": "add",
+      "field": "done",
+      "amount": "ask",
+      "where": {
+        "status": "training"
+      }
+    },
+    {
+      "id": "stop",
+      "label": "Stop",
+      "by": "owner",
+      "record": "course",
+      "do": "set",
+      "set": {
+        "status": "stopped"
+      },
+      "where": {
+        "status": "training"
+      }
+    }
+  ],
+  "timers": [
+    {
+      "id": "learn",
+      "record": "course",
+      "on": "longRest",
+      "where": {
+        "status": "training"
+      },
+      "field": "done",
+      "add": 1,
+      "goal": "days",
+      "done": {
+        "set": {
+          "status": "learned"
+        },
+        "chat": "{name} has learned {course.skill}!"
+      }
+    }
+  ],
+  "views": [
+    {
+      "id": "mine",
+      "title": "Training",
+      "record": "course",
+      "place": "sheet",
+      "columns": [
+        "skill",
+        "done",
+        "days"
+      ],
+      "where": {
+        "status": "training"
+      },
+      "actions": [
+        "stop"
+      ]
+    },
+    {
+      "id": "gm",
+      "title": "Training",
+      "record": "course",
+      "place": "gm",
+      "columns": [
+        "skill",
+        "trainer",
+        "done",
+        "days",
+        "status"
+      ],
+      "actions": [
+        "days"
+      ],
+      "groupByPlayer": true
+    }
+  ],
+  "rules": [
+    {
+      "term": "Training (house rule)",
+      "text": "With a willing trainer a character learns a **language or tool proficiency** in **10 days** of training at **25 gp a day**, less with Intelligence: subtract the Intelligence modifier in days (minimum 5). Each long rest spent training counts a day."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "train",
+      "training",
+      "learn a language",
+      "tool proficiency",
+      "teacher"
+    ],
+    "gm": "Training is on: a language or tool takes 10 days (minus the Intelligence modifier, minimum 5) at 25 gp a day with a willing trainer. Each long rest of training adds a day; add more with Add training days during downtime.",
+    "player": "Players can train a language or tool: 10 days (less with a good Intelligence) at 25 gp a day with a trainer. Help them find a trainer and start it."
+  }
+}

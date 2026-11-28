@@ -1,19 +1,19 @@
-// A Discord bot for a world (docs/DISCORD.md). The DM sets it up on DM →
+// A Discord bot for a world (docs/DISCORD.md). The GM sets it up on GM →
 // Setup → Discord; players link their Discord account with a one-time code
 // from Settings & account → Discord, then use /roll, /ask and /recap.
 //
-//   GET    /discord             DM: settings (the token is never sent back), bot status, invite link, linked players
-//   PUT    /discord             DM: change settings
-//   GET    /discord/channels    DM: the server's text channels, to pick from
-//   POST   /discord/test        DM: a test post in the recap and roll channels
-//   POST   /discord/recap/:id   DM: post a published recap (again)
-//   DELETE /discord/links/:aid  DM: unlink a player
+//   GET    /discord             GM: settings (the token is never sent back), bot status, invite link, linked players
+//   PUT    /discord             GM: change settings
+//   GET    /discord/channels    GM: the server's text channels, to pick from
+//   POST   /discord/test        GM: a test post in the recap and roll channels
+//   POST   /discord/recap/:id   GM: post a published recap (again)
+//   DELETE /discord/links/:aid  GM: unlink a player
 //   GET    /discord/me          is a bot set up, and am I linked
 //   POST   /discord/me/code     a one-time code to type as /link in Discord
 //   DELETE /discord/me          unlink myself
 import { Router } from 'express';
 import type { Deps } from '../../app.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
 import { run } from '../../core/db.ts';
 import { HttpError, now } from '../../core/util.ts';
 import { ctx, me } from '../../routes/_shared.ts';
@@ -54,9 +54,9 @@ const feature: Feature = {
       };
     };
 
-    r.get('/', requireDM, (_req, res) => res.json(view(W(res))));
+    r.get('/', requireGM, (_req, res) => res.json(view(W(res))));
 
-    r.put('/', requireDM, (req, res) => {
+    r.put('/', requireGM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       const patch: Record<string, unknown> = {};
@@ -77,7 +77,7 @@ const feature: Feature = {
       return bot;
     };
 
-    r.get('/channels', requireDM, async (_req, res) => {
+    r.get('/channels', requireGM, async (_req, res) => {
       const c = configOf(d.db, W(res))!;
       const bot = botOr409(res);
       try {
@@ -87,7 +87,7 @@ const feature: Feature = {
       } catch (e: any) { throw new HttpError(502, e?.message ?? 'Discord did not answer'); }
     });
 
-    r.post('/test', requireDM, async (_req, res) => {
+    r.post('/test', requireGM, async (_req, res) => {
       const w = W(res);
       const c = configOf(d.db, w)!;
       const bot = botOr409(res);
@@ -101,14 +101,14 @@ const feature: Feature = {
       res.json({ results: out });
     });
 
-    r.post('/recap/:id', requireDM, async (req, res) => {
+    r.post('/recap/:id', requireGM, async (req, res) => {
       botOr409(res);
       try { await managerOf(d).postRecap(W(res), String(req.params.id), true); }
       catch (e: any) { throw new HttpError(e?.status ?? 409, e?.message ?? 'Could not post it'); }
       res.json({ ok: true });
     });
 
-    r.delete('/links/:aid', requireDM, (req, res) => {
+    r.delete('/links/:aid', requireGM, (req, res) => {
       run(d.db, 'DELETE FROM discord_links WHERE world_id = ? AND account_id = ?', W(res), String(req.params.aid));
       audit(d, W(res), me(res), 'discord.unlink', String(req.params.aid));
       res.json({ ok: true });
@@ -131,15 +131,15 @@ const feature: Feature = {
       });
     });
 
-    r.post('/me/code', requirePlayerOrDM, (_req, res) => {
+    r.post('/me/code', requirePlayerOrGM, (_req, res) => {
       const w = W(res);
       const c = configOf(d.db, w);
-      if (!c?.enabled || !c.token || !c.guildId) throw new HttpError(409, 'The DM has not set up a Discord bot for this world');
+      if (!c?.enabled || !c.token || !c.guildId) throw new HttpError(409, 'The GM has not set up a Discord bot for this world');
       const k = newCode(d.db, w, me(res));
       res.json({ ...k, minutes: CODE_MINUTES, command: `/link code:${k.code}` });
     });
 
-    r.delete('/me', requirePlayerOrDM, (_req, res) => {
+    r.delete('/me', requirePlayerOrGM, (_req, res) => {
       const had = !!discordUserOf(d.db, W(res), me(res));
       run(d.db, 'DELETE FROM discord_links WHERE world_id = ? AND account_id = ?', W(res), me(res));
       res.json({ ok: true, wasLinked: had });

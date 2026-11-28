@@ -1,0 +1,32 @@
+{
+  "kit": 2,
+  "id": "climb-big-creatures",
+  "name": "Climbing onto big creatures",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "Characters can scramble onto a creature two sizes larger and fight from its back.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": [],
+    "worksWith": [
+      "combat",
+      "assistant"
+    ]
+  },
+  "rules": [
+    {
+      "term": "Climbing onto a bigger creature (house rule)",
+      "text": "To climb onto a creature **at least two sizes larger**, make an **Athletics or Acrobatics check against its Acrobatics**. On a success you are on it and move with it; attacks against it have **advantage** from you. It can shake you off with its own check on its turn."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "climb",
+      "giant",
+      "dragon",
+      "mount a monster"
+    ],
+    "gm": "Climbing onto big creatures is on: a character can climb a creature two sizes larger with Athletics or Acrobatics against its Acrobatics, then gains advantage on attacks against it until shaken off (its contest on its turn).",
+    "player": "At this table you can try to climb onto a creature two sizes bigger (Athletics or Acrobatics against it) and attack with advantage from its back."
+  }
+}

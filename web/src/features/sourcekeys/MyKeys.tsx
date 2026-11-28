@@ -9,9 +9,9 @@ interface Key { id: string; sourceName: string; label: string; treatedAs: string
 interface Listing { keys: Key[]; sources: { id: string; name: string; kind: string }[]; canAdd: boolean }
 
 const TRUST_NOTE: Record<string, string> = {
-  'per-user': 'Confirmed by the DM: your key shows you only what you may see in the source, so your own pages open here, as your copy.',
-  blanket: 'The DM treats this key as seeing everything, so nothing it finds is shown to you directly. Questions it raises go to the DM.',
-  unsure: 'Waiting for the DM to confirm. Until then it is treated as seeing everything, and nothing it finds is shown to you directly.',
+  'per-user': 'Confirmed by the GM: your key shows you only what you may see in the source, so your own pages open here, as your copy.',
+  blanket: 'The GM treats this key as seeing everything, so nothing it finds is shown to you directly. Questions it raises go to the GM.',
+  unsure: 'Waiting for the GM to confirm. Until then it is treated as seeing everything, and nothing it finds is shown to you directly.',
 };
 
 export default function MyKeys() {
@@ -31,7 +31,7 @@ export default function MyKeys() {
         {d?.canAdd && d.sources.length > 0 && <button type="button" className="btn primary" onClick={() => setAdding(true)}><i className="fa-solid fa-plus" aria-hidden="true" /> Add a key</button>}
       </PageHead>
       <ErrorBox error={data.error ?? act.error} />
-      {d && !d.canAdd && <p className="note small">Your DM has not opened keys to players in this world.</p>}
+      {d && !d.canAdd && <p className="note small">Your GM has not opened keys to players in this world.</p>}
       {d && d.canAdd && !d.sources.length && <p className="note small">None of this world's sources can be read with a personal key.</p>}
       <div className="stack">
         {d?.keys.length === 0 && <Empty>No keys yet.</Empty>}
@@ -40,7 +40,7 @@ export default function MyKeys() {
             <div className="row between"><strong>{k.label}</strong><span className="tiny muted">{k.sourceName}</span></div>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
               <span className={`chip${k.verified.matchedWorld ? '' : ' warn'}`}>{k.verified.matchedWorld ? 'Verified for this world' : 'Not verified'}</span>
-              <span className="chip">{k.treatedAs === 'per-user' ? 'Per-user (confirmed)' : k.trust === 'blanket' ? 'Blanket' : 'Waiting for the DM'}</span>
+              <span className="chip">{k.treatedAs === 'per-user' ? 'Per-user (confirmed)' : k.trust === 'blanket' ? 'Blanket' : 'Waiting for the GM'}</span>
               {k.treatedAs === 'per-user' && <span className="chip">{k.pagesSeen} pages seen</span>}
             </div>
             <p className="small muted" style={{ margin: 0 }}>{TRUST_NOTE[k.treatedAs === 'per-user' ? 'per-user' : k.trust] ?? TRUST_NOTE.unsure}</p>
@@ -74,7 +74,7 @@ function AddKey({ sources, onClose, onDone }: { sources: Listing['sources']; onC
         <Field label="Source"><select value={sourceId} onChange={(e) => setSourceId(e.target.value)}>{sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
         <Field label="Your key" help="It is checked against this world, stored on the server and never shown again."><input type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} /></Field>
         <Field label="A name for it"><input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} /></Field>
-        <Field label="Does this source give each key only what that person may see?" help="Your DM confirms the answer. Until then the key is treated as seeing everything.">
+        <Field label="Does this source give each key only what that person may see?" help="Your GM confirms the answer. Until then the key is treated as seeing everything.">
           <select value={trust} onChange={(e) => setTrust(e.target.value)}>
             <option value="per-user">Yes: each key only shows what its owner may see</option>
             <option value="blanket">No: every key sees everything</option>

@@ -33,7 +33,7 @@
 .au-body::before { content: ''; margin-top: auto; }
 .au-empty { color: var(--faint); font-size: 13px; }
 .au-bubble { align-self: flex-start; max-width: 92%; padding: 6px 11px; border-radius: 14px 14px 14px 4px; background: color-mix(in srgb, var(--au-colour, #D9B26A) 16%, var(--panel, #1C222D)); border: 1px solid color-mix(in srgb, var(--au-colour, #D9B26A) 45%, transparent); display: flex; flex-direction: column; gap: 1px; line-height: 1.35; }
-.au-bubble.dm { border-style: dashed; border-color: var(--danger, #C8675C); background: color-mix(in srgb, var(--danger, #C8675C) 12%, var(--panel, #1C222D)); }
+.au-bubble.gm { border-style: dashed; border-color: var(--danger, #C8675C); background: color-mix(in srgb, var(--danger, #C8675C) 12%, var(--panel, #1C222D)); }
 .au-who { font-size: 0.78em; font-weight: 700; color: var(--au-colour, #D9B26A); letter-spacing: 0.02em; }
 .au-tag { margin-left: 8px; font-style: normal; font-size: 0.85em; color: var(--danger-text, #F0A096); text-transform: uppercase; letter-spacing: 0.06em; }
 .au-mini { align-self: flex-end; border: 0; background: transparent; color: var(--faint); font: inherit; font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; }

@@ -29,9 +29,9 @@ RUN npm install --omit=dev --no-audit --no-fund
 # ---- 3. Runtime -----------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
 LABEL org.opencontainers.image.title="Alexandria" \
-      org.opencontainers.image.description="D&D campaign app: library, live table and MCP gateway" \
+      org.opencontainers.image.description="Tabletop role-playing game (TTRPG) campaign app: library, live table and MCP gateway" \
       org.opencontainers.image.source="https://github.com/Wizard815/alexandria" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="LicenseRef-PolyForm-Shield-1.0.0"
 # git: for git sources (cloned read-only into /data). tini: clean shutdown.
 RUN apk add --no-cache git tini ffmpeg su-exec \
  && mkdir -p /data /vaults \
@@ -40,6 +40,9 @@ WORKDIR /app
 COPY --from=deps /app/librarian/node_modules ./librarian/node_modules
 COPY librarian/package.json librarian/tsconfig.json ./librarian/
 COPY librarian/src ./librarian/src
+# Built-in house rules (rule files); a server adds its own with ALX_MODS_DIR.
+COPY mods ./mods
+COPY templates ./templates
 COPY --from=web /src/web/dist ./web/dist
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ARG ALX_VERSION=0.1.0-alpha.1

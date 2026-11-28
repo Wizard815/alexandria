@@ -1,13 +1,13 @@
 # Roll20
 
-DM → Setup → **Roll20** keeps a Roll20 game and an Alexandria world in step.
+GM → Setup → **Roll20** keeps a Roll20 game and an Alexandria world in step.
 
 | What | Roll20 → Alexandria | Alexandria → Roll20 |
 |---|---|---|
 | HP, max HP, temporary HP of player characters | yes (logged on the sheet as *Roll20*) | yes |
 | Conditions | token status markers become conditions | conditions become markers on every token of the character |
 | Rolls | open rolls (not whispers or GM rolls) land in the table chat, by the character's player | table chat rolls show in the Roll20 chat (off by default) |
-| Handouts | | a library page as a handout: players get their copy, the DM copy goes to the GM notes |
+| Handouts | | a library page as a handout: players get their copy, the GM copy goes to the GM notes |
 | Chat | | a line from "Alexandria" (or any name) |
 
 Maps are not synced: a Roll20 script can only place images already in the
@@ -24,7 +24,7 @@ game owner's Roll20 library.
 
 The bridge picks the way by itself: it says hello to the Mod script when the
 game opens and, with no answer within 8 seconds, works alone ("Alexandria:
-Connected (no Mod script)"). The DM page shows which way a game uses.
+Connected (no Mod script)"). The GM page shows which way a game uses.
 
 ## How it works
 
@@ -99,7 +99,7 @@ Unconscious sleepy, Exhaustion tread, Concentrating stopwatch, Dead dead.
 
 ## Assistant tools
 
-`roll20_status` (DM read), `roll20_send_handout`, `roll20_say` (DM writes,
+`roll20_status` (GM read), `roll20_send_handout`, `roll20_say` (GM writes,
 approved like any other).
 
 ## In the game
@@ -112,7 +112,7 @@ GM chat commands: `!alx status`, `!alx sync` (send the character list again),
 - `librarian/test/roll20.test.ts`: the real Mod script in a stand-in Mod
   sandbox (`librarian/test/roll20-sandbox.js`), a test bridge and a real
   server.
-- `web/e2e/roll20.mjs`: the DM page, the downloaded bridge and the Mod in a
+- `web/e2e/roll20.mjs`: the GM page, the downloaded bridge and the Mod in a
   stand-in Roll20 page in a browser; then a second stand-in game with no Mod,
   where the bridge works alone against page data shaped like Roll20's.
 

@@ -116,11 +116,11 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Rollhold', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Rollhold', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : 'Tomas' });
     T[name] = j.token;
     ID[name] = j.account.id;
@@ -142,16 +142,16 @@ test('Roll20_MarkerMap: conditions to markers and back, custom names, the rest l
   assert.deepEqual(conditionsFromMarkers([], ['Concentrating'], markerMap({})), ['Concentrating']);
 });
 
-test('Roll20_Keys: only the DM makes a key; a bad or replaced key is refused', async () => {
+test('Roll20_Keys: only the GM makes a key; a bad or replaced key is refused', async () => {
   assert.equal((await call('POST', `/api/worlds/${W}/roll20/key`, T.jess)).status, 403);
   assert.equal((await call('GET', `/api/worlds/${W}/roll20`, T.jess)).status, 403);
-  const first = (await ok('POST', `/api/worlds/${W}/roll20/key`, T.dm)).key;
+  const first = (await ok('POST', `/api/worlds/${W}/roll20/key`, T.gm)).key;
   assert.match(first, /^alx_r20_/);
-  KEY = (await ok('POST', `/api/worlds/${W}/roll20/key`, T.dm)).key;
+  KEY = (await ok('POST', `/api/worlds/${W}/roll20/key`, T.gm)).key;
   assert.equal((await call('POST', '/api/roll20/bridge/sync', first, {})).status, 401);
   assert.equal((await call('POST', '/api/roll20/bridge/sync', 'alx_r20_nope', {})).status, 401);
-  assert.equal((await call('POST', '/api/roll20/bridge/sync', T.dm, {})).status, 401, 'a DM session is not a bridge key');
-  const st = await ok('GET', `/api/worlds/${W}/roll20`, T.dm);
+  assert.equal((await call('POST', '/api/roll20/bridge/sync', T.gm, {})).status, 401, 'a GM session is not a bridge key');
+  const st = await ok('GET', `/api/worlds/${W}/roll20`, T.gm);
   assert.equal(st.key.prefix, KEY.slice(0, 12));
   assert.equal(st.online, false);
 });
@@ -160,12 +160,12 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   const g = game();
   await g.hello();
   // The Mod said hello and listed the player characters (not the goblin); both were linked by character name.
-  let st = await ok('GET', `/api/worlds/${W}/roll20`, T.dm);
+  let st = await ok('GET', `/api/worlds/${W}/roll20`, T.gm);
   assert.equal(st.online, true);
   assert.equal(st.modVersion, '1.0.0');
   assert.deepEqual(st.links.map((l: any) => [l.name, l.accountId]), [['Jessamine', ID.jess], ['Tomas', ID.tom]]);
   // Alexandria had no HP yet, so Roll20's filled it in.
-  let sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.jess}`, T.dm);
+  let sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.jess}`, T.gm);
   assert.equal(sheet.hp, 30);
   assert.equal(sheet.maxHp, 30);
   await g.sync();
@@ -174,17 +174,17 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   g.sb.userSet(g.sb.attr(g.jess.ch.id, 'hp'), 'current', '21');
   await sleep(600);
   await g.carry();
-  sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.jess}`, T.dm);
+  sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.jess}`, T.gm);
   assert.equal(sheet.hp, 21);
-  const log = (await ok('GET', `/api/worlds/${W}/sheet/log?account=${ID.jess}`, T.dm)).log;
+  const log = (await ok('GET', `/api/worlds/${W}/sheet/log?account=${ID.jess}`, T.gm)).log;
   assert.equal(log[0].source, 'roll20');
   assert.equal(log[0].after, 21);
   assert.deepEqual((await g.sync()).pushes, []);
 
   // Damage and a condition in Alexandria → the character's HP and every token's markers in Roll20.
-  // (This game has a custom marker set with a Concentrating marker; the DM maps the condition to it.)
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { roll20Markers: { Concentrating: 'Concentrating' } });
-  await ok('POST', `/api/worlds/${W}/sheet/${ID.jess}/vitals`, T.dm, { damage: 5, conditions: ['Poisoned', 'Inspired', 'Concentrating'] });
+  // (This game has a custom marker set with a Concentrating marker; the GM maps the condition to it.)
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { roll20Markers: { Concentrating: 'Concentrating' } });
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.jess}/vitals`, T.gm, { damage: 5, conditions: ['Poisoned', 'Inspired', 'Concentrating'] });
   const s1 = await g.sync();
   assert.deepEqual(s1.pushes, [{ id: g.jess.ch.id, name: 'Jessamine', hp: 16, markers: ['chemical-bolt', 'Concentrating'] }]);
   assert.equal(g.sb.attr(g.jess.ch.id, 'hp').get('current'), 16);
@@ -198,7 +198,7 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   g.sb.userSet(g.jess.tok, 'statusmarkers', 'Concentrating::4401,sleepy,blue@2');
   await sleep(600);
   await g.carry();
-  sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.jess}`, T.dm);
+  sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.jess}`, T.gm);
   assert.deepEqual(sheet.conditions, ['Inspired', 'Concentrating', 'Unconscious']);
   assert.deepEqual((await g.sync()).pushes, []);
 
@@ -206,10 +206,10 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   g.sb.userSet(g.tom.tok, 'bar1_value', '9');
   await sleep(600);
   await g.carry();
-  assert.equal((await ok('GET', `/api/worlds/${W}/sheet/${ID.tom}`, T.dm)).hp, 9);
+  assert.equal((await ok('GET', `/api/worlds/${W}/sheet/${ID.tom}`, T.gm)).hp, 9);
 
   // A roll in Roll20 → the table chat, by the character's player, with the label and second roll.
-  await ok('POST', `/api/worlds/${W}/sessionchat/sessions/start`, T.dm, { title: 'Roll20 night' });
+  await ok('POST', `/api/worlds/${W}/sessionchat/sessions/start`, T.gm, { title: 'Roll20 night' });
   g.sb.say(g.pj.id, '&{template:default} {{name=Longsword}} {{attack=$[[0]]}} {{damage=$[[1]]}}', {
     who: 'Jessamine', rolltemplate: 'default',
     inlinerolls: [
@@ -229,8 +229,8 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   assert.match(chat[0].roll.note, /Longsword/);
   assert.match(chat[0].roll.note, /1d8\+3 = 7/);
 
-  // Table chat rolls go to Roll20 when the DM turns that on; the one that came from Roll20 does not go back.
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { roll20RollsOut: true });
+  // Table chat rolls go to Roll20 when the GM turns that on; the one that came from Roll20 does not go back.
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { roll20RollsOut: true });
   await ok('POST', `/api/worlds/${W}/sessionchat/chat/table`, T.tom, { body: '/roll 1d20+2 perception' });
   const before = g.sb.chat.length;
   const s2 = await g.sync();
@@ -243,18 +243,18 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   assert.equal(chat.length, 2, 'the Mod does not report its own lines as rolls');
   assert.equal((await g.sync()).rolls.length, 0);
 
-  // Handouts: players need the page's player copy; the DM copy goes to the GM notes.
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'Handouts/Plot', markdown: '# Plot\nThe twist.' });
-  const port = await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'Places/Port', visibility: 'party', markdown: '# Port\nFish and [[Plot]].\n\n> [!secret]\n> Smugglers.\n' });
-  assert.equal((await call('POST', `/api/worlds/${W}/roll20/handout`, T.dm, { page: 'Plot', players: true })).status, 409);
+  // Handouts: players need the page's player copy; the GM copy goes to the GM notes.
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'Handouts/Plot', markdown: '# Plot\nThe twist.' });
+  const port = await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'Places/Port', visibility: 'party', markdown: '# Port\nFish and [[Plot]].\n\n> [!secret]\n> Smugglers.\n' });
+  assert.equal((await call('POST', `/api/worlds/${W}/roll20/handout`, T.gm, { page: 'Plot', players: true })).status, 409);
   assert.equal((await call('POST', `/api/worlds/${W}/roll20/handout`, T.jess, { page: port.id })).status, 403);
-  await ok('POST', `/api/worlds/${W}/roll20/handout`, T.dm, { page: port.id, players: true });
-  await ok('POST', `/api/worlds/${W}/roll20/say`, T.dm, { text: 'The bell tolls {{twice}}.', as: 'Town crier' });
+  await ok('POST', `/api/worlds/${W}/roll20/handout`, T.gm, { page: port.id, players: true });
+  await ok('POST', `/api/worlds/${W}/roll20/say`, T.gm, { text: 'The bell tolls {{twice}}.', as: 'Town crier' });
   await g.sync();
   const ho = g.sb.api.findObjs({ _type: 'handout', name: 'Port' })[0];
   assert.ok(ho, 'handout made');
   assert.equal(ho.get('inplayerjournals'), 'all');
-  assert.match(ho.get('notes'), /Fish and \(hidden\)/, 'the player copy does not name the DM-only page it links');
+  assert.match(ho.get('notes'), /Fish and \(hidden\)/, 'the player copy does not name the GM-only page it links');
   assert.doesNotMatch(ho.get('notes'), /Smugglers/);
   assert.match(ho.get('gmnotes'), /Smugglers/);
   const crier = g.sb.chat.find((m: any) => m.who === 'Town crier');
@@ -263,20 +263,20 @@ test('Roll20_Sync: the Mod and Alexandria keep HP, conditions, rolls and handout
   assert.deepEqual((await g.sync()).items, []);
 
   // Relinking a character pushes Alexandria's numbers to it.
-  await ok('PUT', `/api/worlds/${W}/roll20/links/${g.tom.ch.id}`, T.dm, { accountId: null });
-  assert.equal((await call('PUT', `/api/worlds/${W}/roll20/links/${g.tom.ch.id}`, T.dm, { accountId: ID.dm })).status, 400);
-  await ok('PUT', `/api/worlds/${W}/roll20/links/${g.tom.ch.id}`, T.dm, { accountId: ID.tom });
+  await ok('PUT', `/api/worlds/${W}/roll20/links/${g.tom.ch.id}`, T.gm, { accountId: null });
+  assert.equal((await call('PUT', `/api/worlds/${W}/roll20/links/${g.tom.ch.id}`, T.gm, { accountId: ID.gm })).status, 400);
+  await ok('PUT', `/api/worlds/${W}/roll20/links/${g.tom.ch.id}`, T.gm, { accountId: ID.tom });
   const s3 = await g.sync();
   assert.deepEqual(s3.pushes.map((p: any) => [p.name, p.hp]), [['Tomas', 9]]);
 
   // The same events sent twice (the bridge reloaded before the ack) apply once.
   const dupe = { instance: 'again', events: [{ seq: 1, t: 'vitals', id: g.jess.ch.id, name: 'Jessamine', hp: 12 }] };
   await g.bapi('/events', dupe);
-  await ok('POST', `/api/worlds/${W}/sheet/${ID.jess}/vitals`, T.dm, { hp: 14 });
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.jess}/vitals`, T.gm, { hp: 14 });
   await g.bapi('/events', dupe);
-  assert.equal((await ok('GET', `/api/worlds/${W}/sheet/${ID.jess}`, T.dm)).hp, 14);
+  assert.equal((await ok('GET', `/api/worlds/${W}/sheet/${ID.jess}`, T.gm)).hp, 14);
 
-  st = await ok('GET', `/api/worlds/${W}/roll20`, T.dm);
+  st = await ok('GET', `/api/worlds/${W}/roll20`, T.gm);
   assert.ok(st.activity.some((a: any) => /Jessamine: HP 30 → 21/.test(a.text)), JSON.stringify(st.activity.slice(0, 5)));
   assert.ok(st.activity.some((a: any) => a.dir === 'out' && /Handout "Port"/.test(a.text)));
 });
@@ -298,15 +298,15 @@ test('Roll20_Mod: GM-only commands, long messages in pieces, status', async () =
 
 test('Roll20_Modes: the bridge says which way the game runs; without the Mod there is no Mod version', async () => {
   await ok('POST', '/api/roll20/bridge/hello', KEY, { modVersion: '1.0.0', mode: 'mod' });
-  let st = await ok('GET', `/api/worlds/${W}/roll20`, T.dm);
+  let st = await ok('GET', `/api/worlds/${W}/roll20`, T.gm);
   assert.equal(st.mode, 'mod');
   assert.equal(st.modVersion, '1.0.0');
   await ok('POST', '/api/roll20/bridge/hello', KEY, { mode: 'free', campaign: 'No Pro game' });
-  st = await ok('GET', `/api/worlds/${W}/roll20`, T.dm);
+  st = await ok('GET', `/api/worlds/${W}/roll20`, T.gm);
   assert.equal(st.mode, 'free');
   assert.equal(st.modVersion, null);
   assert.equal(st.campaign, 'No Pro game');
   // A hello that names no way keeps the last one.
   await ok('POST', '/api/roll20/bridge/hello', KEY, {});
-  assert.equal((await ok('GET', `/api/worlds/${W}/roll20`, T.dm)).mode, 'free');
+  assert.equal((await ok('GET', `/api/worlds/${W}/roll20`, T.gm)).mode, 'free');
 });

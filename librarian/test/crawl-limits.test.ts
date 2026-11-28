@@ -261,7 +261,7 @@ async function boot(env: Record<string, string> = {}) {
     return conn;
   };
   const world = async (name: string, conn: any) => {
-    const wid = (await ok('POST', '/api/admin/worlds', { name, dmAccountId: a.account.id })).id as string;
+    const wid = (await ok('POST', '/api/admin/worlds', { name, gmAccountId: a.account.id })).id as string;
     const src = await ok('POST', `/api/admin/worlds/${wid}/sources`, { connectionId: conn.id, kind: 'api', name, config: {}, defaultVisibility: 'party' });
     const sync = () => ok('POST', `/api/admin/sources/${src.id}/sync?wait=1`, {});
     return { wid, sid: src.id as string, sync };
@@ -363,13 +363,13 @@ test('RateLimit_TheFirstScanIsSpreadOverTheWindowAndNeverAboveTheLimit', async (
 
 // ---- opening a page you may not see costs nothing -----------------------------------------------------------------------------------
 
-test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheDmSpendsOne', async () => {
+test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheGmSpendsOne', async () => {
   const t = await boot({ ALX_CRAWL_RATE: '0' });
   const conn = await t.connection({});
   const w = await t.world('On-demand world', conn);
   await w.sync();
-  const dmView = { accountId: t.accountId, role: 'dm' as const };
-  const idOf = (title: string) => (t.deps.library.list(w.wid, dmView) as any[]).find((p) => p.title === title).id as string;
+  const gmView = { accountId: t.accountId, role: 'gm' as const };
+  const idOf = (title: string) => (t.deps.library.list(w.wid, gmView) as any[]).find((p) => p.title === title).id as string;
   const depth = (id: string) => one<any>(t.deps.db, 'SELECT depth FROM pages WHERE id = ?', id).depth;
   const hidden = idOf('No visibility known');
   const priv = idOf('Private index');
@@ -382,18 +382,18 @@ test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheDmSpendsOne', 
     assert.equal(r.status, 404);
     assert.ok(!r.text.includes('FULLBODY'));
   }
-  assert.equal(site.calls.length, 0, 'a player opening DM-only pages costs no call');
+  assert.equal(site.calls.length, 0, 'a player opening GM-only pages costs no call');
   assert.equal(depth(hidden), 'index', 'and nothing was read');
   assert.equal(one<any>(t.deps.db, 'SELECT wanted FROM pages WHERE id = ?', hidden).wanted, 0, 'it is not even marked as wanted');
   const r = await open(t.admin, hidden);
   assert.equal(r.status, 200);
-  assert.equal(site.calls.length, 1, 'the DM opening it reads it once');
+  assert.equal(site.calls.length, 1, 'the GM opening it reads it once');
   assert.equal(site.calls[0].path, '/pages/p3');
   assert.match(r.text, /FULLBODY p3/);
-  // The player still cannot see it after it was read (it has no visibility from the source: DM-only), and the audit of the call count stays at one.
+  // The player still cannot see it after it was read (it has no visibility from the source: GM-only), and the audit of the call count stays at one.
   assert.equal((await open(player.token, hidden)).status, 404);
   assert.equal(site.calls.length, 1);
-  // The model's DM harness path is the same function: an unseen page for a player viewer reads nothing.
+  // The model's GM harness path is the same function: an unseen page for a player viewer reads nothing.
   site.calls = [];
   const { readOnOpen } = await import('../src/features/connections/ondemand.ts');
   assert.equal(await readOnOpen(t.deps, w.wid, priv, { accountId: player.accountId, role: 'player' }), 'unavailable');
@@ -402,9 +402,9 @@ test('RateLimit_APlayerOpeningAPageTheyCannotSeeSpendsNoCallAndTheDmSpendsOne', 
   assert.ok(all);
 });
 
-// ---- the DM is told when a page they opened is waiting for the site ----------------------------------------------------------------
+// ---- the GM is told when a page they opened is waiting for the site ----------------------------------------------------------------
 
-test('RateLimit_AnOpenHeldBackByTheSiteShowsAsAWaitForTheDm_AndABackgroundOnlyWaitDoesNot', async () => {
+test('RateLimit_AnOpenHeldBackByTheSiteShowsAsAWaitForTheGm_AndABackgroundOnlyWaitDoesNot', async () => {
   const clock = fakeClock();
   const t = await boot();
   site.now = () => clock.t;
@@ -414,7 +414,7 @@ test('RateLimit_AnOpenHeldBackByTheSiteShowsAsAWaitForTheDm_AndABackgroundOnlyWa
   const src = one<any>(t.deps.db, 'SELECT * FROM sources WHERE id = ?', w.sid)!;
   const lim = limiterFor(limitKeyOf(src, t.deps.db), limitsOf('api', { maxPerMinute: 10, maxPerSecond: 0, spreadMinutes: 0 }));
   assert.equal(worldStatus(t.deps, w.wid).waiting, null, 'nothing to wait for');
-  // The site says slow down: the DM's Library says how long, whoever caused it.
+  // The site says slow down: the GM's Library says how long, whoever caused it.
   lim.observe(new Headers({ 'Retry-After': '20' }), 429);
   const waiting = worldStatus(t.deps, w.wid).waiting!;
   assert.ok(waiting && waiting.seconds >= 19 && waiting.seconds <= 20 && waiting.reason === 'asked', JSON.stringify(waiting));
@@ -425,7 +425,7 @@ test('RateLimit_AnOpenHeldBackByTheSiteShowsAsAWaitForTheDm_AndABackgroundOnlyWa
   // It clears with time.
   clock.t += 25_000;
   assert.equal(worldStatus(t.deps, w.wid).waiting, null);
-  // Background reads giving way to the reserve are not a wait the DM would share: a page they open goes straight through.
+  // Background reads giving way to the reserve are not a wait the GM would share: a page they open goes straight through.
   const lim2 = new Limiter('bg', { perMinute: 10, perSecond: 0, spreadMinutes: 0, perHour: 0 });
   for (let i = 0; i < 8; i++) await lim2.acquire(undefined, 0, true);
   clock.onSleep = () => assert.equal(lim2.throttle(), null, 'a background-only wait is not shown');

@@ -1,7 +1,7 @@
-// A router of a pane's own. The DM pages use <Link>, navigate() and the URL's query, and each pane must have its own: a link
+// A router of a pane's own. The GM pages use <Link>, navigate() and the URL's query, and each pane must have its own: a link
 // inside the Combat pane must not move the whole window, and two panes must not share one ?tab=. React Router refuses a Router
 // inside a Router, so this provides the same contexts a MemoryRouter does, with history kept in the pane. A link to a page
-// that is not a DM page (a player route, a full URL) goes to the real router.
+// that is not a GM page (a player route, a full URL) goes to the real router.
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Route, Routes, UNSAFE_LocationContext, UNSAFE_NavigationContext, UNSAFE_RouteContext, createPath, parsePath, useNavigate, type Location, type To } from 'react-router-dom';
 import { pageOfRoute } from '../../lib/workspace.ts';
@@ -13,14 +13,14 @@ const mk = (path: string, key: string): Location => { const p = parsePath(path);
 
 export default function PaneRouter({ slug, entry, routes, onPage }: {
   slug: string;
-  /** The first location, path and query: /w/<slug>/dm/<route>?... */
+  /** The first location, path and query: /w/<slug>/gm/<route>?... */
   entry: string;
   routes: PaneRoute[];
-  /** The pane moved to another DM page by itself (a link on the page); `entry` is where. */
+  /** The pane moved to another GM page by itself (a link on the page); `entry` is where. */
   onPage: (page: string, entry: string) => void;
 }) {
   const outer = useNavigate();
-  const prefix = `/w/${slug}/dm`;
+  const prefix = `/w/${slug}/gm`;
   const pageOf = useCallback((pathname: string): string | null => {
     if (pathname !== prefix && !pathname.startsWith(`${prefix}/`)) return null;
     const first = pathname.slice(prefix.length + 1).split('/')[0];
@@ -58,7 +58,7 @@ export default function PaneRouter({ slug, entry, routes, onPage }: {
       <UNSAFE_LocationContext.Provider value={loc}>
         <UNSAFE_RouteContext.Provider value={route as never}>
           <Routes>
-            <Route path="/w/:world/dm">
+            <Route path="/w/:world/gm">
               <Route index element={tablePage} />
               {children}
             </Route>

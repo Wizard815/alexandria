@@ -1,6 +1,6 @@
-// Minerva: the DM's agent and her campaign memory (docs/MINERVA.md). The vault,
+// Minerva: the GM's agent and her campaign memory (docs/MINERVA.md). The vault,
 // accretion and promotion, revelations and knowledge, the after-session review,
-// arcs, Obsidian export and import, and the walls between the DM's memory and
+// arcs, Obsidian export and import, and the walls between the GM's memory and
 // the players (who only ever meet the broker).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,8 +15,8 @@ import { makeZip } from '../src/features/minerva/transfer.ts';
 import { personaGiveaway } from '../src/features/minerva/player.ts';
 import { BLOCKED_REPLY } from '../src/features/agent/leak.ts';
 
-const DM_STATUS = 'STATUSMARK the harbour council will move against the lighthouse at the next new moon';
-const DM_HIDDEN = 'HIDDENMARK the smuggler queen is the sister of the lighthouse keeper in disguise';
+const GM_STATUS = 'STATUSMARK the harbour council will move against the lighthouse at the next new moon';
+const GM_HIDDEN = 'HIDDENMARK the smuggler queen is the sister of the lighthouse keeper in disguise';
 const JESS_JOURNAL = 'JESSJOURNAL I do not trust the ferryman because he knew my mother name';
 const TOM_JOURNAL = 'TOMJOURNAL the old sword in my pack hums whenever the goblins are near';
 const JESS_SHARED = 'JESSSHARED my character once served in the harbour guard of Saltmarsh';
@@ -26,7 +26,7 @@ const CLUE2 = 'the keeper washed oil from his hands before dawn on every darkene
 const CLUE3 = 'a smuggler boat was seen mooring near the lighthouse during the darkened nights';
 const CONCLUSION = 'The keeper darkened the lamp for the smuggler queen CONCLUSIONMARK';
 
-const prompts: { who: 'dm' | 'player' | 'other'; body: string }[] = [];
+const prompts: { who: 'gm' | 'player' | 'other'; body: string }[] = [];
 let scripted = 'The tide table says low water at dawn.';
 const reply = (message: any) => new Response(JSON.stringify({ choices: [{ message, finish_reason: 'stop' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 const fakeFetch = (async (url: any, init?: any) => {
@@ -34,7 +34,7 @@ const fakeFetch = (async (url: any, init?: any) => {
   if (!u.startsWith('http://fake.test/')) return fetch(url, init);
   const body = init?.body && typeof init.body === 'string' ? JSON.parse(init.body) : null;
   const sys = String(body?.messages?.[0]?.content ?? '');
-  if (/^You are .*Dungeon Master/.test(sys)) { prompts.push({ who: 'dm', body: init.body }); return reply({ role: 'assistant', content: scripted }); }
+  if (/^You are .*Game Master/.test(sys)) { prompts.push({ who: 'gm', body: init.body }); return reply({ role: 'assistant', content: scripted }); }
   if (/information broker/.test(sys)) { prompts.push({ who: 'player', body: init.body }); return reply({ role: 'assistant', content: scripted }); }
   prompts.push({ who: 'other', body: init?.body ?? '' });
   if (/keep a campaign status document current/.test(sys)) return reply({ role: 'assistant', content: JSON.stringify({ changed: ['The lamp was darkened on purpose.'], next: ['Find who paid the keeper.'] }) });
@@ -63,7 +63,7 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
   return r.body;
 };
 const w = (p: string) => `/api/worlds/${W}${p}`;
-const dm = (m: string, p: string, b?: unknown) => ok(m, w(p), T.dm, b);
+const gm = (m: string, p: string, b?: unknown) => ok(m, w(p), T.gm, b);
 const as = (who: string) => (m: string, p: string, b?: unknown) => ok(m, w(p), T[who], b);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const until = async (f: () => boolean | Promise<boolean>, what: string) => { for (let i = 0; i < 300; i++) { if (await f()) return; await wait(20); } throw new Error(`timed out: ${what}`); };
@@ -77,37 +77,37 @@ before(async () => {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
   T.ads = (await ok('POST', '/api/admin-auth/login', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.ads, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.ads, { name: 'Saltreach', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.ads, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.ads, { name: 'Saltreach', gmAccountId: ID.gm })).id;
   for (const [name, character] of [['jess', 'Jessamine'], ['tom', 'Tomas']] as const) {
-    const inv = await dm('POST', '/invites', { role: 'player' });
+    const inv = await gm('POST', '/invites', { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: character });
     T[name] = j.token; ID[name] = j.account.id;
   }
-  const inv = await dm('POST', '/invites', { role: 'guest' });
+  const inv = await gm('POST', '/invites', { role: 'guest' });
   T.guest = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'visitor', password: 'guest pass 1234', characterName: 'Visitor' })).token;
-  await dm('PUT', '/library/pages', { path: 'people/Odo Fennick', visibility: 'party', markdown: '# Odo Fennick\nThe harbour clerk of Saltmarsh.\n' });
-  await dm('PATCH', '/settings', { agentAutoApprove: [] });
+  await gm('PUT', '/library/pages', { path: 'people/Odo Fennick', visibility: 'party', markdown: '# Odo Fennick\nThe harbour clerk of Saltmarsh.\n' });
+  await gm('PATCH', '/settings', { agentAutoApprove: [] });
 });
 after(() => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-const page = (rel: string) => dm('GET', `/minerva/page?rel=${encodeURIComponent(rel)}`);
-const putPage = (rel: string, body: string, extra: Record<string, unknown> = {}) => dm('PUT', '/minerva/page', { rel, body, ...extra });
+const page = (rel: string) => gm('GET', `/minerva/page?rel=${encodeURIComponent(rel)}`);
+const putPage = (rel: string, body: string, extra: Record<string, unknown> = {}) => gm('PUT', '/minerva/page', { rel, body, ...extra });
 
 test('TestMinerva_EnableSeedsTheVault', async () => {
-  assert.equal((await dm('GET', '/minerva')).enabled, false);
-  assert.equal((await call('GET', w('/minerva/context'), T.dm)).status, 409, 'tools say to turn her on first');
-  await dm('POST', '/minerva/enable', {});
-  const s = await dm('GET', '/minerva');
+  assert.equal((await gm('GET', '/minerva')).enabled, false);
+  assert.equal((await call('GET', w('/minerva/context'), T.gm)).status, 409, 'tools say to turn her on first');
+  await gm('POST', '/minerva/enable', {});
+  const s = await gm('GET', '/minerva');
   assert.equal(s.enabled, true);
   assert.equal(s.name, 'Minerva');
   assert.deepEqual(s.sections.map((x: any) => x.title), ['Now', 'Active threads', 'NPC agendas', 'What changed last session', 'Next session', 'Open questions']);
-  const rels = (await dm('GET', '/minerva/pages')).pages.map((p: any) => p.rel);
-  for (const need of ['HOME.md', 'dm/state/Campaign Status.md', 'chronicle/timeline.md', 'chronicle/calendar.md']) assert.ok(rels.includes(need), `has ${need}`);
+  const rels = (await gm('GET', '/minerva/pages')).pages.map((p: any) => p.rel);
+  for (const need of ['HOME.md', 'gm/state/Campaign Status.md', 'chronicle/timeline.md', 'chronicle/calendar.md']) assert.ok(rels.includes(need), `has ${need}`);
   for (const who of ['jess', 'tom']) {
     for (const f of ['profile.md', 'shared.md', 'bonds.md', 'knowledge.md']) assert.ok(rels.includes(`players/${ID[who]}/${f}`), `${who} has ${f}`);
-    assert.ok(rels.includes(`dm/players/${ID[who]}.md`));
+    assert.ok(rels.includes(`gm/players/${ID[who]}.md`));
   }
   assert.ok(rels.some((r: string) => r === 'codex/characters/pc/Jessamine.md'));
   // Front matter (§3): type, level, player.
@@ -115,22 +115,22 @@ test('TestMinerva_EnableSeedsTheVault', async () => {
   assert.equal(prof.fm.type, 'profile');
   assert.equal(prof.fm.level, 'party');
   assert.equal(prof.fm.player, ID.jess);
-  assert.equal((await page('dm/state/Campaign Status.md')).level, 'dm');
-  // The library stores every vault page DM-only (or broker/classified): none is a party page, so none shows to players.
+  assert.equal((await page('gm/state/Campaign Status.md')).level, 'gm');
+  // The library stores every vault page GM-only (or broker/classified): none is a party page, so none shows to players.
   const vis = all<any>(deps.db, `SELECT DISTINCT visibility FROM pages WHERE world_id = ? AND path LIKE 'Minerva/%'`, W).map((r) => r.visibility);
-  assert.deepEqual(vis, ['dm']);
+  assert.deepEqual(vis, ['gm']);
   // Turning her on again changes nothing.
-  await dm('POST', '/minerva/enable', {});
-  assert.equal((await dm('GET', '/minerva/pages')).pages.length, rels.length);
+  await gm('POST', '/minerva/enable', {});
+  assert.equal((await gm('GET', '/minerva/pages')).pages.length, rels.length);
 });
 
 test('TestMinerva_PlayersNeverSeeTheVaultOrHerName', async () => {
-  await putPage('dm/state/Campaign Status.md', `# Campaign Status\n\n## Now\n${DM_STATUS}\n`);
-  await putPage('dm/hidden-lore/Queen.md', `# Queen\n${DM_HIDDEN}.\n`);
+  await putPage('gm/state/Campaign Status.md', `# Campaign Status\n\n## Now\n${GM_STATUS}\n`);
+  await putPage('gm/hidden-lore/Queen.md', `# Queen\n${GM_HIDDEN}.\n`);
   await putPage(`players/${ID.jess}/journal/session-1.md`, `# Session 1\n\n## Notes\n- ${JESS_JOURNAL}\n`);
   await putPage(`players/${ID.tom}/journal/session-1.md`, `# Session 1\n\n## Notes\n- ${TOM_JOURNAL}\n`);
   await putPage(`players/${ID.jess}/shared.md`, `# Shared with the party\n\n## Shared\n- ${JESS_SHARED}\n`);
-  await dm('PATCH', '/settings', { agentName: 'Athena Prime' });
+  await gm('PATCH', '/settings', { agentName: 'Athena Prime' });
   for (const who of ['jess', 'tom', 'guest']) {
     const lib = await call('GET', w('/library/pages'), T[who]);
     assert.ok(!/minerva/i.test(lib.text), `${who}: no vault path in the library list`);
@@ -139,9 +139,9 @@ test('TestMinerva_PlayersNeverSeeTheVaultOrHerName', async () => {
     assert.ok(!/athena prime/i.test((await call('GET', w('/settings'), T[who])).text), `${who}: the assistant's name is not in settings`);
     assert.ok(!/athena prime/i.test((await call('GET', w(''), T[who])).text));
   }
-  assert.ok(/athena prime/i.test((await call('GET', w('/settings'), T.dm)).text));
+  assert.ok(/athena prime/i.test((await call('GET', w('/settings'), T.gm)).text));
   assert.equal((await call('GET', w('/library/pages/Minerva%2Fdm%2Fstate%2FCampaign%20Status.md'), T.jess)).status, 404);
-  // Every DM route refuses a player and a guest.
+  // Every GM route refuses a player and a guest.
   for (const who of ['jess', 'tom', 'guest']) {
     for (const [m, p] of [['GET', '/minerva'], ['GET', '/minerva/pages'], ['GET', '/minerva/page?rel=HOME.md'], ['GET', '/minerva/export'], ['GET', '/minerva/review'], ['GET', '/minerva/who?name=Jessamine'], ['GET', '/minerva/context'], ['POST', '/minerva/enable'], ['POST', '/minerva/codex'], ['POST', '/minerva/import']] as const) {
       const r = await call(m, w(p), T[who], m === 'GET' ? undefined : {});
@@ -161,11 +161,11 @@ test('TestMinerva_PlayersNeverSeeTheVaultOrHerName', async () => {
 });
 
 test('TestMinerva_SecretBlocksInCodexPagesNeverReachPlayers', async () => {
-  await dm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'secret', text: CODEX_SECRET });
-  const odo = await dm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'appearances', text: 'Gave the party directions to the lighthouse.', session: 9 });
+  await gm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'secret', text: CODEX_SECRET });
+  const odo = await gm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'appearances', text: 'Gave the party directions to the lighthouse.', session: 9 });
   assert.equal(odo.created, false);
-  // The DM opens the codex page to the party; its secret block is still the DM's.
-  await dm('PUT', '/minerva/page', { rel: odo.rel, level: 'party' });
+  // The GM opens the codex page to the party; its secret block is still the GM's.
+  await gm('PUT', '/minerva/page', { rel: odo.rel, level: 'party' });
   const body = (await page(odo.rel)).body;
   assert.ok(body.includes('> [!secret]') && body.includes('CODEXSECRET'));
   for (const who of ['jess', 'tom']) {
@@ -177,32 +177,32 @@ test('TestMinerva_SecretBlocksInCodexPagesNeverReachPlayers', async () => {
 
 test('TestMinerva_CodexAccretesNeverDuplicates', async () => {
   const lib = one<any>(deps.db, `SELECT id FROM pages WHERE world_id = ? AND path = 'people/Odo Fennick.md'`, W);
-  const before = (await dm('GET', '/minerva/pages?prefix=codex/')).pages.length;
+  const before = (await gm('GET', '/minerva/pages?prefix=codex/')).pages.length;
   // By name, by library id, by a different case: one page, never two.
-  const a = await dm('POST', '/minerva/codex', { name: 'Captain Brask', kind: 'npc', section: 'appearances', text: 'Seen on the quay.', session: 1 });
+  const a = await gm('POST', '/minerva/codex', { name: 'Captain Brask', kind: 'npc', section: 'appearances', text: 'Seen on the quay.', session: 1 });
   assert.equal(a.created, true);
-  const b = await dm('POST', '/minerva/codex', { name: 'captain brask', section: 'appearances', text: 'Seen again at the council.', session: 2 });
+  const b = await gm('POST', '/minerva/codex', { name: 'captain brask', section: 'appearances', text: 'Seen again at the council.', session: 2 });
   assert.equal(b.created, false);
   assert.equal(b.rel, a.rel);
-  await dm('PUT', '/minerva/page', { rel: a.rel, body: '# Captain Brask\n\n## Appearances\n- x\n' });
-  const c = await dm('POST', '/minerva/codex', { entity: lib.id, section: 'changed', text: 'Now trusts the party.' });
+  await gm('PUT', '/minerva/page', { rel: a.rel, body: '# Captain Brask\n\n## Appearances\n- x\n' });
+  const c = await gm('POST', '/minerva/codex', { entity: lib.id, section: 'changed', text: 'Now trusts the party.' });
   assert.equal(c.created, false, 'found by the library page id and its name');
-  const d1 = await dm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'ties', text: 'Knows Jessamine.' });
+  const d1 = await gm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'ties', text: 'Knows Jessamine.' });
   assert.equal(d1.rel, c.rel);
-  const pgs = (await dm('GET', '/minerva/pages?prefix=codex/')).pages;
+  const pgs = (await gm('GET', '/minerva/pages?prefix=codex/')).pages;
   assert.equal(pgs.length, before + 1, 'only Captain Brask was added');
   const brask = await page(a.rel);
   assert.equal((brask.body.match(/## Appearances/g) ?? []).length, 1);
   // who_is: name, alias, character and player.
-  await dm('PUT', '/minerva/page', { rel: a.rel, body: brask.body });
-  const who = (n: string) => dm('GET', `/minerva/who?name=${encodeURIComponent(n)}`).then((r) => r.matches);
+  await gm('PUT', '/minerva/page', { rel: a.rel, body: brask.body });
+  const who = (n: string) => gm('GET', `/minerva/who?name=${encodeURIComponent(n)}`).then((r) => r.matches);
   assert.ok((await who('Odo Fennick')).some((m: any) => m.type === 'codex'));
   const jessM = (await who('Jessamine')).find((m: any) => m.type === 'player');
   assert.equal(jessM.accountId, ID.jess);
   assert.equal((await who('jess')).find((m: any) => m.type === 'player')?.accountId, ID.jess, 'by the player name');
   assert.equal((await who('Nobody At All')).length, 0);
   // Appearing again later adds a dated line to the same page.
-  const e = await dm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'appearances', text: 'Back at the harbour office.', session: 4 });
+  const e = await gm('POST', '/minerva/codex', { name: 'Odo Fennick', section: 'appearances', text: 'Back at the harbour office.', session: 4 });
   assert.equal(e.created, false);
   assert.match((await page(e.rel)).body, /Back at the harbour office\. \(\[\[session-4\]\]\)/);
 });
@@ -211,167 +211,167 @@ test('TestMinerva_PromotionNeedsThreeSessionsAnActiveThreadOrABond', async () =>
   const session = (n: number, people: string) => putPage(`chronicle/arcs/01-test/sessions/session-${n}.md`, `# Session ${n}\n\n## Recap\n- A quiet day.\n\n## People met\n${people}\n`, { level: 'party' });
   await session(1, '- Mara Quill: a ferrywoman');
   await session(2, '- Mara Quill: a ferrywoman\n- Dorn the Younger: a stable boy');
-  let c = (await dm('GET', '/minerva/promotions')).candidates;
+  let c = (await gm('GET', '/minerva/promotions')).candidates;
   assert.ok(!c.some((x: any) => x.name === 'Mara Quill'), 'two sessions are not enough');
   await session(3, '- Mara Quill: a ferrywoman');
-  c = (await dm('GET', '/minerva/promotions')).candidates;
+  c = (await gm('GET', '/minerva/promotions')).candidates;
   const mara = c.find((x: any) => x.name === 'Mara Quill');
   assert.ok(mara && mara.sessions === 3 && /3 sessions/.test(mara.reasons.join()), JSON.stringify(c));
   assert.ok(!c.some((x: any) => x.name === 'Dorn the Younger'));
   // An active thread, or a player's bond, promotes at once.
-  await putPage('dm/state/Campaign Status.md', '# Campaign Status\n\n## Active threads\n- [on] Find Dorn the Younger before the new moon\n');
-  assert.ok((await dm('GET', '/minerva/promotions')).candidates.some((x: any) => x.name === 'Dorn the Younger' && /active thread/.test(x.reasons.join())));
+  await putPage('gm/state/Campaign Status.md', '# Campaign Status\n\n## Active threads\n- [on] Find Dorn the Younger before the new moon\n');
+  assert.ok((await gm('GET', '/minerva/promotions')).candidates.some((x: any) => x.name === 'Dorn the Younger' && /active thread/.test(x.reasons.join())));
   // Promoting makes the page from the mentions and removes the suggestion.
-  const made = await dm('POST', '/minerva/promote', { name: 'Mara Quill' });
+  const made = await gm('POST', '/minerva/promote', { name: 'Mara Quill' });
   assert.match(made.rel, /^codex\/characters\/npc\/Mara Quill\.md$/);
   assert.match((await page(made.rel)).body, /\[\[session-3\]\]/);
-  assert.ok(!(await dm('GET', '/minerva/promotions')).candidates.some((x: any) => x.name === 'Mara Quill'));
-  assert.equal((await call('POST', w('/minerva/promote'), T.dm, { name: 'Mara Quill' })).status, 409, 'no second page');
-  const viaModel = await fetch(base + w('/minerva/promote'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${T.dm}`, 'X-Alexandria-Caller': 'model' }, body: JSON.stringify({ name: 'Mara Quill' }) });
+  assert.ok(!(await gm('GET', '/minerva/promotions')).candidates.some((x: any) => x.name === 'Mara Quill'));
+  assert.equal((await call('POST', w('/minerva/promote'), T.gm, { name: 'Mara Quill' })).status, 409, 'no second page');
+  const viaModel = await fetch(base + w('/minerva/promote'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${T.gm}`, 'X-Alexandria-Caller': 'model' }, body: JSON.stringify({ name: 'Mara Quill' }) });
   assert.equal(viaModel.status, 200, 'for the assistant an existing page is the asked-for state');
   assert.equal(((await viaModel.json()) as any).existing, true);
 });
 
 test('TestMinerva_RevelationMarksBecomeKnowledge', async () => {
-  const bad = await call('POST', w('/minerva/revelations'), T.dm, { title: 'Who darkened the lighthouse?', conclusion: CONCLUSION, clues: [CLUE1, CLUE2] });
+  const bad = await call('POST', w('/minerva/revelations'), T.gm, { title: 'Who darkened the lighthouse?', conclusion: CONCLUSION, clues: [CLUE1, CLUE2] });
   assert.equal(bad.status, 400, 'a mystery needs three clues');
-  const m = await dm('POST', '/minerva/revelations', { title: 'Who darkened the lighthouse?', conclusion: CONCLUSION, clues: [CLUE1, CLUE2, CLUE3] });
+  const m = await gm('POST', '/minerva/revelations', { title: 'Who darkened the lighthouse?', conclusion: CONCLUSION, clues: [CLUE1, CLUE2, CLUE3] });
   assert.equal(m.clues.length, 3);
-  const pg = await page('dm/revelations/who-darkened-the-lighthouse.md');
+  const pg = await page('gm/revelations/who-darkened-the-lighthouse.md');
   assert.match(pg.body, /\| 1 \| a ledger page/);
   assert.equal(pg.fm.type, 'revelation');
-  assert.equal(pg.level, 'dm');
-  await dm('POST', '/minerva/revelations/mark', { mystery: 'Who darkened the lighthouse?', clue: 1, player: 'Jessamine', session: 2 });
-  await dm('POST', '/minerva/revelations/mark', { mystery: 'who-darkened-the-lighthouse', clue: 'washed oil from his hands', player: ID.jess, session: 2 });
-  await dm('POST', '/minerva/revelations/mark', { mystery: 'Who darkened the lighthouse?', clue: 3, player: 'Tomas', session: 3 });
+  assert.equal(pg.level, 'gm');
+  await gm('POST', '/minerva/revelations/mark', { mystery: 'Who darkened the lighthouse?', clue: 1, player: 'Jessamine', session: 2 });
+  await gm('POST', '/minerva/revelations/mark', { mystery: 'who-darkened-the-lighthouse', clue: 'washed oil from his hands', player: ID.jess, session: 2 });
+  await gm('POST', '/minerva/revelations/mark', { mystery: 'Who darkened the lighthouse?', clue: 3, player: 'Tomas', session: 3 });
   // The table and the minerva_ rows say who found what.
   const rows = all<any>(deps.db, 'SELECT clue_n, account_id FROM minerva_found WHERE world_id = ? ORDER BY clue_n', W);
   assert.deepEqual(rows.map((r) => [r.clue_n, r.account_id]), [[1, ID.jess], [2, ID.jess], [3, ID.tom]]);
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM minerva_clues WHERE world_id = ?', W).n, 3);
-  assert.match((await page('dm/revelations/who-darkened-the-lighthouse.md')).body, /\| 1 \| .* \| Jessamine \|/);
-  // Each player's knowledge has only their own clues; the conclusion is theirs only once the DM says they reached it.
+  assert.match((await page('gm/revelations/who-darkened-the-lighthouse.md')).body, /\| 1 \| .* \| Jessamine \|/);
+  // Each player's knowledge has only their own clues; the conclusion is theirs only once the GM says they reached it.
   const jk = (await page(`players/${ID.jess}/knowledge.md`)).body;
   assert.ok(jk.includes(CLUE1) && jk.includes(CLUE2) && !jk.includes(CLUE3));
   assert.ok(!jk.includes('CONCLUSIONMARK'));
   const tk = (await page(`players/${ID.tom}/knowledge.md`)).body;
   assert.ok(tk.includes(CLUE3) && !tk.includes(CLUE1));
-  await dm('POST', '/minerva/revelations/mark', { mystery: 'Who darkened the lighthouse?', player: 'Jessamine', kind: 'reached' });
-  await dm('POST', '/minerva/revelations/mark', { mystery: 'Who darkened the lighthouse?', player: 'Jessamine', kind: 'theory', text: 'The ferryman is in on it' });
+  await gm('POST', '/minerva/revelations/mark', { mystery: 'Who darkened the lighthouse?', player: 'Jessamine', kind: 'reached' });
+  await gm('POST', '/minerva/revelations/mark', { mystery: 'Who darkened the lighthouse?', player: 'Jessamine', kind: 'theory', text: 'The ferryman is in on it' });
   assert.ok((await page(`players/${ID.jess}/knowledge.md`)).body.includes('CONCLUSIONMARK'));
   assert.ok(!(await page(`players/${ID.tom}/knowledge.md`)).body.includes('CONCLUSIONMARK'));
   // What a player reads is exactly their own marks.
   const jv = JSON.stringify(await as('jess')('GET', '/minerva/me'));
   assert.ok(jv.includes(CLUE1) && jv.includes('CONCLUSIONMARK') && jv.includes('The ferryman is in on it'));
   assert.ok(!JSON.stringify(await as('tom')('GET', '/minerva/me')).includes('CONCLUSIONMARK'));
-  // The mystery page itself (who found what) is the DM's.
+  // The mystery page itself (who found what) is the GM's.
   assert.ok(!jv.includes('Who found') && !jv.includes('not found yet'));
 });
 
-test('TestMinerva_PlayerWritesAreDraftsOnTheDmsList', async () => {
+test('TestMinerva_PlayerWritesAreDraftsOnTheGmsList', async () => {
   const jess = as('jess');
   const r = await jess('POST', '/minerva/me/journal', { text: 'Asked the ferryman about the dark nights', about: 'the ferryman' });
   assert.equal(r.queued, true);
   await jess('POST', '/minerva/me/goals', { goal: 'Find my brother', heat: 'on', text: 'He was last seen at the docks' });
   await jess('POST', '/minerva/me/share', { text: 'I can read old harbour script' });
-  const rv = await dm('GET', '/minerva/review');
+  const rv = await gm('GET', '/minerva/review');
   assert.equal(rv.drafts.length, 3);
   assert.ok(rv.drafts.every((x: any) => x.byAccount === ID.jess));
   // Not applied yet: the player sees nothing new, the page is not there.
   assert.ok(!JSON.stringify(await jess('GET', '/minerva/me')).includes('Find my brother'));
-  // The DM edits one and approves, rejects another.
+  // The GM edits one and approves, rejects another.
   const j = rv.drafts.find((x: any) => x.kind === 'journal');
-  await dm('POST', `/minerva/review/${j.id}`, { decision: 'approve', text: '- Asked the ferryman about the dark nights (the DM tidied this)' });
+  await gm('POST', `/minerva/review/${j.id}`, { decision: 'approve', text: '- Asked the ferryman about the dark nights (the GM tidied this)' });
   const g = rv.drafts.find((x: any) => x.kind === 'goal');
-  await dm('POST', `/minerva/review/${g.id}`, { decision: 'approve' });
+  await gm('POST', `/minerva/review/${g.id}`, { decision: 'approve' });
   const sh = rv.drafts.find((x: any) => x.kind === 'share');
-  await dm('POST', `/minerva/review/${sh.id}`, { decision: 'reject' });
-  assert.equal((await call('POST', w(`/minerva/review/${j.id}`), T.dm, { decision: 'approve' })).status, 409, 'decided once');
+  await gm('POST', `/minerva/review/${sh.id}`, { decision: 'reject' });
+  assert.equal((await call('POST', w(`/minerva/review/${j.id}`), T.gm, { decision: 'approve' })).status, 409, 'decided once');
   const v = await jess('GET', '/minerva/me');
-  assert.ok(JSON.stringify(v.journal).includes('the DM tidied this'));
+  assert.ok(JSON.stringify(v.journal).includes('the GM tidied this'));
   assert.equal(v.goals.find((x: any) => x.title === 'Find my brother')?.heat, 'on');
   assert.ok(!JSON.stringify(await as('tom')('GET', '/minerva/me')).includes('I can read old harbour script'), 'a rejected share never shows');
   // Another player never sees it, and nothing a player sends can reach another root.
   assert.ok(!JSON.stringify(await as('tom')('GET', '/minerva/me')).includes('Find my brother'));
   const odd = await as('tom')('POST', '/minerva/me/journal', { text: 'x', rel: `players/${ID.jess}/journal/session-9.md`, accountId: ID.jess });
   assert.equal(odd.queued, true);
-  const tomDraft = (await dm('GET', '/minerva/review')).drafts.find((x: any) => x.byAccount === ID.tom);
+  const tomDraft = (await gm('GET', '/minerva/review')).drafts.find((x: any) => x.byAccount === ID.tom);
   assert.ok(tomDraft.op.rel.startsWith(`players/${ID.tom}/`), tomDraft.op.rel);
-  await dm('POST', `/minerva/review/${tomDraft.id}`, { decision: 'reject' });
+  await gm('POST', `/minerva/review/${tomDraft.id}`, { decision: 'reject' });
   // With auto-approve on for that tool, the write is applied at once.
-  await dm('PATCH', '/settings', { agentAutoApprove: ['my_memory_log'] });
+  await gm('PATCH', '/settings', { agentAutoApprove: ['my_memory_log'] });
   const auto = await jess('POST', '/minerva/me/journal', { text: 'Auto approved note about the quay' });
   assert.equal(auto.queued, false);
   assert.ok(JSON.stringify((await jess('GET', '/minerva/me')).journal).includes('Auto approved note'));
-  await dm('PATCH', '/settings', { agentAutoApprove: [] });
+  await gm('PATCH', '/settings', { agentAutoApprove: [] });
 });
 
 test('TestMinerva_AfterSessionDraftsAreOneReview', async () => {
   const from = new Date(Date.now() - 3_600_000).toISOString();
-  const draft = await dm('POST', '/sessionlog/drafts', { from, to: new Date().toISOString(), title: 'Into the harbour' });
-  await dm('PUT', `/sessionlog/drafts/${draft.id}`, { markdown: '## Recap\n- The party reached the harbour office and spoke to Odo Fennick about the dark lamp.\n- Jessamine searched the cellar.\n\n## Key moments\n- The keeper confessed that the lamp was darkened on purpose.\n\n## People met\n- Odo Fennick: the harbour clerk\n- Sister Ilse: a healer from the hill chapel\n\n## Open threads\n- Who paid the keeper to darken the lamp?\n' });
-  await dm('POST', `/sessionlog/drafts/${draft.id}/publish`, {});
+  const draft = await gm('POST', '/sessionlog/drafts', { from, to: new Date().toISOString(), title: 'Into the harbour' });
+  await gm('PUT', `/sessionlog/drafts/${draft.id}`, { markdown: '## Recap\n- The party reached the harbour office and spoke to Odo Fennick about the dark lamp.\n- Jessamine searched the cellar.\n\n## Key moments\n- The keeper confessed that the lamp was darkened on purpose.\n\n## People met\n- Odo Fennick: the harbour clerk\n- Sister Ilse: a healer from the hill chapel\n\n## Open threads\n- Who paid the keeper to darken the lamp?\n' });
+  await gm('POST', `/sessionlog/drafts/${draft.id}/publish`, {});
   await until(() => !!one(deps.db, 'SELECT 1 FROM minerva_sessions WHERE world_id = ?', W), 'the session was filed');
   const filed = one<any>(deps.db, 'SELECT * FROM minerva_sessions WHERE world_id = ?', W);
   assert.match(filed.rel, /^chronicle\/arcs\/01-.*\/sessions\/session-1\.md$/);
   await until(() => (one<any>(deps.db, `SELECT COUNT(*) AS n FROM minerva_drafts WHERE world_id = ? AND review = 'session-1'`, W)?.n ?? 0) > 0, 'drafts made');
-  const arcs = (await dm('GET', '/minerva/arcs')).arcs;
+  const arcs = (await gm('GET', '/minerva/arcs')).arcs;
   assert.equal(arcs.length, 1);
   assert.equal(arcs[0].status, 'open');
   const pg = await page(filed.rel);
   assert.equal(pg.fm.type, 'session');
   assert.ok(pg.body.includes('The party reached the harbour office'));
-  const rv = await dm('GET', '/minerva/review');
+  const rv = await gm('GET', '/minerva/review');
   const kinds = new Set(rv.drafts.filter((x: any) => x.review === 'session-1').map((x: any) => x.kind));
   for (const k of ['status', 'journal', 'codex']) assert.ok(kinds.has(k), `drafts of kind ${k}: ${[...kinds]}`);
   // The model's status text is a draft with a before and after, not yet in the doc.
   const st = rv.drafts.find((x: any) => x.kind === 'status' && /what changed/i.test(x.title));
   assert.match(st.preview.after, /The lamp was darkened on purpose/);
-  assert.ok(!(await page('dm/state/Campaign Status.md')).body.includes('The lamp was darkened on purpose'));
+  assert.ok(!(await page('gm/state/Campaign Status.md')).body.includes('The lamp was darkened on purpose'));
   // Filing the same entry again changes nothing.
-  const again = await dm('POST', `/minerva/sessions/${filed.entry_id}/file`);
+  const again = await gm('POST', `/minerva/sessions/${filed.entry_id}/file`);
   assert.equal(again.already, true);
-  assert.equal((await dm('GET', '/minerva/review')).drafts.length, rv.drafts.length);
+  assert.equal((await gm('GET', '/minerva/review')).drafts.length, rv.drafts.length);
   // Approve everything: the status doc, the codex page and every player's journal follow.
-  const done = await dm('POST', '/minerva/review/approve-all', { review: 'session-1' });
+  const done = await gm('POST', '/minerva/review/approve-all', { review: 'session-1' });
   assert.equal(done.failed, 0);
-  assert.match((await page('dm/state/Campaign Status.md')).body, /What changed last session\n- The lamp was darkened on purpose/);
+  assert.match((await page('gm/state/Campaign Status.md')).body, /What changed last session\n- The lamp was darkened on purpose/);
   assert.match((await page('codex/characters/npc/Odo Fennick.md')).body, /session-1/);
   const jv = await as('jess')('GET', '/minerva/me');
   assert.ok(JSON.stringify(jv.journal).includes('harbour office'), 'a journal entry for the session');
-  assert.equal((await dm('GET', '/minerva/review')).drafts.filter((x: any) => x.review === 'session-1').length, 0);
+  assert.equal((await gm('GET', '/minerva/review')).drafts.filter((x: any) => x.review === 'session-1').length, 0);
   assert.ok(!/minerva|athena/i.test(JSON.stringify(jv)));
 });
 
 test('TestMinerva_ArcsStartAndCloseWithASummaryDraft', async () => {
-  assert.equal((await call('POST', w('/minerva/arcs'), T.dm, { title: 'Second' })).status, 409, 'one arc is open');
-  const closed = await dm('POST', '/minerva/arcs/open/close');
+  assert.equal((await call('POST', w('/minerva/arcs'), T.gm, { title: 'Second' })).status, 409, 'one arc is open');
+  const closed = await gm('POST', '/minerva/arcs/open/close');
   assert.equal(closed.arc.status, 'closed');
-  const dr = (await dm('GET', '/minerva/review')).drafts.find((x: any) => x.id === closed.draft);
+  const dr = (await gm('GET', '/minerva/review')).drafts.find((x: any) => x.id === closed.draft);
   assert.match(dr.op.rel, /^chronicle\/arcs\/01-.*\/summary\.md$/);
   assert.match(dr.op.body, /dark lighthouse|What mattered/);
-  await dm('POST', `/minerva/review/${dr.id}`, { decision: 'approve' });
+  await gm('POST', `/minerva/review/${dr.id}`, { decision: 'approve' });
   assert.ok(await page(dr.op.rel));
-  const next = await dm('POST', '/minerva/arcs', { title: 'The Drowned Bell' });
+  const next = await gm('POST', '/minerva/arcs', { title: 'The Drowned Bell' });
   assert.equal(next.n, 2);
   assert.match(next.slug, /^02-the-drowned-bell$/);
-  assert.equal((await dm('GET', '/minerva/arcs')).open.slug, next.slug);
+  assert.equal((await gm('GET', '/minerva/arcs')).open.slug, next.slug);
 });
 
 test('TestMinerva_ToolsKeepToTheirSides', async () => {
   const { toolsFor } = await import('../src/routes/mcpServer.ts');
-  const dmTools = toolsFor(true).map((t) => t.name);
-  const playerTools = toolsFor(false).filter((t) => !t.dmOnly && !t.write).map((t) => t.name);
-  for (const n of ['context_for', 'who_is', 'memory_log', 'memory_capture', 'conversation_log', 'status_update', 'revelation_mark', 'codex_upsert', 'promote', 'arc_close', 'goal_update']) assert.ok(dmTools.includes(n), n);
+  const gmTools = toolsFor(true).map((t) => t.name);
+  const playerTools = toolsFor(false).filter((t) => !t.gmOnly && !t.write).map((t) => t.name);
+  for (const n of ['context_for', 'who_is', 'memory_log', 'memory_capture', 'conversation_log', 'status_update', 'revelation_mark', 'codex_upsert', 'promote', 'arc_close', 'goal_update']) assert.ok(gmTools.includes(n), n);
   for (const n of ['context_for', 'who_is', 'memory_log', 'status_update', 'revelation_mark', 'codex_upsert', 'promote', 'arc_close', 'goal_update', 'conversation_log']) assert.ok(!playerTools.includes(n), `a player is not offered ${n}`);
-  for (const n of ['my_context', 'my_who_is', 'my_memory_log', 'my_memory_capture', 'my_goal_update']) { assert.ok(playerTools.includes(n), n); assert.ok(!dmTools.includes(n), `the DM harness does not list the player form ${n}`); }
+  for (const n of ['my_context', 'my_who_is', 'my_memory_log', 'my_memory_capture', 'my_goal_update']) { assert.ok(playerTools.includes(n), n); assert.ok(!gmTools.includes(n), `the GM harness does not list the player form ${n}`); }
   const all_ = toolsFor(true).concat(toolsFor(false));
-  for (const t of all_.filter((x) => x.playerOnly)) assert.ok(!/minerva|assistant|DM's agent/i.test(`${t.name} ${t.description}`), `${t.name} does not name her`);
-  // The DM's write tools are proposals for the DM; the player forms can never write.
+  for (const t of all_.filter((x) => x.playerOnly)) assert.ok(!/minerva|assistant|GM's agent/i.test(`${t.name} ${t.description}`), `${t.name} does not name her`);
+  // The GM's write tools are proposals for the GM; the player forms can never write.
   for (const t of all_.filter((x) => x.playerOnly)) assert.ok(!t.write);
 });
 
 test('TestMinerva_BrokerSpeaksAsTheBrokerAndKnowsOnlyThePlayer', async () => {
-  await dm('PUT', '/broker', { persona: { name: 'Old Marrow', title: 'Fence of Saltmarsh', description: 'x', greeting: 'Hm.', voice: 'leans in', portrait: '' }, tiers: (await dm('GET', '/broker')).tiers, lengths: (await dm('GET', '/broker')).lengths, unknown: 'dm' }).catch(() => {});
+  await gm('PUT', '/broker', { persona: { name: 'Old Marrow', title: 'Fence of Saltmarsh', description: 'x', greeting: 'Hm.', voice: 'leans in', portrait: '' }, tiers: (await gm('GET', '/broker')).tiers, lengths: (await gm('GET', '/broker')).lengths, unknown: 'gm' }).catch(() => {});
   const ask = async (who: string, text: string) => {
     const chat = await as(who)('POST', '/agent/chats', {});
     await as(who)('POST', `/agent/chats/${chat.id}/messages`, { text });
@@ -385,7 +385,7 @@ test('TestMinerva_BrokerSpeaksAsTheBrokerAndKnowsOnlyThePlayer', async () => {
   assert.equal(r1.status, 'done');
   const pj = prompts.filter((p) => p.who === 'player').map((p) => p.body).join('\n');
   assert.ok(pj.includes(CLUE1), 'the broker is given what this player found');
-  for (const bad of [DM_STATUS, DM_HIDDEN, 'STATUSMARK', 'HIDDENMARK', 'TOMJOURNAL', CLUE3, 'CODEXSECRET', 'Athena Prime']) assert.ok(!pj.includes(bad), `a player prompt must not carry ${bad.slice(0, 20)}`);
+  for (const bad of [GM_STATUS, GM_HIDDEN, 'STATUSMARK', 'HIDDENMARK', 'TOMJOURNAL', CLUE3, 'CODEXSECRET', 'Athena Prime']) assert.ok(!pj.includes(bad), `a player prompt must not carry ${bad.slice(0, 20)}`);
   assert.ok(!/minerva/i.test(pj), 'no mention of her in a player prompt');
   assert.match(pj, /information broker/);
   // The persona name is the world's broker, never her.
@@ -395,14 +395,14 @@ test('TestMinerva_BrokerSpeaksAsTheBrokerAndKnowsOnlyThePlayer', async () => {
   await ask('tom', 'What do I know about the lighthouse lamp?');
   const tj = prompts.filter((p) => p.who === 'player').map((p) => p.body).join('\n');
   assert.ok(tj.includes(CLUE3) && !tj.includes(CLUE1) && !tj.includes('JESSJOURNAL'));
-  // The DM harness is told her name (Athena Prime was set) and sees the status.
+  // The GM harness is told her name (Athena Prime was set) and sees the status.
   prompts.length = 0;
-  await ask('dm', 'Where are we in the campaign?');
-  const dj = prompts.filter((p) => p.who === 'dm').map((p) => p.body).join('\n');
-  assert.match(dj, /You are Athena Prime, the assistant of the Dungeon Master/);
+  await ask('gm', 'Where are we in the campaign?');
+  const dj = prompts.filter((p) => p.who === 'gm').map((p) => p.body).join('\n');
+  assert.match(dj, /You are Athena Prime, the assistant of the Game Master/);
   assert.ok(dj.includes('Find Dorn the Younger'), 'the status doc is in front of her');
   // A reply that gives her away is blocked and rewritten, whichever way it is said.
-  for (const bad of ['I am Minerva, and I keep notes for the table.', 'I work for the DM, you see.', "I am the DM's assistant, friend.", 'Athena Prime says the tide is low.']) {
+  for (const bad of ['I am Minerva, and I keep notes for the table.', 'I work for the GM, you see.', "I am the GM's assistant, friend.", 'Athena Prime says the tide is low.']) {
     scripted = bad;
     const r = await ask('jess', 'Who are you really?');
     assert.equal(r.text, BLOCKED_REPLY, bad);
@@ -410,7 +410,7 @@ test('TestMinerva_BrokerSpeaksAsTheBrokerAndKnowsOnlyThePlayer', async () => {
   }
   scripted = 'Nothing but the tide.';
   assert.notEqual((await ask('jess', 'Who are you?')).text, BLOCKED_REPLY);
-  // DM-only vault text in a reply is blocked the same way, while the player's own text is allowed.
+  // GM-only vault text in a reply is blocked the same way, while the player's own text is allowed.
   scripted = 'Truly the smuggler queen is the sister of the lighthouse keeper in disguise, they say.';
   assert.equal((await ask('jess', 'Tell me a rumour')).text, BLOCKED_REPLY);
   scripted = "Truly I do not trust the ferryman because he knew my mother name, as you wrote.";
@@ -418,61 +418,61 @@ test('TestMinerva_BrokerSpeaksAsTheBrokerAndKnowsOnlyThePlayer', async () => {
   scripted = "Truly I do not trust the ferryman because he knew my mother name, said Jessamine.";
   assert.equal((await ask('tom', 'What did Jessamine write?')).text, BLOCKED_REPLY, 'but not another player\'s');
   // The check itself.
-  assert.ok(personaGiveaway('The Minerva memory vault') && personaGiveaway('assistant to the Dungeon Master') && !personaGiveaway('The market was busy.'));
+  assert.ok(personaGiveaway('The Minerva memory vault') && personaGiveaway('assistant to the Game Master') && !personaGiveaway('The market was busy.'));
 });
 
 test('TestMinerva_ExportAndImportRoundTrip', async () => {
-  const r = await call('GET', w('/minerva/export'), T.dm);
+  const r = await call('GET', w('/minerva/export'), T.gm);
   assert.equal(r.status, 200);
   const files = readZip(r.buf);
   const names = files.map((f) => f.name);
-  for (const need of ['HOME.md', 'dm/state/Campaign Status.md', 'players/jessamine/knowledge.md', 'dm/revelations/who-darkened-the-lighthouse.md']) assert.ok(names.includes(need), `zip has ${need}`);
+  for (const need of ['HOME.md', 'gm/state/Campaign Status.md', 'players/jessamine/knowledge.md', 'gm/revelations/who-darkened-the-lighthouse.md']) assert.ok(names.includes(need), `zip has ${need}`);
   assert.ok(!names.some((n) => n.startsWith('Minerva/')), 'paths are relative to the vault');
-  const status = files.find((f) => f.name === 'dm/state/Campaign Status.md')!.read().toString('utf8');
-  assert.match(status, /^---\ntype: status\nlevel: dm/);
+  const status = files.find((f) => f.name === 'gm/state/Campaign Status.md')!.read().toString('utf8');
+  assert.match(status, /^---\ntype: status\nlevel: gm/);
   assert.ok(status.includes('Find Dorn the Younger'));
   // Lose a page and a clue, then bring them back from the zip.
-  await call('DELETE', w('/minerva/page?rel=' + encodeURIComponent('dm/hidden-lore/Queen.md')), T.dm);
-  assert.equal((await call('GET', w('/minerva/page?rel=dm%2Fhidden-lore%2FQueen.md'), T.dm)).status, 404);
-  const imp = await call('POST', w('/minerva/import'), T.dm, r.buf, true);
+  await call('DELETE', w('/minerva/page?rel=' + encodeURIComponent('gm/hidden-lore/Queen.md')), T.gm);
+  assert.equal((await call('GET', w('/minerva/page?rel=gm%2Fhidden-lore%2FQueen.md'), T.gm)).status, 404);
+  const imp = await call('POST', w('/minerva/import'), T.gm, r.buf, true);
   assert.equal(imp.status, 200, imp.text);
   assert.equal(imp.body.created, 1);
   assert.ok(imp.body.updated >= names.filter((n) => !/\/arc\.md$/.test(n)).length - 1);
   assert.deepEqual(imp.body.skipped, []);
-  assert.ok((await page('dm/hidden-lore/Queen.md')).body.includes('HIDDENMARK'));
+  assert.ok((await page('gm/hidden-lore/Queen.md')).body.includes('HIDDENMARK'));
   assert.equal((await page(`players/${ID.jess}/profile.md`)).fm.level, 'party');
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM minerva_found WHERE world_id = ? AND kind = ?', W, 'clue').n, 3, 'clue marks survive an import of the same vault');
 });
 
 test('TestMinerva_ExportIntoAFreshWorldMapsPlayersAndRebuildsArcsAndClues', async () => {
-  const r = await call('GET', w('/minerva/export'), T.dm);
+  const r = await call('GET', w('/minerva/export'), T.gm);
   const files = readZip(r.buf);
   const names = files.map((f) => f.name);
   assert.ok(!names.some((n) => /^players\/acc_/.test(n) || n.includes(ID.jess)), 'player folders are readable names, not account ids');
   assert.ok(names.includes('players/tomas/profile.md'));
   const prof = files.find((f) => f.name === 'players/jessamine/profile.md')!.read().toString('utf8');
   assert.match(prof, new RegExp(`player: ${ID.jess}`));
-  const arcsBefore = (await dm('GET', '/minerva/arcs')).arcs;
+  const arcsBefore = (await gm('GET', '/minerva/arcs')).arcs;
 
-  // A fresh world, same DM, players with other account ids. Tom signs in as another name, so his folder carries his old username.
-  const W2 = (await ok('POST', '/api/admin/worlds', T.ads, { name: 'Saltreach Two', dmAccountId: ID.dm })).id;
+  // A fresh world, same GM, players with other account ids. Tom signs in as another name, so his folder carries his old username.
+  const W2 = (await ok('POST', '/api/admin/worlds', T.ads, { name: 'Saltreach Two', gmAccountId: ID.gm })).id;
   const w2 = (p: string) => `/api/worlds/${W2}${p}`;
   const join = async (username: string, character: string) => {
-    const inv = await ok('POST', w2('/invites'), T.dm, { role: 'player' });
+    const inv = await ok('POST', w2('/invites'), T.gm, { role: 'player' });
     return (await ok('POST', '/api/join', undefined, { code: inv.code, username, password: 'player pass 123', characterName: character })).account.id as string;
   };
   const jess2 = await join('jess_two', 'Jessamine');
   const tom2 = await join('tomfresh', 'Someone Else');
   const newbie = await join('newbie', 'Newbie');
   assert.notEqual(jess2, ID.jess);
-  await ok('POST', w2('/minerva/enable'), T.dm, {});
+  await ok('POST', w2('/minerva/enable'), T.gm, {});
   // Tom's pages say who he was by username; rewrite that to the new account's sign-in name.
   const edited = makeZip(files.map((f) => {
     let text = f.read().toString('utf8');
     if (f.name.startsWith('players/tomas/')) text = text.replace(/^username: .*$/m, 'username: tomfresh').replace(/^character: .*$/m, 'character: Tomas');
     return { name: f.name, data: Buffer.from(text, 'utf8') };
   }).concat([{ name: 'players/the-stranger/notes/hello.md', data: Buffer.from('---\ntype: note\nlevel: party\nplayer: acc_unknown\ncharacter: The Stranger\n---\n# Hello\nA note from nobody known.\n') }]));
-  const imp = await call('POST', w2('/minerva/import'), T.dm, edited, true);
+  const imp = await call('POST', w2('/minerva/import'), T.gm, edited, true);
   assert.equal(imp.status, 200, imp.text);
   const how = Object.fromEntries(imp.body.mapped.map((m: any) => [m.folder, m.how]));
   assert.equal(how.jessamine, 'character or name');
@@ -481,11 +481,11 @@ test('TestMinerva_ExportIntoAFreshWorldMapsPlayersAndRebuildsArcsAndClues', asyn
   assert.ok(imp.body.players.some((p: any) => p.accountId === newbie), 'the UI is offered the world\'s players');
   assert.equal(imp.body.skipped.filter((s: any) => /not a player/.test(s.why)).length, 0);
   // Pages landed under the new account ids, with the new id in front matter.
-  const pg2 = async (rel: string) => (await ok('GET', w2(`/minerva/page?rel=${encodeURIComponent(rel)}`), T.dm));
+  const pg2 = async (rel: string) => (await ok('GET', w2(`/minerva/page?rel=${encodeURIComponent(rel)}`), T.gm));
   assert.equal((await pg2(`players/${jess2}/profile.md`)).fm.player, jess2);
   assert.ok((await pg2(`players/${tom2}/journal/session-1.md`)).body.length > 0);
   // Arcs and mysteries come back with their rows.
-  const arcs = (await ok('GET', w2('/minerva/arcs'), T.dm)).arcs;
+  const arcs = (await ok('GET', w2('/minerva/arcs'), T.gm)).arcs;
   assert.equal(arcs.length, arcsBefore.length, 'arcs rebuilt from the chronicle folders');
   assert.equal(imp.body.arcs, arcsBefore.length);
   const foundNow = (wid: string) => one<any>(deps.db, `SELECT COUNT(*) AS n FROM minerva_found WHERE world_id = ? AND kind = 'clue'`, wid).n;
@@ -493,11 +493,11 @@ test('TestMinerva_ExportIntoAFreshWorldMapsPlayersAndRebuildsArcsAndClues', asyn
   assert.ok(foundNow(W2) > 0);
   assert.equal(one<any>(deps.db, `SELECT COUNT(*) AS n FROM minerva_found WHERE world_id = ? AND account_id = ? AND kind = 'clue'`, W2, jess2).n, one<any>(deps.db, `SELECT COUNT(*) AS n FROM minerva_found WHERE world_id = ? AND account_id = ? AND kind = 'clue'`, W, ID.jess).n);
   // A second pass with a chosen mapping brings the stranger's pages in.
-  const again = await call('POST', w2(`/minerva/import?map=${encodeURIComponent(JSON.stringify({ 'the-stranger': newbie }))}`), T.dm, edited, true);
+  const again = await call('POST', w2(`/minerva/import?map=${encodeURIComponent(JSON.stringify({ 'the-stranger': newbie }))}`), T.gm, edited, true);
   assert.equal(again.status, 200, again.text);
   assert.deepEqual(again.body.unmatched, []);
   assert.match((await pg2(`players/${newbie}/notes/hello.md`)).body, /nobody known/);
-  const skip = await call('POST', w2(`/minerva/import?map=${encodeURIComponent(JSON.stringify({ 'the-stranger': 'skip' }))}`), T.dm, edited, true);
+  const skip = await call('POST', w2(`/minerva/import?map=${encodeURIComponent(JSON.stringify({ 'the-stranger': 'skip' }))}`), T.gm, edited, true);
   assert.ok(skip.body.skipped.some((s: any) => /skipped by choice/.test(s.why)));
 });
 
@@ -505,39 +505,39 @@ test('TestMinerva_ImportChecksPathsAndLevels', async () => {
   const md = (fm: string, body = 'Text.\n') => Buffer.from(`${fm ? `---\n${fm}\n---\n` : ''}# Page\n${body}`);
   const zip = makeZip([
     { name: '../evil.md', data: md('level: party') },
-    { name: 'dm/../../escape.md', data: md('') },
+    { name: 'gm/../../escape.md', data: md('') },
     { name: '/abs/path.md', data: md('') },
     { name: 'notes/elsewhere.md', data: md('') },
     { name: 'players/not-a-player/profile.md', data: md('level: party') },
     { name: `players/${ID.tom}/notes/imported.md`, data: md('type: note\nlevel: party', 'Imported for Tom.\n') },
-    { name: 'dm/hidden-lore/Open Attempt.md', data: md('type: lore\nlevel: party', 'Trying to open the DM folder.\n') },
+    { name: 'gm/hidden-lore/Open Attempt.md', data: md('type: lore\nlevel: party', 'Trying to open the GM folder.\n') },
     { name: 'codex/lore/No Level.md', data: md('type: codex\nkind: topic', 'No level given.\n') },
     { name: 'codex/lore/Weird Level.md', data: md('type: codex\nlevel: everyone', 'Unknown level.\n') },
     { name: 'codex/lore/Classified.md', data: md('type: codex\nlevel: classified', 'CLASSIFIEDIMPORT the vault under the old lighthouse opens only for bearers of three silver keys\n') },
     { name: 'Minerva/codex/lore/Prefixed.md', data: md('type: codex\nlevel: broker', 'Came in a zip of the folder.\n') },
     { name: 'readme.txt', data: Buffer.from('not markdown') },
   ]);
-  const r = await call('POST', w('/minerva/import'), T.dm, zip, true);
+  const r = await call('POST', w('/minerva/import'), T.gm, zip, true);
   assert.equal(r.status, 200, r.text);
   const skipped = r.body.skipped.map((s: any) => s.path);
-  for (const bad of ['../evil.md', 'dm/../../escape.md', 'notes/elsewhere.md', 'players/not-a-player/profile.md']) assert.ok(skipped.some((s: string) => s.includes(bad.replace(/^\//, ''))), `${bad} was skipped: ${skipped}`);
+  for (const bad of ['../evil.md', 'gm/../../escape.md', 'notes/elsewhere.md', 'players/not-a-player/profile.md']) assert.ok(skipped.some((s: string) => s.includes(bad.replace(/^\//, ''))), `${bad} was skipped: ${skipped}`);
   assert.equal(r.body.created, 6);
-  assert.equal((await page('dm/hidden-lore/Open Attempt.md')).level, 'dm', 'dm/ is never opened to players');
-  assert.equal((await page('codex/lore/No Level.md')).level, 'dm', 'no level means dm');
-  assert.equal((await page('codex/lore/Weird Level.md')).level, 'dm', 'an unknown level means dm');
+  assert.equal((await page('gm/hidden-lore/Open Attempt.md')).level, 'gm', 'gm/ is never opened to players');
+  assert.equal((await page('codex/lore/No Level.md')).level, 'gm', 'no level means gm');
+  assert.equal((await page('codex/lore/Weird Level.md')).level, 'gm', 'an unknown level means gm');
   assert.equal((await page('codex/lore/Classified.md')).level, 'classified');
   assert.equal((await page('codex/lore/Prefixed.md')).level, 'broker');
   assert.equal(one<any>(deps.db, `SELECT visibility FROM pages WHERE world_id = ? AND path = 'Minerva/codex/lore/Classified.md'`, W).visibility, 'classified');
   assert.equal(one<any>(deps.db, `SELECT visibility FROM pages WHERE world_id = ? AND path = 'Minerva/codex/lore/Prefixed.md'`, W).visibility, 'broker');
   // Nothing outside the vault appeared in the library.
   assert.ok(!one(deps.db, `SELECT 1 FROM pages WHERE world_id = ? AND (path LIKE '%evil%' OR path LIKE '%escape%')`, W));
-  // The imported party page is Tom's alone; nothing from the DM folder reached a player.
+  // The imported party page is Tom's alone; nothing from the GM folder reached a player.
   const tv = JSON.stringify(await as('tom')('GET', '/minerva/me'));
   assert.ok(tv.includes('Imported for Tom'));
-  assert.ok(!tv.includes('Trying to open the DM folder') && !tv.includes('CLASSIFIEDIMPORT'));
+  assert.ok(!tv.includes('Trying to open the GM folder') && !tv.includes('CLASSIFIEDIMPORT'));
   assert.ok(!JSON.stringify(await as('jess')('GET', '/minerva/me')).includes('Imported for Tom'));
   // A broken body is refused.
-  assert.equal((await call('POST', w('/minerva/import'), T.dm, Buffer.from('not a zip'), true)).status, 400);
+  assert.equal((await call('POST', w('/minerva/import'), T.gm, Buffer.from('not a zip'), true)).status, 400);
 });
 
 test('TestMinerva_WorksWithoutAModel', async () => {
@@ -549,9 +549,9 @@ test('TestMinerva_WorksWithoutAModel', async () => {
     const j = async (m: string, u: string, t?: string, body?: unknown) => { const r = await fetch(b + u, { method: m, headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) }); const x = await r.json().catch(() => ({})); assert.ok(r.status < 300, `${m} ${u} ${r.status} ${JSON.stringify(x)}`); return x as any; };
     const admin = (await j('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
     const ads = (await j('POST', '/api/admin-auth/login', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-    const dmId = (await j('POST', '/api/admin/accounts', ads, { username: 'gm', password: 'dm password 123' })).account.id;
-    const tok = (await j('POST', '/api/auth/login', undefined, { username: 'gm', password: 'dm password 123' })).token;
-    const wid = (await j('POST', '/api/admin/worlds', ads, { name: 'Quietland', dmAccountId: dmId })).id;
+    const gmId = (await j('POST', '/api/admin/accounts', ads, { username: 'gm', password: 'gm password 123' })).account.id;
+    const tok = (await j('POST', '/api/auth/login', undefined, { username: 'gm', password: 'gm password 123' })).token;
+    const wid = (await j('POST', '/api/admin/worlds', ads, { name: 'Quietland', gmAccountId: gmId })).id;
     void admin;
     const st = await j('POST', `/api/worlds/${wid}/minerva/enable`, tok, {});
     assert.equal(st.enabled, true);

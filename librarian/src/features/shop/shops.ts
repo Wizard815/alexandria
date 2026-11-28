@@ -1,7 +1,7 @@
 // Shops: a name, a kind, a shopkeeper card, a place, stock lines that point at
 // the item database, a markup, and a status. What players get is built here
 // and only here (playerShop), from a short allow-list of fields, so nothing
-// the DM keeps (notes, the haggle note, the keeper's secret, hidden stock
+// the GM keeps (notes, the haggle note, the keeper's secret, hidden stock
 // lines) can ride along.
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run } from '../../core/db.ts';
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS shops (
   location_page_id TEXT,
   markup_pct INTEGER NOT NULL DEFAULT 0,
   haggle TEXT NOT NULL DEFAULT '',
-  dm_notes TEXT NOT NULL DEFAULT '',
+  gm_notes TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'hidden',
   restock_rule TEXT NOT NULL DEFAULT 'manual',
   restock_days INTEGER NOT NULL DEFAULT 7,
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS shop_stock (
   qty INTEGER,
   base_qty INTEGER,
   hidden INTEGER NOT NULL DEFAULT 0,
-  dm_note TEXT NOT NULL DEFAULT '',
+  gm_note TEXT NOT NULL DEFAULT '',
   sort INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS shop_stock_shop ON shop_stock (shop_id);
@@ -81,12 +81,12 @@ CREATE INDEX IF NOT EXISTS shop_orders_world ON shop_orders (world_id, status);
 export interface Keeper { name?: string; race?: string; role?: string; look?: string; voice?: string; personality?: string; secret?: string; pageId?: string | null; seed?: string }
 export interface ShopRow {
   id: string; world_id: string; name: string; kind: string; description: string; keeper: string; location_page_id: string | null;
-  markup_pct: number; haggle: string; dm_notes: string; status: string; restock_rule: string; restock_days: number; restocked_min: number | null;
+  markup_pct: number; haggle: string; gm_notes: string; status: string; restock_rule: string; restock_days: number; restocked_min: number | null;
   restocked_at: string | null; sell_pct: number | null; gen: string; created_at: string; updated_at: string;
   /** Added later (market.ts migrate): the town, the keeper's purse (null: never runs out) and how far they will haggle. */
   town_id?: string | null; gold_cp?: number | null; barter_pct?: number;
 }
-export interface StockRow { id: string; shop_id: string; world_id: string; item_id: string; price_cp: number | null; qty: number | null; base_qty: number | null; hidden: number; dm_note: string; sort: number }
+export interface StockRow { id: string; shop_id: string; world_id: string; item_id: string; price_cp: number | null; qty: number | null; base_qty: number | null; hidden: number; gm_note: string; sort: number }
 
 /** The list price of one, in copper: a line's own price, else the item's cost x the town's price level x the shop's markup. null: not for sale. */
 export function listPrice(townPct: number, shop: Pick<ShopRow, 'markup_pct'>, st: Pick<StockRow, 'price_cp'>, it: Pick<ItemRow, 'cost_cp'>): number | null {
@@ -161,7 +161,7 @@ export function playerShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer, withStoc
     id: s.id, name: s.name, kind: s.kind, kindLabel: KIND_LABEL[s.kind as ShopKind] ?? s.kind, description: s.description, status: s.status,
     keeper: k.name ? { name: k.name ?? '', race: k.race ?? '', role: k.role ?? '', look: k.look ?? '', voice: k.voice ?? '', personality: k.personality ?? '' } : null,
     location: locationFor(d, s, viewer), sellPct: null as number | null,
-    // The town's name, its public description and its prices in words; never its DM notes or the exact level.
+    // The town's name, its public description and its prices in words; never its GM notes or the exact level.
     town: town ? { name: town.name, description: town.description, prices: priceWord(town.price_pct) } : null,
     haggles: (s.barter_pct ?? 0) > 0,
   };
@@ -170,17 +170,17 @@ export function playerShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer, withStoc
   return out;
 }
 
-/** The whole shop for the DM. */
-export function dmShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer) {
+/** The whole shop for the GM. */
+export function gmShop(d: Deps, db: DB, s: ShopRow, viewer: Viewer) {
   const k = keeperOf(s);
   const town = townFor(db, s);
   const tp = town?.price_pct ?? 0;
   return {
     id: s.id, name: s.name, kind: s.kind, kindLabel: KIND_LABEL[s.kind as ShopKind] ?? s.kind, description: s.description, status: s.status,
-    keeper: k, locationPageId: s.location_page_id, location: locationFor(d, s, viewer), markupPct: s.markup_pct, haggle: s.haggle, dmNotes: s.dm_notes,
+    keeper: k, locationPageId: s.location_page_id, location: locationFor(d, s, viewer), markupPct: s.markup_pct, haggle: s.haggle, gmNotes: s.gm_notes,
     restock: { rule: s.restock_rule, days: s.restock_days, at: s.restocked_at }, sellPct: s.sell_pct, gen: parseJson<Record<string, unknown>>(s.gen, {}),
     townId: s.town_id ?? null, town: town ? { id: town.id, name: town.name, pricePct: town.price_pct, prices: priceWord(town.price_pct) } : null, goldCp: s.gold_cp ?? null, barterPct: s.barter_pct ?? 0,
-    stock: stockRows(db, s.id).map((r) => ({ ...playerLine(s, r, r.item, tp), itemId: r.item_id, priceOverrideCp: r.price_cp, costCp: r.item.cost_cp, baseQty: r.base_qty, hidden: !!r.hidden, dmNote: r.dm_note, dmNotes: r.item.dm_notes })),
+    stock: stockRows(db, s.id).map((r) => ({ ...playerLine(s, r, r.item, tp), itemId: r.item_id, priceOverrideCp: r.price_cp, costCp: r.item.cost_cp, baseQty: r.base_qty, hidden: !!r.hidden, gmNote: r.gm_note, gmNotes: r.item.gm_notes })),
     createdAt: s.created_at, updatedAt: s.updated_at,
   };
 }

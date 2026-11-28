@@ -1,4 +1,4 @@
-// What the DM agent is given, as switches. The defaults are the configuration
+// What the GM agent is given, as switches. The defaults are the configuration
 // the real-model ablations (docs/MODELS.md) found best; each switch exists so an
 // aid can be turned off to measure it, or by an operator who finds it does not
 // help on their model. Set ALX_AGENT_OPTS to a JSON object with any of these
@@ -7,9 +7,9 @@ import type { Deps } from '../../app.ts';
 
 export interface AgentOptions {
   /**
-   * Which tools the DM harness offers on each message:
+   * Which tools the GM harness offers on each message:
    *  keywords  the fixed core plus the keyword categories (intent.ts)
-   *  all       every DM tool, no selection
+   *  all       every GM tool, no selection
    *  core      only the fixed core and more_tools
    *  embed     the core plus the tools nearest the request by embeddings
    *  hybrid    the keyword selection plus the nearest tools by embeddings
@@ -25,7 +25,7 @@ export interface AgentOptions {
   /** Offer story_bible (and related_pages). */
   bible: boolean;
   /**
-   * The rules in the DM system prompt: full (the working order and the codex rules), lite (do what is asked with the matching
+   * The rules in the GM system prompt: full (the working order and the codex rules), lite (do what is asked with the matching
    * tool, no look-up first, facts only from what you were given) or off (only who the assistant is, and to be brief).
    */
   skills: 'full' | 'lite' | 'off';

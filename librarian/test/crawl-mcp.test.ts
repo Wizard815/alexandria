@@ -12,7 +12,7 @@ import { depthCounts, resetBuckets } from '../src/intake/tiers.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => { for (const c of cleanups) c(); });
-const dmViewer = { accountId: 'a', role: 'dm' as const };
+const gmViewer = { accountId: 'a', role: 'gm' as const };
 
 // ---- a fake MCP server of a world app -----------------------------------------------------------------------------
 
@@ -72,7 +72,7 @@ async function boot() {
     assert.ok(r.status < 300, `${method} ${path} -> ${r.status} ${r.text.slice(0, 300)}`);
     return r.body;
   };
-  const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, dmAccountId: a.account.id })).id as string;
+  const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, gmAccountId: a.account.id })).id as string;
   const addPlayer = async (wid: string) => {
     const inv = await ok('POST', `/api/worlds/${wid}/invites`, { role: 'player' });
     return (await call('POST', '/api/join', null, { code: inv.code, username: 'jess' + Math.random().toString(36).slice(2, 6), password: 'player pass 123', characterName: 'Jess' })).body.token as string;
@@ -94,7 +94,7 @@ async function mcpWorld(t: T, extra: Record<string, unknown> = {}) {
   return { wid, sid: src.id as string, conn, sync };
 }
 const DETAIL = { detailTool: 'get_article', detailIdArg: 'id', detailIdType: 'number', detailItemPath: 'data' };
-const pid = (t: T, wid: string, title: string) => (t.deps.library.list(wid, dmViewer) as any[]).find((p) => p.title === title).id as string;
+const pid = (t: T, wid: string, title: string) => (t.deps.library.list(wid, gmViewer) as any[]).find((p) => p.title === title).id as string;
 const getPage = (t: T, wid: string, token: string, id: string) => t.call('GET', `/api/worlds/${wid}/library/pages/${id}`, token);
 const depthOf = (t: T, wid: string, title: string) => one<any>(t.deps.db, 'SELECT depth FROM pages WHERE world_id = ? AND title = ?', wid, title)?.depth as string;
 const readCalls = () => mcp.calls.filter((c) => c.tool === 'get_article');
@@ -149,9 +149,9 @@ test('CrawlMcp_TheListToolMakesTheIndexAndNoPageIsReadYet', async () => {
   assert.equal(depthOf(t, w.wid, 'The Harbour'), 'summary', 'an excerpt came with the list');
   assert.equal(depthOf(t, w.wid, 'Unmarked Note'), 'index', 'nothing but the title');
   assert.ok(!one<any>(t.deps.db, 'SELECT body FROM pages WHERE world_id = ? AND title = ?', w.wid, 'The Harbour').body.includes('HARBOURBODY'));
-  // Visibility fails closed: the list's own flag, and no flag means DM-only.
+  // Visibility fails closed: the list's own flag, and no flag means GM-only.
   const vis = (title: string) => one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', w.wid, title).visibility;
-  assert.deepEqual(['The Harbour', 'The Vault', 'Unmarked Note'].map(vis), ['party', 'dm', 'dm']);
+  assert.deepEqual(['The Harbour', 'The Vault', 'Unmarked Note'].map(vis), ['party', 'gm', 'gm']);
   const tok = await t.addPlayer(w.wid);
   const titles = ((await t.call('GET', `/api/worlds/${w.wid}/library/pages`, tok)).body as any[]).map((p) => p.title).sort();
   assert.deepEqual(titles, ['Second Quay', 'The Harbour']);
@@ -163,7 +163,7 @@ test('CrawlMcp_TheListToolMakesTheIndexAndNoPageIsReadYet', async () => {
 
 // ---- tier 3: on demand and in the background -------------------------------------------------------------------------------
 
-test('CrawlMcp_OpeningAPageReadsItThroughTheReadToolAndNothingDmOnlyReachesAPlayer', async () => {
+test('CrawlMcp_OpeningAPageReadsItThroughTheReadToolAndNothingGmOnlyReachesAPlayer', async () => {
   const t = await boot();
   const w = await mcpWorld(t, DETAIL);
   await w.sync();
@@ -177,36 +177,36 @@ test('CrawlMcp_OpeningAPageReadsItThroughTheReadToolAndNothingDmOnlyReachesAPlay
   // Opened again: no second read.
   await getPage(t, w.wid, tok, pid(t, w.wid, 'The Harbour'));
   assert.equal(readCalls().length, 1);
-  // The DM-only page: asking for it may read it (that is how a page's visibility becomes known), but the player gets nothing of it.
+  // The GM-only page: asking for it may read it (that is how a page's visibility becomes known), but the player gets nothing of it.
   const vault = await getPage(t, w.wid, tok, pid(t, w.wid, 'The Vault'));
   assert.equal(vault.status, 404);
   assert.ok(!vault.text.includes('VAULTBODY'));
-  // The body is the DM's alone, in the page, in search and in the player copy.
-  const dm = await getPage(t, w.wid, t.admin, pid(t, w.wid, 'The Vault'));
-  assert.ok(dm.text.includes('VAULTBODY'));
-  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', w.wid, 'The Vault').visibility, 'dm');
+  // The body is the GM's alone, in the page, in search and in the player copy.
+  const gm = await getPage(t, w.wid, t.admin, pid(t, w.wid, 'The Vault'));
+  assert.ok(gm.text.includes('VAULTBODY'));
+  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', w.wid, 'The Vault').visibility, 'gm');
   assert.equal(one<any>(t.deps.db, 'SELECT player_body FROM pages WHERE world_id = ? AND title = ?', w.wid, 'The Vault').player_body, null);
   for (const q of ['VAULTBODY', 'dragon']) assert.ok(!(await t.call('GET', `/api/worlds/${w.wid}/library/search?q=${q}`, tok)).text.includes('VAULTBODY'));
-  // A page whose read has no visibility flag stays DM-only, read or not.
+  // A page whose read has no visibility flag stays GM-only, read or not.
   const note = await getPage(t, w.wid, t.admin, pid(t, w.wid, 'Unmarked Note'));
   assert.ok(note.text.includes('UNMARKEDBODY'));
   assert.equal(depthOf(t, w.wid, 'Unmarked Note'), 'full');
-  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', w.wid, 'Unmarked Note').visibility, 'dm');
+  assert.equal(one<any>(t.deps.db, 'SELECT visibility FROM pages WHERE world_id = ? AND title = ?', w.wid, 'Unmarked Note').visibility, 'gm');
   assert.equal((await getPage(t, w.wid, tok, pid(t, w.wid, 'Unmarked Note'))).status, 404);
   // No write tool was ever called.
   assert.ok(!mcp.calls.some((c) => /create|delete/.test(c.tool)));
 });
 
-test('CrawlMcp_ASearchByTheDmReadsItsBestHitsAndAFailedReadLeavesTheIndexLine', async () => {
+test('CrawlMcp_ASearchByTheGmReadsItsBestHitsAndAFailedReadLeavesTheIndexLine', async () => {
   const t = await boot();
   const w = await mcpWorld(t, DETAIL);
   await w.sync();
   mcp.calls = [];
   const found = await t.call('GET', `/api/worlds/${w.wid}/library/search?q=Quay`, t.admin);
   assert.equal(found.status, 200);
-  assert.ok(readCalls().length >= 1, 'a DM search reads its top hits');
+  assert.ok(readCalls().length >= 1, 'a GM search reads its top hits');
   assert.equal(depthOf(t, w.wid, 'Second Quay'), 'full');
-  // The server is failing: the page opens as the index line, still DM-only for others, and nothing is thrown at the reader.
+  // The server is failing: the page opens as the index line, still GM-only for others, and nothing is thrown at the reader.
   mcp.failGet = true;
   const failed = await getPage(t, w.wid, t.admin, pid(t, w.wid, 'The Harbour'));
   assert.equal(failed.status, 200);

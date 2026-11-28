@@ -1,0 +1,43 @@
+{
+  "kit": 2,
+  "id": "mana-pool",
+  "name": "Simple mana pool",
+  "version": "1.1.0",
+  "author": "Alexandria",
+  "group": "magic",
+  "summary": "Alexandria's own simple mana: a pool of 4 per level plus the casting modifier, spells cost 2 per spell level. Every number is editable under Spells & mana.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["codex", "sheet"]
+  },
+  "presets": {
+    "spellMana": true,
+    "spellManaName": "Mana",
+    "spellManaCosts": [0, 2, 4, 6, 8, 10, 12, 14, 16, 18],
+    "spellManaPool": {
+      "mode": "formula",
+      "formula": "level * 4 + mod",
+      "table": [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80]
+    },
+    "spellManaRest": {
+      "long": "full",
+      "short": "none"
+    },
+    "spellManaMaxLevel": {
+      "on": false,
+      "table": [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 9, 9]
+    }
+  },
+  "assistant": {
+    "words": [
+      "mana",
+      "mana pool"
+    ],
+    "tools": [
+      "my_spell_codex",
+      "read_spell"
+    ],
+    "player": "This table casts from a mana pool instead of spell slots. To answer what they can still cast, read my_spell_codex for their mana and known spells; a long rest refills the pool.",
+    "gm": "This table casts from a mana pool instead of spell slots; a long rest refills it."
+  }
+}

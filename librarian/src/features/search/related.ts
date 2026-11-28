@@ -4,7 +4,7 @@
 //
 // A page's vector is the normalized mean of its chunk vectors, taken from the
 // scopes the VIEWER reads (scopes.ts): a player's percentages come from the
-// party chunks (plus the lifted pages they may open), never from the DM copy.
+// party chunks (plus the lifted pages they may open), never from the GM copy.
 // So a number can't carry hidden text or reveal a hidden link: both pages'
 // vectors, the candidates and the reason snippets are the viewer's own copy.
 // Candidates are limited to pages the viewer may open right now.

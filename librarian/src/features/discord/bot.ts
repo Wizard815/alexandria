@@ -3,10 +3,10 @@
 // players, and posts that follow what happens in Alexandria.
 //
 // What goes to Discord, and to whom:
-//   recap channel   a session log entry when the DM publishes it (party-level text only)
+//   recap channel   a session log entry when the GM publishes it (party-level text only)
 //   roll channel    dice rolled in the table chat (never the party chat, never a hidden one)
-//   a player's DMs  their own broker answers and price offers, and the DM's special offers sent to them
-// Nothing DM-only is ever posted: every post is built from what the players
+//   a player's DMs  their own broker answers and price offers, and the GM's special offers sent to them
+// Nothing GM-only is ever posted: every post is built from what the players
 // already see in the app. Commands act as the linked account, with its role
 // checked on every call, so a player who left the world can do nothing.
 import type { Deps } from '../../app.ts';
@@ -146,7 +146,7 @@ class Bot {
     return r?.id ? String(r.id) : null;
   }
 
-  async dm(user: string, content: string) {
+  async gm(user: string, content: string) {
     let ch = this.dmChannels.get(user);
     if (!ch) {
       const r = await this.rest('POST', '/users/@me/channels', { recipient_id: user });
@@ -212,7 +212,7 @@ class Bot {
 
     if (name === 'recap') {
       const e = one<any>(this.d.db, 'SELECT number, title, summary FROM sessionlog_entries WHERE world_id = ? AND unpublished_at IS NULL ORDER BY number DESC LIMIT 1', w);
-      if (!e) return this.reply(i, 'The DM has not published a session recap yet.');
+      if (!e) return this.reply(i, 'The GM has not published a session recap yet.');
       const parts = recapText(e, worldName(this.d, w));
       const share = opt('share') === true;
       await this.reply(i, parts[0], !share);
@@ -223,8 +223,8 @@ class Bot {
     if (name === 'ask') {
       if (who.role !== 'player') return this.reply(i, 'The Squire is for players.');
       const s = settingsOf(this.d, w);
-      if (featureSetting<boolean>(s, 'quickHelper') === false) return this.reply(i, 'The DM has turned the Squire off.');
-      if (!c.helper) return this.reply(i, 'The DM has turned the Squire off in Discord. It is still in the app.');
+      if (featureSetting<boolean>(s, 'quickHelper') === false) return this.reply(i, 'The GM has turned the Squire off.');
+      if (!c.helper) return this.reply(i, 'The GM has turned the Squire off in Discord. It is still in the app.');
       const raw = String(opt('task') ?? 'ask');
       const task: QuickTask = (QUICK_TASKS as readonly string[]).includes(raw) ? (raw as QuickTask) : 'ask';
       const question = String(opt('question') ?? '').slice(0, 400);
@@ -237,8 +237,8 @@ class Bot {
         const a = await askQuick(this.d, { worldId: w, worldName: worldName(this.d, w), accountId: who.accountId, settings: s, task, question });
         text = helperText(this.d, w, question, a);
       } catch (e: any) {
-        text = e?.name === 'ModelPreempted' || /preempt|DM first|for the DM/i.test(String(e?.message))
-          ? 'The DM needs the model right now (the DM goes first). Ask again in a moment.'
+        text = e?.name === 'ModelPreempted' || /preempt|GM first|for the GM/i.test(String(e?.message))
+          ? 'The GM needs the model right now (the GM goes first). Ask again in a moment.'
           : e?.status === 429 ? `${e.message}. Ask again in a moment.` : 'Your Squire is not answering right now. Try the app.';
       }
       const parts = chunks(text);
@@ -402,7 +402,7 @@ export class Manager {
     const text = status === 'answered'
       ? `🕯️ **The broker has an answer** for you in ${md(worldName(this.d, c.worldId))}.\n${asked}\n\n${c.brokerText && q.answer ? q.answer : `Read it in the app${url ? `: ${url}` : '.'}`}`
       : `🕯️ **The broker names a price** for your question in ${md(worldName(this.d, c.worldId))}: ${money(Number(q.cost_cp || 0))}.\n${asked}\nPay or decline in the app${url ? `: ${url}` : '.'}`;
-    await bot.dm(user, text);
+    await bot.gm(user, text);
   }
 
   private async offerNote(bot: Bot, worldId: string, oid: string) {
@@ -417,7 +417,7 @@ export class Manager {
     const text = `🕯️ **The broker has an offer**: ${md(o.title)} for ${money(Number(o.price_cp))}.${o.teaser ? `\n${o.teaser}` : ''}\nSee it in the app${url ? `: ${url}` : '.'}`;
     for (const aid of to) {
       const user = discordUserOf(this.d.db, worldId, aid);
-      if (user) await bot.dm(user, text).catch((e) => { bot.status.error = `A broker offer: ${e?.message ?? e}`; });
+      if (user) await bot.gm(user, text).catch((e) => { bot.status.error = `A broker offer: ${e?.message ?? e}`; });
     }
   }
 }

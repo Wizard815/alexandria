@@ -1,6 +1,6 @@
 // The player's own notebook, kept by the information broker: their journal,
 // goals and what they know, and what the whole party knows. Nothing here says
-// who else is involved; the DM's side is a different page.
+// who else is involved; the GM's side is a different page.
 import { useState } from 'react';
 import { Empty, ErrorBox, Field, Loading, Markdown, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';
@@ -68,7 +68,7 @@ function Write({ session, name, done }: { session: number; name: string; done: (
       <ErrorBox error={act.error} />
       <form className="card" onSubmit={(e) => { e.preventDefault(); if (line.trim()) void send('/minerva/me/journal', { text: line }, () => setLine('')); }}>
         <h2 style={{ margin: 0 }}>Write in your journal</h2>
-        <Field label={`Session ${session}`} help="The DM looks it over before it goes in."><textarea rows={3} value={line} onChange={(e) => setLine(e.target.value)} placeholder="What do you want to remember?" /></Field>
+        <Field label={`Session ${session}`} help="The GM looks it over before it goes in."><textarea rows={3} value={line} onChange={(e) => setLine(e.target.value)} placeholder="What do you want to remember?" /></Field>
         <button type="submit" className="btn primary" disabled={act.busy || !line.trim()}>Add to my journal</button>
       </form>
       <form className="card" onSubmit={(e) => { e.preventDefault(); if (goal.trim()) void send('/minerva/me/goals', { goal, heat, text: goalText }, () => { setGoal(''); setGoalText(''); }); }}>

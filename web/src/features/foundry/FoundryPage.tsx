@@ -1,6 +1,6 @@
-// DM → Foundry VTT: connect a Foundry world to this world. One Foundry module
+// GM → Foundry VTT: connect a Foundry world to this world. One Foundry module
 // (the Alexandria Bridge, installed in Foundry by its manifest URL) carries
-// the data from the GM's Foundry tab. Here the DM makes the bridge key, links
+// the data from the GM's Foundry tab. Here the GM makes the bridge key, links
 // Foundry actors to players and scenes to maps, sends maps to Foundry, picks
 // what moves and watches what happened.
 import { useState } from 'react';
@@ -27,7 +27,7 @@ const ago = (iso: string | null) => {
 };
 const H2 = ({ children }: { children: string }) => <h2 style={{ margin: 0, fontSize: '1.05rem' }}>{children}</h2>;
 
-/** Every map picture the DM can link or send: the library's maps and the sources' map pictures. */
+/** Every map picture the GM can link or send: the library's maps and the sources' map pictures. */
 function usePictures() {
   const { w } = useWorld();
   const lib = useLoad<{ id: string; name: string; pageTitle?: string }[]>(() => w.call('GET', '/files/maps').catch(() => []), [w], ['libfile']);

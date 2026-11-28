@@ -1,12 +1,12 @@
 # Hosting Alexandria
 
 The **librarian** is the gateway. One server holds every world and serves
-the app. The DM and the players (scribes) all connect to it from a
+the app. The GM and the players (scribes) all connect to it from a
 browser, a phone, or an AI app over MCP.
 
 ```
  players' browsers ─┐
- DM's browser ──────┼──► https://alexandria.example.com ──► Caddy (HTTPS) ──► librarian :8090
+ GM's browser ──────┼──► https://alexandria.example.com ──► Caddy (HTTPS) ──► librarian :8090
  AI apps (MCP) ─────┘                                                          ├─ SQLite (all worlds)
                                                                                ├─ Markdown mirror per world
  world sources ◄── read-only ──────────────────────────────────────────────────┘
@@ -26,10 +26,10 @@ browser, a phone, or an AI app over MCP.
    Caddy gets the HTTPS certificate on its own.
 3. **Open `https://<your domain>`** and create the admin account. The first
    account is always the admin.
-4. **Library admin → Worlds:** make a world and pick its DM.
+4. **Library admin → Worlds:** make a world and pick its GM.
 5. **Library admin → World sources:** add your LegendKeeper, Kanka, vault
    or other sources and press Sync.
-6. **As the DM, World settings → Invites:** give each player an invite
+6. **As the GM, World settings → Invites:** give each player an invite
    code. They open `/join`. Their read-only AI connection is made for them.
 
 To run the LegendKeeper MCP server next to Alexandria:
@@ -60,7 +60,7 @@ HTTP to the internet: passwords and keys would travel unencrypted.
 - **Install on a phone.** Open your server's address in Chrome (Android) and
   choose Install app, or in Safari (iOS) Share, then Add to Home Screen. It
   then opens full screen and keeps working offline for what it has saved. The
-  DM phone page (Remote tab) shows an Install button when the browser offers
+  GM phone page (Remote tab) shows an Install button when the browser offers
   one. This needs HTTPS (or `localhost`); on plain LAN HTTP browsers will only
   offer a shortcut, not a full install.
 - **Desktop app.** `desktop/` holds a Tauri wrapper that asks for your server's
@@ -98,7 +98,7 @@ Needs Node 22.13 or newer. Data goes to `librarian/data` unless
 | `ALX_CORS_ORIGINS` | Other origins allowed to call the API (e.g. a dev server). Empty (the default) means none. |
 | `ALX_MEMORY_MB` | The heap size the memory guard measures against (default: V8's limit, `NODE_OPTIONS=--max-old-space-size`) |
 | `ALX_AUDIO_STALE_MIN` | Minutes without a line or audio after which a recording session is closed (default 30; 0 turns it off) |
-| `ALX_V1_RATE_PER_MIN`, `ALX_V1_DAILY_REQUESTS`, `ALX_V1_DAILY_TOKENS` | Limits of a listed (non-DM) account or key on the `/v1` model gateway (20 a minute, 200 requests and 100 000 tokens a day). The DM and admin: `…_DM` (120, 5 000, 2 000 000). |
+| `ALX_V1_RATE_PER_MIN`, `ALX_V1_DAILY_REQUESTS`, `ALX_V1_DAILY_TOKENS` | Limits of a listed (non-GM) account or key on the `/v1` model gateway (20 a minute, 200 requests and 100 000 tokens a day). The GM and admin: `…_GM` (120, 5 000, 2 000 000; the older `…_DM` names still work). |
 | `MODEL_BASE_URL`, `MODEL_API_KEY`, `LOCAL_LLM_URL` | Model endpoint for AI features (OpenAI, Ollama, LM Studio, Argos…) |
 
 Notes on local MCP servers:
@@ -147,7 +147,7 @@ raise it in `librarian/.env` if you have the RAM. Alexandria's own models run el
 - **Nothing to do means no work.** With no new or changed content the embeddings, the story bible and the transcript passes make no model
   calls. A recording session nobody has touched for 30 minutes (`ALX_AUDIO_STALE_MIN`) is closed.
 - **Model servers stay private.** Bind Argos, Ollama, LM Studio and whisper to `127.0.0.1` (or the Docker network), never forward
-  their ports, and set an API key on each (see [SECURITY.md](SECURITY.md)). Alexandria's own `/v1` gateway answers only the DM and the
+  their ports, and set an API key on each (see [SECURITY.md](SECURITY.md)). Alexandria's own `/v1` gateway answers only the GM and the
   admin, with per-minute and daily limits, and logs every call.
 - **Measuring.** `node --experimental-strip-types librarian/scripts/bigworld.ts all --data /tmp/bigworld` builds a large world (3000
   pages, 700 LegendKeeper resources, 20 000 transcript lines, 50 MB of uploads) and measures start-up time, call latency and event
@@ -176,7 +176,7 @@ into the data folder (it holds `librarian.db`, `recordings/` and `audio/`):
 
 ## Session recordings
 
-When the DM stops a recording, the server joins the five-second chunks with
+When the GM stops a recording, the server joins the five-second chunks with
 ffmpeg (the Docker image has it) and keeps plain files you can open without
 the app:
 
@@ -184,14 +184,14 @@ the app:
 data/recordings/<World name>/<YYYY-MM-DD> <Session name>/
   Full session.mp3              every microphone mixed, one file for the whole session
   <Mic name> - <Person>.mp3     one file per microphone (silence where it had nothing)
-  Transcript.md                 the DM's transcript; DM-only lines are marked
+  Transcript.md                 the GM's transcript; GM-only lines are marked
   session.json                  what is in the folder: session, mics and who they belong to, files
 ```
 
 Every audio file starts at the session's time zero, so they line up. MP3
 plays everywhere, including iOS Safari. Once the files are checked (length
 and size) the raw chunks under `data/audio/` are deleted to save space; if
-the build fails they are kept, and the DM's **Recordings** page shows "Build
+the build fails they are kept, and the GM's **Recordings** page shows "Build
 failed" with a **Rebuild** button. Sessions recorded before this existed are
 built the first time the server starts (one at a time) or with **Build
 recording**. The build runs in the background, one session at a time, and
@@ -204,15 +204,15 @@ hour for each microphone.
 
 **Retention.** The world setting *Keep raw audio for (days)* (default 30,
 blank keeps forever) is the default for every session. On the Recordings page
-the DM can set a session to *Delete after N days*, *Keep forever*, or press
+the GM can set a session to *Delete after N days*, *Keep forever*, or press
 **Delete audio now**. Deleting removes only the audio files; the transcript,
 summaries and logs always stay (`Transcript.md` and `session.json` stay in
 the folder). The days count from when the session ended. Deletion runs
 hourly.
 
-**Who can listen.** The DM can play and download everything. A player's
+**Who can listen.** The GM can play and download everything. A player's
 *My recordings* page offers only the track of their own microphone and the
-transcript as players see it (never DM-only lines); the full mix and other
+transcript as players see it (never GM-only lines); the full mix and other
 people's tracks are refused. Players who did not agree to recording are not
 recorded and have no track.
 
@@ -223,9 +223,9 @@ recorded and have no track.
   as hashes and shown once. Revoke keys in Keys & AI.
 - **Admin sign-in is separate** from the table sign-in. Admins sign in
   at `/admin/login` and get an admin session that opens only the admin
-  pages (never a world as DM). A table sign-in opens the admin pages only
+  pages (never a world as GM). A table sign-in opens the admin pages only
   while the server has a single account, or when you set
-  `ALX_ADMIN_TABLE_LOGIN=1` (for a small server where one person is DM and
+  `ALX_ADMIN_TABLE_LOGIN=1` (for a small server where one person is GM and
   admin). With a second account and no env var, admins use `/admin/login`
   or an admin key (`alx_adm_...`, which always works).
   - **Authenticator app:** Admin → Security sets up a 6-digit code
@@ -240,16 +240,16 @@ recorded and have no track.
   - **Guessing:** 3 wrong tries per account and address (and 10 per
     address) lock admin login for 5 minutes. Logins, failures, code
     changes and refused addresses are in the audit log.
-- **Players can only read.** Their app keys are read-only. A DM's write
-  key stops writing if they stop being DM.
+- **Players can only read.** Their app keys are read-only. A GM's write
+  key stops writing if they stop being GM.
 - **Sources are read-only.**
   - Write-sounding MCP tools are refused.
   - LegendKeeper's raw API tool may only GET.
   - Source secrets never come back from the API.
-- **DM-only text never reaches a player:**
+- **GM-only text never reaches a player:**
   - player copies are computed on the server
   - unknown block kinds are dropped
-  - links to DM-only pages become "(hidden)"
+  - links to GM-only pages become "(hidden)"
 
   See `librarian/README.md`.
 - **Read-only keys for sources** where the source app offers them (for

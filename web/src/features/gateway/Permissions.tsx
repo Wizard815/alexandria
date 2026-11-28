@@ -8,13 +8,13 @@ import { ErrorBox, Loading, PageHead, useAction } from '../../ui/index.tsx';
 import { when } from '../../lib/format.ts';
 import { Callout, Pill, Section, Tile, type Tone } from '../../pages/admin/kit.tsx';
 
-interface Guard { levels: Record<'party' | 'broker' | 'dm' | 'classified', number>; blanketKeys: number; perUserKeys: number; events: { id: number; at: string; world: string | null; kind: string; what: string }[] }
+interface Guard { levels: Record<'party' | 'broker' | 'gm' | 'classified', number>; blanketKeys: number; perUserKeys: number; events: { id: number; at: string; world: string | null; kind: string; what: string }[] }
 
-const LEVEL_ROWS: { id: keyof Guard['levels']; label: string; players: [string, Tone]; broker: [string, Tone]; dm: [string, Tone]; ai: [string, Tone] }[] = [
-  { id: 'party', label: 'Party', players: ['Yes', 'ok'], broker: ['Yes', 'ok'], dm: ['Yes', 'ok'], ai: ['Yes', 'ok'] },
-  { id: 'broker', label: 'Broker', players: ['Only once the DM approves a deal', 'warn'], broker: ['Yes', 'ok'], dm: ['Yes', 'ok'], ai: ['Yes', 'ok'] },
-  { id: 'dm', label: 'DM', players: ['Never', 'bad'], broker: ['Never', 'bad'], dm: ['Yes', 'ok'], ai: ['DM agent only', 'warn'] },
-  { id: 'classified', label: 'Classified', players: ['Never', 'bad'], broker: ['Never', 'bad'], dm: ['Yes', 'ok'], ai: ['Never: refused before sending', 'bad'] },
+const LEVEL_ROWS: { id: keyof Guard['levels']; label: string; players: [string, Tone]; broker: [string, Tone]; gm: [string, Tone]; ai: [string, Tone] }[] = [
+  { id: 'party', label: 'Party', players: ['Yes', 'ok'], broker: ['Yes', 'ok'], gm: ['Yes', 'ok'], ai: ['Yes', 'ok'] },
+  { id: 'broker', label: 'Broker', players: ['Only once the GM approves a deal', 'warn'], broker: ['Yes', 'ok'], gm: ['Yes', 'ok'], ai: ['Yes', 'ok'] },
+  { id: 'gm', label: 'GM', players: ['Never', 'bad'], broker: ['Never', 'bad'], gm: ['Yes', 'ok'], ai: ['GM agent only', 'warn'] },
+  { id: 'classified', label: 'Classified', players: ['Never', 'bad'], broker: ['Never', 'bad'], gm: ['Yes', 'ok'], ai: ['Never: refused before sending', 'bad'] },
 ];
 
 export default function Permissions() {
@@ -30,26 +30,26 @@ export default function Permissions() {
           <div className="tiles">
             <Tile label="Stopped, last 7 days" value={d.events.length} tone={d.events.length ? 'warn' : 'ok'} sub={d.events.length ? 'by the guards below' : 'nothing had to be stopped'} />
             <Tile label="Per-user keys" value={d.perUserKeys} sub="each sees their own view" />
-            <Tile label="Blanket or unsure keys" value={d.blanketKeys} tone={d.blanketKeys ? 'warn' : ''} sub="can only feed a DM question" />
+            <Tile label="Blanket or unsure keys" value={d.blanketKeys} tone={d.blanketKeys ? 'warn' : ''} sub="can only feed a GM question" />
           </div>
           <Section title="Secrecy levels" lead="Every page and block has one. Lower levels can never see higher ones.">
             <div className="adm-table-wrap"><div className="scroll-x"><table className="table">
-              <thead><tr><th>Level</th><th className="num">Pages now</th><th>Players</th><th>Broker answers</th><th>DM</th><th>Any AI model</th></tr></thead>
+              <thead><tr><th>Level</th><th className="num">Pages now</th><th>Players</th><th>Broker answers</th><th>GM</th><th>Any AI model</th></tr></thead>
               <tbody>{LEVEL_ROWS.map((r) => (
                 <tr key={r.id}>
                   <td><strong>{r.label}</strong></td><td className="num">{d.levels[r.id].toLocaleString()}</td>
-                  {[r.players, r.broker, r.dm, r.ai].map(([t, tone], i) => <td key={i}><Pill tone={tone}>{t}</Pill></td>)}
+                  {[r.players, r.broker, r.gm, r.ai].map(([t, tone], i) => <td key={i}><Pill tone={tone}>{t}</Pill></td>)}
                 </tr>
               ))}</tbody>
             </table></div></div>
           </Section>
           <Section title="How a player can see more">
             <dl className="adm-kv">
-              <dt>Source audience</dt><dd>A “DM only” source never reaches players; “Players only” stays out of DM-only tools.</dd>
-              <dt>Their own per-user key</dt><dd>Unlocks only what the service already lets them see, only for them. It never lifts a DM-only source or secret blocks.</dd>
+              <dt>Source audience</dt><dd>A “GM only” source never reaches players; “Players only” stays out of GM-only tools.</dd>
+              <dt>Their own per-user key</dt><dd>Unlocks only what the service already lets them see, only for them. It never lifts a GM-only source or secret blocks.</dd>
               <dt>A share</dt><dd>Carries the sharer's player view only. It ends when unshared or when the sharer loses sight of the page.</dd>
-              <dt>A broker deal</dt><dd>Delivered only after the DM approves it.</dd>
-              <dt>Index-only pages</dt><dd>Pages with unknown visibility are always DM only until their full text is read.</dd>
+              <dt>A broker deal</dt><dd>Delivered only after the GM approves it.</dd>
+              <dt>Index-only pages</dt><dd>Pages with unknown visibility are always GM only until their full text is read.</dd>
             </dl>
           </Section>
           <Section title="Stopped by the guard" lead="The last 7 days. Only the kind and the time are kept here, never the text that was stopped.">
@@ -71,7 +71,7 @@ interface Finding { world: string; worldName: string; viewer: string; surface: s
 interface Run { id: number; startedAt: string; finishedAt: string | null; trigger: string; status: string; worlds: number; viewers: number; pages: number; reads: number; leaks: number; error: string | null; findings?: Finding[] }
 const SURFACE: Record<string, string> = { list: 'page list', page: 'page, offline copy or MCP read', search: 'page search', 'global-search': 'search everything' };
 
-/** Reads every world's library as each player and guest, and checks no DM-only 8-word run shows up. Runs are kept; leaked text never is. */
+/** Reads every world's library as each player and guest, and checks no GM-only 8-word run shows up. Runs are kept; leaked text never is. */
 function LeakCheck() {
   const { client } = useAuth();
   const lc = useLoad(() => client.request<{ running: boolean; runs: Run[] }>('GET', '/api/admin/gateway/leak-check'), []);
@@ -87,7 +87,7 @@ function LeakCheck() {
   const last = runs.find((r) => r.status !== 'running');
   const start = () => void go.run(async () => { await client.request('POST', '/api/admin/gateway/leak-check/run', {}); await lc.reload(); });
   return (
-    <Section title="Leak check" lead="Reads each world as every player and guest (and as a guest with no account) and checks that no run of 8 words of DM-only text, broker or classified text shows up in the page list, any page, search, the offline copy or the MCP read tools. It runs every night."
+    <Section title="Leak check" lead="Reads each world as every player and guest (and as a guest with no account) and checks that no run of 8 words of GM-only text, broker or classified text shows up in the page list, any page, search, the offline copy or the MCP read tools. It runs every night."
       actions={<button type="button" className="btn primary small" onClick={start} disabled={go.busy || !!running}>{running ? 'Checking…' : 'Run now'}</button>}>
       <ErrorBox error={go.error || lc.error} />
       {last && last.leaks > 0 && (

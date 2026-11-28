@@ -1,5 +1,5 @@
 // Gateway admin → Search: the same ranked page search players and scribes use, across the worlds an admin may read.
-// An admin reads each world's party copy; only the DM of a world sees its DM copy. Hidden pages are simply not found.
+// An admin reads each world's party copy; only the GM of a world sees its GM copy. Hidden pages are simply not found.
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
@@ -9,7 +9,7 @@ import { Pill, Section } from '../../pages/admin/kit.tsx';
 import SearchInsights from '../gwstatus/SearchInsights.tsx';
 
 interface Result { world: { id: string; name: string }; id: string; path: string; title: string; titleHtml: string; snippetHtml: string; source: string | null }
-interface Found { q: string; worlds: { id: string; name: string; copy: 'dm' | 'party'; count: number }[]; sources: { name: string; count: number }[]; results: Result[] }
+interface Found { q: string; worlds: { id: string; name: string; copy: 'gm' | 'party'; count: number }[]; sources: { name: string; count: number }[]; results: Result[] }
 
 export default function AdminSearch() {
   const { client } = useAuth();
@@ -26,7 +26,7 @@ export default function AdminSearch() {
   const shown = (d?.results ?? []).filter((r) => !source || (r.source ?? 'Written here') === source);
   return (
     <div className="page">
-      <PageHead title="Search" lead="Look across every world and source at once, or narrow to one world. It is the search players and the AI use. You read each world's party copy; only a world's own DM sees its hidden pages." />
+      <PageHead title="Search" lead="Look across every world and source at once, or narrow to one world. It is the search players and the AI use. You read each world's party copy; only a world's own GM sees its hidden pages." />
       <form className="row wrap adm-searchbar" onSubmit={go}>
         <input className="input grow" value={text} onChange={(e) => setText(e.target.value)} placeholder="Search…" aria-label="Search words" />
         <select className="input" value={world} aria-label="World" onChange={(e) => setParams({ q: text || q, ...(e.target.value ? { world: e.target.value } : {}) })}>
@@ -37,7 +37,7 @@ export default function AdminSearch() {
       </form>
       <ErrorBox error={found.error} />
       {found.loading && !d ? <Loading /> : d ? (
-        <Section title={`${d.results.length} result${d.results.length === 1 ? '' : 's'} for “${d.q}”`} lead={d.worlds.map((w) => `${w.name}: ${w.copy === 'dm' ? 'DM copy (you are its DM)' : 'party copy'}`).join(' · ')}
+        <Section title={`${d.results.length} result${d.results.length === 1 ? '' : 's'} for “${d.q}”`} lead={d.worlds.map((w) => `${w.name}: ${w.copy === 'gm' ? 'GM copy (you are its GM)' : 'party copy'}`).join(' · ')}
           actions={d.sources.length > 1 ? (
             <span className="row wrap">
               <button type="button" className={`btn small${source ? '' : ' primary'}`} onClick={() => setSource('')}>All</button>
@@ -54,7 +54,7 @@ export default function AdminSearch() {
                 </span>
               </li>
             ))}</ul>
-          ) : <Empty>Nothing found. Pages only a world's DM may read are not searched from here. <Link to="/admin/worlds">Worlds</Link></Empty>}
+          ) : <Empty>Nothing found. Pages only a world's GM may read are not searched from here. <Link to="/admin/worlds">Worlds</Link></Empty>}
         </Section>
       ) : <p className="muted">Type at least two letters.</p>}
       <SearchInsights />

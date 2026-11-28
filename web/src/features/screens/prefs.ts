@@ -1,4 +1,4 @@
-// Per-browser choices for the DM's multi-monitor setup. All of it is localStorage in try/catch: a private window or blocked
+// Per-browser choices for the GM's multi-monitor setup. All of it is localStorage in try/catch: a private window or blocked
 // storage just means the defaults every time, never an error.
 import { useCallback, useEffect, useState } from 'react';
 

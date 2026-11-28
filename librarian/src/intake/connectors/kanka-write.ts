@@ -441,7 +441,7 @@ function entryOf(r: Rec, ctx: ConnectorContext): Entry {
     properties: r.properties,
     blocks: [...kankaBlocks(r.entry), ...postBlocks(r.posts, r.trustPosts ? (p: any) => p.is_hidden === false : postShared, (p) => postLevel(p, r.tagName))],
     // Kanka's own private flag always wins; the workspace then applies the page's level.
-    visibility: r.isPrivate === false && ctx.shareVisible ? 'party' : 'dm',
+    visibility: r.isPrivate === false && ctx.shareVisible ? 'party' : 'gm',
     url: r.url,
     updatedAt: r.updatedAt,
   } as Entry;
@@ -486,7 +486,7 @@ function kkWrite(backend: (cfg: Record<string, any>, ctx: ConnectorContext) => K
       await inside(be, a.root, a.id, false);
       return entryOf(await be.record(kankaEid(a.id)), ctx);
     },
-    /** The top-level notes and journals (those with no parent) a DM may pick as the WorldLore home. */
+    /** The top-level notes and journals (those with no parent) a GM may pick as the WorldLore home. */
     async roots(cfg, ctx) {
       const be = backend(cfg, ctx);
       const all = [...await be.list('note', null, 10), ...await be.list('journal', null, 10)];

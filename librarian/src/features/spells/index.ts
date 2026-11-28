@@ -4,18 +4,18 @@
 // docs/SPELLS.md.
 //
 // Who sees what (fails closed):
-//   - a player reads a spell's card only when they know it or the DM made it public;
-//   - DM notes on spells and recipes, drafts, and recipes the DM hides never reach a player
+//   - a player reads a spell's card only when they know it or the GM made it public;
+//   - GM notes on spells and recipes, drafts, and recipes the GM hides never reach a player
 //     (a hidden recipe is at most an anonymous "???");
-//   - a player's sheet, mana, log and requests reach that player and the DM only.
+//   - a player's sheet, mana, log and requests reach that player and the GM only.
 import { Router, type Response } from 'express';
 import type { Deps } from '../../app.ts';
 import { type DB, all, one, run, tx } from '../../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
-import { dmAnd, everyone } from '../../core/events.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
+import { gmAnd, everyone } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, featureSetting, type WorldSettings } from '../../core/policy.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
-import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, memberIds, settings } from '../../routes/_shared.ts';
 import type { Feature } from '../types.ts';
 import { ABILITIES, ABILITY_NAMES, componentsText, normalizeSpell, spellLine, toCsv, type Ability } from './format.ts';
 import { DEFAULT_COSTS, DEFAULT_MAX_LEVEL, DEFAULT_POOL, DEFAULT_REST, castCost, checkCosts, checkMaxLevel, checkPool, checkRest, maxCastLevel, poolMax, poolNow, restGain, type ManaRules, type RestGain } from './mana.ts';
@@ -43,15 +43,15 @@ const settingsOf = (db: DB, worldId: string): WorldSettings => ({ ...DEFAULT_SET
 
 // ---- shapes ----------------------------------------------------------------------------------------------
 
-/** A spell as a viewer gets it. Only the DM gets notes, the public flag and the source of a cost. */
-function spellOut(s: WorldSpell, dm: boolean, r: ManaRules, known = false) {
+/** A spell as a viewer gets it. Only the GM gets notes, the public flag and the source of a cost. */
+function spellOut(s: WorldSpell, gm: boolean, r: ManaRules, known = false) {
   const base = {
     id: s.id, name: s.name, level: s.level, school: s.school, classes: s.classes, castingTime: s.castingTime, ritual: s.ritual, range: s.range,
     components: s.components, componentsText: componentsText(s), material: s.material, materialCost: s.materialCost, materialConsumed: s.materialConsumed,
     duration: s.duration, concentration: s.concentration, damageTypes: s.damageTypes, saves: s.saves, attack: s.attack, text: s.text,
     source: s.source, builtin: s.builtin, attribution: s.attribution, line: spellLine(s), manaCost: castCost(s, s.level, r), known,
   };
-  return dm ? { ...base, kind: s.kind, public: s.public, manaOverride: s.manaOverride, dmNotes: s.dmNotes } : base;
+  return gm ? { ...base, kind: s.kind, public: s.public, manaOverride: s.manaOverride, gmNotes: s.gmNotes } : base;
 }
 /** Just enough to name a spell a player may not read in full. */
 const spellStub = (s: WorldSpell | null, ref: string) => (s ? { id: s.id, name: s.name, level: s.level, school: s.school, line: spellLine(s) } : { id: ref, name: 'Unknown spell', level: 0, school: '', line: '' });
@@ -62,7 +62,7 @@ function charOut(db: DB, worldId: string, c: Character, r: ManaRules) {
 }
 
 function emitChar(d: Deps, worldId: string, accountId: string) {
-  d.hub.emit(worldId, 'spells-char', { accountId }, dmAnd(accountId));
+  d.hub.emit(worldId, 'spells-char', { accountId }, gmAnd(accountId));
 }
 
 // ---- the routes ------------------------------------------------------------------------------------------
@@ -100,19 +100,19 @@ function routes(d: Deps) {
     return out;
   }
 
-  /** The account a request is about: `me`, or (for the DM) any player. Players may only name themselves. */
+  /** The account a request is about: `me`, or (for the GM) any player. Players may only name themselves. */
   function who(res: Response, raw: unknown): string {
     const v = String(raw ?? 'me');
     const aid = v === 'me' ? me(res) : v;
-    if (!isDM(res) && aid !== me(res)) throw new HttpError(404, 'Character not found');
-    if (!memberIds(db, W(res), ['player', 'dm']).includes(aid)) throw new HttpError(404, 'Character not found');
+    if (!isGM(res) && aid !== me(res)) throw new HttpError(404, 'Character not found');
+    if (!memberIds(db, W(res), ['player', 'gm']).includes(aid)) throw new HttpError(404, 'Character not found');
     return aid;
   }
 
-  /** What a viewer may read of the catalog: all for the DM; for anyone else, the spells they know and the public ones. */
+  /** What a viewer may read of the catalog: all for the GM; for anyone else, the spells they know and the public ones. */
   function visibleCatalog(res: Response): { list: WorldSpell[]; known: Set<string> } {
     const list = catalog(db, W(res), publicSrd(S(res)));
-    if (isDM(res)) return { list, known: new Set() };
+    if (isGM(res)) return { list, known: new Set() };
     const known = knownIds(db, W(res), me(res));
     return { list: list.filter((s) => s.public || known.has(s.id)), known };
   }
@@ -124,7 +124,7 @@ function routes(d: Deps) {
     const rules = R(res);
     res.json({
       srd: { name: b.name, version: b.version, license: b.license, attribution: b.attribution, count: b.spells.length },
-      sources: isDM(res) ? custom.map((x) => ({ source: x.source, attribution: x.attribution, count: x.n })) : [...new Set(custom.map((x) => x.attribution).filter(Boolean))].map((a) => ({ attribution: a })),
+      sources: isGM(res) ? custom.map((x) => ({ source: x.source, attribution: x.attribution, count: x.n })) : [...new Set(custom.map((x) => x.attribution).filter(Boolean))].map((a) => ({ attribution: a })),
       mana: { on: rules.on, costs: rules.costs, rest: rules.rest, maxLevel: rules.maxLevel.on, overdraw: rules.overdraw },
       crafting: { on: craftOn(s), approval: featureSetting<string>(s, 'spellCraftApproval'), hidden: featureSetting<string>(s, 'spellCraftHidden') },
       playerStats: featureSetting<boolean>(s, 'spellPlayerStats') !== false,
@@ -136,9 +136,9 @@ function routes(d: Deps) {
     const { list, known } = visibleCatalog(res);
     const f = queryFrom(req.query as Record<string, unknown>);
     let found = search(list, f);
-    if (req.query.known === '1' && !isDM(res)) found = found.filter((s) => known.has(s.id));
-    if (isDM(res) && req.query.public === '1') found = found.filter((s) => s.public);
-    if (isDM(res) && req.query.public === '0') found = found.filter((s) => !s.public);
+    if (req.query.known === '1' && !isGM(res)) found = found.filter((s) => known.has(s.id));
+    if (isGM(res) && req.query.public === '1') found = found.filter((s) => s.public);
+    if (isGM(res) && req.query.public === '0') found = found.filter((s) => !s.public);
     const limit = Math.max(1, Math.min(5000, Number(req.query.limit) || 100));
     const offset = Math.max(0, Number(req.query.offset) || 0);
     const rules = R(res);
@@ -146,7 +146,7 @@ function routes(d: Deps) {
     res.json({
       total: found.length,
       spells: found.slice(offset, offset + limit).map((s) => {
-        const o: any = spellOut(s, isDM(res), rules, known.has(s.id));
+        const o: any = spellOut(s, isGM(res), rules, known.has(s.id));
         if (!full) delete o.text;
         return o;
       }),
@@ -158,15 +158,15 @@ function routes(d: Deps) {
   r.get('/s/:id', (req, res) => {
     const s = spellById(db, W(res), String(req.params.id), publicSrd(S(res)));
     if (!s) throw new HttpError(404, 'Spell not found');
-    const known = !isDM(res) && knownIds(db, W(res), me(res)).has(s.id);
-    if (!isDM(res) && !s.public && !known) throw new HttpError(404, 'Spell not found');
-    res.json(spellOut(s, isDM(res), R(res), known));
+    const known = !isGM(res) && knownIds(db, W(res), me(res)).has(s.id);
+    if (!isGM(res) && !s.public && !known) throw new HttpError(404, 'Spell not found');
+    res.json(spellOut(s, isGM(res), R(res), known));
   });
 
-  // ---- the DM's own spells, settings per spell, import and export ----
+  // ---- the GM's own spells, settings per spell, import and export ----
   const changed = (res: Response) => d.hub.emit(W(res), 'spells', {}, everyone);
 
-  r.post('/s', requireDM, (req, res) => {
+  r.post('/s', requireGM, (req, res) => {
     const s = normalizeSpell({ ...(req.body ?? {}), source: req.body?.source || 'Homebrew' }, 'Homebrew');
     const sid = saveCustom(db, W(res), s, 'homebrew');
     applyMeta(res, sid, req.body ?? {});
@@ -175,7 +175,7 @@ function routes(d: Deps) {
     res.json(spellOut(spellById(db, W(res), sid, publicSrd(S(res)))!, true, R(res)));
   });
 
-  r.put('/s/:id', requireDM, (req, res) => {
+  r.put('/s/:id', requireGM, (req, res) => {
     const cur = spellById(db, W(res), String(req.params.id));
     if (!cur) throw new HttpError(404, 'Spell not found');
     if (cur.builtin) throw new HttpError(400, 'SRD spells cannot be edited; change their mana cost, notes or who may read them, or make a homebrew copy');
@@ -187,7 +187,7 @@ function routes(d: Deps) {
     res.json(spellOut(spellById(db, W(res), cur.id, publicSrd(S(res)))!, true, R(res)));
   });
 
-  r.delete('/s/:id', requireDM, (req, res) => {
+  r.delete('/s/:id', requireGM, (req, res) => {
     const cur = spellById(db, W(res), String(req.params.id));
     if (!cur || cur.builtin) throw new HttpError(cur ? 400 : 404, cur ? 'SRD spells cannot be removed' : 'Spell not found');
     const used = recipes(db, W(res)).filter((x) => x.resultId === cur.id || x.prereqs.includes(cur.id));
@@ -210,11 +210,11 @@ function routes(d: Deps) {
       if (n !== null && (!Number.isInteger(n) || n < 0 || n > 999)) throw new HttpError(400, 'The mana cost must be 0 to 999, or empty for the table');
       patch.manaCost = n;
     }
-    if (b.dmNotes !== undefined) patch.dmNotes = String(b.dmNotes ?? '').slice(0, 4000);
+    if (b.gmNotes !== undefined) patch.gmNotes = String(b.gmNotes ?? '').slice(0, 4000);
     if (Object.keys(patch).length) setMeta(db, W(res), sid, patch);
   }
 
-  r.put('/s/:id/meta', requireDM, (req, res) => {
+  r.put('/s/:id/meta', requireGM, (req, res) => {
     const s = spellById(db, W(res), String(req.params.id));
     if (!s) throw new HttpError(404, 'Spell not found');
     applyMeta(res, s.id, req.body ?? {});
@@ -222,7 +222,7 @@ function routes(d: Deps) {
     res.json(spellOut(spellById(db, W(res), s.id, publicSrd(S(res)))!, true, R(res)));
   });
 
-  r.post('/public', requireDM, (req, res) => {
+  r.post('/public', requireGM, (req, res) => {
     const b = req.body ?? {};
     const ids: string[] = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 5000) : [];
     const on = b.public === true;
@@ -232,20 +232,20 @@ function routes(d: Deps) {
     res.json({ changed: n });
   });
 
-  r.get('/export', requireDM, (req, res) => {
+  r.get('/export', requireGM, (req, res) => {
     const own = catalog(db, W(res)).filter((s) => !s.builtin);
     if (req.query.format === 'csv') { res.type('text/csv').send(toCsv(own)); return; }
     res.json({ spells: own.map((s) => ({ ...spellOut(s, true, R(res)), id: undefined, line: undefined, componentsText: undefined })) });
   });
 
-  r.post('/import/preview', requireDM, (req, res) => {
+  r.post('/import/preview', requireGM, (req, res) => {
     const read = readImport(d, W(res), req.body ?? {});
     const dupes = read.spells.filter((s) => findDup(res, s.name, s.source)).length;
     res.json({ source: read.source, attribution: read.attribution, count: read.spells.length, duplicates: dupes, sample: read.spells.slice(0, 5).map((s) => ({ name: s.name, level: s.level, school: s.school, source: s.source, line: spellLine(s) })), warnings: read.warnings });
   });
   const findDup = (res: Response, name: string, source: string) => !!one(db, 'SELECT 1 FROM spells_custom WHERE world_id = ? AND name = ? COLLATE NOCASE AND source = ? COLLATE NOCASE', W(res), name, source) || (source === 'SRD 5.2.1' && srd().spells.some((x) => x.name.toLowerCase() === name.toLowerCase()));
 
-  r.post('/import', requireDM, (req, res) => {
+  r.post('/import', requireGM, (req, res) => {
     const read = readImport(d, W(res), req.body ?? {});
     const out = tx(db, () => saveImport(d, W(res), read, req.body?.replace === true));
     if (req.body?.public === true) for (const a of [...out.added, ...out.replaced]) setMeta(db, W(res), a.id, { public: true });
@@ -255,7 +255,7 @@ function routes(d: Deps) {
   });
 
   // ---- characters: sheet, known spells, mana ----
-  r.get('/characters', requireDM, (_req, res) => {
+  r.get('/characters', requireGM, (_req, res) => {
     const rules = R(res);
     res.json({ characters: playerIds(db, W(res)).map((aid) => ({ ...charOut(db, W(res), character(db, W(res), aid), rules), known: knownRows(db, W(res), aid).length })) });
   });
@@ -266,14 +266,14 @@ function routes(d: Deps) {
     const list = catalog(db, W(res), publicSrd(S(res)));
     const known = knownRows(db, W(res), aid);
     const kset = new Set(known.map((k) => k.spellId));
-    res.json({ ...charOut(db, W(res), character(db, W(res), aid), rules), known: list.filter((s) => kset.has(s.id)).map((s) => ({ ...spellOut(s, isDM(res), rules, true), how: known.find((k) => k.spellId === s.id)?.how ?? '' })) });
+    res.json({ ...charOut(db, W(res), character(db, W(res), aid), rules), known: list.filter((s) => kset.has(s.id)).map((s) => ({ ...spellOut(s, isGM(res), rules, true), how: known.find((k) => k.spellId === s.id)?.how ?? '' })) });
   });
 
-  r.put('/characters/:aid', requirePlayerOrDM, (req, res) => {
+  r.put('/characters/:aid', requirePlayerOrGM, (req, res) => {
     const aid = who(res, req.params.aid);
     const b = req.body ?? {};
-    const dm = isDM(res);
-    if (!dm && featureSetting<boolean>(S(res), 'spellPlayerStats') === false) throw new HttpError(403, 'The DM keeps your ability scores in this world');
+    const gm = isGM(res);
+    if (!gm && featureSetting<boolean>(S(res), 'spellPlayerStats') === false) throw new HttpError(403, 'The GM keeps your ability scores in this world');
     const patch: Parameters<typeof saveCharacter>[3] = {};
     if (b.class !== undefined) patch.class = String(b.class ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
     if (b.level !== undefined) {
@@ -297,36 +297,36 @@ function routes(d: Deps) {
       patch.castingAbility = b.castingAbility || '';
     }
     if (b.manaMax !== undefined) {
-      if (!dm) throw new HttpError(403, 'Only the DM sets a mana maximum by hand');
+      if (!gm) throw new HttpError(403, 'Only the GM sets a mana maximum by hand');
       const n = b.manaMax === null || b.manaMax === '' ? null : Number(b.manaMax);
       if (n !== null && (!Number.isInteger(n) || n < 0 || n > 9999)) throw new HttpError(400, 'The mana maximum must be 0 to 9999, or empty for the formula');
       patch.manaMax = n;
     }
     saveCharacter(db, W(res), aid, patch);
-    if (!dm) audit(db, W(res), me(res), 'spells.sheet', JSON.stringify(patch).slice(0, 300));
+    if (!gm) audit(db, W(res), me(res), 'spells.sheet', JSON.stringify(patch).slice(0, 300));
     emitChar(d, W(res), aid);
     res.json(charOut(db, W(res), character(db, W(res), aid), R(res)));
   });
 
-  r.post('/characters/:aid/known', requireDM, (req, res) => {
+  r.post('/characters/:aid/known', requireGM, (req, res) => {
     const aid = who(res, req.params.aid);
     const s = findSpell(db, W(res), String(req.body?.spellId ?? req.body?.spell ?? ''));
     if (!s) throw new HttpError(404, 'Spell not found');
-    if (addKnown(db, W(res), aid, s.id, 'dm')) logEntry(db, W(res), aid, 'learn', me(res), { spellId: s.id, note: `Given by the DM: ${s.name}` });
+    if (addKnown(db, W(res), aid, s.id, 'gm')) logEntry(db, W(res), aid, 'learn', me(res), { spellId: s.id, note: `Given by the GM: ${s.name}` });
     emitChar(d, W(res), aid);
     res.json({ ok: true, spellId: s.id });
   });
 
-  r.delete('/characters/:aid/known/:sid', requireDM, (req, res) => {
+  r.delete('/characters/:aid/known/:sid', requireGM, (req, res) => {
     const aid = who(res, req.params.aid);
     const sid = String(req.params.sid);
     if (!run(db, 'DELETE FROM spells_known WHERE world_id = ? AND account_id = ? AND spell_id = ?', W(res), aid, sid)) throw new HttpError(404, 'Not a known spell');
-    logEntry(db, W(res), aid, 'forget', me(res), { spellId: sid, note: `Removed by the DM: ${spellById(db, W(res), sid)?.name ?? sid}` });
+    logEntry(db, W(res), aid, 'forget', me(res), { spellId: sid, note: `Removed by the GM: ${spellById(db, W(res), sid)?.name ?? sid}` });
     emitChar(d, W(res), aid);
     res.json({ ok: true });
   });
 
-  r.post('/characters/:aid/mana', requireDM, (req, res) => {
+  r.post('/characters/:aid/mana', requireGM, (req, res) => {
     const aid = who(res, req.params.aid);
     const rules = R(res);
     if (!rules.on) throw new HttpError(409, 'Mana is off in this world');
@@ -340,20 +340,20 @@ function routes(d: Deps) {
     else next = cur + Number(b.delta);
     if (!Number.isInteger(next) || next < -9999 || next > 99999) throw new HttpError(400, 'Send delta (a whole number), set (the new amount) or full: true');
     saveCharacter(db, W(res), aid, { mana: next });
-    logEntry(db, W(res), aid, 'adjust', me(res), { amount: next - cur, manaAfter: next, note: String(b.note ?? '').slice(0, 200) || 'Adjusted by the DM' });
+    logEntry(db, W(res), aid, 'adjust', me(res), { amount: next - cur, manaAfter: next, note: String(b.note ?? '').slice(0, 200) || 'Adjusted by the GM' });
     audit(db, W(res), me(res), 'spells.mana', `${aid} ${cur} -> ${next}`);
     emitChar(d, W(res), aid);
     res.json(charOut(db, W(res), character(db, W(res), aid), rules));
   });
 
-  r.post('/cast', requirePlayerOrDM, (req, res) => {
+  r.post('/cast', requirePlayerOrGM, (req, res) => {
     const b = req.body ?? {};
     const aid = who(res, b.accountId ?? 'me');
     const rules = R(res);
     const s = spellById(db, W(res), String(b.spellId ?? ''));
     if (!s) throw new HttpError(404, 'Spell not found');
     const known = knownIds(db, W(res), aid);
-    if (!isDM(res) && !known.has(s.id)) throw new HttpError(s.public ? 403 : 404, s.public ? 'You do not know this spell' : 'Spell not found');
+    if (!isGM(res) && !known.has(s.id)) throw new HttpError(s.public ? 403 : 404, s.public ? 'You do not know this spell' : 'Spell not found');
     const at = b.level === undefined || b.level === null || b.level === '' ? s.level : Number(b.level);
     if (!Number.isInteger(at) || at < s.level || at > 9) throw new HttpError(400, `Cast it at level ${s.level} to 9`);
     if (!rules.on) {
@@ -378,7 +378,7 @@ function routes(d: Deps) {
     res.json({ ok: true, ...out });
   });
 
-  r.post('/rest', requireDM, (req, res) => {
+  r.post('/rest', requireGM, (req, res) => {
     const kind = req.body?.kind === 'short' ? 'short' : req.body?.kind === 'long' ? 'long' : null;
     if (!kind) throw new HttpError(400, 'kind must be long or short');
     const rules = R(res);
@@ -388,7 +388,7 @@ function routes(d: Deps) {
   });
 
   r.get('/log', (req, res) => {
-    const aid = isDM(res) ? (req.query.account ? who(res, req.query.account) : null) : me(res);
+    const aid = isGM(res) ? (req.query.account ? who(res, req.query.account) : null) : me(res);
     const rows = all<any>(db, `SELECT * FROM spells_log WHERE world_id = ? ${aid ? 'AND account_id = ?' : ''} ORDER BY at DESC, rowid DESC LIMIT 200`, W(res), ...(aid ? [aid] : []));
     res.json({ log: rows.map((x) => ({ id: x.id, accountId: x.account_id, kind: x.kind, spellId: x.spell_id, amount: x.amount, manaAfter: x.mana_after, note: x.note, by: x.by_id, at: x.at })) });
   });
@@ -408,13 +408,13 @@ function routes(d: Deps) {
       stats: rc.stats, minLevel: rc.minLevel, manaCost: rc.manaCost,
       ...(el ? { status: el.status, missing: el.missing, met: el.met, total: el.total } : {}),
     };
-    return isDM(res) ? { ...base, visibility: rc.visibility, dmNotes: rc.dmNotes, draft: rc.draft, createdBy: rc.createdBy, createdAt: rc.createdAt, updatedAt: rc.updatedAt } : base;
+    return isGM(res) ? { ...base, visibility: rc.visibility, gmNotes: rc.gmNotes, draft: rc.draft, createdBy: rc.createdBy, createdAt: rc.createdAt, updatedAt: rc.updatedAt } : base;
   }
 
   r.get('/recipes', (req, res) => {
     const all_ = recipes(db, W(res));
     const t = tiers(all_.filter((x) => !x.draft));
-    if (isDM(res)) {
+    if (isGM(res)) {
       const tAll = tiers(all_);
       return res.json({ recipes: all_.map((x) => recipeOut(res, x, tAll.get(x.id) ?? 1, null)) });
     }
@@ -427,36 +427,36 @@ function routes(d: Deps) {
 
   const resolver = (res: Response) => (ref: string) => findSpell(db, W(res), ref);
 
-  r.post('/recipes', requireDM, (req, res) => {
+  r.post('/recipes', requireGM, (req, res) => {
     const x = normalizeRecipe(req.body ?? {}, resolver(res));
     const rid = id('rcp_');
-    run(db, 'INSERT INTO spells_recipes (id, world_id, result_id, prereqs, items, stats, min_level, mana_cost, visibility, dm_notes, draft, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      rid, W(res), x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.dmNotes, x.draft ? 1 : 0, req.body?.createdBy === 'assistant' ? 'assistant' : me(res), now(), now());
+    run(db, 'INSERT INTO spells_recipes (id, world_id, result_id, prereqs, items, stats, min_level, mana_cost, visibility, gm_notes, draft, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      rid, W(res), x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.gmNotes, x.draft ? 1 : 0, req.body?.createdBy === 'assistant' ? 'assistant' : me(res), now(), now());
     audit(db, W(res), me(res), x.draft ? 'spells.recipe.draft' : 'spells.recipe.create', nameOf(res)(x.resultId));
     recipesChanged(res);
     const rc = recipeById(db, W(res), rid)!;
     res.json(recipeOut(res, rc, tiers(recipes(db, W(res))).get(rid) ?? 1, null));
   });
 
-  r.put('/recipes/:rid', requireDM, (req, res) => {
+  r.put('/recipes/:rid', requireGM, (req, res) => {
     const cur = recipeById(db, W(res), String(req.params.rid));
     if (!cur) throw new HttpError(404, 'Recipe not found');
-    const x = normalizeRecipe({ result: cur.resultId, prereqs: cur.prereqs, items: cur.items, stats: cur.stats, minLevel: cur.minLevel, manaCost: cur.manaCost, visibility: cur.visibility, dmNotes: cur.dmNotes, draft: cur.draft, ...(req.body ?? {}) }, resolver(res));
-    run(db, 'UPDATE spells_recipes SET result_id = ?, prereqs = ?, items = ?, stats = ?, min_level = ?, mana_cost = ?, visibility = ?, dm_notes = ?, draft = ?, updated_at = ? WHERE world_id = ? AND id = ?',
-      x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.dmNotes, x.draft ? 1 : 0, now(), W(res), cur.id);
+    const x = normalizeRecipe({ result: cur.resultId, prereqs: cur.prereqs, items: cur.items, stats: cur.stats, minLevel: cur.minLevel, manaCost: cur.manaCost, visibility: cur.visibility, gmNotes: cur.gmNotes, draft: cur.draft, ...(req.body ?? {}) }, resolver(res));
+    run(db, 'UPDATE spells_recipes SET result_id = ?, prereqs = ?, items = ?, stats = ?, min_level = ?, mana_cost = ?, visibility = ?, gm_notes = ?, draft = ?, updated_at = ? WHERE world_id = ? AND id = ?',
+      x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.gmNotes, x.draft ? 1 : 0, now(), W(res), cur.id);
     audit(db, W(res), me(res), 'spells.recipe.edit', nameOf(res)(x.resultId));
     recipesChanged(res);
     res.json(recipeOut(res, recipeById(db, W(res), cur.id)!, tiers(recipes(db, W(res))).get(cur.id) ?? 1, null));
   });
 
-  r.post('/recipes/:rid/approve', requireDM, (req, res) => {
+  r.post('/recipes/:rid/approve', requireGM, (req, res) => {
     if (!run(db, 'UPDATE spells_recipes SET draft = 0, updated_at = ? WHERE world_id = ? AND id = ?', now(), W(res), String(req.params.rid))) throw new HttpError(404, 'Recipe not found');
     audit(db, W(res), me(res), 'spells.recipe.approve', String(req.params.rid));
     recipesChanged(res);
     res.json({ ok: true });
   });
 
-  r.delete('/recipes/:rid', requireDM, (req, res) => {
+  r.delete('/recipes/:rid', requireGM, (req, res) => {
     const rid = String(req.params.rid);
     if (!run(db, 'DELETE FROM spells_recipes WHERE world_id = ? AND id = ?', W(res), rid)) throw new HttpError(404, 'Recipe not found');
     run(db, "UPDATE spells_learn SET status = 'cancelled', reason = 'The recipe was removed', decided_at = ? WHERE world_id = ? AND recipe_id = ? AND status = 'pending'", now(), W(res), rid);
@@ -466,12 +466,12 @@ function routes(d: Deps) {
   });
 
   /** Recipes by spell name, for moving them between worlds. */
-  r.get('/recipes/export', requireDM, (_req, res) => {
+  r.get('/recipes/export', requireGM, (_req, res) => {
     const n = nameOf(res);
-    res.json({ format: 'alexandria-spell-recipes', version: 1, recipes: recipes(db, W(res)).map((x) => ({ result: n(x.resultId), prereqs: x.prereqs.map(n), items: x.items, stats: x.stats, minLevel: x.minLevel, manaCost: x.manaCost, visibility: x.visibility, dmNotes: x.dmNotes, draft: x.draft })) });
+    res.json({ format: 'alexandria-spell-recipes', version: 1, recipes: recipes(db, W(res)).map((x) => ({ result: n(x.resultId), prereqs: x.prereqs.map(n), items: x.items, stats: x.stats, minLevel: x.minLevel, manaCost: x.manaCost, visibility: x.visibility, gmNotes: x.gmNotes, draft: x.draft })) });
   });
 
-  r.post('/recipes/import', requireDM, (req, res) => {
+  r.post('/recipes/import', requireGM, (req, res) => {
     const b = req.body ?? {};
     let list = b.recipes ?? b.json;
     if (typeof list === 'string') { try { list = JSON.parse(list); } catch { throw new HttpError(400, 'That is not valid JSON'); } }
@@ -488,8 +488,8 @@ function routes(d: Deps) {
         try { x = normalizeRecipe(raw, resolver(res)); } catch (e: any) { res2.skipped.push(`Recipe ${i + 1}: ${e.message}`); return; }
         if (have.has(sig(x))) { res2.skipped.push(`Recipe ${i + 1}: already there`); return; }
         have.add(sig(x));
-        run(db, 'INSERT INTO spells_recipes (id, world_id, result_id, prereqs, items, stats, min_level, mana_cost, visibility, dm_notes, draft, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          id('rcp_'), W(res), x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.dmNotes, x.draft ? 1 : 0, me(res), now(), now());
+        run(db, 'INSERT INTO spells_recipes (id, world_id, result_id, prereqs, items, stats, min_level, mana_cost, visibility, gm_notes, draft, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          id('rcp_'), W(res), x.resultId, JSON.stringify(x.prereqs), JSON.stringify(x.items), JSON.stringify(x.stats), x.minLevel, x.manaCost, x.visibility, x.gmNotes, x.draft ? 1 : 0, me(res), now(), now());
         res2.added++;
       });
     });
@@ -508,20 +508,20 @@ function routes(d: Deps) {
     const known = knownIds(db, W(res), aid);
     const list = catalog(db, W(res), publicSrd(s));
     const knownRowsList = knownRows(db, W(res), aid);
-    const learned = list.filter((x) => known.has(x.id)).map((x) => ({ ...spellOut(x, isDM(res), rules, true), how: knownRowsList.find((k) => k.spellId === x.id)?.how ?? '' }));
+    const learned = list.filter((x) => known.has(x.id)).map((x) => ({ ...spellOut(x, isGM(res), rules, true), how: knownRowsList.find((k) => k.spellId === x.id)?.how ?? '' }));
     const on = craftOn(s);
-    const dm = isDM(res);
+    const gm = isGM(res);
     const all_ = recipes(db, W(res)).filter((x) => !x.draft);
     const t = tiers(all_);
     const pending = new Map(all<any>(db, "SELECT id, recipe_id FROM spells_learn WHERE world_id = ? AND account_id = ? AND status = 'pending'", W(res), aid).map((x) => [x.recipe_id, x.id]));
     const n = nameOf(res);
     const hold = (nm: string) => holding(db, W(res), aid, nm);
-    const shown = all_.filter((x) => dm || x.visibility === 'visible');
-    const rows = on || dm ? shown.map((x) => {
+    const shown = all_.filter((x) => gm || x.visibility === 'visible');
+    const rows = on || gm ? shown.map((x) => {
       const el = eligibility(db, W(res), x, c, known, n, { on: rules.on, now: manaNow });
       return { ...recipeOut(res, x, t.get(x.id) ?? 1, el, hold), pending: pending.get(x.id) ?? null };
     }) : [];
-    const mystery = !on || dm || featureSetting<string>(s, 'spellCraftHidden') === 'hide' ? [] : all_.filter((x) => x.visibility === 'hidden' && !known.has(x.resultId)).map((x) => ({ mystery: true, buildsOnKnown: x.prereqs.some((p) => known.has(p)) }));
+    const mystery = !on || gm || featureSetting<string>(s, 'spellCraftHidden') === 'hide' ? [] : all_.filter((x) => x.visibility === 'hidden' && !known.has(x.resultId)).map((x) => ({ mystery: true, buildsOnKnown: x.prereqs.some((p) => known.has(p)) }));
     const reqs = all<any>(db, 'SELECT * FROM spells_learn WHERE world_id = ? AND account_id = ? ORDER BY at DESC LIMIT 30', W(res), aid);
     return {
       crafting: { on, approval: featureSetting<string>(s, 'spellCraftApproval'), playerStats: featureSetting<boolean>(s, 'spellPlayerStats') !== false },
@@ -537,7 +537,7 @@ function routes(d: Deps) {
 
   r.get('/codex', (req, res) => {
     if (ctx(res).viewer.role === 'guest') return res.json({ crafting: { on: false }, character: null, learned: [], ready: [], next: [], mystery: [], requests: [] });
-    const aid = isDM(res) ? (req.query.account ? who(res, req.query.account) : null) : me(res);
+    const aid = isGM(res) ? (req.query.account ? who(res, req.query.account) : null) : me(res);
     if (!aid) throw new HttpError(400, 'Choose a character: ?account=<id>');
     res.json(codexFor(res, aid));
   });
@@ -547,7 +547,7 @@ function routes(d: Deps) {
     const sp = spellById(db, W(res), x.spell_id);
     return { id: x.id, accountId: x.account_id, recipeId: x.recipe_id, spellId: x.spell_id, spell: sp?.name ?? 'Unknown spell', status: x.status, note: x.note, reason: x.reason, consumed: parseJson(x.consumed, []), at: x.at, decidedAt: x.decided_at };
   }
-  const learnEvent = (res: Response, x: { id: string; account_id: string; status: string }) => d.hub.emit(W(res), 'spells-learn', { id: x.id, accountId: x.account_id, status: x.status }, dmAnd(x.account_id));
+  const learnEvent = (res: Response, x: { id: string; account_id: string; status: string }) => d.hub.emit(W(res), 'spells-learn', { id: x.id, accountId: x.account_id, status: x.status }, gmAnd(x.account_id));
 
   /** Learn it now: check again, use up the items the recipe consumes, pay the mana, add the spell, log it. Inside a transaction. */
   function complete(res: Response, rc: Recipe, aid: string, by: string, force: boolean): { consumed: { name: string; qty: number }[] } {
@@ -558,7 +558,7 @@ function routes(d: Deps) {
     const manaNow = poolNow(c, max);
     const el = eligibility(db, W(res), rc, c, known, nameOf(res), { on: rules.on, now: manaNow });
     if (el.status === 'learned') throw new HttpError(409, 'Already known');
-    // The DM may approve anyway (force): what is there is used up and mana does not go below zero.
+    // The GM may approve anyway (force): what is there is used up and mana does not go below zero.
     if (el.status !== 'ready' && !force) throw new HttpError(409, `Not ready: ${el.missing.map(missingText).join('; ')}`);
     const consumed: { name: string; qty: number }[] = [];
     for (const it of rc.items.filter((x) => x.consumed)) {
@@ -570,14 +570,14 @@ function routes(d: Deps) {
         const take = Math.min(left, Number(row.qty) || 0);
         left -= take;
         const after = Number(row.qty) - take;
-        const snap = (q: number) => JSON.stringify({ owner: row.owner, name: row.name, qty: q, weight: row.weight ?? null, note: row.note ?? '', dm_note: row.dm_note ?? '', link: row.link ?? null, image: row.image ?? null });
+        const snap = (q: number) => JSON.stringify({ owner: row.owner, name: row.name, qty: q, weight: row.weight ?? null, note: row.note ?? '', gm_note: row.gm_note ?? '', link: row.link ?? null, image: row.image ?? null });
         if (after <= 0) run(db, 'DELETE FROM items WHERE id = ?', row.id);
         else run(db, 'UPDATE items SET qty = ?, updated_at = ?, updated_by = ? WHERE id = ?', after, now(), by, row.id);
-        // The owner is told, as for any change the DM makes to their things.
+        // The owner is told, as for any change the GM makes to their things.
         if (by !== aid) run(db, `INSERT INTO item_changes (id, world_id, item_id, owner, kind, before_json, after_json, reason, by_id, at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'alert')`,
           id('chg_'), W(res), row.id, aid, after <= 0 ? 'remove' : 'edit', snap(Number(row.qty)), after <= 0 ? null : snap(after), `Used up learning ${nameOf(res)(rc.resultId)}`, by, now());
-        if (after <= 0) d.hub.emit(W(res), 'item-removed', { id: row.id }, dmAnd(aid));
-        else d.hub.emit(W(res), 'item', { id: row.id, owner: aid, name: row.name, qty: after, note: row.note, link: row.link, image: row.image ?? null, status: 'approved' }, dmAnd(aid));
+        if (after <= 0) d.hub.emit(W(res), 'item-removed', { id: row.id }, gmAnd(aid));
+        else d.hub.emit(W(res), 'item', { id: row.id, owner: aid, name: row.name, qty: after, note: row.note, link: row.link, image: row.image ?? null, status: 'approved' }, gmAnd(aid));
       }
       if (left > 0 && !force) throw new HttpError(409, `Not enough ${it.name}`);
       consumed.push({ name: it.name, qty: it.qty - left });
@@ -592,21 +592,21 @@ function routes(d: Deps) {
     return { consumed };
   }
 
-  r.post('/learn', requirePlayerOrDM, (req, res) => {
+  r.post('/learn', requirePlayerOrGM, (req, res) => {
     const b = req.body ?? {};
-    const aid = who(res, isDM(res) ? b.accountId : 'me');
-    if (!isDM(res) && !craftOn(S(res))) throw new HttpError(403, 'Spell crafting is off in this world');
+    const aid = who(res, isGM(res) ? b.accountId : 'me');
+    if (!isGM(res) && !craftOn(S(res))) throw new HttpError(403, 'Spell crafting is off in this world');
     const rc = recipeById(db, W(res), String(b.recipeId ?? ''));
-    if (!rc || (!isDM(res) && (rc.draft || rc.visibility !== 'visible'))) throw new HttpError(404, 'Recipe not found');
+    if (!rc || (!isGM(res) && (rc.draft || rc.visibility !== 'visible'))) throw new HttpError(404, 'Recipe not found');
     if (rc.draft) throw new HttpError(409, 'Approve the draft recipe first');
-    if (one(db, "SELECT 1 FROM spells_learn WHERE world_id = ? AND account_id = ? AND recipe_id = ? AND status = 'pending'", W(res), aid, rc.id)) throw new HttpError(409, 'Already asked; waiting for the DM');
+    if (one(db, "SELECT 1 FROM spells_learn WHERE world_id = ? AND account_id = ? AND recipe_id = ? AND status = 'pending'", W(res), aid, rc.id)) throw new HttpError(409, 'Already asked; waiting for the GM');
     const rules = R(res);
     const c = character(db, W(res), aid);
     const el = eligibility(db, W(res), rc, c, knownIds(db, W(res), aid), nameOf(res), { on: rules.on, now: poolNow(c, poolMax(c, rules)) });
     if (el.status === 'learned') throw new HttpError(409, 'Already known');
     if (el.status !== 'ready') throw new HttpError(409, `Not yet: ${el.missing.map(missingText).join('; ')}`);
     const lid = id('lrn_');
-    const auto = isDM(res) || featureSetting<string>(S(res), 'spellCraftApproval') === 'auto';
+    const auto = isGM(res) || featureSetting<string>(S(res), 'spellCraftApproval') === 'auto';
     const row = tx(db, () => {
       run(db, 'INSERT INTO spells_learn (id, world_id, account_id, recipe_id, spell_id, status, note, at) VALUES (?,?,?,?,?,?,?,?)', lid, W(res), aid, rc.id, rc.resultId, 'pending', String(b.note ?? '').slice(0, 300), now());
       if (auto) {
@@ -623,7 +623,7 @@ function routes(d: Deps) {
 
   r.get('/learn', (req, res) => {
     if (ctx(res).viewer.role === 'guest') return res.json({ requests: [] });
-    const rows = isDM(res)
+    const rows = isGM(res)
       ? all<any>(db, `SELECT * FROM spells_learn WHERE world_id = ? ${req.query.status ? 'AND status = ?' : ''} ORDER BY (status = 'pending') DESC, at DESC LIMIT 200`, W(res), ...(req.query.status ? [String(req.query.status)] : []))
       : all<any>(db, 'SELECT * FROM spells_learn WHERE world_id = ? AND account_id = ? ORDER BY at DESC LIMIT 100', W(res), me(res));
     res.json({ requests: rows.map((x) => learnOut(res, x)) });
@@ -631,12 +631,12 @@ function routes(d: Deps) {
 
   const pendingReq = (res: Response, lid: string) => {
     const x = one<any>(db, 'SELECT * FROM spells_learn WHERE world_id = ? AND id = ?', W(res), lid);
-    if (!x || (!isDM(res) && x.account_id !== me(res))) throw new HttpError(404, 'Request not found');
+    if (!x || (!isGM(res) && x.account_id !== me(res))) throw new HttpError(404, 'Request not found');
     if (x.status !== 'pending') throw new HttpError(409, `This request is already ${x.status}`);
     return x;
   };
 
-  r.post('/learn/:lid/approve', requireDM, (req, res) => {
+  r.post('/learn/:lid/approve', requireGM, (req, res) => {
     const x = pendingReq(res, String(req.params.lid));
     const rc = recipeById(db, W(res), x.recipe_id);
     if (!rc) throw new HttpError(409, 'The recipe was removed');
@@ -651,7 +651,7 @@ function routes(d: Deps) {
     res.json(learnOut(res, row));
   });
 
-  r.post('/learn/:lid/reject', requireDM, (req, res) => {
+  r.post('/learn/:lid/reject', requireGM, (req, res) => {
     const x = pendingReq(res, String(req.params.lid));
     run(db, "UPDATE spells_learn SET status = 'rejected', reason = ?, decided_at = ?, decided_by = ? WHERE id = ?", String(req.body?.reason ?? '').slice(0, 300), now(), me(res), x.id);
     const row = one<any>(db, 'SELECT * FROM spells_learn WHERE id = ?', x.id);
@@ -659,7 +659,7 @@ function routes(d: Deps) {
     res.json(learnOut(res, row));
   });
 
-  r.post('/learn/:lid/cancel', requirePlayerOrDM, (req, res) => {
+  r.post('/learn/:lid/cancel', requirePlayerOrGM, (req, res) => {
     const x = pendingReq(res, String(req.params.lid));
     run(db, "UPDATE spells_learn SET status = 'cancelled', decided_at = ? WHERE id = ?", now(), x.id);
     const row = one<any>(db, 'SELECT * FROM spells_learn WHERE id = ?', x.id);
@@ -694,17 +694,19 @@ const feature: Feature = {
     spellManaMaxLevel: { type: 'json', default: DEFAULT_MAX_LEVEL, validate: checkMaxLevel },
     spellManaOverdraw: { type: 'boolean', default: false },
     spellCrafting: { type: 'boolean', default: false },
-    spellCraftApproval: { type: 'enum', values: ['dm', 'auto'], default: 'dm' },
+    spellCraftApproval: { type: 'enum', values: ['gm', 'auto'], default: 'gm' },
     spellCraftHidden: { type: 'enum', values: ['mystery', 'hide'], default: 'mystery' },
     spellPlayerStats: { type: 'boolean', default: true },
     spellsPublicSrd: { type: 'boolean', default: false },
   },
   worldMount: 'spells',
   worldRoutes: routes,
+  // House rules (World → House rules): each one switches this feature's settings as a set. The rule files are in the repo's mods/ folder.
+  houseRules: ['spell-points', 'mana-pool', 'spell-crafting'],
   mcpTools: [
     {
       name: 'list_spells',
-      description: "Search the world's spell list (the Codex: SRD 5.2.1 spells plus the DM's homebrew and imports) by name and filters. Returns each spell's id, level, school, casting time, range, components and mana cost. Players get only spells they know or the DM made public.",
+      description: "Search the world's spell list (the Codex: SRD 5.2.1 spells plus the GM's homebrew and imports) by name and filters. Returns each spell's id, level, school, casting time, range, components and mana cost. Players get only spells they know or the GM made public.",
       props: {
         query: { type: 'string', description: 'Words in the name' },
         level: { type: 'string', description: 'A level (0 for cantrips), a list like 1,2 or a range like 1-3' },
@@ -724,14 +726,14 @@ const feature: Feature = {
       call: (a) => ({ method: 'GET', path: `/spells/s/${enc(a.id)}` }),
     },
     {
-      name: 'list_spell_recipes', dmOnly: true,
-      description: 'DM: the spell crafting recipes of this world (result spell, prerequisite spells, items, minimum ability scores and level, mana to learn, who sees it, drafts and DM notes), and their tier.',
+      name: 'list_spell_recipes', gmOnly: true,
+      description: 'GM: the spell crafting recipes of this world (result spell, prerequisite spells, items, minimum ability scores and level, mana to learn, who sees it, drafts and GM notes), and their tier.',
       props: {},
       call: () => ({ method: 'GET', path: '/spells/recipes' }),
     },
     {
       name: 'draft_spell_recipe', write: true,
-      description: 'DM: suggest a spell crafting recipe: combining 1 to 5 known spells (and optionally items, minimum ability scores, a minimum level, a mana cost) teaches the result spell, e.g. Fire Bolt + Burning Hands -> Scorching Ray. Spells by name or id from list_spells. It is saved as a draft that players never see until the DM approves it in the recipe editor.',
+      description: 'GM: suggest a spell crafting recipe: combining 1 to 5 known spells (and optionally items, minimum ability scores, a minimum level, a mana cost) teaches the result spell, e.g. Fire Bolt + Burning Hands -> Scorching Ray. Spells by name or id from list_spells. It is saved as a draft that players never see until the GM approves it in the recipe editor.',
       props: {
         result: { type: 'string', description: 'The spell learned' },
         prereqs: { type: 'array', items: { type: 'string' }, description: '1 to 5 spells the character must know' },
@@ -739,10 +741,10 @@ const feature: Feature = {
         stats: { type: 'object', description: 'Minimum ability scores, e.g. {"int": 13}' },
         minLevel: { type: 'integer' }, manaCost: { type: 'integer', description: 'Mana spent to learn it' },
         visibility: { type: 'string', enum: ['visible', 'hidden'], description: 'Players see the recipe, or only "???"' },
-        dmNotes: { type: 'string', description: 'Why, for the DM only' },
+        gmNotes: { type: 'string', description: 'Why, for the GM only' },
       },
       required: ['result', 'prereqs'],
-      call: (a) => ({ method: 'POST', path: '/spells/recipes', body: { result: a.result, prereqs: a.prereqs, items: a.items, stats: a.stats, minLevel: a.minLevel, manaCost: a.manaCost, visibility: a.visibility, dmNotes: a.dmNotes, draft: true, createdBy: 'assistant' } }),
+      call: (a) => ({ method: 'POST', path: '/spells/recipes', body: { result: a.result, prereqs: a.prereqs, items: a.items, stats: a.stats, minLevel: a.minLevel, manaCost: a.manaCost, visibility: a.visibility, gmNotes: a.gmNotes, draft: true, createdBy: 'assistant' } }),
     },
     {
       name: 'my_spell_codex', playerOnly: true,

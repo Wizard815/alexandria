@@ -1,6 +1,6 @@
 // The player's Ask page: the player harness. It knows only what the player knows, cannot change anything, and its
 // answers are checked for leaks. Two voices: the broker (in the world, for what your character could learn) and your
-// table helper (out of character: your character, items, the rules, what the party learned tonight). The DM can turn
+// table helper (out of character: your character, items, the rules, what the party learned tonight). The GM can turn
 // the helper off (setting agentPlayerHelper).
 import { useState } from 'react';
 import { PageHead } from '../../ui/index.tsx';

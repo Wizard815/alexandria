@@ -1,9 +1,9 @@
 // Sound (PLAN §5): the music, ambience and effects libraries on the gateway,
-// the DM's sound board, players' own on/off switches, and Spotify.
+// the GM's sound board, players' own on/off switches, and Spotify.
 //
 // Live event `sound`: { channel: 'music'|'ambience'|'sfx'|'voice', action:
 // 'play'|'stop'|'set', url, volume, loop, fadeMs, target: 'table'|'players'|
-// 'both', at, ... }. The DM's page plays what is aimed at the table; a
+// 'both', at, ... }. The GM's page plays what is aimed at the table; a
 // player's device plays what is aimed at players on channels it switched on.
 import express, { Router } from 'express';
 import fs from 'node:fs';
@@ -11,10 +11,10 @@ import path from 'node:path';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { one, all, run } from '../../core/db.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { HttpError, id as newId, now, oneOf, str } from '../../core/util.ts';
-import { ctx, isDM, me, names } from '../../routes/_shared.ts';
-import { dmOnly } from '../../core/events.ts';
+import { ctx, isGM, me, names } from '../../routes/_shared.ts';
+import { gmOnly } from '../../core/events.ts';
 import { MIME, sniff, serveFile } from './files.ts';
 import { scan, withOverrides, nearest, nearestLayer, libraryHint, CORNERS, type Index, type Track } from './library.ts';
 import { sendSound, TARGETS, toPlayers, type Target } from './send.ts';
@@ -109,18 +109,18 @@ export function soundHint(d: Deps, worldId: string): string {
   return libraryHint(i, withOverrides(i.music, over));
 }
 
-/** How many players have the sound channel switched on (the DM's own devices do not count). */
+/** How many players have the sound channel switched on (the GM's own devices do not count). */
 function listeningPlayers(d: Deps, worldId: string, channel: 'music' | 'ambience' | 'sfx'): number {
   const col = channel;
-  return one<{ n: number }>(d.db, `SELECT COUNT(DISTINCT l.account_id) AS n FROM sound_listeners l JOIN members m ON m.account_id = l.account_id AND m.world_id = l.world_id WHERE l.world_id = ? AND m.role <> 'dm' AND l.${col} = 1`, worldId)?.n ?? 0;
+  return one<{ n: number }>(d.db, `SELECT COUNT(DISTINCT l.account_id) AS n FROM sound_listeners l JOIN members m ON m.account_id = l.account_id AND m.world_id = l.world_id WHERE l.world_id = ? AND m.role <> 'gm' AND l.${col} = 1`, worldId)?.n ?? 0;
 }
-const NO_ONE = 'No player has "Allow sound" switched on, so players will not hear this. Tell the DM.';
+const NO_ONE = 'No player has "Allow sound" switched on, so players will not hear this. Tell the GM.';
 
-/** May this person fetch this file now? A DM: any file. A player: only what is playing for them or was sent to devices. */
-function fileFor(d: Deps, worldId: string, dm: boolean, kind: string, fid: string) {
+/** May this person fetch this file now? A GM: any file. A player: only what is playing for them or was sent to devices. */
+function fileFor(d: Deps, worldId: string, gm: boolean, kind: string, fid: string) {
   const f = indexOf(d).files.get(fid);
   if (!f || f.kind !== kind) return null;
-  if (!dm && !one(d.db, 'SELECT 1 FROM sound_allowed WHERE world_id = ? AND kind = ? AND file_id = ? AND (expires_at IS NULL OR expires_at > ?)', worldId, kind, fid, now())) return null;
+  if (!gm && !one(d.db, 'SELECT 1 FROM sound_allowed WHERE world_id = ? AND kind = ? AND file_id = ? AND (expires_at IS NULL OR expires_at > ?)', worldId, kind, fid, now())) return null;
   return f;
 }
 
@@ -134,31 +134,31 @@ const feature: Feature = {
     app.get('/api/media/sound/:ticket', (req, res) => {
       const t = readTicket(String(req.params.ticket));
       const m = t && one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', t.w, t.a);
-      const f = t && m && fileFor(d, t.w, m.role === 'dm', t.k, t.f);
+      const f = t && m && fileFor(d, t.w, m.role === 'gm', t.k, t.f);
       if (!f) throw new HttpError(404, 'File not found');
       serveFile(req, res, f.abs, f.mime);
     });
   },
   mcpTools: [
-    { name: 'list_sound_library', dmOnly: true, description: "DM: what the sound board can play: music tracks (id, area, mood spot), ambience layers, sound effects (id, bank, name), the mood corners and the saved scenes and pads.", props: {}, call: () => ({ method: 'GET', path: '/sound/library' }) },
-    { name: 'list_sound_scenes', dmOnly: true, description: 'DM: the saved ambience scenes (name, layers) and the sound pads.', props: {}, call: () => ({ method: 'GET', path: '/sound/scenes' }) },
-    { name: 'get_sound_now', description: 'What music and ambience are playing now (a player sees only what is aimed at players). For the DM it also says how many players have each sound channel on.', props: {}, call: () => ({ method: 'GET', path: '/sound/now' }) },
+    { name: 'list_sound_library', gmOnly: true, description: "GM: what the sound board can play: music tracks (id, area, mood spot), ambience layers, sound effects (id, bank, name), the mood corners and the saved scenes and pads.", props: {}, call: () => ({ method: 'GET', path: '/sound/library' }) },
+    { name: 'list_sound_scenes', gmOnly: true, description: 'GM: the saved ambience scenes (name, layers) and the sound pads.', props: {}, call: () => ({ method: 'GET', path: '/sound/scenes' }) },
+    { name: 'get_sound_now', description: 'What music and ambience are playing now (a player sees only what is aimed at players). For the GM it also says how many players have each sound channel on.', props: {}, call: () => ({ method: 'GET', path: '/sound/now' }) },
     {
       name: 'play_music', write: true,
-      description: "DM: play background music. If the result has a note that no player has Allow sound on, tell the DM. Give a mood (calm, tense, sneaky or combat: the nearest track plays, in the area if given), or a trackId from list_sound_library. target: table (the DM's device, default), players or both.",
+      description: "GM: play background music. If the result has a note that no player has Allow sound on, tell the GM. Give a mood (calm, tense, sneaky or combat: the nearest track plays, in the area if given), or a trackId from list_sound_library. target: table (the GM's device, default), players or both.",
       props: { mood: { type: 'string', enum: ['calm', 'tense', 'sneaky', 'combat'] }, area: { type: 'string', description: 'Music folder, e.g. dungeon' }, trackId: { type: 'string' }, volume: { type: 'number', description: '0 to 1' }, fadeMs: { type: 'integer' }, target: { type: 'string', enum: [...TARGETS] } },
       call: (a) => (a.trackId ? { method: 'POST', path: '/sound/music/play', body: { trackId: a.trackId, volume: a.volume, fadeMs: a.fadeMs, target: a.target } } : { method: 'POST', path: '/sound/music/mood', body: { mood: a.mood ?? 'calm', area: a.area, volume: a.volume, fadeMs: a.fadeMs, target: a.target } }),
     },
-    { name: 'stop_music', write: true, description: 'DM: fade out the background music.', props: { fadeMs: { type: 'integer' } }, call: (a) => ({ method: 'POST', path: '/sound/music/stop', body: { fadeMs: a.fadeMs } }) },
+    { name: 'stop_music', write: true, description: 'GM: fade out the background music.', props: { fadeMs: { type: 'integer' } }, call: (a) => ({ method: 'POST', path: '/sound/music/stop', body: { fadeMs: a.fadeMs } }) },
     {
       name: 'play_ambience', write: true,
-      description: "DM: set the ambience. Give a saved scene (name or id) or layers [{kind: 'rain', volume: 0.4}] (the kinds are listed in list_sound_library; an unknown kind plays the nearest). With neither, the ambience stops. If the result has a note that no player has Allow sound on, tell the DM.",
+      description: "GM: set the ambience. Give a saved scene (name or id) or layers [{kind: 'rain', volume: 0.4}] (the kinds are listed in list_sound_library; an unknown kind plays the nearest). With neither, the ambience stops. If the result has a note that no player has Allow sound on, tell the GM.",
       props: { scene: { type: 'string', description: 'Saved scene name or id' }, layers: { type: 'array', items: { type: 'object' } }, fadeMs: { type: 'integer' }, target: { type: 'string', enum: [...TARGETS] } },
       call: (a) => (a.scene || a.layers?.length ? { method: 'POST', path: '/sound/ambience/scene', body: { scene: a.scene, layers: a.layers, fadeMs: a.fadeMs, target: a.target } } : { method: 'POST', path: '/sound/ambience/stop', body: { fadeMs: a.fadeMs, target: a.target } }),
     },
     {
       name: 'play_sfx', write: true,
-      description: 'DM: play a sound effect: a pad (padId), a sound effect id, or a name (the first effect whose name contains it, e.g. "creak").',
+      description: 'GM: play a sound effect: a pad (padId), a sound effect id, or a name (the first effect whose name contains it, e.g. "creak").',
       props: { padId: { type: 'string' }, id: { type: 'string' }, name: { type: 'string' }, volume: { type: 'number' }, target: { type: 'string', enum: [...TARGETS] } },
       call: (a) => ({ method: 'POST', path: '/sound/sfx/play', body: { padId: a.padId, id: a.id, name: a.name, volume: a.volume, target: a.target } }),
     },
@@ -175,7 +175,7 @@ const feature: Feature = {
       const s = one<any>(db, 'SELECT * FROM sound_state WHERE world_id = ?', worldId);
       return { music: s?.music ? JSON.parse(s.music) : null, ambience: s?.ambience ? JSON.parse(s.ambience) : null };
     };
-    /** What to tell the DM about who can hear a sound aimed at players. */
+    /** What to tell the GM about who can hear a sound aimed at players. */
     const hearing = (worldId: string, channel: 'music' | 'ambience' | 'sfx', t: Target) => {
       if (!toPlayers(t)) return {};
       const n = listeningPlayers(d, worldId, channel);
@@ -191,7 +191,7 @@ const feature: Feature = {
     const clearAllowed = (worldId: string, kind: Kind) => run(db, 'DELETE FROM sound_allowed WHERE world_id = ? AND kind = ?', worldId, kind);
 
     // ---- the library -------------------------------------------------------
-    r.get('/library', requireDM, (_req, res) => {
+    r.get('/library', requireGM, (_req, res) => {
       const i = idx();
       const m = tracks(wid(res));
       const areas = [...new Set(m.map((t) => t.area).filter(Boolean))].sort();
@@ -202,11 +202,11 @@ const feature: Feature = {
         configured: !!d.dataDir, scannedAt: new Date(i.scannedAt).toISOString(),
       });
     });
-    r.post('/rescan', requireDM, (_req, res) => {
+    r.post('/rescan', requireGM, (_req, res) => {
       const i = idx(true);
       res.json({ music: i.music.length, ambience: i.ambience.length, sfx: i.sfx.length });
     });
-    r.put('/tracks/:id/mood', requireDM, (req, res) => {
+    r.put('/tracks/:id/mood', requireGM, (req, res) => {
       const t = idx().music.find((x) => x.id === String(req.params.id));
       if (!t) throw new HttpError(404, 'Track not found');
       if (req.body?.clear) run(db, 'DELETE FROM sound_moods WHERE world_id = ? AND track_id = ?', wid(res), t.id);
@@ -214,8 +214,8 @@ const feature: Feature = {
       res.json(tracks(wid(res)).find((x) => x.id === t.id));
     });
 
-    // Upload a sound effect or an ambience loop (DM). The body is the raw file.
-    r.post('/upload', requireDM, express.raw({ type: () => true, limit: '26mb' }), (req, res) => {
+    // Upload a sound effect or an ambience loop (GM). The body is the raw file.
+    r.post('/upload', requireGM, express.raw({ type: () => true, limit: '26mb' }), (req, res) => {
       if (!d.dataDir) throw new HttpError(503, 'The gateway has no data folder for sounds');
       const kind = oneOf(req.query.kind, 'kind', ['sfx', 'ambience'] as const);
       const body = req.body as Buffer;
@@ -240,21 +240,21 @@ const feature: Feature = {
     // for them now, or was sent to devices.
     r.get('/file/:kind/:id', (req, res) => {
       const kind = oneOf(req.params.kind, 'kind', KINDS);
-      const f = fileFor(d, wid(res), isDM(res), kind, String(req.params.id));
+      const f = fileFor(d, wid(res), isGM(res), kind, String(req.params.id));
       if (!f) throw new HttpError(404, 'File not found');
       serveFile(req, res, f.abs, f.mime || MIME.mp3);
     });
     // A ticket for an <audio> tag to play the same file (same checks).
     r.get('/file/:kind/:id/ticket', (req, res) => {
       const kind = oneOf(req.params.kind, 'kind', KINDS);
-      if (!fileFor(d, wid(res), isDM(res), kind, String(req.params.id))) throw new HttpError(404, 'File not found');
+      if (!fileFor(d, wid(res), isGM(res), kind, String(req.params.id))) throw new HttpError(404, 'File not found');
       res.json({ url: `/api/media/sound/${mintTicket({ w: wid(res), k: kind, f: String(req.params.id), a: me(res) })}` });
     });
 
     // What is playing now. Players see only what is aimed at them.
     r.get('/now', (_req, res) => {
       const s = getState(wid(res));
-      if (isDM(res)) return res.json({ ...s, playersListening: { music: listeningPlayers(d, wid(res), 'music'), ambience: listeningPlayers(d, wid(res), 'ambience'), sfx: listeningPlayers(d, wid(res), 'sfx') } });
+      if (isGM(res)) return res.json({ ...s, playersListening: { music: listeningPlayers(d, wid(res), 'music'), ambience: listeningPlayers(d, wid(res), 'ambience'), sfx: listeningPlayers(d, wid(res), 'sfx') } });
       res.json({
         music: s.music && toPlayers(s.music.target) ? s.music : null,
         ambience: s.ambience && toPlayers(s.ambience.target) ? s.ambience : null,
@@ -274,13 +274,13 @@ const feature: Feature = {
       return sendSound(d, w, ev);
     };
 
-    r.post('/music/play', requireDM, (req, res) => {
+    r.post('/music/play', requireGM, (req, res) => {
       const t = idx().music.find((x) => x.id === String(req.body?.trackId));
       if (!t) throw new HttpError(404, 'Track not found');
       const ev = playTrack(res, tracks(wid(res)).find((x) => x.id === t.id)!, { volume: vol(req.body?.volume, 'volume', 0.7), fadeMs: fade(req.body?.fadeMs, 1500), target: target(req.body?.target, 'table') });
       res.json({ track: t, event: ev, ...hearing(wid(res), 'music', ev.target) });
     });
-    r.post('/music/mood', requireDM, (req, res) => {
+    r.post('/music/mood', requireGM, (req, res) => {
       // A corner name (calm, tense, sneaky, combat) stands for its spot on the map.
       const corner = typeof req.body?.mood === 'string' ? CORNERS[req.body.mood.trim().toLowerCase()] : undefined;
       if (req.body?.mood !== undefined && !corner) throw new HttpError(400, `mood must be one of ${Object.keys(CORNERS).join(', ')}`);
@@ -295,7 +295,7 @@ const feature: Feature = {
       const ev = playTrack(res, pick, { volume: vol(req.body?.volume, 'volume', cur?.volume ?? 0.7), fadeMs, target: target(req.body?.target, cur?.target ?? 'table') });
       res.json({ track: pick, changed: true, fadeMs, event: ev, ...hearing(wid(res), 'music', ev.target) });
     });
-    r.post('/music/stop', requireDM, (req, res) => {
+    r.post('/music/stop', requireGM, (req, res) => {
       const w = wid(res);
       const cur = getState(w).music;
       clearAllowed(w, 'music');
@@ -341,7 +341,7 @@ const feature: Feature = {
       }
       return { layers: next.map((l) => ({ kind: l.kind, volume: l.volume })), missing, ...(matched.length ? { matched } : {}), ...(missing.length ? { available: kinds } : {}), events, ...(next.length ? hearing(w, 'ambience', o.target) : {}) };
     };
-    r.post('/ambience/scene', requireDM, (req, res) => {
+    r.post('/ambience/scene', requireGM, (req, res) => {
       // A saved scene by id or name, or the layers themselves.
       let layers = req.body?.layers ?? [];
       if (req.body?.scene !== undefined) {
@@ -352,18 +352,18 @@ const feature: Feature = {
       }
       res.json(applyScene(res, layersOf(layers), { fadeMs: fade(req.body?.fadeMs, 3000), target: target(req.body?.target, 'table') }));
     });
-    r.post('/ambience/stop', requireDM, (req, res) => {
+    r.post('/ambience/stop', requireGM, (req, res) => {
       res.json(applyScene(res, [], { fadeMs: fade(req.body?.fadeMs, 3000), target: target(req.body?.target, getState(wid(res)).ambience?.target ?? 'both') }));
     });
 
     const sceneOut = (s: any) => ({ id: s.id, name: s.name, area: s.area, layers: JSON.parse(s.layers) });
-    r.get('/scenes', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM sound_scenes WHERE world_id = ? ORDER BY name', wid(res)).map(sceneOut)));
-    r.post('/scenes', requireDM, (req, res) => {
+    r.get('/scenes', requireGM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM sound_scenes WHERE world_id = ? ORDER BY name', wid(res)).map(sceneOut)));
+    r.post('/scenes', requireGM, (req, res) => {
       const s = { id: newId('sc_'), name: str(req.body?.name, 'name', { max: 80 }).trim(), area: str(req.body?.area, 'area', { max: 120, optional: true }), layers: layersOf(req.body?.layers ?? []) };
       run(db, 'INSERT INTO sound_scenes (id, world_id, name, area, layers, created_at) VALUES (?, ?, ?, ?, ?, ?)', s.id, wid(res), s.name, s.area, JSON.stringify(s.layers), now());
       res.status(201).json(s);
     });
-    r.put('/scenes/:id', requireDM, (req, res) => {
+    r.put('/scenes/:id', requireGM, (req, res) => {
       const cur = one<any>(db, 'SELECT * FROM sound_scenes WHERE id = ? AND world_id = ?', String(req.params.id), wid(res));
       if (!cur) throw new HttpError(404, 'Scene not found');
       const name = req.body?.name !== undefined ? str(req.body.name, 'name', { max: 80 }).trim() : cur.name;
@@ -372,18 +372,18 @@ const feature: Feature = {
       run(db, 'UPDATE sound_scenes SET name = ?, area = ?, layers = ? WHERE id = ?', name, area, JSON.stringify(layers), cur.id);
       res.json({ id: cur.id, name, area, layers });
     });
-    r.delete('/scenes/:id', requireDM, (req, res) => {
+    r.delete('/scenes/:id', requireGM, (req, res) => {
       if (!run(db, 'DELETE FROM sound_scenes WHERE id = ? AND world_id = ?', String(req.params.id), wid(res))) throw new HttpError(404, 'Scene not found');
       res.json({ ok: true });
     });
-    r.post('/scenes/:id/play', requireDM, (req, res) => {
+    r.post('/scenes/:id/play', requireGM, (req, res) => {
       const s = one<any>(db, 'SELECT * FROM sound_scenes WHERE id = ? AND world_id = ?', String(req.params.id), wid(res));
       if (!s) throw new HttpError(404, 'Scene not found');
       res.json({ scene: sceneOut(s), ...applyScene(res, JSON.parse(s.layers), { fadeMs: fade(req.body?.fadeMs, 3000), target: target(req.body?.target, 'table') }) });
     });
 
     // ---- sound effects and pads ---------------------------------------------
-    r.post('/sfx/play', requireDM, (req, res) => {
+    r.post('/sfx/play', requireGM, (req, res) => {
       const w = wid(res);
       const pad = req.body?.padId ? one<any>(db, 'SELECT * FROM sound_pads WHERE id = ? AND world_id = ?', String(req.body.padId), w) : null;
       if (req.body?.padId && !pad) throw new HttpError(404, 'Pad not found');
@@ -400,7 +400,7 @@ const feature: Feature = {
       });
       res.json({ ok: true, event: ev, ...hearing(w, 'sfx', tg) });
     });
-    r.post('/sfx/stop', requireDM, (req, res) => {
+    r.post('/sfx/stop', requireGM, (req, res) => {
       const f = idx().sfx.find((s) => s.id === String(req.body?.id ?? ''));
       if (!f) throw new HttpError(404, 'Sound effect not found');
       res.json({ ok: true, event: sendSound(d, wid(res), { channel: 'sfx', action: 'stop', url: url(res, 'sfx', f.id), id: f.id, volume: 0, loop: false, fadeMs: fade(req.body?.fadeMs, 300), target: target(req.body?.target, 'both') }) });
@@ -419,21 +419,21 @@ const feature: Feature = {
         key, target: target(b?.target, (cur?.target as Target) ?? 'table'),
       };
     };
-    r.get('/pads', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM sound_pads WHERE world_id = ? ORDER BY bank, label', wid(res)).map(padOut)));
-    r.post('/pads', requireDM, (req, res) => {
+    r.get('/pads', requireGM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM sound_pads WHERE world_id = ? ORDER BY bank, label', wid(res)).map(padOut)));
+    r.post('/pads', requireGM, (req, res) => {
       const p = padFields(req.body ?? {});
       const pid = newId('pd_');
       run(db, 'INSERT INTO sound_pads (id, world_id, label, file, bank, volume, loop, key, target, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', pid, wid(res), p.label, p.file, p.bank, p.volume, p.loop, p.key, p.target, now());
       res.status(201).json(padOut({ id: pid, ...p }));
     });
-    r.put('/pads/:id', requireDM, (req, res) => {
+    r.put('/pads/:id', requireGM, (req, res) => {
       const cur = one<any>(db, 'SELECT * FROM sound_pads WHERE id = ? AND world_id = ?', String(req.params.id), wid(res));
       if (!cur) throw new HttpError(404, 'Pad not found');
       const p = padFields(req.body ?? {}, cur);
       run(db, 'UPDATE sound_pads SET label = ?, file = ?, bank = ?, volume = ?, loop = ?, key = ?, target = ? WHERE id = ?', p.label, p.file, p.bank, p.volume, p.loop, p.key, p.target, cur.id);
       res.json(padOut({ id: cur.id, ...p }));
     });
-    r.delete('/pads/:id', requireDM, (req, res) => {
+    r.delete('/pads/:id', requireGM, (req, res) => {
       if (!run(db, 'DELETE FROM sound_pads WHERE id = ? AND world_id = ?', String(req.params.id), wid(res))) throw new HttpError(404, 'Pad not found');
       res.json({ ok: true });
     });
@@ -464,11 +464,11 @@ const feature: Feature = {
       };
       run(db, `INSERT OR REPLACE INTO sound_listeners (world_id, account_id, device, label, music, ambience, sfx, vol_music, vol_ambience, vol_sfx, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         w, me(res), dev, next.label, next.music, next.ambience, next.sfx, next.vm, next.va, next.vs, now());
-      d.hub.emit(w, 'sound-listeners', { at: now() }, dmOnly);
+      d.hub.emit(w, 'sound-listeners', { at: now() }, gmOnly);
       res.json(switchOut(one<any>(db, 'SELECT * FROM sound_listeners WHERE world_id = ? AND account_id = ? AND device = ?', w, me(res), dev)));
     });
-    // Who hears what (DM). Devices not seen for 12 hours are marked stale.
-    r.get('/listeners', requireDM, (_req, res) => {
+    // Who hears what (GM). Devices not seen for 12 hours are marked stale.
+    r.get('/listeners', requireGM, (_req, res) => {
       const w = wid(res);
       const who = names(db, w);
       const cut = new Date(Date.now() - 12 * 3600_000).toISOString();
@@ -476,24 +476,24 @@ const feature: Feature = {
       res.json(rows.map((l) => ({ account: l.account_id, name: who[l.account_id] ?? 'Someone', ...switchOut(l), seenAt: l.seen_at, stale: l.seen_at < cut })));
     });
 
-    // ---- Spotify (DM) --------------------------------------------------------
-    r.get('/spotify', requireDM, (_req, res) => res.json(spotify.spotifyStatus(d, wid(res))));
-    r.put('/spotify', requireDM, (req, res) => {
+    // ---- Spotify (GM) --------------------------------------------------------
+    r.get('/spotify', requireGM, (_req, res) => res.json(spotify.spotifyStatus(d, wid(res))));
+    r.put('/spotify', requireGM, (req, res) => {
       spotify.setClientId(d, wid(res), str(req.body?.clientId, 'clientId', { max: 64 }).trim());
       res.json(spotify.spotifyStatus(d, wid(res)));
     });
-    r.post('/spotify/login', requireDM, (req, res) => res.json({ url: spotify.loginUrl(d, wid(res), str(req.body?.redirectUri, 'redirectUri', { max: 500 })) }));
-    // The web page Spotify sends the DM back to posts the code here.
-    r.post('/spotify/callback', requireDM, async (req, res) => {
+    r.post('/spotify/login', requireGM, (req, res) => res.json({ url: spotify.loginUrl(d, wid(res), str(req.body?.redirectUri, 'redirectUri', { max: 500 })) }));
+    // The web page Spotify sends the GM back to posts the code here.
+    r.post('/spotify/callback', requireGM, async (req, res) => {
       await spotify.finishLogin(d, wid(res), str(req.body?.code, 'code', { max: 2000 }), str(req.body?.state, 'state', { max: 200 }));
       res.json(spotify.spotifyStatus(d, wid(res)));
     });
-    r.put('/spotify/events', requireDM, (req, res) => {
+    r.put('/spotify/events', requireGM, (req, res) => {
       spotify.setEvents(d, wid(res), req.body?.events);
       res.json(spotify.spotifyStatus(d, wid(res)));
     });
-    r.post('/spotify/play', requireDM, async (req, res) => res.json(await spotify.playEvent(d, wid(res), str(req.body?.event, 'event', { max: 40 }))));
-    r.delete('/spotify', requireDM, (_req, res) => { spotify.disconnect(d, wid(res)); res.json(spotify.spotifyStatus(d, wid(res))); });
+    r.post('/spotify/play', requireGM, async (req, res) => res.json(await spotify.playEvent(d, wid(res), str(req.body?.event, 'event', { max: 40 }))));
+    r.delete('/spotify', requireGM, (_req, res) => { spotify.disconnect(d, wid(res)); res.json(spotify.spotifyStatus(d, wid(res))); });
 
     return r;
   },

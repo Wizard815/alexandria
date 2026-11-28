@@ -5,11 +5,11 @@ step through one Foundry module, the **Alexandria Bridge**. Alexandria serves
 the module itself, so you install it in Foundry by URL.
 
 Code: `librarian/src/features/foundry` (server and `client/alexandria.js`,
-the module), `web/src/features/foundry` (DM → Setup → Foundry VTT).
+the module), `web/src/features/foundry` (GM → Setup → Foundry VTT).
 
 ## Set up
 
-1. In Alexandria: DM → Setup → Foundry VTT. Copy the **manifest URL**
+1. In Alexandria: GM → Setup → Foundry VTT. Copy the **manifest URL**
    (`<your Alexandria>/api/foundry/module.json`).
 2. In Foundry's setup screen: Add-on Modules → Install Module → paste it in
    Manifest URL → Install. Turn the module on in your world.
@@ -34,14 +34,14 @@ on https is fine).
 | Max HP | Read from Foundry | Only with "Send max HP too" (in dnd5e it overrides the worked-out max) |
 | Conditions | Status effects on the actor → conditions | Conditions → status effects |
 | Maps | "Bring into Alexandria": the scene's picture becomes a library map (page under `Foundry/`, level `foundryMapLevel`) linked to the scene | "Make the scene": a map picture becomes a new Foundry scene of its size, linked to the map |
-| Tokens | Tokens on a linked scene show on the Map page and table screen, moved live. Hidden tokens are the DM's alone; tokens under fog are never sent to players | The DM drags any token on the Map page; a player drags their own character's token (if "Players move their tokens" is on); the assistant uses `foundry_move_token` |
+| Tokens | Tokens on a linked scene show on the Map page and table screen, moved live. Hidden tokens are the GM's alone; tokens under fog are never sent to players | The GM drags any token on the Map page; a player drags their own character's token (if "Players move their tokens" is on); the assistant uses `foundry_move_token` |
 | Fog of war | Player tokens moving uncover fog around them (`foundryRevealSquares` grid squares; 0 = off) | Alexandria's fog of the linked map picture is drawn over the scene: a tint for the GM, solid for players |
 | Rolls | Open rolls in the Foundry chat go to the table chat (not whispers or blind rolls) | Table chat rolls go to the Foundry chat, if on |
-| Library pages | | Sent as journal entries: players get their copy, the DM copy is a GM-only page |
+| Library pages | | Sent as journal entries: players get their copy, the GM copy is a GM-only page |
 | Chat | | Lines from "Alexandria" or a named speaker |
 
 Actors that a player owns (or of type character) are linked to the player
-whose character name, or display name, matches. Change a link on the DM page.
+whose character name, or display name, matches. Change a link on the GM page.
 
 Fog lives in Alexandria (the same fog as the Map page). Foundry's own token
 vision and fog exploration still work as usual on top of it.
@@ -51,14 +51,14 @@ vision and fog exploration still work as usual on top of it.
 `foundryHp`, `foundryConditions`, `foundryTokens`, `foundryFog`,
 `foundryRevealSquares` (0-60, default 6), `foundryPlayersMove`,
 `foundryRollsIn`, `foundryRollsOut`, `foundryPushMax`, `foundryMapLevel`
-(`party` or `dm`), `foundryHpPath` / `foundryMaxPath` / `foundryTempPath`
+(`party` or `gm`), `foundryHpPath` / `foundryMaxPath` / `foundryTempPath`
 (actor data paths; dnd5e defaults), `foundryStatuses` (condition → status
 id, `""` turns one off).
 
 ## Assistant tools
 
 `foundry_status`, `foundry_move_token`, `foundry_send_map`,
-`foundry_send_handout`, `foundry_say`. Changes wait for the DM's approval
+`foundry_send_handout`, `foundry_say`. Changes wait for the GM's approval
 like any other.
 
 ## How it works
@@ -79,7 +79,7 @@ like any other.
 
 - `librarian/test/foundry.test.ts`: the real module in a stand-in Foundry
   (`librarian/test/foundry-stub.js`) against a real librarian.
-- `web/e2e/foundry.mjs`: the browser flow (DM page, Map page, a player
+- `web/e2e/foundry.mjs`: the browser flow (GM page, Map page, a player
   dragging their token on a phone). `FOUNDRY_SHOTS=<dir>` saves screenshots.
 - `web/e2e/foundry-real.mjs` (`FOUNDRY_REAL=1`): the assistant with a real
   model drives it.

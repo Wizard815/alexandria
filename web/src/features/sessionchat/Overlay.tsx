@@ -1,4 +1,4 @@
-// A floating chat button on every player and DM page, with an unread badge
+// A floating chat button on every player and GM page, with an unread badge
 // and a drawer holding the chat panel (a bottom sheet on phones). Also the
 // trade pop-up, so a player hears about an offer on any page.
 import { useState } from 'react';

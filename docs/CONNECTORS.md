@@ -1,6 +1,6 @@
 # World sources and connectors
 
-Alexandria is meant to manage any D&D world, wherever it lives. Each kind
+Alexandria is meant to manage any TTRPG world, wherever it lives. Each kind
 of source has a **connector**. A connector reads the source (read-only)
 and turns what it finds into Alexandria **entries**. Everything after that
 is the same for every source:
@@ -14,24 +14,24 @@ is the same for every source:
 
 ## Connectors that ship
 
-| Connector | Reads | How DM-only content is found |
+| Connector | Reads | How GM-only content is found |
 |---|---|---|
 | `legendkeeper-mcp` | LegendKeeper through its MCP server (`api_request` GET only) | Hidden resources, hidden ancestors, hidden documents, "No Access" permissions on a resource or ancestor, `secret` blocks, hidden sidebar and infobox properties |
 | `legendkeeper-api` | LegendKeeper REST v3 (`https://www.legendkeeper.com/api/v3/projects/<id>`) with an Admin API key; waits out 429s | Same |
 | `kanka-api` | Kanka API with a token (`?related=1` on every page, waits out 429s) | `is_private` entities, posts not "all"/"members" or with a deny permission, private attributes, `is_attributes_private`, hidden personality traits, private races and families, private tags |
 | `worldanvil-api` | World Anvil API v2 ("Boromir") with an application key and a user token; waits out 429s (see "World Anvil") | Drafts, `private` articles, categories, maps, markers and events (unless shared with a player subscriber group), `[secret:id]` secrets, `[subcontainer:id]`, `[userstate:…]`, `/* comments */`, storyteller seeds (unless shown) and the scrapbook |
-| `notion-api` | Notion's public API with an internal integration token: pages and databases shared with the integration (see "Notion") | No `Visibility` of party on a database row and not published to the web; toggles, toggle headings and callouts titled Secret, DM or GM |
+| `notion-api` | Notion's public API with an internal integration token: pages and databases shared with the integration (see "Notion") | No `Visibility` of party on a database row and not published to the web; toggles, toggle headings and callouts titled Secret, GM or GM |
 | `obsidian-portal` | Obsidian Portal API v1 (OAuth 1.0a): wiki pages, adventure log and characters (see "Obsidian Portal") | `is_game_master_only` (or not said), `private` characters, GM info |
-| `kanka-mcp` | The mcp-kanka server (`find_entities`, `get_entities`) | `is_hidden`. Posts are DM-only unless "trust post visibility" is on. |
-| `markdown-folder` | A vault on the server (Obsidian, Lokus, Otterly) | No `visibility: party`; plus `secret:` frontmatter, `> [!secret]`, `%% %%`, `<!-- dm -->`, DM headings |
+| `kanka-mcp` | The mcp-kanka server (`find_entities`, `get_entities`) | `is_hidden`. Posts are GM-only unless "trust post visibility" is on. |
+| `markdown-folder` | A vault on the server (Obsidian, Lokus, Otterly) | No `visibility: party`; plus `secret:` frontmatter, `> [!secret]`, `%% %%`, `<!-- gm -->`, GM headings |
 | `obsidian-sync` | An Obsidian Sync vault (yours or shared with you), brought to the server by Obsidian's official headless client `ob` (see "Obsidian") | Same as Markdown |
 | `obsidian-rest` | The vault open in Obsidian, through the Local REST API community plugin | Same as Markdown |
-| `obsidian-publish` | A site published with Obsidian Publish (public notes only) | Secret callouts, comments and DM headings; the rest is public (or keep the whole site DM-only) |
+| `obsidian-publish` | A site published with Obsidian Publish (public notes only) | Secret callouts, comments and GM headings; the rest is public (or keep the whole site GM-only) |
 | `git` | A repo of Markdown reference files, cloned read-only | Same as Markdown |
 | `mcp-files` | Any MCP server that lists and reads files (Obsidian MCP and filesystem MCP presets, or name the tools) | Same as Markdown |
 | `api` | Any JSON API over HTTP (pages, tags, calendars, pictures), or any MCP tool that returns records (with an optional per-item read tool) | A visibility field you name; shared only for the values you list |
 
-| `push` | Nothing: your own tool sends entries (see "Push API") | The entry's `visibility` (shared only when the source is set to share), plus the usual secret blocks and DM facts |
+| `push` | Nothing: your own tool sends entries (see "Push API") | The entry's `visibility` (shared only when the source is set to share), plus the usual secret blocks and GM facts |
 
 Older source kinds (`vault`, `kanka`, `mcp` + `profile`) still work; they
 map to the connectors above.
@@ -75,24 +75,24 @@ have nothing at connection level and stay plain sources.
 | Audience | Label | Meaning |
 |---|---|---|
 | `auto` (default) | Follows the source | What the source's own flags and levels say, as before. |
-| `dm` | DM only | Everything from this source is DM-only, whatever the source says. Its relations, timelines, calendars and map markers too. |
+| `gm` | GM only | Everything from this source is GM-only, whatever the source says. Its relations, timelines, calendars and map markers too. |
 | `party` | Shared with players | Everything from this source may be shown to players. For a connection that already uses a player-level key (a Kanka member token that only sees public entries). |
 
 - `party` never un-hides what is marked secret: `secret` blocks and callouts,
-  DM headings, `broker` and `classified` tags or levels, hidden facts and
+  GM headings, `broker` and `classified` tags or levels, hidden facts and
   frontmatter keys, and unknown blocks are still cut from the player copy. It
   lifts the *source's own* flag (private, hidden, "No visibility") and nothing else.
 - `party` needs explicit confirmation (`confirmParty: true`) when it is set,
-  and the change is recorded in the audit log (`source.audience`). `dm` and
+  and the change is recorded in the audit log (`source.audience`). `gm` and
   `auto` do not need it, but are logged too.
 - Implementation: `Library.saveEntry` stores `pages.source_level` (what the
   source said) and `pages.marker_level` (what marks the page secret on its
   own) and sets `visibility` with `levelForAudience()` (`core/library.ts`):
-  `dm` = at least `dm`, never lower than the source; `party` = the marker level;
+  `gm` = at least `gm`, never lower than the source; `party` = the marker level;
   `auto` = the source level. Switching the audience (`PATCH /sources/:id
   {audience}`) works every page's level out again and rebuilds all copies, so
   player pages, search and embeddings follow at once. Records are forced
-  DM-only at once by `dm`; `party` and `auto` change them at the next sync.
+  GM-only at once by `gm`; `party` and `auto` change them at the next sync.
 - A page saved before audiences existed has its marker level read again from
   its tags, and any `broker` or `classified` level it had is kept.
 
@@ -130,29 +130,29 @@ The crawl (`POST /api/admin/worlds/:id/crawl`) lists every source (see "Tiered
 crawl" below), then embeds whatever text each page has. Progress (pages listed,
 saved, list calls, levels found, chunks embedded, errors) is in `GET /api/admin/worlds/:id/overview`,
 in the run log (`GET /api/admin/crawls/:id`) and in `crawl` live events sent to
-the DM only. `POST /api/admin/worlds/:id/crawl/stop` cancels it; the world, its
+the GM only. `POST /api/admin/worlds/:id/crawl/stop` cancels it; the world, its
 sources and whatever was fetched stay. With no embeddings model set, the
 library part finishes and the log says so. `POST .../reindex` embeds every page again.
 
-The agent knows what is connected: the DM's harness context has a one-line
-source summary, and the read tool `world_sources` (DM only) lists each source
+The agent knows what is connected: the GM's harness context has a one-line
+source summary, and the read tool `world_sources` (GM only) lists each source
 with its audience, schedule and last sync. Players get nothing from
 `GET /api/worlds/:world/world-sources`.
 
 ## Source keys: each player's own key
 
-A source is read with the DM's connection. A **source key** adds a second way
-in: a player (or the DM) gives the gateway a key for one world's source. Keys
+A source is read with the GM's connection. A **source key** adds a second way
+in: a player (or the GM) gives the gateway a key for one world's source. Keys
 work with **Kanka (API)**, **LegendKeeper (API key)** and a **generic HTTP
 API**. Code is in `librarian/src/features/sourcekeys/`.
 
 ### Adding a key
 
 - **Players** add their own: World → My keys, or `POST /api/worlds/:w/source-keys`
-  with `{ sourceId, secret, label?, trust? }`. The DM can switch this off with the
+  with `{ sourceId, secret, label?, trust? }`. The GM can switch this off with the
   world setting `sourceKeysPlayers`.
-- **The DM** adds any number of keys, and sets `users` (who may use it), `uses`
-  (`library`, `agent`, `broker`) and `trust`. The DM can change them later with
+- **The GM** adds any number of keys, and sets `users` (who may use it), `uses`
+  (`library`, `agent`, `broker`) and `trust`. The GM can change them later with
   `PATCH /source-keys/:id` and revoke any key.
 - **Verified before it is saved.** A key for another world is refused (400, with a
   reason) and nothing is stored:
@@ -160,40 +160,40 @@ API**. Code is in `librarian/src/features/sourcekeys/`.
   - LegendKeeper: the key can read the source's project (`GET /resources`, then one resource).
   - Generic API: one list call with the source's world settings works.
 - **Secrets never come back.** The API shows a mask. The secret is stored on the
-  server, only sent to the host the DM set up for the source, and wiped when the key is
+  server, only sent to the host the GM set up for the source, and wiped when the key is
   revoked. Every use is in the audit log (`sourcekeys.use`: key id, account, use).
   Secrets are stored like connection secrets are (not encrypted in the database).
-- Players see and revoke only their own keys. The DM sees all of them.
+- Players see and revoke only their own keys. The GM sees all of them.
 
 ### Trust: per-user or blanket
 
 When a key is added the gateway asks: *does this source give each key only what that
 user may see (per-user), or does every key see everything (blanket)?* It also runs a
-probe where it can and shows the result to the DM. For Kanka it compares the number of
-entities the key lists with the number the DM's connection lists. The probe only informs;
+probe where it can and shows the result to the GM. For Kanka it compares the number of
+entities the key lists with the number the GM's connection lists. The probe only informs;
 it never changes trust.
 
 | Trust | Meaning |
 |---|---|
-| `per-user` | The key shows its user only what they may see. Only the **DM** can set this. |
-| `blanket` | The key sees everything: treated as DM-level. |
+| `per-user` | The key shows its user only what they may see. Only the **GM** can set this. |
+| `blanket` | The key sees everything: treated as GM-level. |
 | `unsure` | Not known. **Treated as blanket** (fails closed). A player's own key starts here. |
 
 ### The per-account view (per-user keys with the `library` use)
 
 "Refresh my view" (`POST /source-keys/:id/refresh`, rate limited to one per key every
-5 minutes; the DM may force it) reads what the key can see and stores the page ids:
+5 minutes; the GM may force it) reads what the key can see and stores the page ids:
 `sourcekeys_access` (world, page, account, key). It stores ids only, never text.
 
-A player may then open the **player copy** of a page that is DM-only only because the
+A player may then open the **player copy** of a page that is GM-only only because the
 **source** marks it private, when their own key sees it (their character's own backstory,
 for example):
 
 - It lifts `source_level` for that account only (`levelForAccountKey` in `core/levels.ts`,
   `Library.liftedInfo` in `core/library.ts`). It never lifts `marker_level`: a page the
-  source marks broker or classified stays out of reach. Secret blocks, DM fact groups and
+  source marks broker or classified stays out of reach. Secret blocks, GM fact groups and
   private posts are cut from the copy as for any player. A source whose audience is
-  `dm` is not lifted either.
+  `gm` is not lifted either.
 - The copy is built when it is asked for and never stored. It shows in the Library list,
   the page, search, offline bulk, MCP and the agent, for that account only.
 - Blanket and unsure keys never feed anyone's view. Revoking a key, changing its trust,
@@ -209,22 +209,22 @@ What a player sees through their own key is theirs alone until they share it.
 - A player can share only a page they can open. The recipient gets the **same player
   copy**; sharing never lifts a page above what the sharer could see, and a share ends when
   the sharer loses sight of the page (their key is revoked).
-- The DM can share any page except broker and classified ones, with the party or chosen
-  players. It is a grant (`sourcekeys_shares`, kind `dm`); the page's own level is unchanged.
+- The GM can share any page except broker and classified ones, with the party or chosen
+  players. It is a grant (`sourcekeys_shares`, kind `gm`); the page's own level is unchanged.
 - Unsharing is immediate everywhere the page shows.
 
 ### The agent and live lookups
 
 The `source_lookup` tool (MCP and the agent) searches the source live through the
-caller's **own** keys with the `agent` use: their own, or one the DM assigned to them. A
-player's lookup never uses another person's key or the DM's.
+caller's **own** keys with the `agent` use: their own, or one the GM assigned to them. A
+player's lookup never uses another person's key or the GM's.
 
 - Per-user key: the source is asked which pages the key sees; what the player gets is the
   **stored player copy** of each page they may open, never text the source sent now.
 - Blanket or unsure key, a page the library does not have yet, or a page above the
   player's view: nothing of it is returned. The lookup is **escalated** and the reply says
   "The broker will look into it."
-- The DM agent may use any key whose `users` include the DM and whose `uses` include `agent`.
+- The GM agent may use any key whose `users` include the GM and whose `uses` include `agent`.
 - A reply that is blocked by the leak check is unchanged (it is not escalated).
 
 ### Escalation
@@ -232,31 +232,31 @@ player's lookup never uses another person's key or the DM's.
 When a question needs more than the asker's own view, it is not answered. World setting
 `escalation`:
 
-- `dm-question`: a DM-only question in the queue (World settings → Source keys → Escalated
-  questions). The DM answers or refuses.
-- `broker-deal` (default): a broker request the DM prices (`POST /source-keys/escalations/:id/price`
+- `gm-question`: a GM-only question in the queue (World settings → Source keys → Escalated
+  questions). The GM answers or refuses.
+- `broker-deal` (default): a broker request the GM prices (`POST /source-keys/escalations/:id/price`
   with a cost, the answer and the wait in sessions, default `escalationSessions` 2).
   The player accepts and pays in the Broker; it is delivered only after the wait and the
-  DM's approval. The wait is until the end of the Nth scheduled game session, or a week
-  per session if fewer are scheduled. A world with the broker closed asks the DM instead.
+  GM's approval. The wait is until the end of the Nth scheduled game session, or a week
+  per session if fewer are scheduled. A world with the broker closed asks the GM instead.
 
-The player sees only "The broker will look into it", and later the DM's own answer. The
-hidden context (what the blanket key found, the DM-side evidence) is in the DM queue only.
+The player sees only "The broker will look into it", and later the GM's own answer. The
+hidden context (what the blanket key found, the GM-side evidence) is in the GM queue only.
 A player can also ask directly (`POST /source-keys/escalations`): the audit model labels
 the question; off-topic is turned away, rules and item questions are answered without
 secrets, and everything else, and anything it is unsure about, is escalated. A broker
-question that goes to the DM to price is in the queue too. Keys with the `broker` use (DM
-keys only) add what the source knows to the DM's context.
+question that goes to the GM to price is in the queue too. Keys with the `broker` use (GM
+keys only) add what the source knows to the GM's context.
 
 ## Secrecy levels: marking content in every source
 
-Every page and block has one of four levels (`librarian/src/core/levels.ts`). The most secret level wins, and anything unknown or unparseable is `dm`.
+Every page and block has one of four levels (`librarian/src/core/levels.ts`). The most secret level wins, and anything unknown or unparseable is `gm`.
 
-| Level | Players | Broker may sell it | Any AI or model (DM agent, Sculpting, session-log drafts, statblocks from pages, MCP clients, embeddings) | The DM in the app |
+| Level | Players | Broker may sell it | Any AI or model (GM agent, Sculpting, session-log drafts, statblocks from pages, MCP clients, embeddings) | The GM in the app |
 |---|---|---|---|---|
 | `party` | yes | yes | yes | yes |
-| `broker` | no | yes (after DM review by default) | yes | yes |
-| `dm` | no | no | yes | yes |
+| `broker` | no | yes (after GM review by default) | yes | yes |
+| `gm` | no | no | yes | yes |
 | `classified` | no | no | never sent, never embedded | yes, marked "Classified: never shared with any AI" |
 
 How to mark each level, in every source:
@@ -277,7 +277,7 @@ Each connector declares what it provides in `capabilities`: `pages`,
 `calendars`, `items`, `characters`.
 - `GET /api/admin/connectors` returns them for each connector.
 - `GET /api/worlds/:world/intake/capabilities` returns the union over the
-  world's sources (`{ capabilities, sources }`; `sources` is DM-only), so
+  world's sources (`{ capabilities, sources }`; `sources` is GM-only), so
   screens can hide what no source has. A missing capability is never an
   error.
 - Records of a kind the connector did not declare are ignored.
@@ -293,7 +293,7 @@ Each connector declares what it provides in `capabilities`: `pages`,
 - `title`, `aliases`, `tags`, `type`, `icon` (Font Awesome glyph and
   colour), `banner`.
 - `properties`: sidebar fact groups. Each row is a key with rich text.
-  `dm: true` marks a whole group DM-only.
+  `gm: true` marks a whole group GM-only.
 - `blocks`: the body. The kinds follow LegendKeeper's document schema, so
   its pages keep their layout:
 
@@ -302,7 +302,7 @@ Each connector declares what it provides in `capabilities`: `pages`,
   | `heading`, `paragraph` | Text |
   | `bulletList`, `orderedList`, `listItem` | Lists, including tasks |
   | `table`, `tableRow`, `tableCell` | Tables |
-  | `secret` | DM-only part |
+  | `secret` | GM-only part |
   | `callout`, `toggle`, `blockquote` | Framed text |
   | `codeBlock`, `divider`, `image` | Other content |
   | `infobox` | Floating fact box with a layout and width |
@@ -313,8 +313,8 @@ Each connector declares what it provides in `capabilities`: `pages`,
 - **Inline text** carries bold, italic, code, strike, underline, links,
   and **mentions** (`ref` = the target's externalId, or `name` for
   `[[wiki links]]`).
-- `visibility`: `dm` or `party`. Connectors must fail closed: when unsure,
-  `dm`.
+- `visibility`: `gm` or `party`. Connectors must fail closed: when unsure,
+  `gm`.
 - `knowledge`: `common` | `local` | `deep`, for the information broker's
   price tiers.
 - Markdown sources set `markdown` and `frontmatter` instead of `blocks`.
@@ -369,8 +369,8 @@ source time of what the library holds). A page whose source time moved on is
   separately and are read whole, as before.
 
 **Leak guard at every depth.** A page at index depth with no visibility
-information is DM-only until it is known (fail closed): LegendKeeper keeps
-permissions in the resource detail, so its listed pages are DM-only until read.
+information is GM-only until it is known (fail closed): LegendKeeper keeps
+permissions in the resource detail, so its listed pages are GM-only until read.
 Levels, markers and the source's audience are applied as content arrives, and
 the player copy is rebuilt before the page is served. A re-crawl whose list says
 a page is now hidden takes its player copy away at once, without waiting for
@@ -378,8 +378,8 @@ the details.
 
 **Reading pages (tier 3)**
 
-1. *On demand*: opening a page (`GET /library/pages/:id`, for a DM or a player),
-   the agent reading it, or a DM's search hitting it (the best three) reads it
+1. *On demand*: opening a page (`GET /library/pages/:id`, for a GM or a player),
+   the agent reading it, or a GM's search hitting it (the best three) reads it
    from its source first, then serves it. Opening pages is limited to 30 a
    minute per source.
 2. *In the background*: a worker spends each source's **budget** (calls a
@@ -391,20 +391,20 @@ the details.
    every page at the budget; can take hours; switches itself off when done) and
    **Pause**. `PATCH /api/admin/connections/tiers/:source` with
    `{budget, paused, fetchAll}`; `GET /api/admin/connections/tiers/world/:world`.
-   The DM's Library page shows a badge on pages not yet read in full
+   The GM's Library page shows a badge on pages not yet read in full
    (`GET /api/worlds/:world/world-sources/depths`).
 4. *One read per page.* The background reader, a page being opened and a search
    hit share one read of a page: the second caller waits for the first and uses
    what it saved, so a page is never fetched twice at once.
 
-**What the DM is told** (`GET /api/worlds/:world/world-sources/status`, DM only;
+**What the GM is told** (`GET /api/worlds/:world/world-sources/status`, GM only;
 the same object is `status` in the admin world overview):
 
 - *Why players see nothing.* When pages exist and none is shared, a banner on
-  the world page and at the top of the DM's Library gives the counts and the
-  reasons: the source's audience is "DM only"; pages are only listed so far
+  the world page and at the top of the GM's Library gives the counts and the
+  reasons: the source's audience is "GM only"; pages are only listed so far
   (the source has not said who may read them); pages are hidden at the source;
-  pages are shared at the source but the default visibility is "DM only"; the
+  pages are shared at the source but the default visibility is "GM only"; the
   key is refused for content. It says what to do: set the audience or default
   visibility, wait for the details (or open a page), check the key's role.
 - *A refused key.* A source whose key is answered 401 for page content while
@@ -412,7 +412,7 @@ the same object is `status` in the admin world overview):
   Check its role: LegendKeeper keys need Admin to read page text and hidden
   pages." on the source (`refused` in the tiers, and in this status).
 - *A wait.* While a page somebody opened is held back by the site's limit, the
-  DM's Library says "Waiting for the site (N s)" (`waiting`: seconds and
+  GM's Library says "Waiting for the site (N s)" (`waiting`: seconds and
   whether the site asked or our own limit did). A wait that only the reserve
   for opens causes is never shown, because an open does not wait for it.
 
@@ -421,7 +421,7 @@ the source calls shared is shared here. Pages read in full remember what the
 source said about them (`pages.source_shared`), so changing the default (or
 the audience) re-levels them at once, without reading them again, and rebuilds
 the player copies. Fail closed: a page that is only listed (nothing says who
-may read it) and a page hidden at the source stay DM-only; an audience of
+may read it) and a page hidden at the source stay GM-only; an audience of
 "shared with players" does not share pages that were never read.
 
 **Incremental re-crawls.** LegendKeeper re-lists everything (it has no
@@ -480,11 +480,11 @@ value).
 **The reserve for opens.** A fifth of the per-minute and of the per-hour budget
 is kept for pages somebody opens: the index scan and the background reader
 (`background` calls) stop at 80% of each, and only an on-demand read (a page
-opened, the agent, a search hit) may take the rest. A DM opening a page never
+opened, the agent, a search hit) may take the rest. A GM opening a page never
 waits for a minute or an hour the background has used up. The background detail
 budget (calls a minute) defaults to 40 for LegendKeeper and half of the 80% for
 the others (12 for Kanka), is never above the background share of the per-minute
-cap, nor of the hourly cap (6,000 an hour is at most 80 a minute), and the DM can
+cap, nor of the hourly cap (6,000 an hour is at most 80 a minute), and the GM can
 set it from 0 to 600.
 
 **Hourly caps and projects.** Besides the minute window the limiter keeps an
@@ -509,8 +509,8 @@ The limiter also listens to the site:
   is lower than the one configured (a key that reported 200 settles at 180).
 - While calls are held back, the world page shows "Waiting 12 s — the site
   asked us to slow down" (`throttle` in `GET /connections/tiers/world/:id`), and
-  the DM's Library shows "Waiting for the site (N s)" while a page being opened
-  waits (see "What the DM is told").
+  the GM's Library shows "Waiting for the site (N s)" while a page being opened
+  waits (see "What the GM is told").
 
 **Scan pacing.** A complete listing (the first scan, or the periodic one)
 paces the index calls evenly across `spreadMinutes`: the gap between two calls
@@ -542,18 +542,18 @@ On Admin → Connections, a generic API connection has **Find endpoints**
    list URLs given, guessed from the JSON; endpoints named on the base URL are
    listed but not called
 
-The DM gets a table (endpoint, role, mapping, confidence) to accept, change or
+The GM gets a table (endpoint, role, mapping, confidence) to accept, change or
 mark unused. **Not sure endpoints stay blank and unused until assigned, and
 endpoints not marked used are never called.** Calendars and images are
 imported (see "Calendars and pictures"); tags endpoints give tag names to
 records that list tag ids. The result is saved on the connection (`PUT
 /api/admin/connections/:id/endpoints`, setting `endpoints` as JSON) and can be
 saved as a preset, which carries the endpoint list and base URL (no token) to
-other worlds. A mapping with no visibility field leaves every record DM-only.
+other worlds. A mapping with no visibility field leaves every record GM-only.
 
 ### Generic API: calendars and pictures
 
-An endpoint with the role **Calendars** or **Images / files** that the DM has
+An endpoint with the role **Calendars** or **Images / files** that the GM has
 ticked is imported; one that is not ticked is never called, whatever its role.
 
 **Calendars** become the same world calendar the Kanka and LegendKeeper
@@ -572,7 +572,7 @@ of the endpoint review, guessed from the schema or a sample:
 
 A calendar with no months is skipped. A calendar is shared only when its
 visibility field says so; an event is shared only when it carries that same
-field with a shared value (no flag, DM-only).
+field with a shared value (no flag, GM-only).
 
 **Pictures** are downloaded and attached to pages. Keys: `urlField` (the
 picture's address, relative to the API host or absolute; without it `detailPath`
@@ -590,7 +590,7 @@ to, as in its own list), `updatedField`, `visibilityField`.
 - Only PNG, JPEG, GIF and WebP: the content type and the file's own first
   bytes must both say so. SVG and anything else is refused.
 - The API token goes only to the API's host. An absolute address on another
-  host is fetched without the token, only because the DM accepted this
+  host is fetched without the token, only because the GM accepted this
   endpoint; never from a private address (localhost, 10.x, 192.168.x,
   169.254.x, `.local`), and a redirect to another host is not followed.
 - Stored in the database (`intake_images`), so backups hold them. The page's
@@ -598,8 +598,8 @@ to, as in its own list), `updatedField`, `visibilityField`.
   viewer (`/api/media/intake/<ticket>`) that is checked again on every fetch.
   A player gets it only when the picture itself may follow its page (visibility
   field shared, or none mapped and the source shares) **and** the page has a
-  player copy. A DM-only page's pictures, and DM-only pictures of a shared
-  page, are the DM's alone. The source's audience applies to them too.
+  player copy. A GM-only page's pictures, and GM-only pictures of a shared
+  page, are the GM's alone. The source's audience applies to them too.
 - A page can have **several pictures**. The page response has `banner` (the
   first, by the source's id; or the address the source gave the page) and
   `pictures`: `[{ id, name, url, map, primary }]`, each `url` a signed ticket
@@ -627,9 +627,9 @@ calls, within the same per-run and held-total limits, and an unchanged map
   `battlemaps` or `map-images` are guessed as `map`.
 
 `GET /api/worlds/:world/intake/map-images` lists the imported maps the viewer
-may open (the DM all; a player only maps whose picture is shared and whose
+may open (the GM all; a player only maps whose picture is shared and whose
 page has a player copy), each with a signed `url`, its `name` and `page`. The
-Map page (DM and player) offers them under "Imported map"; the choice is
+Map page (GM and player) offers them under "Imported map"; the choice is
 kept in that browser, like the pasted image URL.
 
 ### Portraits and pictures in page text
@@ -660,7 +660,7 @@ This works for any connector with the `images` capability.
   (yet) keeps the source's address. Pictures in text are not listed in
   `pictures` (the gallery).
 - **Visibility.** A picture follows its page like any picture. One inside a
-  secret block is the DM's even on a shared page (the player copy leaves its
+  secret block is the GM's even on a shared page (the player copy leaves its
   block out, and its file is refused to players).
 - **Changes.** An unchanged address is not downloaded again; a new portrait is
   queued and the old file is served until the new one arrives. A page read in
@@ -676,8 +676,8 @@ This works for any connector with the `images` capability.
 A page held only at index depth is read from its source when someone opens it
 (`readOnOpen`). The caller's access is checked **first**, by the library's own
 rules (a player copy exists, the level allows it, a per-account lift or a share
-applies): only the DM, or a viewer who could be served the page, causes a
-call. Index-only pages with no visibility information are DM-only, so a
+applies): only the GM, or a viewer who could be served the page, causes a
+call. Index-only pages with no visibility information are GM-only, so a
 player opening one gets the usual 404, spends no call and does not even mark
 the page as wanted.
 
@@ -694,7 +694,7 @@ server for its tool list (no tool is called) and guesses:
   tool (`list_articles` and `get_article`). Names that change things (`create_`,
   `update_`, `delete_`...) are never offered and are refused if typed.
 
-The DM picks or types them, or leaves the read tool blank: then the list is all
+The GM picks or types them, or leaves the read tool blank: then the list is all
 there is and nothing is read later. Settings: `detailTool`, `detailIdArg`,
 `detailIdType` (text or number), `detailArgs` (extra arguments as JSON, with
 `{world}`-style placeholders), `detailItemPath` (where the record is in the
@@ -702,15 +702,15 @@ answer), `summaryField` (an excerpt in the list).
 
 With a read tool the list makes the index (depth `summary` when the list has an
 excerpt, `index` otherwise), and whole pages are read like any tiered source: on
-demand (page opened, a DM's top three search hits, the agent), then in the
+demand (page opened, a GM's top three search hits, the agent), then in the
 background within the budget, with "fetch everything" if asked. One call per
 page, counted as a detail call; the default budget is 15 a minute. Only the read
 and list tools are ever called (the read-only client refuses the rest).
 
 Visibility is the same as ever: a page is shared only when its own record
 has the visibility field with a shared value, and a record with no such field
-is DM-only. The read tool's answer needs the field too, otherwise the page stays
-DM-only after it is read.
+is GM-only. The read tool's answer needs the field too, otherwise the page stays
+GM-only after it is read.
 
 ## How a sync runs
 
@@ -725,10 +725,10 @@ DM-only after it is read.
 4. Mentions are resolved:
    - by the source's own ids first, then by title, alias or file name (see
      "Links" below)
-   - a link to a DM-only page, or by id to a page that wasn't imported,
+   - a link to a GM-only page, or by id to a page that wasn't imported,
      becomes "(hidden)" in the player copy
 5. Player copies are rebuilt:
-   - `secret` blocks, DM/GM callouts, DM headings with their sections, DM
+   - `secret` blocks, GM/GM callouts, GM headings with their sections, GM
      fact rows and every block kind the guard doesn't know are dropped
    - the Markdown copy (used for search, AI context and downloads) is made
      from the player blocks and redacted a second time
@@ -771,7 +771,7 @@ next sync.
   mention by id that matches nothing imported, because it may be a page the
   API key was not allowed to read. A `[[name]]` that matches no page stays
   plain text.
-- **Not imported.** For the DM an unresolved mention is plain text. It is
+- **Not imported.** For the GM an unresolved mention is plain text. It is
   never a link, so it never opens a 404.
 - **Outside.** Only `http:`, `https:` and `mailto:` links are kept, in the
   import and again when the page is drawn. They open in a new tab with
@@ -786,7 +786,7 @@ Each page can carry a link back to the page in its source's web app (the
 LegendKeeper", "Open in Kanka" or "Open file", with the source name and
 when it was last synced beside it.
 
-The link is for the DM. Players get it only when the source setting
+The link is for the GM. Players get it only when the source setting
 **Players may open source pages** (`playersMayOpen`, off by default) is on,
 because the page in the source can hold more than the player copy. A
 model and the broker never get it. The list endpoint never carries it.
@@ -805,7 +805,7 @@ model and the broker never get it. The list endpoint never carries it.
 
 LegendKeeper keeps titles, aliases, tags, icon and colour, banner, tree
 and tab order, sidebar facts, infoboxes (a portrait image becomes an image
-block, DM-only when the property is hidden), callouts, toggles, tables,
+block, GM-only when the property is hidden), callouts, toggles, tables,
 tasks, columns (flattened), mentions, `lk://` links, hidden pages and
 documents, map pins and timelines. Kanka keeps names, type, tags,
 image, nesting, facts, attributes, posts (as sections; secret unless
@@ -849,14 +849,14 @@ read-only.
    World Anvil's API licence forbids commercial use without its permission.
 2. **A user token** (`x-auth-token`), made on the user's own **API Tokens** page
    on World Anvil. It reads what that user can read: the world owner's token
-   reads drafts, private pages and every secret, which is what the DM needs.
+   reads drafts, private pages and every secret, which is what the GM needs.
 
 Then add a source with **World**: the world's id, or its name or address
 (`https://www.worldanvil.com/w/<world>`); the connection test lists your worlds.
 
 **Who sees what.** World Anvil hides things with access settings and subscriber
 groups, not a GM flag. Alexandria fails closed:
-- a draft is DM-only; a `public` article, category, map, marker or event is the
+- a draft is GM-only; a `public` article, category, map, marker or event is the
   players' (when the source shares, as for every source);
 - a `private` one is the players' only when one of its subscriber groups is
   named in **Player subscriber groups** (names or ids, comma separated);
@@ -900,11 +900,11 @@ narrows it to one page's tree.
 **Who sees what (fails closed).** A database row's `Visibility` property
 (select, status or multi-select; also `Access` or `Audience`) decides first:
 `party`, `players`, `public` or `shared` is the players', `broker` and
-`classified` are those levels, anything else (`DM`, `GM`, `secret`) the DM's.
+`classified` are those levels, anything else (`GM`, `GM`, `secret`) the GM's.
 Without one, a page published to the web (Share → Publish) is the players'.
 Otherwise **Pages without a visibility are shared** decides (off by default).
 Inside a page, a toggle, toggle heading or callout whose title starts with
-*Secret*, *DM* or *GM* (an emoji in front is fine) is a secret block.
+*Secret*, *GM* or *GM* (an emoji in front is fine) is a secret block.
 
 **Tiers and calls.** The index is `POST /search` (100 a call; complete every
 time). Details read `GET /pages/{id}` and `GET /blocks/{id}/children` (100 a
@@ -917,7 +917,7 @@ the hour; they are stored here when the page is read.
 
 Besides the vault folder (`markdown-folder`) and the Obsidian MCP preset
 (`mcp-files`), three sources read Obsidian. All of them use the Markdown rules
-(frontmatter `visibility:`, `> [!secret]`, `%% %%`, DM headings).
+(frontmatter `visibility:`, `> [!secret]`, `%% %%`, GM headings).
 
 - **`obsidian-sync`**: Obsidian's own Sync, through its official headless
   client (`ob`, npm `obsidian-headless`, open beta, Node 22+, needs a Sync
@@ -927,7 +927,7 @@ Besides the vault folder (`markdown-folder`) and the Obsidian MCP preset
   encrypted vault needs its password (kept as a secret, passed to `ob` as an
   argument, never logged).
 - **`obsidian-rest`**: the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api)
-  community plugin in the DM's Obsidian (`GET /vault/`, `GET /vault/<path>` as
+  community plugin in the GM's Obsidian (`GET /vault/`, `GET /vault/<path>` as
   note JSON, `PUT`, `DELETE`, bearer API key). Obsidian must be open and
   reachable from the server. Its HTTPS certificate is self-signed: use the
   plugin's non-encrypted server (`http://<computer>:27123`), or trust the
@@ -937,7 +937,7 @@ Besides the vault folder (`markdown-folder`) and the Obsidian MCP preset
   `https://<host>/cache/<uid>` for the file list and `/access/<uid>/<path>` for
   a note). **These addresses are not a documented API** and may change.
   Everything published is public, so pages are shared when the source shares;
-  **Keep it DM-only** keeps the whole site for the DM.
+  **Keep it GM-only** keeps the whole site for the GM.
 
 ## Obsidian Portal
 
@@ -981,8 +981,8 @@ pages it read in full (`ctx.refreshed`): those, and only those, are replaced.
 | `mapMarker` | `externalId`, `mapRef` (the map page's externalId), `name`, `latitude`, `longitude`, `shape?`, `color?`, `ref?`, `visibility` | `intake_markers`, `GET /intake/markers` | shared marker on a shared map, linked to a shared page or none |
 | `image` | `externalId`, `pageRef?`, `name`, `marker` (version stored), `data?` (the file, or absent to keep the stored one), `visibility` | `intake_images`, the page's `banner` | the picture of a page they may read, when the picture itself is shared |
 
-`visibility` is `dm` unless the source says players may see it. When
-unsure, `dm`.
+`visibility` is `gm` unless the source says players may see it. When
+unsure, `gm`.
 
 **Calendar definition** (`intake_calendars.definition`, read by the world
 clock):
@@ -1001,14 +1001,14 @@ LegendKeeper: 0 when `hasZeroYear`, else 1). Leap rules are not carried
 over.
 
 **Maps** from LegendKeeper are pages with a `map` block:
-`{ kind: 'map', title?, image?, width?, height?, pins: [{ name, lat, lng, type?, ref?, dm? }] }`.
-The player guard drops pins marked `dm`, pins whose `ref` page is hidden
+`{ kind: 'map', title?, image?, width?, height?, pins: [{ name, lat, lng, type?, ref?, gm? }] }`.
+The player guard drops pins marked `gm`, pins whose `ref` page is hidden
 or unknown, and a non-http image.
 
 ## Push API
 
 For tools that can't be polled. Add a source of kind `push`, then create
-a **source key** (Admin → World sources, or the DM through
+a **source key** (Admin → World sources, or the GM through
 `POST /api/worlds/:world/intake/sources/:source/keys {label}`). The key
 (`alx_push_...`) is shown once; only its hash is kept. It is not an
 account token: it works on the three endpoints below, for that one
@@ -1027,7 +1027,7 @@ Authorization: Bearer alx_push_...
 - Entries are saved with `library.saveEntry`, then the player copies are
   rebuilt: the same leak guard as a synced page. `visibility: "party"` is
   honoured only when the source's "share what the source shares" switch
-  is on; anything else is DM-only.
+  is on; anything else is GM-only.
 - Pushing to a pull source, or syncing a push source, is refused.
 - Limits: 100 entries per request, 400 kB per entry, 4 MB per request,
   120 requests and 2000 entries per key per minute
@@ -1040,13 +1040,13 @@ curl -X POST https://alexandria.example/api/intake/src_abc/entries \
   -H "Authorization: Bearer alx_push_..." -H "Content-Type: application/json" \
   -d '{"entries":[{"externalId":"npc-1","title":"Captain Odda","visibility":"party",
        "blocks":[{"kind":"paragraph","content":[{"text":"A harbour captain."}]},
-                 {"kind":"secret","children":[{"kind":"paragraph","content":[{"text":"DM only."}]}]}]}]}'
+                 {"kind":"secret","children":[{"kind":"paragraph","content":[{"text":"GM only."}]}]}]}]}'
 ```
 
 ## WorldLore: the one writable part
 
 Sources are read-only. The exception is the WorldLore workspace
-(`librarian/src/features/worldlore`): the DM sets one folder or resource of a
+(`librarian/src/features/worldlore`): the GM sets one folder or resource of a
 source (a LegendKeeper resource, a Markdown folder, a Kanka note or journal), or the
 `WorldLore/` folder of the library, as the AI's own wiki. The
 agent reads, writes, moves and deletes there with no confirmation
@@ -1062,8 +1062,8 @@ MCP, Markdown folder, Kanka API token, mcp-kanka, World Anvil API, Notion, Obsid
 `write_page`, `update_resource`, `move_resource` and `delete_resource`
 (`confirm=true`), and only through `workspaceMcpFactory`; `readOnlyMcp` still
 refuses every write tool for sync and everything else. Pages carry a level
-(`dm`, `broker`, `party`, `classified`); an agent can write `party` only if the
-DM made `party` the workspace default, and `classified` pages are never sent to
+(`gm`, `broker`, `party`, `classified`); an agent can write `party` only if the
+GM made `party` the workspace default, and `classified` pages are never sent to
 an AI.
 
 ### World Anvil
@@ -1085,7 +1085,7 @@ categories (the home included), maps, secrets and timelines are never changed.
   and the root must be among them. Refused: the root itself, a category, anything
   outside the root, a move out of it or into the page's own child.
 - **Levels:** `party` makes the article `public` (only when the workspace default
-  is `party`); `dm`, `broker` and `classified` make it `private`, and `broker` or
+  is `party`); `gm`, `broker` and `classified` make it `private`, and `broker` or
   `classified` adds a tag of that name. A `> [!secret]` callout or a heading like
   "Broker notes" keeps the article private even if the level says party.
 - **Not tested against World Anvil itself yet:** built from the API v2 schemas
@@ -1110,7 +1110,7 @@ changed itself.
   root must be among them.
 - **Levels:** under a database with a `Visibility` select, the level is written
   there and read back. Under a plain page Notion has no field for it, so the
-  page stays the DM's in Notion and the library keeps the level the agent gave
+  page stays the GM's in Notion and the library keeps the level the agent gave
   until the next sync.
 
 ### Obsidian (Sync and Local REST API)
@@ -1147,7 +1147,7 @@ nested any depth. Everything else in the campaign stays read-only.
   root being moved, renamed or deleted; moving out of the root, into the page
   itself or its child; a page of another type; anything outside the root.
 - **Levels:** `party` sets `is_private: false` (only when the workspace default is
-  `party`); `dm`, `broker` and `classified` set `is_private: true`. `broker` and
+  `party`); `gm`, `broker` and `classified` set `is_private: true`. `broker` and
   `classified` add a tag of that name (created, private, when missing; matches
   `core/levels.ts`) and a level change swaps it and keeps the page's other tags.
   A `> [!secret]`, `[!broker]` or `[!classified]` callout, or a heading like
@@ -1180,7 +1180,7 @@ export const myApp: Connector = {
         parentExternalId: item.parent ? String(item.parent) : null,
         title: item.name,
         blocks: markdownToBlocks(item.markdown),
-        visibility: item.public === true && ctx.shareVisible ? 'party' : 'dm',
+        visibility: item.public === true && ctx.shareVisible ? 'party' : 'gm',
       };
     }
   },
@@ -1192,16 +1192,16 @@ export const myApp: Connector = {
 Rules:
 - **Read only.** Never call a tool or endpoint that changes the source.
 - **Fail closed.**
-  - A missing flag, an entry you couldn't load, an unknown parent: `dm`.
+  - A missing flag, an entry you couldn't load, an unknown parent: `gm`.
   - Only set `party` when the source itself says players may see it
     **and** `ctx.shareVisible` is on.
-- **Keep secrets structured.** Put DM-only parts in `secret` blocks or
-  `dm` property groups rather than hoping a text marker survives.
+- **Keep secrets structured.** Put GM-only parts in `secret` blocks or
+  `gm` property groups rather than hoping a text marker survives.
 - **Use `ctx.fetch` and `ctx.signal`** so syncs can be stopped and
   tested.
 - **Use `ctx.log`** for anything the admin should see in the run log.
 - **Add a test** in `librarian/test/` with a fake of the source, including
-  a case that proves its DM-only content never reaches a player.
+  a case that proves its GM-only content never reaches a player.
 
 For an app with a JSON API, try the `api` connector first: mapping the
 fields in the admin panel may be all you need.

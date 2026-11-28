@@ -18,7 +18,7 @@ const STATUS_HINTS: Record<string, string> = {
 
 export const statusBody = (): string => `# Campaign Status\n\n${STATUS_SECTIONS.map((s) => `## ${s}\n${STATUS_HINTS[s]}\n`).join('\n')}`;
 
-/** A player's root: profile, shared page, bonds, knowledge, and the DM's own note on them. Existing pages are left as they are. */
+/** A player's root: profile, shared page, bonds, knowledge, and the GM's own note on them. Existing pages are left as they are. */
 export function ensurePlayer(d: Deps, worldId: string, p: PlayerRef, by: string | null) {
   const who = p.character || p.name;
   const root = `players/${p.accountId}`;
@@ -28,7 +28,7 @@ export function ensurePlayer(d: Deps, worldId: string, p: PlayerRef, by: string 
   make(`${root}/profile.md`, `${who}: profile`, { type: 'profile', level: 'party', tags: [] }, `# ${who}\n\nPlayed by ${p.name}.\n\n## Who they are\n_The character in a few lines._\n\n## What they want\n_See the goals folder._\n`);
   make(`${root}/shared.md`, 'Shared with the party', { type: 'profile', level: 'party', tags: [] }, `# Shared with the party\n\nWhat ${who} lets the other players know.\n\n## Shared\n`);
   make(`${root}/bonds.md`, `${who}: bonds`, { type: 'bonds', level: 'party', tags: [] }, `# Bonds\n\nPeople, places and factions ${who} cares about.\n`);
-  make('dm/players/' + p.accountId + '.md', `${who}: the DM's notes`, { type: 'note', level: 'dm', tags: [] }, `# ${who} (${p.name})\n\n## What they enjoy\n\n## What they are after\n\n## Hooks aimed at them\n\n## Table notes\n`);
+  make('gm/players/' + p.accountId + '.md', `${who}: the GM's notes`, { type: 'note', level: 'gm', tags: [] }, `# ${who} (${p.name})\n\n## What they enjoy\n\n## What they are after\n\n## Hooks aimed at them\n\n## Table notes\n`);
   make(`codex/characters/pc/${who.replace(/[\\/:*?"<>|]/g, ' ').trim()}.md`, who, { type: 'codex', kind: 'pc', level: 'party', aliases: p.name && p.name !== who ? [p.name] : [], tags: [], sources: [] }, `# ${who}\n\nPlayed by ${p.name}.\n\n## Appearances\n\n## What changed\n\n## Secrets\n`);
   if (!readPage(d, worldId, `${root}/knowledge.md`)) rebuildKnowledge(d, worldId, p.accountId, by);
 }
@@ -47,7 +47,7 @@ export function refreshHome(d: Deps, worldId: string, by: string | null = null) 
   const pending = one<any>(d.db, `SELECT COUNT(*) AS n FROM minerva_drafts WHERE world_id = ? AND status = 'pending'`, worldId)?.n ?? 0;
   const status = readPage(d, worldId, STATUS_PATH);
   const threads = status ? sectionOf(status.body, 'Active threads')?.text ?? '' : '';
-  const hooks = listPages(d, worldId, 'dm/hooks/').filter((h) => String(h.fm.heat ?? 'ongoing') !== 'sleeping');
+  const hooks = listPages(d, worldId, 'gm/hooks/').filter((h) => String(h.fm.heat ?? 'ongoing') !== 'sleeping');
   const lines = [
     '# Minerva',
     '',
@@ -63,19 +63,19 @@ export function refreshHome(d: Deps, worldId: string, by: string | null = null) 
     threads && !/^_.*_$/.test(threads.trim()) ? threads : hooks.length ? hooks.map((h) => `- [${h.fm.heat ?? 'ongoing'}] [[${h.title}]]`).join('\n') : '_None yet._',
     '',
     '## Review queue',
-    pending ? `${pending} change${pending === 1 ? '' : 's'} waiting for the DM.` : 'Nothing waiting.',
+    pending ? `${pending} change${pending === 1 ? '' : 's'} waiting for the GM.` : 'Nothing waiting.',
     '',
     '## Arcs',
     listArcs(d.db, worldId).map((a) => `- ${a.n}. ${a.title} (${a.status})`).join('\n') || '_None._',
     '',
   ];
-  writePage(d, worldId, 'HOME.md', { title: 'Minerva', fm: { type: 'home', level: 'dm', tags: [] }, body: lines.join('\n'), by });
+  writePage(d, worldId, 'HOME.md', { title: 'Minerva', fm: { type: 'home', level: 'gm', tags: [] }, body: lines.join('\n'), by });
 }
 
 /** Seed the vault (idempotent) and switch her on. */
 export function enable(d: Deps, worldId: string, by: string | null) {
   setEnabled(d.db, worldId, true);
-  if (!readPage(d, worldId, STATUS_PATH)) writePage(d, worldId, STATUS_PATH, { title: 'Campaign Status', fm: { type: 'status', level: 'dm', tags: ['status'] }, body: statusBody(), by, batch: true });
+  if (!readPage(d, worldId, STATUS_PATH)) writePage(d, worldId, STATUS_PATH, { title: 'Campaign Status', fm: { type: 'status', level: 'gm', tags: ['status'] }, body: statusBody(), by, batch: true });
   if (!readPage(d, worldId, 'chronicle/timeline.md')) writePage(d, worldId, 'chronicle/timeline.md', { title: 'Timeline', fm: { type: 'timeline', level: 'party', tags: [] }, body: '# Timeline\n\nIn-world history: eras and events. The world clock and the library\'s timelines hold the dates; this page links to them.\n', by, batch: true });
   refreshCalendar(d, worldId, by);
   ensurePlayers(d, worldId, by);

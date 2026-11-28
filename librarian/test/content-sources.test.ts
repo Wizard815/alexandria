@@ -106,10 +106,11 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Bookland', dmAccountId: dm.account.id })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Bookland', gmAccountId: gm.account.id })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
+  await ok('PUT', `/api/worlds/${W}/mods/open5e/enabled`, T.gm, { on: true }); // the house rule
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
 });
 after(() => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -154,8 +155,8 @@ test('Sources: Open5e records become the same shapes as SRD terms', () => {
   assert.deepEqual([(s.data as any).damageTypes, (s.data as any).saves, (s.data as any).duration], [['Psychic'], ['Wisdom'], 'Instantaneous']);
 });
 
-test('Sources: the DM sees the Open5e books; players do not', async () => {
-  const r = await ok('GET', `${M()}/sources?open5e=${encodeURIComponent(O5.base)}`, T.dm);
+test('Sources: the GM sees the Open5e books; players do not', async () => {
+  const r = await ok('GET', `${M()}/sources?open5e=${encodeURIComponent(O5.base)}`, T.gm);
   assert.deepEqual(r.open5e.documents.map((d: any) => d.key), ['srd-2024', 'tob', 'deepm', 'vom'], '2024 books first');
   assert.equal(r.open5e.documents[1].license, 'OGL-1.0a');
   assert.match(r.open5e.documents[1].desc, /big book of things/);
@@ -165,62 +166,62 @@ test('Sources: the DM sees the Open5e books; players do not', async () => {
 
 test('Sources: Open5e books import as one module; spells go to the Codex and items to the shop', async () => {
   const req = { type: 'open5e', ...O5, documents: ['tob', 'deepm', 'vom', 'nope'] };
-  const pre = await ok('POST', `${M()}/import/preview`, T.dm, req);
+  const pre = await ok('POST', `${M()}/import/preview`, T.gm, req);
   assert.equal(pre.module.id, 'open5e-tob-deepm-vom');
   assert.equal(pre.module.name, 'Open5e: Tome of Beasts + Deep Magic for 5th Edition + Vault of Magic');
   assert.equal(pre.module.license, 'OGL-1.0a');
   assert.match(pre.module.attribution, /Tome of Beasts by Kobold Press, used under the OPEN GAME LICENSE Version 1\.0a/);
   assert.deepEqual(pre.counts, { spell: 2, monster: 1, item: 2, other: 1 }, 'the stray record from another book is dropped');
   assert.ok(pre.warnings.some((w: string) => /no book "nope"/.test(w)));
-  // Paging followed the next link on the base the DM chose, not Open5e's own host.
+  // Paging followed the next link on the base the GM chose, not Open5e's own host.
   assert.ok(hits.some((h) => h.includes('/v2/magicitems/') && h.includes('page=2')));
   const before = hits.length;
-  const saved = await ok('POST', `${M()}/import`, T.dm, { ...req, feed: { spells: true, items: true } });
+  const saved = await ok('POST', `${M()}/import`, T.gm, { ...req, feed: { spells: true, items: true } });
   assert.equal(hits.length, before, 'the save reuses what the preview fetched');
   assert.deepEqual(saved.fed.spells, { added: 2, replaced: 0, skipped: 0 });
   assert.equal(saved.fed.items.added, 2);
   assert.ok(saved.modules.some((m: any) => m.id === 'open5e-tob-deepm-vom'), 'the module is on');
 
-  // The monster card: whole for the DM, without the numbers for a player.
-  const hit = (await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.dm)).terms[0];
-  const dmCard = await ok('GET', `${M()}/terms/${encodeURIComponent(hit.id)}`, T.dm);
-  assert.equal(dmCard.data.cr, 12);
+  // The monster card: whole for the GM, without the numbers for a player.
+  const hit = (await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.gm)).terms[0];
+  const gmCard = await ok('GET', `${M()}/terms/${encodeURIComponent(hit.id)}`, T.gm);
+  assert.equal(gmCard.data.cr, 12);
   const pc = await ok('GET', `${M()}/terms/${encodeURIComponent(hit.id)}`, T.jess);
   assert.equal(pc.data.ac, undefined);
   assert.ok(!/\*\*AC\*\*|\| STR \|/.test(pc.text));
 
   // Spells in the Codex, each with its own book as the source.
-  const sp = (await ok('GET', `/api/worlds/${W}/spells/list?q=abhorrent`, T.dm)).spells[0];
+  const sp = (await ok('GET', `/api/worlds/${W}/spells/list?q=abhorrent`, T.gm)).spells[0];
   assert.equal(sp.source, 'Deep Magic for 5th Edition');
   assert.equal(sp.level, 4);
   assert.equal(sp.castingTime, 'Bonus Action');
-  const ward = (await ok('GET', `/api/worlds/${W}/spells/list?q=quick%20ward`, T.dm)).spells[0];
+  const ward = (await ok('GET', `/api/worlds/${W}/spells/list?q=quick%20ward`, T.gm)).spells[0];
   assert.deepEqual([ward.level, ward.ritual, ward.concentration, ward.castingTime], [0, true, true, '10 minutes']);
 
   // Items in the shop's database: a set price is kept, a missing one comes from the rarity band.
-  const amulet = (await ok('GET', `/api/worlds/${W}/shop/items?q=amulet%20of%20the%20void`, T.dm)).items[0];
+  const amulet = (await ok('GET', `/api/worlds/${W}/shop/items?q=amulet%20of%20the%20void`, T.gm)).items[0];
   assert.deepEqual([amulet.rarity, amulet.costCp, amulet.attunement, amulet.weight], ['very rare', 150000, true, 1]);
-  const scroll = (await ok('GET', `/api/worlds/${W}/shop/items?q=aberrant`, T.dm)).items[0];
+  const scroll = (await ok('GET', `/api/worlds/${W}/shop/items?q=aberrant`, T.gm)).items[0];
   assert.equal(scroll.type, 'scroll');
   assert.ok(scroll.costCp > 0);
 
   // Again with replace: nothing is added twice.
-  const again = await ok('POST', `${M()}/import`, T.dm, { ...req, replace: true, feed: { spells: true, items: true } });
+  const again = await ok('POST', `${M()}/import`, T.gm, { ...req, replace: true, feed: { spells: true, items: true } });
   assert.deepEqual([again.fed.spells.added, again.fed.items.added], [0, 0]);
-  await ok('DELETE', `${M()}/imported/open5e-tob-deepm-vom`, T.dm);
+  await ok('DELETE', `${M()}/imported/open5e-tob-deepm-vom`, T.gm);
 });
 
 test('Sources: an SRD book from Open5e does not copy the Codex SRD spells; kinds narrow an import', async () => {
-  const saved = await ok('POST', `${M()}/import`, T.dm, { type: 'open5e', ...O5, documents: ['srd-2024'], kinds: ['spell'], feed: { spells: true } });
+  const saved = await ok('POST', `${M()}/import`, T.gm, { type: 'open5e', ...O5, documents: ['srd-2024'], kinds: ['spell'], feed: { spells: true } });
   assert.equal(saved.module.id, 'open5e-srd-2024');
   assert.deepEqual(saved.counts, { spell: 1 });
   assert.deepEqual(saved.fed.spells, { added: 0, replaced: 0, skipped: 1 }, 'Fireball is already in the SRD list');
   assert.ok(!hits.some((h) => h.includes('/v2/creatures/') && h.includes('srd-2024')), 'only the spell list was read');
-  await ok('DELETE', `${M()}/imported/open5e-srd-2024`, T.dm);
+  await ok('DELETE', `${M()}/imported/open5e-srd-2024`, T.gm);
 });
 
 test('Sources: Open5e requests are checked', async () => {
-  const pre = (b: unknown) => call('POST', `${M()}/import/preview`, T.dm, b);
+  const pre = (b: unknown) => call('POST', `${M()}/import/preview`, T.gm, b);
   assert.equal((await pre({ type: 'open5e', ...O5 })).status, 400);
   assert.equal((await pre({ type: 'open5e', ...O5, documents: ['../etc'] })).status, 400);
   assert.equal((await pre({ type: 'open5e', ...O5, documents: ['nope'] })).status, 400);
@@ -231,16 +232,16 @@ test('Sources: Open5e requests are checked', async () => {
 
 test('Sources: a fresh 5e SRD API copy imports as its own module', async () => {
   const req = { type: 'dnd5eapi', base: 'http://srd.example.test/db', edition: '2014' };
-  const pre = await ok('POST', `${M()}/import/preview`, T.dm, req);
+  const pre = await ok('POST', `${M()}/import/preview`, T.gm, req);
   assert.equal(pre.module.id, 'dnd5eapi-2014');
   assert.match(pre.module.attribution, /SRD 5\.1.*5e SRD API/s);
   assert.deepEqual(pre.counts, { condition: 1, spell: 1, monster: 1, item: 2 }, 'files the database lacks (404) are skipped');
-  const some = await ok('POST', `${M()}/import/preview`, T.dm, { ...req, kinds: ['monster'] });
+  const some = await ok('POST', `${M()}/import/preview`, T.gm, { ...req, kinds: ['monster'] });
   assert.deepEqual(some.counts, { monster: 1 });
-  assert.equal((await call('POST', `${M()}/import/preview`, T.dm, { ...req, edition: '2030' })).status, 400);
-  const saved = await ok('POST', `${M()}/import`, T.dm, { ...req, feed: { items: true } });
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { ...req, edition: '2030' })).status, 400);
+  const saved = await ok('POST', `${M()}/import`, T.gm, { ...req, feed: { items: true } });
   assert.equal(saved.fed.items.added, 0, 'the SRD 5.1 items are already in the item database by name');
-  await ok('DELETE', `${M()}/imported/dnd5eapi-2014`, T.dm);
+  await ok('DELETE', `${M()}/imported/dnd5eapi-2014`, T.gm);
 });
 
 test('Sources: the server content library pulls a book once and every world can turn it on', async () => {
@@ -249,7 +250,7 @@ test('Sources: the server content library pulls a book once and every world can 
   assert.equal(src.open5e.documents[0].key, 'srd-2024', '2024 books first');
   assert.equal(src.open5e.documents[0].edition, '2024');
   assert.equal(src.open5e.documents.find((d: any) => d.key === 'tob').edition, '2014');
-  assert.equal((await call('GET', A, T.dm)).status, 403, 'admins only');
+  assert.equal((await call('GET', A, T.gm)).status, 403, 'admins only');
   assert.equal((await call('POST', `${A}/preview`, T.admin, { type: 'git', url: 'https://x.test/r.git' })).status, 400);
   const pre = await ok('POST', `${A}/preview`, T.admin, { type: 'open5e', ...O5, documents: ['tob'] });
   assert.equal(pre.module.id, 'open5e-tob');
@@ -259,17 +260,17 @@ test('Sources: the server content library pulls a book once and every world can 
   assert.equal((await call('POST', A, T.admin, { type: 'open5e', ...O5, documents: ['tob'] })).status, 409, 'replace must be asked for');
 
   // A world lists it as available, turns it on with nothing downloaded, and its monsters are there.
-  const mods = await ok('GET', `${M()}/`, T.dm);
+  const mods = await ok('GET', `${M()}/`, T.gm);
   const lib = mods.available.find((m: any) => m.id === 'open5e-tob');
   assert.ok(lib && lib.server === true && lib.terms === 2);
   const before = hits.length;
-  await ok('PUT', `${M()}/enabled`, T.dm, { ids: ['dnd-2024', 'open5e-tob'] });
+  await ok('PUT', `${M()}/enabled`, T.gm, { ids: ['dnd-2024', 'open5e-tob'] });
   const hit = (await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.jess)).terms[0];
   assert.equal(hit.module, 'Tome of Beasts (Open5e)');
   assert.equal(hits.length, before, 'turning it on downloads nothing');
   // A world cannot import a second copy under the same id; it can feed it to the shop and Codex.
-  assert.equal((await ok('POST', `${M()}/import/preview`, T.dm, { type: 'open5e', ...O5, documents: ['tob'] })).reserved, true);
-  const fed = await ok('POST', `${M()}/feed`, T.dm, { id: 'open5e-tob' });
+  assert.equal((await ok('POST', `${M()}/import/preview`, T.gm, { type: 'open5e', ...O5, documents: ['tob'] })).reserved, true);
+  const fed = await ok('POST', `${M()}/feed`, T.gm, { id: 'open5e-tob' });
   assert.ok(fed.fed && fed.fed.spells === undefined, 'Tome of Beasts has no spells');
   assert.equal((await call('POST', `${M()}/feed`, T.jess, { id: 'open5e-tob' })).status, 403);
 
@@ -279,38 +280,55 @@ test('Sources: the server content library pulls a book once and every world can 
   await ok('POST', `${A}/open5e-tob/refresh`, T.admin);
   assert.ok(hits.length > n, 'refresh fetched again');
   await ok('DELETE', `${A}/open5e-tob`, T.admin);
-  assert.equal((await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.dm)).terms.length, 0);
-  assert.ok(!(await ok('GET', `${M()}/`, T.dm)).available.some((m: any) => m.id === 'open5e-tob'));
+  assert.equal((await ok('GET', `${M()}/terms?q=nihileth&kind=monster`, T.gm)).terms.length, 0);
+  assert.ok(!(await ok('GET', `${M()}/`, T.gm)).available.some((m: any) => m.id === 'open5e-tob'));
 });
 
-test('Sources: a DM browses a module and leaves single entries out of the world', async () => {
+test('Sources: a GM browses a module and leaves single entries out of the world', async () => {
   const req = { type: 'open5e', ...O5, documents: ['deepm', 'vom'] };
-  await ok('POST', `${M()}/import`, T.dm, req);
+  await ok('POST', `${M()}/import`, T.gm, req);
   const id = 'open5e-deepm-vom';
-  const b = await ok('GET', `${M()}/browse/${id}`, T.dm);
+  const b = await ok('GET', `${M()}/browse/${id}`, T.gm);
   assert.deepEqual([b.total, b.leftOut, b.counts.spell, b.counts.item], [4, 0, 2, 2]);
   const ward = b.terms.find((t: any) => t.term === 'Quick Ward');
   const amulet = b.terms.find((t: any) => t.term === 'Amulet of the Void');
-  const one = await ok('GET', `${M()}/browse/${id}/${encodeURIComponent(ward.id)}`, T.dm);
+  const one = await ok('GET', `${M()}/browse/${id}/${encodeURIComponent(ward.id)}`, T.gm);
   assert.match(one.text, /faint ward/);
-  assert.equal((await call('GET', `${M()}/browse/${id}`, T.jess)).status, 403, 'DMs only');
+  assert.equal((await call('GET', `${M()}/browse/${id}`, T.jess)).status, 403, 'GMs only');
   assert.equal((await call('PUT', `${M()}/left-out`, T.jess, { module: id, terms: [ward.id], out: true })).status, 403);
-  assert.equal((await call('PUT', `${M()}/left-out`, T.dm, { module: 'nope', terms: [ward.id], out: true })).status, 404);
+  assert.equal((await call('PUT', `${M()}/left-out`, T.gm, { module: 'nope', terms: [ward.id], out: true })).status, 404);
 
-  const r = await ok('PUT', `${M()}/left-out`, T.dm, { module: id, terms: [ward.id, amulet.id], out: true });
+  const r = await ok('PUT', `${M()}/left-out`, T.gm, { module: id, terms: [ward.id, amulet.id], out: true });
   assert.equal(r.leftOut, 2);
   // Gone from the world's terms, still in the module's browser marked as left out.
-  assert.equal((await ok('GET', `${M()}/terms?q=quick%20ward`, T.dm)).terms.length, 0);
-  assert.ok((await ok('GET', `${M()}/terms?q=abhorrent`, T.dm)).terms.length > 0, 'the rest stay');
-  const only = await ok('GET', `${M()}/browse/${id}?left=1`, T.dm);
+  assert.equal((await ok('GET', `${M()}/terms?q=quick%20ward`, T.gm)).terms.length, 0);
+  assert.ok((await ok('GET', `${M()}/terms?q=abhorrent`, T.gm)).terms.length > 0, 'the rest stay');
+  const only = await ok('GET', `${M()}/browse/${id}?left=1`, T.gm);
   assert.deepEqual(only.terms.map((t: any) => [t.term, t.leftOut]).sort(), [['Amulet of the Void', true], ['Quick Ward', true]]);
-  // Feeding skips them: the Codex and the shop do not get what the DM left out.
-  const fed = await ok('POST', `${M()}/feed`, T.dm, { id });
+  // Feeding skips them: the Codex and the shop do not get what the GM left out.
+  const fed = await ok('POST', `${M()}/feed`, T.gm, { id });
   assert.equal(fed.fed.spells.added + fed.fed.spells.replaced + fed.fed.spells.skipped, 1);
   const it = fed.fed.items;
   assert.equal(Object.values(it).filter((v) => typeof v === 'number').reduce((a: number, v: any) => a + v, 0), 1, JSON.stringify(it));
 
-  await ok('PUT', `${M()}/left-out`, T.dm, { module: id, terms: [ward.id], out: false });
-  assert.equal((await ok('GET', `${M()}/terms?q=quick%20ward`, T.dm)).terms.length, 1, 'put back');
-  await ok('DELETE', `${M()}/imported/${id}`, T.dm);
+  await ok('PUT', `${M()}/left-out`, T.gm, { module: id, terms: [ward.id], out: false });
+  assert.equal((await ok('GET', `${M()}/terms?q=quick%20ward`, T.gm)).terms.length, 1, 'put back');
+  await ok('DELETE', `${M()}/imported/${id}`, T.gm);
+});
+
+test('Sources: Open5e is a house rule; off, the world cannot pull from it, and library books stay', async () => {
+  const A = '/api/admin/content';
+  await ok('POST', A, T.admin, { type: 'open5e', ...O5, documents: ['vom'], replace: true });
+  await ok('PUT', `/api/worlds/${W}/mods/open5e/enabled`, T.gm, { on: false });
+  const off = await call('GET', `${M()}/sources`, T.gm);
+  assert.equal(off.status, 403);
+  assert.match(JSON.stringify(off.body), /House rules/);
+  assert.equal((await call('POST', `${M()}/import/preview`, T.gm, { type: 'open5e', ...O5, documents: ['tob'] })).status, 403);
+  assert.equal((await call('POST', `${M()}/import`, T.gm, { type: 'dnd5eapi', edition: '2014' })).status, 403);
+  // The admin's library is not a mod, and the world still sees its books (nothing to download).
+  assert.ok((await ok('GET', A, T.admin)).modules.some((m: any) => m.id === 'open5e-vom'));
+  assert.ok((await ok('GET', `${M()}/`, T.gm)).available.some((m: any) => m.id === 'open5e-vom'));
+  await ok('PUT', `/api/worlds/${W}/mods/open5e/enabled`, T.gm, { on: true });
+  assert.equal((await call('GET', `${M()}/sources`, T.gm)).status, 200);
+  await ok('DELETE', `${A}/open5e-vom`, T.admin);
 });

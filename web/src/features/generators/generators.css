@@ -13,7 +13,7 @@
 .gen-h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .gen-chip { font-weight: 400; }
 .gen-sec .md p { margin: 0; }
-.card.gen-dm { border-left: 4px solid var(--danger); }
+.card.gen-gm { border-left: 4px solid var(--danger); }
 .gen-lock.on { border-color: var(--accent); color: var(--accent-strong); font-weight: 700; }
 .gen-names { columns: 2 180px; margin: 0; padding-left: 18px; }
 .gen-names li { padding: 2px 0; }

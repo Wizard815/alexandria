@@ -20,7 +20,7 @@ const ODD: CalendarDef = {
 test('TestClockMath_EpochIsDayOneMonthOne', () => {
   const p = minutesToDate(H, 0);
   assert.deepEqual([p.year, p.month, p.day, p.hour, p.minute, p.monthName, p.weekday], [1492, 1, 1, 0, 0, 'Frostmoot', 'First']);
-  assert.equal(formatDate(H, 19 * 60 + 5 + 2 * 1440), '3 Frostmoot 1492 DR · evening');
+  assert.equal(formatDate(H, 19 * 60 + 5 + 2 * 1440), '3 Frostmoot 1492 AR · evening');
 });
 
 test('TestClockMath_MonthAndYearRollover', () => {
@@ -76,7 +76,7 @@ test('TestClockMath_MoonPhases', () => {
   assert.equal(phase(3).phase, 'waxing crescent');
   const offset = minutesToDate({ ...ODD, moons: [{ name: 'Late', cycleDays: 28, offsetDays: 14 }] }, 0).moons[0];
   assert.equal(offset.phase, 'full moon');
-  assert.equal(minutesToDate(H, 0).moons[0].name, 'Selune');
+  assert.equal(minutesToDate(H, 0).moons[0].name, 'The Pale Moon');
 });
 
 test('TestClockMath_Seasons', () => {

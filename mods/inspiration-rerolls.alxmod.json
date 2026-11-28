@@ -1,0 +1,135 @@
+{
+  "kit": 2,
+  "id": "inspiration-rerolls",
+  "name": "Inspiration as rerolls",
+  "version": "1.0.0",
+  "author": "Wizard",
+  "summary": "The GM rewards good roleplay with rerolls: a personal reroll for your own roll, an everyone reroll for any player's roll, and a GM reroll that makes the GM roll again.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["sheet", "chat"]
+  },
+  "options": {
+    "cap": {
+      "type": "int",
+      "default": 1,
+      "min": 1,
+      "max": 9,
+      "label": "Most of each type a player can hold"
+    },
+    "keepBetter": {
+      "type": "boolean",
+      "default": false,
+      "label": "Keep the better of the two rolls",
+      "help": "Off: the reroll stands, as with normal inspiration."
+    }
+  },
+  "resources": [
+    {
+      "id": "personal",
+      "label": "Personal reroll",
+      "icon": "fa-dice-d20",
+      "max": "$cap",
+      "start": 0
+    },
+    {
+      "id": "everyone",
+      "label": "Everyone reroll",
+      "icon": "fa-people-group",
+      "max": "$cap",
+      "start": 0
+    },
+    {
+      "id": "gm",
+      "label": "GM reroll",
+      "icon": "fa-dragon",
+      "max": "$cap",
+      "start": 0
+    }
+  ],
+  "actions": [
+    {
+      "id": "grant",
+      "label": "Grant",
+      "by": "gm",
+      "resource": "*",
+      "add": 1,
+      "askReason": true
+    },
+    {
+      "id": "take",
+      "label": "Take back",
+      "by": "gm",
+      "resource": "*",
+      "add": -1
+    },
+    {
+      "id": "use-personal",
+      "label": "Reroll my roll",
+      "by": "owner",
+      "resource": "personal",
+      "add": -1,
+      "effect": {
+        "reroll": {
+          "whose": "own",
+          "keepBetter": "$keepBetter"
+        }
+      }
+    },
+    {
+      "id": "use-everyone",
+      "label": "Reroll anyone's roll",
+      "by": "owner",
+      "resource": "everyone",
+      "add": -1,
+      "effect": {
+        "reroll": {
+          "whose": "anyPlayer",
+          "keepBetter": "$keepBetter"
+        }
+      }
+    },
+    {
+      "id": "use-gm",
+      "label": "Make the GM reroll",
+      "by": "owner",
+      "resource": "gm",
+      "add": -1,
+      "effect": {
+        "reroll": {
+          "whose": "gm",
+          "keepBetter": "$keepBetter"
+        }
+      }
+    }
+  ],
+  "commands": [
+    {
+      "word": "reroll",
+      "args": ["personal", "everyone", "gm"],
+      "action": "use-$1"
+    }
+  ],
+  "presets": {
+    "sheetRerolls": true,
+    "sheetRerollCap": "$cap"
+  },
+  "sheet": {
+    "title": "Rerolls",
+    "resources": ["personal", "everyone", "gm"]
+  },
+  "gmBand": {
+    "chips": ["personal", "everyone", "gm"],
+    "actions": ["grant"]
+  },
+  "table": {
+    "title": "Reward roleplay",
+    "actions": ["grant"]
+  },
+  "rules": [
+    {
+      "term": "Inspiration (house rule)",
+      "text": "Inspiration comes as rerolls, given by the GM to reward roleplay. **Personal reroll**: reroll one of your own rolls. **Everyone reroll**: reroll any player's roll, yours or an ally's. **GM reroll**: make the GM reroll one of their rolls. The new roll stands unless the GM turned on \"keep the better\". In session chat, press Reroll on a roll or type `/reroll personal`, `/reroll everyone` or `/reroll gm`."
+    }
+  ]
+}

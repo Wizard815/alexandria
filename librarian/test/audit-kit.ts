@@ -1,4 +1,4 @@
-// Shared setup for the audit-*.test.ts files: one app, two worlds (each with a DM),
+// Shared setup for the audit-*.test.ts files: one app, two worlds (each with a GM),
 // players jess and tom and a guest in world A, a player in world B, and small helpers.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -31,22 +31,22 @@ export async function boot(opts: { fetch?: typeof fetch; env?: Record<string, st
   const T: Record<string, string> = {};
   const ID: Record<string, string> = {};
   T.admin = (await ok('POST', '/api/setup', null, { username: 'wizard', password: 'correct horse battery' })).token;
-  for (const [k, name] of [['dm', 'dungeon'], ['dm2', 'dungeon2']] as const) {
-    ID[k] = (await ok('POST', '/api/admin/accounts', T.admin, { username: name, password: 'dm password 123' })).account.id;
-    T[k] = (await ok('POST', '/api/auth/login', null, { username: name, password: 'dm password 123' })).token;
+  for (const [k, name] of [['gm', 'dungeon'], ['gm2', 'dungeon2']] as const) {
+    ID[k] = (await ok('POST', '/api/admin/accounts', T.admin, { username: name, password: 'gm password 123' })).account.id;
+    T[k] = (await ok('POST', '/api/auth/login', null, { username: name, password: 'gm password 123' })).token;
   }
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Harbourtown', dmAccountId: ID.dm })).id as string;
-  const W2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Elsewhere', dmAccountId: ID.dm2 })).id as string;
-  const join = async (world: string, dm: string, role: string, name: string) => {
-    const inv = await ok('POST', `/api/worlds/${world}/invites`, T[dm], { role });
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Harbourtown', gmAccountId: ID.gm })).id as string;
+  const W2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Elsewhere', gmAccountId: ID.gm2 })).id as string;
+  const join = async (world: string, gm: string, role: string, name: string) => {
+    const inv = await ok('POST', `/api/worlds/${world}/invites`, T[gm], { role });
     const j = await ok('POST', '/api/join', null, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
     T[name] = j.token; ID[name] = j.account.id;
   };
-  await join(W, 'dm', 'player', 'jess');
-  await join(W, 'dm', 'player', 'tom');
-  await join(W, 'dm', 'guest', 'visitor');
-  await join(W2, 'dm2', 'player', 'wendy');
-  if (opts.settings) await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, opts.settings);
+  await join(W, 'gm', 'player', 'jess');
+  await join(W, 'gm', 'player', 'tom');
+  await join(W, 'gm', 'guest', 'visitor');
+  await join(W2, 'gm2', 'player', 'wendy');
+  if (opts.settings) await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, opts.settings);
   const w = (p: string) => `/api/worlds/${W}${p}`;
   const w2 = (p: string) => `/api/worlds/${W2}${p}`;
   const close = () => { server.close(); server.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); };

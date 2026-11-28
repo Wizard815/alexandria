@@ -9,7 +9,7 @@ export interface FakeEntity { id: number; name: string; entry: string; priv: boo
 export interface KankaCall { token: string; path: string }
 
 export const TOKENS = {
-  dm: 'DMTOKEN-aaaaaaaaaaaaaaaaaaaaaaaa',
+  gm: 'GMTOKEN-aaaaaaaaaaaaaaaaaaaaaaaa',
   jess: 'JESSTOKEN-bbbbbbbbbbbbbbbbbbbbbb',
   tom: 'TOMTOKEN-cccccccccccccccccccccc',
   blanket: 'BLANKETTOKEN-dddddddddddddddddd',

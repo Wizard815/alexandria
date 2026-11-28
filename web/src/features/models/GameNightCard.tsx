@@ -145,7 +145,7 @@ export default function GameNightCard({ jobs, providers, status, onChanged }: {
     <section className="card" aria-label="Game night" data-testid="game-night">
       <div>
         <h2 style={{ margin: 0 }}>Game night</h2>
-        <p className="muted small" style={{ margin: 0 }}>A session starts when a DM starts a recording or opens the session chat, or when you press Start below. Jobs set to <strong>Keep loaded</strong> are loaded then and held while it runs; after it ends they are unloaded. While no session is open Alexandria sends the model servers nothing.</p>
+        <p className="muted small" style={{ margin: 0 }}>A session starts when a GM starts a recording or opens the session chat, or when you press Start below. Jobs set to <strong>Keep loaded</strong> are loaded then and held while it runs; after it ends they are unloaded. While no session is open Alexandria sends the model servers nothing.</p>
       </div>
       <ErrorBox error={err} />
       {!v ? <Loading /> : (
