@@ -24,6 +24,10 @@ export function useShape(): Shape {
   return s;
 }
 
+/** This device opens the phone assistant when the app starts (Remote > This phone). */
+export const START_KEY = 'alx.gmphone.start';
+export const startsInPhone = (): boolean => lsGet(START_KEY) === '1';
+
 export const lsGet = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 export const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 

@@ -6,12 +6,19 @@ import { App } from './App.tsx';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './theme.css';
 import './phone.css';
+import './fold.css';
 import './lib/install.tsx';
+import { initNavSide } from './lib/navSide.tsx';
+import { initZoom, ZoomSync } from './lib/uiZoom.tsx';
+
+initNavSide();
+initZoom();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
+        <ZoomSync />
         <App />
       </AuthProvider>
     </BrowserRouter>

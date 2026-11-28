@@ -11,7 +11,7 @@ import { chromium, root, startScript, tmpDir, quiet, PLAYER_ROUTES } from './lib
 
 const PORT = Number(process.env.MOBILE_PORT || 8841);
 const base = `http://127.0.0.1:${PORT}`;
-const SHOTS = process.env.MOBILE_SHOTS || '/tmp/claude-0/-home-user/26e3dbe6-7466-590f-acf8-13740003567a/scratchpad/mobile';
+const SHOTS = process.env.MOBILE_SHOTS || path.join(tmpDir('mobile-shots'));
 const VERBOSE = !!process.env.MOBILE_VERBOSE;
 fs.mkdirSync(SHOTS, { recursive: true });
 const problems = [];
@@ -35,6 +35,7 @@ await gm('POST', '/shop/generate', { kind: 'general', size: 'town', seed: 'mobil
 const PROFILES = [
   { name: 'android-360', viewport: { width: 360, height: 800 }, ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36', dpr: 3 },
   { name: 'iphone-390', viewport: { width: 390, height: 844 }, ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1', dpr: 3 },
+  { name: 'fold-cover-344', viewport: { width: 344, height: 882 }, ua: 'Mozilla/5.0 (Linux; Android 14; SM-F956B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36', dpr: 3 },
   { name: 'android-412', viewport: { width: 412, height: 915 }, ua: 'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36', dpr: 2.625 },
 ];
 

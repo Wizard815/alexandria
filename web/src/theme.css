@@ -30,7 +30,7 @@ body { background: #12161F; }
   --on-accent: #0B1512; --danger: #F07167; --danger-text: #F5A79F; --danger-bg: #2E1B1B; --ok: #4CAF6E; --ok-text: #93D6A8; --ok-bg: #15291D;
   --teal: #7FD1C7; --teal-bg: #143029; --input: #121A21;
 }
-.t-fantasy, .t-admin { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 16px; min-height: 100vh; }
+.t-fantasy, .t-admin { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 16px; min-height: var(--vh100, 100vh); }
 .t-admin { font-size: 14px; }
 a { color: var(--teal); }
 a:hover { filter: brightness(1.15); }
@@ -45,8 +45,8 @@ p { margin: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* layout */
-.shell { display: flex; min-height: 100vh; }
-.side { flex: 0 0 236px; background: var(--side); border-right: 1px solid var(--line); padding: 20px 12px; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.shell { display: flex; min-height: var(--vh100, 100vh); }
+.side { flex: 0 0 236px; background: var(--side); border-right: 1px solid var(--line); padding: 20px 12px; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 0; height: var(--vh100, 100vh); overflow-y: auto; }
 .t-admin .side { color: #C9D3D9; border-right: 0; }
 .side .brand { font-family: var(--font-head); font-size: 20px; font-weight: 700; color: var(--accent); padding: 0 8px; letter-spacing: 0.06em; }
 .t-admin .side .brand { color: #FFFFFF; }

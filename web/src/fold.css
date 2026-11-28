@@ -1,0 +1,192 @@
+/* Wide foldables opened up (Galaxy Z Fold, Pixel Fold, a folding iPhone) and other
+   near-square touch screens: about 4:3 either way round, 600 to 1180px wide.
+
+   The phone rules (phone.css, the <= 760px blocks) already cover the Fold's inner
+   screen held upright (about 700x850). This file turns that into a layout for the
+   bigger screen, and also picks up the same screen held sideways (about 850x700 or
+   900x640), which would otherwise get the mouse-sized desktop layout:
+
+   - the player's tab bar becomes a rail down the left edge (thumbs reach it with the
+     device held in two hands, and it gives the page its full height back), the More
+     menu opens beside it as a drawer, pop-ups are centred and no wider than 640px;
+   - the GM keeps the desktop's left rail instead of a bottom bar, with touch-sized
+     areas, tabs and top-bar buttons, and gets the phone assistant banner.
+
+   The query (repeated below, CSS has no named media queries yet):
+     upright or sideways near-square touch screen 600-1180px wide, or
+     any near-square screen 600-760px wide (it already gets the phone layout)
+   It matches the GM phone assistant's two-pane test (features/gmphone/hooks.ts shapeOf). */
+
+:root { --rail-w: 84px; }
+
+/* ---- Sideways (761-1180px wide, touch): bring in the phone's player shell, which
+   phone.css's touch-size rules already reach (its block lists this range too). ---- */
+@media (pointer: coarse) and (min-width: 761px) and (max-width: 1180px) and (min-aspect-ratio: 2/3) and (max-aspect-ratio: 3/2) {
+  .player .topbar { flex-wrap: nowrap; align-items: center; gap: 8px; padding: calc(4px + var(--safe-top)) 16px 4px; }
+  .player .topbar .brand { flex: 1 1 0; font-size: 18px; line-height: 1.15; min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
+  .player .topbar .chip { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .player .topbar > :not(.brand) { flex: 0 0 auto; }
+  .player .topnav.desktop, .player .desktop-only { display: none !important; }
+  .player .phone-only { display: inline-block; }
+  .player .bottomnav { display: flex; }
+  .player .bottomnav a, .player .bottomnav button { min-width: 0; display: flex; flex-direction: column; align-items: center; color: var(--muted); text-decoration: none; background: none; border: 0; cursor: pointer; white-space: nowrap; }
+  .player .bottomnav a.active, .player .bottomnav button.active, .player .bottomnav button[aria-expanded="true"] { color: var(--accent-strong); }
+  .player .bottomnav .icon { position: relative; }
+  .player .bottomnav .icon .nav-badge { position: absolute; margin: 0; }
+}
+
+/* ---- Every fold size ---- */
+@media (pointer: coarse) and (min-width: 600px) and (max-width: 1180px) and (min-aspect-ratio: 2/3) and (max-aspect-ratio: 3/2),
+       (min-width: 600px) and (max-width: 760px) and (min-aspect-ratio: 2/3) and (max-aspect-ratio: 3/2) {
+  /* Player: the tab bar is a rail on the left. */
+  .player { padding-left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); }
+  .player .bottomnav { position: fixed; top: 0; bottom: 0; left: 0; right: auto; width: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); z-index: 30; flex-direction: column; justify-content: flex-start; gap: 4px; padding: calc(10px + var(--safe-top)) 6px calc(10px + env(safe-area-inset-bottom, 0px)) calc(6px + env(safe-area-inset-left, 0px)); min-height: 0; background: var(--side); border-top: 0; border-right: 1px solid var(--line-strong); overflow-y: auto; scrollbar-width: none; transition: none; box-sizing: border-box; }
+  .player .bottomnav.kb-open { transform: none; }
+  .player .bottomnav.bottomnav > :is(a, button) { flex: 0 0 auto; min-height: 64px; width: 100%; justify-content: center; gap: 4px; padding: 6px 2px; border-radius: 12px; font: 500 12.5px var(--font); white-space: normal; text-align: center; line-height: 1.1; }
+  .player .bottomnav a.active, .player .bottomnav button.active, .player .bottomnav button[aria-expanded="true"] { background: var(--accent-bg); }
+  .player .bottomnav .icon { font-size: 20px; line-height: 24px; }
+  .player .bottomnav .icon .nav-badge { top: -6px; left: 14px; font-size: 12px; line-height: 16px; min-width: 16px; padding: 0 4px; }
+  /* More sits at the foot of the rail, where the thumb rests. */
+  .player .bottomnav [data-testid="more-btn"] { margin-top: auto; }
+  /* The More menu opens as a drawer beside the rail. */
+  .player .sheet-backdrop .sheet.more { left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); right: auto; top: 0; bottom: 0; width: min(380px, calc(100vw - var(--rail-w) - 24px)); max-height: none; border-top: 0; border-right: 1px solid var(--line-strong); border-radius: 0 16px 16px 0; padding-top: calc(12px + var(--safe-top)); }
+  .player .sheet.more .sheet-handle { display: none; }
+
+  /* The dock, toasts and sticky bars no longer have a tab bar under them. */
+  html body:has(.bottomnav) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  html body:has(.bottomnav) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  html body:has(.bottomnav) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  .player .toast { left: auto; right: 16px; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); max-width: 420px; }
+  .player .sticky-actions { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Room for two columns: a wider page, columns side by side when they fit. */
+  .player .page { padding: 16px 20px var(--dock-reserve); gap: 16px; }
+  .player .page h1 { font-size: 24px; }
+  .player .cols > .col-1 { flex: 1 1 260px; } .player .cols > .col-2 { flex: 2 1 340px; } .player .cols > .col-3 { flex: 3 1 420px; }
+  .player .grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+  .player .tabs { margin-inline: 0; padding-inline: 0; }
+
+  /* Pop-ups: still slide up from the bottom, but no wider than a phone's. */
+  .player .modal-back { justify-content: center; padding: 0 16px 0 calc(var(--rail-w) + 16px + env(safe-area-inset-left, 0px)); }
+  .player .modal { max-width: 640px; border-bottom: 1px solid var(--line-strong); }
+
+  /* GM: the left rail stays on the left (the phone layout would move it to the bottom), touch-sized. */
+  .dmx-top { height: calc(56px + var(--safe-top)); min-height: 0; padding: var(--safe-top) 12px 0; gap: 8px; }
+  .dmx-brand { max-width: 34vw; }
+  .dmx-search, .dmx-session, .dmx-end .btn, .dmx-end .icon-btn, .dmx-brand { min-height: 44px; min-width: 44px; }
+  .dmx-search { height: 44px; }
+  .dmx-rail { position: sticky; top: calc(56px + var(--safe-top)); left: auto; right: auto; bottom: auto; height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top)); flex: 0 0 var(--rail-w); flex-direction: column; gap: 6px; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 0; border-right: 1px solid var(--line); z-index: 25; }
+  .dmx-area { flex: 0 0 auto; min-height: 64px; justify-content: center; padding: 6px 2px; font-size: 12.5px; border-radius: 12px; }
+  .dmx-area i { font-size: 20px; }
+  .dmx-tabs { position: sticky; top: calc(56px + var(--safe-top)); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 4px 12px; }
+  .dmx-tab { min-height: 44px; padding: 0 12px; font-size: 15px; }
+  .dmx-star { flex: 0 0 44px; width: 44px; height: 44px; }
+  body:has(.dmx-rail) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  html body:has(.dmx-rail) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  html body:has(.dmx-rail) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  .gmx .page { padding: 14px 18px var(--dock-reserve); }
+  .gmx .cols > .col-2 { flex: 2 1 340px; } .gmx .cols > .col-3 { flex: 3 1 440px; }
+  .gmx .lib-tree { height: calc(var(--dvh100, 100dvh) - 260px); }
+  .dmx-end .dmx-phone-btn { display: inline-flex; }
+  .dmx-phone-btn span { display: inline; }
+  /* Workspace layouts (panes side by side) work here, unlike on a phone. */
+  .dmx-ws { display: inline-flex; }
+  .gmx .main.main-ws { height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top) - 53px); min-height: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .gmx .main.main-ws { height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top) - 53px - 57px); }
+  .set-shell { grid-template-columns: 180px minmax(0, 1fr); } .set-nav { position: sticky; top: 120px; } .set-list { flex-direction: column; } .set-link { min-height: 44px; }
+}
+
+/* ---- Where the tab panel sits (lib/navSide.tsx: Left, Right, Top or Bottom, per device) ----
+   Phones and foldables only; with no choice (Auto) the rules above apply: bottom on a phone,
+   left on a foldable. Each choice spells out its whole look, because it overrides either. */
+@media (max-width: 760px), (pointer: coarse) and (min-width: 761px) and (max-width: 1180px) and (min-aspect-ratio: 2/3) and (max-aspect-ratio: 3/2) {
+  /* -- player: a rail (left or right) -- */
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav { display: flex; position: fixed; top: 0; bottom: 0; width: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); height: auto; z-index: 30; flex-direction: column; justify-content: flex-start; gap: 4px; padding: calc(10px + var(--safe-top)) 6px calc(10px + env(safe-area-inset-bottom, 0px)); min-height: 0; background: var(--side); border-top: 0; overflow-y: auto; scrollbar-width: none; transform: none; transition: none; box-sizing: border-box; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav.bottomnav > :is(a, button) { flex: 0 0 auto; min-height: 64px; width: 100%; min-width: 0; justify-content: center; gap: 4px; padding: 6px 2px; border-radius: 12px; font: 500 12.5px var(--font); white-space: normal; text-align: center; line-height: 1.1; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav :is(a.active, button.active, button[aria-expanded="true"]) { background: var(--accent-bg); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav .icon { font-size: 20px; line-height: 24px; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .bottomnav [data-testid="more-btn"] { margin-top: auto; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .sheet-backdrop .sheet.more { top: 0; bottom: 0; width: min(380px, calc(100vw - var(--rail-w) - 24px)); max-height: none; border-top: 0; padding-top: calc(12px + var(--safe-top)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .sheet.more .sheet-handle { display: none; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.bottomnav) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.bottomnav) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.bottomnav) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .toast { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .player .sticky-actions { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=left] .player { padding-left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); padding-right: 0; }
+  :root[data-nav-side=left] .player .bottomnav { left: 0; right: auto; border-left: 0; border-right: 1px solid var(--line-strong); padding-left: calc(6px + env(safe-area-inset-left, 0px)); }
+  /* Pop-ups sit beside the rail, never under it. */
+  :root[data-nav-side=left] .player .modal-back { padding-left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); padding-right: 0; }
+  :root[data-nav-side=right] .player .modal-back { padding-right: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); padding-left: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .modal-back { padding-left: 0; padding-right: 0; }
+  :root[data-nav-side=left] .player .sheet-backdrop .sheet.more { left: calc(var(--rail-w) + env(safe-area-inset-left, 0px)); right: auto; border-right: 1px solid var(--line-strong); border-left: 0; border-radius: 0 16px 16px 0; }
+  :root[data-nav-side=right] .player { padding-right: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); padding-left: 0; }
+  :root[data-nav-side=right] .player .bottomnav { right: 0; left: auto; width: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); border-right: 0; border-left: 1px solid var(--line-strong); padding-right: calc(6px + env(safe-area-inset-right, 0px)); }
+  :root[data-nav-side=right] .player .sheet-backdrop .sheet.more { right: calc(var(--rail-w) + env(safe-area-inset-right, 0px)); left: auto; border-left: 1px solid var(--line-strong); border-right: 0; border-radius: 16px 0 0 16px; }
+  :root[data-nav-side=right] body:has(.bottomnav) .dock, :root[data-nav-side=right] body:has(.bottomnav) .dock-panel { right: calc(var(--rail-w) + 12px + env(safe-area-inset-right, 0px)); }
+  :root[data-nav-side=right] .player .toast { right: calc(var(--rail-w) + 16px); left: auto; }
+
+  /* -- player: a bar (top or bottom) -- */
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player { padding-left: 0; padding-right: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav { display: flex; position: fixed; left: 0; right: 0; width: auto; height: auto; z-index: 30; flex-direction: row; justify-content: stretch; gap: 0; min-height: var(--nav-h); box-sizing: content-box; padding: 0 calc(4px + env(safe-area-inset-right, 0px)) 0 calc(4px + env(safe-area-inset-left, 0px)); background: var(--side); border-left: 0; border-right: 0; overflow: visible; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav.bottomnav > :is(a, button) { flex: 1 1 0; min-height: var(--nav-h); width: auto; min-width: 0; margin: 0; justify-content: center; gap: 2px; padding: 4px 2px; border-radius: 0; font: 500 12px var(--font); white-space: nowrap; flex-direction: column; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav :is(a.active, button.active) { background: none; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav .icon { font-size: 19px; line-height: 22px; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .sheet-backdrop .sheet.more { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: min(88dvh, calc(var(--dvh100, 100dvh) - 24px)); border: 0; border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0; padding-top: 8px; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .sheet.more .sheet-handle { display: block; }
+  :root[data-nav-side=bottom] .player .bottomnav { top: auto; bottom: 0; border-top: 1px solid var(--line-strong); border-bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  :root[data-nav-side=bottom] .player .bottomnav.kb-open { transform: translateY(100%); }
+  :root[data-nav-side=bottom] body:has(.bottomnav) { --dock-reserve: calc(var(--nav-h) + 76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root[data-nav-side=bottom] body:has(.bottomnav) .dock { bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=bottom] body:has(.bottomnav) .dock-panel { bottom: calc(var(--nav-h) + 66px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=bottom] .player .toast { bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=bottom] .player .sticky-actions { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 8px); }
+  :root[data-nav-side=top] .player .bottomnav { top: var(--top-h, 52px); bottom: auto; border-top: 0; border-bottom: 1px solid var(--line-strong); transform: none; }
+  :root[data-nav-side=top] .player main { padding-top: var(--nav-h); }
+  :root[data-nav-side=top] body:has(.bottomnav) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root[data-nav-side=top] body:has(.bottomnav) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] body:has(.bottomnav) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] .player .toast { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] .player .sticky-actions { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] { scroll-padding-top: calc(var(--top-h, 52px) + var(--nav-h) + 16px); }
+
+  /* -- GM: the area rail (left or right) -- */
+  :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-rail { position: sticky; top: var(--top-h, 48px); left: auto; right: auto; bottom: auto; height: calc(var(--dvh100, 100dvh) - var(--top-h, 48px)); width: auto; flex: 0 0 var(--rail-w); flex-direction: column; gap: 6px; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 0; border-bottom: 0; z-index: 25; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-area { flex: 0 0 auto; min-height: 64px; justify-content: center; padding: 6px 2px; font-size: 12.5px; border-radius: 12px; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=left] .dmx-body { flex-direction: row; }
+  :root[data-nav-side=left] .dmx-rail { border-left: 0; border-right: 1px solid var(--line); }
+  :root[data-nav-side=right] .dmx-body { flex-direction: row-reverse; }
+  :root[data-nav-side=right] .dmx-rail { border-right: 0; border-left: 1px solid var(--line); }
+  :root[data-nav-side=right] body:has(.dmx-rail) .dock, :root[data-nav-side=right] body:has(.dmx-rail) .dock-panel { right: calc(var(--rail-w) + 12px); }
+
+  /* -- GM: the area bar (top or bottom) -- */
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx-rail { height: auto; width: auto; flex: none; flex-direction: row; gap: 2px; border-left: 0; border-right: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx-area { flex: 1 1 0; min-height: 52px; justify-content: center; padding: 6px 2px; font-size: 12px; border-radius: 8px; }
+  :root[data-nav-side=bottom] .dmx-body { flex-direction: row; }
+  :root[data-nav-side=bottom] .dmx-rail { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 30; padding: 2px 4px env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--line-strong); border-bottom: 0; }
+  :root[data-nav-side=bottom] body:has(.dmx-rail) { --dock-reserve: calc(132px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root[data-nav-side=bottom] body:has(.dmx-rail) .dock { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=bottom] body:has(.dmx-rail) .dock-panel { bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] .dmx-body { flex-direction: column; }
+  :root[data-nav-side=top] .dmx-rail { position: sticky; top: var(--top-h, 48px); left: auto; right: auto; bottom: auto; z-index: 25; padding: 2px 4px; border-top: 0; border-bottom: 1px solid var(--line-strong); }
+  :root[data-nav-side=top] .dmx-tabs { position: static; }
+  :root[data-nav-side=top] body:has(.dmx-rail) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  :root[data-nav-side=top] body:has(.dmx-rail) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-nav-side=top] body:has(.dmx-rail) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+}
+/* The position buttons (More > Edit tabs for players, the world menu for the GM). */
+.nav-side { display: flex; flex-wrap: wrap; gap: 6px; }
+.nav-side .btn { flex: 1 1 auto; }
+.dmx-menu .nav-side { padding: 0 8px 6px; }
+.dmx-menu-h { padding: 6px 8px 0; }
+
+/* Screen size (lib/uiZoom.tsx): this device's zoom, in the More sheet, the GM's world menu and the phone assistant. */
+.ui-zoom { display: flex; flex-direction: column; gap: 6px; }
+.ui-zoom-label { font-size: 14px; }
+.ui-zoom-row { display: flex; align-items: center; gap: 6px; }
+.ui-zoom-val { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent-strong); }
+.dmx-menu .ui-zoom { padding: 6px 8px; }
+.gmp .ui-zoom .btn { min-height: 48px; min-width: 48px; }

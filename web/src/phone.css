@@ -1,4 +1,4 @@
-/* The player app on a phone (<= 760px wide). Everything here is scoped to .player
+/* The player app on a phone (<= 760px wide; fold.css builds the foldable layout on top). Everything here is scoped to .player
    (the player layout), so the GM and admin screens keep their own look.
    Rules of thumb: text >= 14px (body 16px), touch targets >= 44px, inputs 16px
    (iOS zooms the page on anything smaller), nothing wider than the screen,
@@ -6,7 +6,7 @@
 :root { --nav-h: 58px; }
 
 /* The tab bar and More sheet (all widths: the bar itself only shows on phones). */
-.sheet.more { max-height: min(88dvh, calc(100dvh - 24px)); padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; }
+.sheet.more { max-height: min(88dvh, calc(var(--dvh100, 100dvh) - 24px)); padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; }
 .sheet-handle { width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); align-self: center; flex: 0 0 auto; margin: 2px 0 4px; }
 .sheet-top { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
 .sheet-top .input { flex: 1 1 auto; min-width: 0; }
@@ -31,7 +31,8 @@
 .more-note { min-height: 20px; }
 .modal-grip { display: none; }
 
-@media (max-width: 760px) {
+/* Also the Fold's inner screen held sideways (fold.css): touch sizes there too. */
+@media (max-width: 760px), (pointer: coarse) and (min-width: 761px) and (max-width: 1180px) and (min-aspect-ratio: 2/3) and (max-aspect-ratio: 3/2) {
   /* ---- shell ---- */
   .player { overflow-x: clip; }
   .player main { min-width: 0; }
@@ -85,6 +86,10 @@
   .player .tabs .btn { flex: 0 0 auto; }
   .player .list-item, .player button.list-item, .player a.list-item { min-height: 48px; padding: 8px 14px; }
   .player summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+  /* display:flex drops the open/closed triangle, so draw one (and keep a gap before a summary's note). */
+  .player summary { gap: 8px; flex-wrap: wrap; }
+  .player details > summary:not(.shop-line summary)::before { content: ''; flex: 0 0 auto; width: 7px; height: 7px; margin: 0 4px 0 2px; border: solid var(--muted); border-width: 0 2px 2px 0; transform: rotate(-45deg); transition: transform 0.15s; }
+  .player details[open] > summary:not(.shop-line summary)::before { transform: rotate(45deg); }
   .player .nav-link.small { min-height: 44px; }
 
   /* ---- layout: columns stack, tables scroll or become cards, media fits ---- */
@@ -100,7 +105,7 @@
 
   /* ---- pop-ups become bottom sheets ---- */
   .player .modal-back { align-items: flex-end; padding: 0; overflow: hidden; }
-  .player .modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; max-height: calc(100dvh - 24px - var(--safe-top)); overflow-y: auto; overscroll-behavior: contain; padding: 6px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transition: transform 0.1s; animation: sheet-up 0.18s ease-out; }
+  .player .modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; max-height: calc(var(--dvh100, 100dvh) - 24px - var(--safe-top)); overflow-y: auto; overscroll-behavior: contain; padding: 6px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transition: transform 0.1s; animation: sheet-up 0.18s ease-out; }
   .player .modal-grip { display: block; width: 56px; height: 24px; margin: 0 auto -6px; touch-action: none; cursor: grab; position: sticky; top: 0; z-index: 1; background: transparent; }
   .player .modal-grip::after { content: ''; display: block; width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); margin: 10px auto 0; }
   @keyframes sheet-up { from { transform: translateY(40px); opacity: 0.6; } to { transform: none; opacity: 1; } }

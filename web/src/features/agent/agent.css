@@ -2,7 +2,7 @@
 .ag-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 810; width: min(420px, 100vw); display: flex; flex-direction: column; background: var(--panel, #1C222D); border-left: 1px solid var(--line-strong, #5A4E33); box-shadow: -8px 0 28px rgba(0, 0, 0, 0.4); color: var(--text, #EDE3CF); }
 .ag-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .ag-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 10px; gap: 8px; }
-.ag-ask { display: flex; flex-direction: column; height: calc(100vh - 220px); min-height: 360px; }
+.ag-ask { display: flex; flex-direction: column; height: calc(var(--vh100, 100vh) - 220px); min-height: 360px; }
 .ag-msg .md > :first-child { margin-top: 0; }
 .ag-msg .md > :last-child { margin-bottom: 0; }
 .ag-cursor { display: inline-block; width: 7px; height: 1em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent); animation: ag-blink 1s steps(2, start) infinite; }

@@ -75,7 +75,8 @@ export default function WorkspacePage() {
   const nav = useNavigate();
   const parsed = useMemo(() => parse(loc.search), [loc.search]);
   const ws = parsed ?? DEFAULT;
-  const phone = useMedia('(max-width: 760px)');
+  // One pane on a phone; a foldable opened up (fold.css) gets the real workspace.
+  const phone = useMedia('(max-width: 599.98px), (max-width: 760px) and (max-aspect-ratio: 2/3), (max-width: 760px) and (min-aspect-ratio: 3/2)');
   const [live, setLive] = useState<number[] | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const hints = useRef(new Map<string, string>());

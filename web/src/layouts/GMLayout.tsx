@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, Navigate, Link, useLocation } from 'react-router-dom';
+import { Outlet, Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
+import { startsInPhone } from '../features/gmphone/hooks.ts';
 import { useAuth } from '../lib/auth.tsx';
 import { useWorld, useLoad } from '../lib/world.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
@@ -8,6 +9,8 @@ import { OPEN_EVENT } from '../features/search/SearchBox.tsx';
 import { ShareHost, openShare } from '../features/sourcekeys/ShareButton.tsx';
 import { setWorkspaceHidden, workspaceHidden } from '../lib/workspace.ts';
 import { GMRail, GMTabs } from './GMMenu.tsx';
+import { NavSidePicker, useNavSide, useTopHeight } from '../lib/navSide.tsx';
+import { ZoomPicker } from '../lib/uiZoom.tsx';
 import { SessionButton } from './SessionButton.tsx';
 
 // Search has its own wide box in this bar, so its small button is left out.
@@ -16,6 +19,18 @@ const TOPBARS = F.FEATURES.filter((f) => f.topbar && f.id !== 'search').map((f) 
 export function GMLayout() {
   const { info, isGM, w, connected } = useWorld();
   const inWorkspace = /\/gm\/ws\/?$/.test(useLocation().pathname);
+  const top = useRef<HTMLElement>(null);
+  const nav = useNavigate();
+  const path = useLocation().pathname;
+  // A device set to start in phone mode goes to the assistant once per app launch, from the GM's landing page only.
+  useEffect(() => {
+    let done = false;
+    try { done = sessionStorage.getItem('alx.gmphone.started') === '1'; sessionStorage.setItem('alx.gmphone.started', '1'); } catch { /* private mode */ }
+    if (!done && startsInPhone() && /\/gm\/?$/.test(path)) nav(`${path.replace(/\/$/, '')}/phone`, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useTopHeight(top);
+  useNavSide();
   const requests = useLoad(() => w.requests(), [w], ['request']);
   const approvals = useLoad(() => (isGM ? w.call<any>('GET', '/approvals') : Promise.resolve(null)), [w, isGM], ['approval', 'coin', 'item', 'item-removed']);
   if (!isGM) return <Navigate to={`/w/${info.slug}`} replace />;
@@ -26,13 +41,14 @@ export function GMLayout() {
   const badges = { inbox: waiting };
   return (
     <div className="t-fantasy gmx">
-      <header className="dmx-top">
+      <header className="dmx-top" ref={top}>
         <AccountMenu connected={connected} />
         <SessionButton />
         <button type="button" className="dmx-search" onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))} aria-keyshortcuts="/" data-testid="menu-find">
           <i className="fa-solid fa-magnifying-glass" aria-hidden="true" /><span>Find any page, person or setting</span><kbd aria-hidden="true">/</kbd>
         </button>
         <span className="dmx-end">
+          <Link to={`${base}/phone`} className="btn small dmx-phone-btn" aria-label="Phone mode: the pocket assistant" title="Phone mode" data-testid="to-phone"><i className="fa-solid fa-mobile-screen" aria-hidden="true" /> <span>Phone mode</span></Link>
           {TOPBARS.map((C, i) => <C key={i} />)}
           <button type="button" className="btn small" onClick={() => openShare()} data-testid="share-open"><i className="fa-solid fa-share-nodes" aria-hidden="true" /> <span>Share</span></button>
           <Link to={`${base}/inbox`} className="icon-btn" aria-label={waiting ? `Inbox, ${waiting} waiting` : 'Inbox'} title="Inbox"><i className="fa-solid fa-inbox" aria-hidden="true" />{waiting > 0 && <span className="nav-badge">{waiting}</span>}</Link>
@@ -78,6 +94,9 @@ function AccountMenu({ connected }: { connected: boolean }) {
           <Link role="menuitem" to="/">Your worlds</Link>
           {me?.account.is_admin && <Link role="menuitem" to="/admin">Library admin</Link>}
           <button type="button" role="menuitem" data-testid="ws-toggle" onClick={() => { setWorkspaceHidden(!workspaceHidden()); setOpen(false); }}>{workspaceHidden() ? 'Show workspaces' : 'Hide workspaces'}</button>
+          <ZoomPicker />
+          <span className="tiny faint dmx-menu-h">Menu on a phone or foldable</span>
+          <NavSidePicker />
           <button type="button" role="menuitem" onClick={() => void signOut()}>Sign out</button>
         </div>
       )}

@@ -12,6 +12,10 @@ const KIND_LABEL: Record<string, string> = {
   choice: 'Timed choice', vote: 'Party vote', reaction: 'Reaction', twist: 'Twist of fate',
 };
 
+/** "Perception check", "Dexterity saving throw". */
+const checkName = (ev: { kind: string; skill: string | null }) => (ev.kind === 'save' ? `${ev.skill} saving throw` : `${ev.skill} check`);
+const QE_CSS = `.qe-check { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-family: var(--font-head); font-size: 20px; font-weight: 700; letter-spacing: 0.02em; line-height: 1.2; min-width: 0; overflow-wrap: anywhere; } .qe-check i { font-size: 18px; } .qe-timer { font-size: 18px; padding: 4px 12px; }`;
+
 interface QE {
   id: string; kind: string; title: string; prompt: string; options: string[]; skill: string | null;
   timer_s: number | null; closes_at: string | null; status: string; created_at: string;
@@ -83,12 +87,14 @@ function Prompt({ ev, onClose, onAnswered }: { ev: QE; onClose: () => void; onAn
   return (
     <div className="modal-back">
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} style={{ borderColor: 'var(--accent)', borderWidth: 2 }}>
-        <div className="row between">
-          <span className="tiny" style={{ letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--accent)' }}>
-            {KIND_LABEL[ev.kind] ?? ev.kind}{ev.skill ? ` · ${ev.skill}` : ''}
-          </span>
+        <style>{QE_CSS}</style>
+        <div className="row between" style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
+          {/* What to roll is the first thing to read, big: a timer leaves no time to hunt for it. */}
+          {isCheck && ev.skill
+            ? <span className="qe-check" data-testid="qe-check"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> {checkName(ev)}</span>
+            : <span className="tiny" style={{ letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--accent)' }}>{KIND_LABEL[ev.kind] ?? ev.kind}{ev.skill ? ` · ${ev.skill}` : ''}</span>}
           {left !== null && !answered && (
-            <span role="timer" aria-live="off" aria-label={`${left} seconds left`} className="chip gold" style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+            <span role="timer" aria-live="off" aria-label={`${left} seconds left`} className="chip gold qe-timer" style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
               {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
             </span>
           )}
@@ -99,16 +105,17 @@ function Prompt({ ev, onClose, onAnswered }: { ev: QE; onClose: () => void; onAn
           </div>
         )}
         <h2 id={titleId} style={{ fontSize: 23 }}>{ev.title}</h2>
+        {isCheck && ev.skill && <span className="tiny faint" style={{ marginTop: -8 }}>{KIND_LABEL[ev.kind] ?? ev.kind}</span>}
         <p className="read">{ev.prompt}</p>
 
         {!answered && !resolved && !timeUp && (
           isCheck ? (
             <div className="stack">
               <div className="row">
-                <label className="field" style={{ width: 130 }}><span className="label">Your d20 roll</span>
+                <label className="field" style={{ width: 130 }}><span className="label">{ev.skill ? `d20 for ${ev.skill}` : 'Your d20 roll'}</span>
                   <input inputMode="numeric" value={roll} onChange={(e) => setRoll(e.target.value.replace(/\D/g, '').slice(0, 2))} placeholder="1–20" />
                 </label>
-                <label className="field" style={{ width: 110 }}><span className="label">Modifier</span>
+                <label className="field" style={{ width: 110 }}><span className="label">{ev.skill ? `${ev.skill} bonus` : 'Modifier'}</span>
                   <input inputMode="numeric" value={mod} onChange={(e) => setMod(e.target.value.replace(/[^\d-]/g, '').slice(0, 3))} />
                 </label>
               </div>

@@ -1,5 +1,5 @@
 /* The GM's frame: one bar on top, five areas on a rail, the area's pages as a strip. */
-.gmx { display: flex; flex-direction: column; min-height: 100vh; }
+.gmx { display: flex; flex-direction: column; min-height: var(--vh100, 100vh); }
 .dmx-top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 12px; background: var(--side); border-bottom: 1px solid var(--line); }
 .dmx-brand { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--accent); font-family: var(--font-head); font-size: 17px; font-weight: 700; letter-spacing: .04em; cursor: pointer; padding: 6px; border-radius: 6px; white-space: nowrap; }
 .dmx-brand > i { font-size: 10px; color: var(--faint); }
@@ -15,7 +15,7 @@
 .dmx-menu a, .dmx-menu button { padding: 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; text-decoration: none; cursor: pointer; }
 .dmx-menu a:hover, .dmx-menu button:hover { background: var(--accent-bg); }
 .dmx-body { display: flex; flex: 1; min-width: 0; }
-.dmx-rail { flex: 0 0 72px; position: sticky; top: 48px; height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; background: var(--side); border-right: 1px solid var(--line); }
+.dmx-rail { flex: 0 0 72px; position: sticky; top: 48px; height: calc(var(--vh100, 100vh) - 48px); display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; background: var(--side); border-right: 1px solid var(--line); }
 .dmx-area { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 9px 2px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 12px; }
 .dmx-area i { font-size: 17px; }
 .dmx-area:hover { background: var(--panel-2); }
@@ -35,7 +35,7 @@
 /* No hover on a touch screen: it would take taps meant for the tab. */
 @media (hover: none) { .dmx-beside { display: none; } }
 /* The workspace fills what the bar and the strip leave. */
-.gmx .main.main-ws { height: calc(100vh - 48px - 40px); padding-bottom: 0; }
+.gmx .main.main-ws { height: calc(var(--vh100, 100vh) - 48px - 40px); padding-bottom: 0; }
 .dmx-star { width: 30px; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; }
 .dmx-star[aria-pressed="true"] { color: var(--accent); }
 /* Denser pages: the page's own heading is already on the tab, so it is small. */
@@ -44,7 +44,7 @@
 .gmx .card { padding: 12px 14px; gap: 8px; } .gmx .card.flush { padding: 0; } .gmx .card.lib-view { padding: 0; }
 .gmx .empty { padding: 12px; }
 .gmx .lib-tree, .gmx .lib-flat { height: auto; max-height: none; }
-.gmx .lib-tree { height: calc(100vh - 250px); }
+.gmx .lib-tree { height: calc(var(--vh100, 100vh) - 250px); }
 .set-shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; }
 .set-nav { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 100px; }
 .set-list { display: flex; flex-direction: column; }
@@ -71,13 +71,19 @@
   .dmx-rail { position: fixed; left: 0; right: 0; bottom: 0; top: auto; height: auto; z-index: 30; flex-direction: row; padding: 2px 4px env(safe-area-inset-bottom, 0px); border-right: 0; border-top: 1px solid var(--line-strong); }
   .dmx-area { flex: 1; padding: 6px 2px; font-size: 11px; min-height: 48px; }
   .dmx-tabs { position: static; flex-wrap: nowrap; overflow-x: auto; } .dmx-tab { min-height: 40px; } .dmx-star { flex: 0 0 40px; height: 40px; }
-  .dmx-ws, .dmx-beside { display: none; } .gmx .main.main-ws { height: auto; min-height: 100vh; }
+  .dmx-ws, .dmx-beside { display: none; } .gmx .main.main-ws { height: auto; min-height: var(--vh100, 100vh); }
   .dmx-pop { position: fixed; left: 12px; right: 12px; top: 60px; width: auto; }
   body:has(.dmx-rail) { --dock-reserve: calc(132px + env(safe-area-inset-bottom, 0px)); }
   body:has(.dmx-rail) .dock { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
   body:has(.dmx-rail) .dock-panel { bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
   .set-shell { grid-template-columns: minmax(0, 1fr); } .set-nav { position: static; } .set-list { flex-direction: row; flex-wrap: wrap; } .set-link { min-height: 40px; }
-  .gmx .lib-tree { height: calc(100vh - 340px); }
+  .gmx .lib-tree { height: calc(var(--vh100, 100vh) - 340px); }
 }
 
 body.ws-hidden .dmx-beside { display: none; }
+
+/* Phone mode (the pocket assistant): a button in the top bar on phones and foldables (fold.css shows it). */
+.dmx-phone-btn { display: none; text-decoration: none; align-items: center; gap: 6px; }
+@media (max-width: 760px) { .dmx-end .dmx-phone-btn { display: inline-flex; } .dmx-phone-btn span { display: none; } }
+/* A narrow phone: the session button keeps only its dot or play icon, so Phone mode and the inbox still fit. */
+@media (max-width: 430px) { .dmx-session { position: relative; } .dmx-session > span:not(.live-dot):not(.au-rec-dot) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .dmx-session { padding: 0 10px; } .dmx-top { gap: 4px; } }

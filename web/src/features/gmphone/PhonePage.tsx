@@ -11,6 +11,7 @@ import RemoteTab from './RemoteTab.tsx';
 import QueueTab from './QueueTab.tsx';
 import AskTab from './AskTab.tsx';
 import NotesTab from './NotesTab.tsx';
+import { useNavSide } from '../../lib/navSide.tsx';
 import { buzz, lsGet, lsSet, useKeyboardInset, useShape, useUndo } from './hooks.ts';
 import { ACTIONS_CHANGED } from '../agent/Chat.tsx';
 import { SpokenNotice } from '../agent/aloud.tsx';
@@ -25,6 +26,7 @@ const LABELS: Record<Tab, string> = { now: 'Now', remote: 'Remote', queue: 'Inbo
 export default function PhonePage() {
   const { w, info, connected } = useWorld();
   const shape = useShape();
+  useNavSide();
   const key = `alx.gmphone.tab.${info.id}`;
   const [tab, setTab] = useState<Tab>(() => { const t = lsGet(key); return (TABS.some((x) => x[0] === t) ? t : 'now') as Tab; });
   const [seen, setSeen] = useState<Set<Tab>>(() => new Set<Tab>(['now', 'ask']));
@@ -88,7 +90,7 @@ export default function PhonePage() {
     <div ref={rootRef} className={`gmp${shape.wide ? ' wide' : ''}${kb ? ' kb' : ''}`} style={kb ? { bottom: kb } : undefined} data-testid="gmphone" data-layout={shape.wide ? 'two-pane' : 'one-pane'}>
       <div className="gmp-col">
         <header className="gmp-top">
-          <Link to={`/w/${info.slug}/gm`} className="b" style={{ padding: '0 10px', textDecoration: 'none' }} aria-label="Back to the desktop view"><i className="fa-solid fa-arrow-left" aria-hidden="true" /></Link>
+          <Link to={`/w/${info.slug}/gm`} className="b gmp-full" style={{ padding: '0 12px', textDecoration: 'none' }} aria-label="Full GM view" data-testid="to-full"><i className="fa-solid fa-table-columns" aria-hidden="true" /> <span>Full GM</span></Link>
           <span className="brand">{info.name}</span>
           <ModeBadge phone />
           <span className="date" data-testid="phone-date"><span className={`live-dot${connected ? '' : ' off'}`} style={{ marginRight: 6 }} />{sum.data?.date.label ?? ''}</span>
@@ -104,7 +106,8 @@ export default function PhonePage() {
             ))}
           </div>
           <nav className="gmp-tabs" role="tablist" aria-label="Phone assistant">
-            {TABS.map(([k, label, icon]) => (
+            {/* Two panes: Ask is always on screen, so it needs no tab. */}
+            {TABS.filter(([k]) => !(shape.wide && k === 'ask')).map(([k, label, icon]) => (
               <button key={k} type="button" role="tab" aria-selected={tab === k} className="gmp-tab" onClick={() => pick(k)} aria-label={badge(k) ? `${label}, ${badge(k)} waiting` : label}>
                 <i className={`fa-solid ${icon}`} aria-hidden="true" />{label}
                 {badge(k) > 0 && <span className="gmp-badge" aria-hidden="true">{badge(k)}</span>}
