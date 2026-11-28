@@ -34,7 +34,7 @@ export async function visionCheck(d: Deps): Promise<VisionCheck> {
     seen.set(key, { at: Date.now(), sees });
   }
   const why = sees === 'yes' ? `${c.model} can see pictures.`
-    : sees === 'no' ? `${c.model} cannot see pictures. Attach a model that can (for example Hy4 Flash, Gemma 3 or Qwen VL) to Map vision in Admin → Models.`
+    : sees === 'no' ? `${c.model} cannot see pictures. Attach a model that can (for example Hy4 Flash, Gemma 3 or Qwen VL) to Oracle (Map vision) in Admin → Models.`
     : `The provider does not say whether ${c.model} can see pictures; it is tried, and a model that cannot will answer badly.`;
   return { model: c.model, sees, why };
 }

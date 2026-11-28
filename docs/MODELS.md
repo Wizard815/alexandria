@@ -9,16 +9,23 @@ a feature.
 
 ## The jobs
 
+Each AI role has a name in the app (Admin → Models shows it next to the job):
+**Minerva** is the GM's assistant (`gm`), **Oracle** reads maps (`vision`, map
+vision), **Squire** is the players' small helper (`helper`), **Arbiter** ranks
+(`rerank`), **Historian** keeps the embeddings (`extra`) and **The Broker**
+answers what players ask (`player`). The job ids and `ALX_MODEL_*` variables
+keep their old names.
+
 | Job | Used for | Endpoint on the server |
 |---|---|---|
 | **chat** | GM agent, player Ask, broker answers, session summaries. Also the `/v1/models` and `/v1/chat/completions` passthrough. | `POST {base}/chat/completions` |
 | **audit** | The small model: question routing, spoiler checks, second opinions | `POST {base}/chat/completions` |
 | **audio** | Speech to text | `POST {base}/audio/transcriptions` |
 | **voice** | Text to speech (Speak menu, narration) | `POST {base}/audio/speech` |
-| **extra** | Embeddings for library search and broker matching. Also the `/v1/embeddings` passthrough. | `POST {base}/embeddings` |
-| **rerank** | Optional. Reorders the top 20 library search results and the agent's library matches. | `POST {base}/rerank` |
-| **helper** | Optional. The players' quick helper: a small second model (4B or less, under about 6 GB) for rules lookups, turn options and sheet summaries. Unset: the Players model, then Chat. See [The players' quick helper](#the-players-quick-helper-a-small-second-model). | `POST {base}/chat/completions` |
-| **vision** (part of chat) | Map vision: reads a map picture and says where its rooms are, so the assistant uncovers fog in the right place (`look_at_map`, then `reveal_fog`). Not set: the GM assistant's model. Before a picture is sent, the provider's `/models` list is checked: Argos `capabilities.vision`, or an `image` input modality (OpenRouter). A model listed without image input is never sent a map, and the GM is told to attach one that can see (Hy4 Flash, Gemma 3, Qwen VL). | `POST {base}/chat/completions` with an `image_url` part |
+| **extra** | Historian. Embeddings for library search and broker matching. Also the `/v1/embeddings` passthrough. | `POST {base}/embeddings` |
+| **rerank** | Arbiter. Optional. Reorders the top 20 library search results and the agent's library matches. | `POST {base}/rerank` |
+| **helper** | Squire. Optional. The players' quick helper: a small second model (4B or less, under about 6 GB) for rules lookups, turn options and sheet summaries. Unset: the Players model, then Chat. See [Squire, the players' quick helper](#squire-the-players-quick-helper-a-small-second-model). | `POST {base}/chat/completions` |
+| **vision** (part of chat) | Oracle. Map vision: reads a map picture and says where its rooms are, so the assistant uncovers fog in the right place (`look_at_map`, then `reveal_fog`). Not set: Minerva's model (the GM assistant). Before a picture is sent, the provider's `/models` list is checked: Argos `capabilities.vision`, or an `image` input modality (OpenRouter). A model listed without image input is never sent a map, and the GM is told to attach one that can see (Hy4 Flash, Gemma 3, Qwen VL). | `POST {base}/chat/completions` with an `image_url` part |
 
 ### Providers
 
@@ -308,7 +315,15 @@ Providers are independent, so a job can use any of them. Typical mixes:
 Whatever the mix, classified text is never sent to any model, cloud or
 local, main or fallback: `core/ai.ts` refuses the request before it leaves.
 
-## The players' quick helper (a small second model)
+## Squire, the players' quick helper (a small second model)
+
+Each player can name their Squire and give it a personality trait (Ask →
+Table helper → Quick help → *Your Squire*; `PUT /api/worlds/:w/helper/squire
+{ name, trait }`, up to 40 and 200 characters). The Squire answers in that
+personality. The trait changes only how it sounds: one that is blank, tries to
+change what it may say (ignore the rules, reveal secrets), would make answers
+unusable (only emojis, another language) or is unkind is not used, the card
+says why, and the Squire answers in its plain voice.
 
 The **Quick help** card sits above the table helper on a player's Ask page:
 **My turn**, **Sum up my sheet**, **What next?**, **Story so far** and a box
@@ -369,7 +384,7 @@ exactly what a player's helper is given at
 
 ### Setting it up
 
-Admin → Models → **Quick helper (small model)**: a provider pointing at the
+Admin → Models → **Squire (small player helper)**: a provider pointing at the
 small server, and its model name. Or use the environment:
 `ALX_MODEL_HELPER_URL`, `ALX_MODEL_HELPER_MODEL`, `ALX_MODEL_HELPER_KEY`,
 `ALX_MODEL_HELPER_OPTIONS`. Extra options that fit a small non-thinking model:

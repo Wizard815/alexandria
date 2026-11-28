@@ -27,7 +27,7 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'gm', label: 'From the GM', desc: 'Secret notes and goals the GM leaves for you', icon: 'fa-scroll' },
   { type: 'contacts', label: 'People', desc: 'Allies, enemies and everyone in between, linked to their pages', icon: 'fa-user-group' },
   { type: 'notes', label: 'Quick notes', desc: 'Jot things down during play', icon: 'fa-pen' },
-  { type: 'recent', label: 'Recently', desc: 'People, places and factions from the latest session summaries; ask the broker about them', icon: 'fa-clock-rotate-left' },
+  { type: 'recent', label: 'Recently', desc: 'People, places and factions from the latest session summaries; ask The Broker about them', icon: 'fa-clock-rotate-left' },
   { type: 'text', label: 'Text', desc: 'Any notes with your own title', icon: 'fa-align-left' },
   { type: 'counters', label: 'Counters', desc: 'Inspiration, hit dice, ammo, anything you count', icon: 'fa-hashtag' },
   { type: 'list', label: 'Checklist', desc: 'Goals, errands, things to remember', icon: 'fa-list-check' },

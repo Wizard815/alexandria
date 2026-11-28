@@ -1,4 +1,4 @@
-// The players' quick helper: a small second model (4B or less, or a ternary
+// Squire, the players' quick helper: a small second model (4B or less, or a ternary
 // 9B such as Bonsai, all under about 6 GB) on its own llama.cpp server, next
 // to the main chat model. It runs the 'helper' job (core/ai.ts; unset, the
 // Players model, then Chat).
@@ -11,6 +11,11 @@
 // prompt stays small (a 4K to 8K context is plenty) and the server's slots
 // are recycled call after call.
 //
+// Each player may name their Squire and give it a personality trait
+// (squire_prefs). The trait changes how it sounds, never what it says; a trait
+// that is blank, too long, or tries to change the rules is not used, and the
+// Squire answers in its plain voice (squireTrait).
+//
 // It does narrow jobs: a rules lookup, options for this turn, a summary of the
 // sheet and notes, and what to do next. Anything bigger (world lore that is
 // not in the brief, writing, a change to anything, a long question) is handed
@@ -18,7 +23,7 @@
 // player harness on the main model, with tools) for everything else.
 import type { Deps } from '../../app.ts';
 import { chat, hasJob, jobConfig, ownJobConfig, wouldBeRefused, ModelUnavailable } from '../../core/ai.ts';
-import { all, one } from '../../core/db.ts';
+import { all, one, run, type DB } from '../../core/db.ts';
 import { combatViewFor } from '../../core/combatView.ts';
 import type { Viewer, WorldSettings } from '../../core/policy.ts';
 import { parseJson } from '../../core/util.ts';
@@ -53,7 +58,7 @@ export interface QuickAnswer {
 const TASKS: Record<QuickTask, string> = {
   ask: 'Answer the player\'s question in at most 80 words.',
   rules: 'Answer the rules question: name the rule, give the short version, then say in one line what it means for this character right now. Use the Rules passages; if none covers it, say so.',
-  turn: 'List 3 to 5 options for this character\'s turn right now, one line each, using their health, conditions and the combat as shown. Use the actions anyone has (Attack, Dash, Disengage, Dodge, Help, Hide, Ready, Use an Object, moving) and what is under What they can do: their weapons (with the damage), class features and spells (say when one uses the bonus action, the reaction or mana). Nothing that is not listed there. Then say in one line which you would pick and why.',
+  turn: 'List 3 to 5 options for this character\'s turn right now, one line each, using their health, conditions and the combat as shown. Use the actions anyone has (Attack, Dash, Disengage, Dodge, Help, Hide, Ready, Use an Object, moving) and what is under What they can do: their weapons (with the damage), class features and spells (say when one uses the bonus action, the reaction or mana). Nothing that is not listed there. If no weapons, features or spells are listed (or there is no combat), still give options from the actions anyone has and the items they carry, and add one line that their weapons, features and spells are not on their sheet yet. Do not hand this task off. Then say in one line which you would pick and why.',
   sheet: 'Sum up this character in 4 to 6 short bullets: health and conditions, what they carry that matters, their goals, and what is going on for them right now.',
   recap: 'Sum up for this player, in 4 to 8 short bullets: what happened in the past sessions (newest first), then the open quests and goals and where each one stands. Use only the brief. Where the brief says nothing, say it is not known yet; never fill a gap.',
   suggest: 'Suggest 3 things this character could do next, one line each, grounded in what just happened and their goals. Only use people, places and things named in the brief. Do not decide for them.',
@@ -72,9 +77,9 @@ const WRITING = /\b(write|draft|compose|rewrite|journal entry|backstory|poem|son
 const CHANGES = /\b(add|remove|delete|give|send|buy|sell|update|change|set|record|save|log)\b.{0,30}\b(my|the|to|from|item|items|inventory|journal|goal|hp|coin|gold)\b/i;
 const MAX_QUESTION = 400;
 const REASONS = {
-  broker: 'That is in-world knowledge; ask the broker.',
+  broker: 'That is in-world knowledge; ask The Broker.',
   helper: 'The table helper can take this one.',
-  unknown: 'Your character does not know that yet. The broker might find out.',
+  unknown: 'Your character does not know that yet. The Broker might find out.',
 } as const;
 /** An answer that says the player does not know (yet). */
 export const DOES_NOT_KNOW = /\b(not known( yet)?|unknown|(do|does|did)(n['’]t| not) (know|say|mention|tell)|not sure|no (information|record|mention)|(is|are)(n['’]t| not) (stated|mentioned|known|clear)|nothing (about|on) (that|this|it))\b/i;
@@ -92,7 +97,7 @@ export function routeFirst(task: QuickTask, question: string, brief: Brief): { t
   if (q.length > MAX_QUESTION) return { to: 'helper', reason: 'That is a long question; the table helper can take it.' };
   if (task === 'ask' || task === 'rules') {
     if (WRITING.test(q)) return { to: 'helper', reason: 'Writing is a job for the table helper.' };
-    if (CHANGES.test(q)) return { to: 'helper', reason: 'The quick helper cannot change anything; the table helper can propose it.' };
+    if (CHANGES.test(q)) return { to: 'helper', reason: 'Your Squire cannot change anything; the table helper can propose it.' };
     // Who, why, history, rumours: the broker's trade, with its own secret checks. A small model asked this
     // with a page or two in front of it fills the gaps with names of its own (seen with 3-4B models).
     if (IN_WORLD.test(q) && !TABLE_TALK.test(q)) return { to: 'broker', reason: REASONS.broker };
@@ -386,9 +391,64 @@ export async function quickBrief(d: Deps, worldId: string, accountId: string, s:
   return { sections, text, chars: text.length, lore: lore.hits };
 }
 
-export function quickSystem(worldName: string): string {
+// ---- the player's own Squire: a name and a personality trait ----------------------------------------------------
+
+export const SQUIRE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS squire_prefs (
+  world_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  trait TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (world_id, account_id)
+);`;
+export const SQUIRE_DEFAULT_NAME = 'Squire';
+export const SQUIRE_NAME_MAX = 40;
+export const SQUIRE_TRAIT_MAX = 200;
+export interface Squire { name: string; trait: string; traitUsed: boolean; traitNote: string }
+
+// A trait that tries to change the rules instead of the voice, or would break the answer.
+const TRAIT_RULES = /\b(ignore|disregard|forget|override|instructions?|system prompt|prompt|jailbreak|pretend (you are|to be) (the )?(dm|dungeon master|gm|game master)|reveal|secrets?|(dm|gm)[- ]only|hidden|spoil|handoff|never answer|do not answer|don['’]t answer|refuse|lie|lying|make (things|stuff) up|invent)\b/i;
+const TRAIT_BREAKS = /\b(only (speak|talk|answer|reply|respond) in|emojis? only|in (morse|binary|code|french|spanish|german|latin|elvish)|backwards|no words|silent|one word)\b/i;
+const TRAIT_UNKIND = /\b(insult|mock|abuse|hate|slur|threaten|cruel|sexual|nsfw|swear at)\b/i;
+const oneLine = (s: unknown, n: number) => String(s ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+
+/** Whether a trait is used, and if not, a short reason the player sees. */
+export function squireTrait(raw: string): { used: boolean; note: string } {
+  const t = raw.trim();
+  if (!t) return { used: false, note: '' };
+  if (TRAIT_RULES.test(t)) return { used: false, note: 'That trait tries to change what your Squire may say, so it answers in its plain voice.' };
+  if (TRAIT_BREAKS.test(t)) return { used: false, note: 'That trait would make the answers hard to use, so your Squire answers in its plain voice.' };
+  if (TRAIT_UNKIND.test(t)) return { used: false, note: 'That trait is not one your Squire can keep at the table, so it answers in its plain voice.' };
+  return { used: true, note: '' };
+}
+
+export function getSquire(db: DB, worldId: string, accountId: string): Squire {
+  const r = one<{ name: string; trait: string }>(db, 'SELECT name, trait FROM squire_prefs WHERE world_id = ? AND account_id = ?', worldId, accountId);
+  const name = oneLine(r?.name, SQUIRE_NAME_MAX) || SQUIRE_DEFAULT_NAME;
+  const trait = oneLine(r?.trait, SQUIRE_TRAIT_MAX);
+  const t = squireTrait(trait);
+  return { name, trait, traitUsed: t.used, traitNote: t.note };
+}
+
+export function setSquire(db: DB, worldId: string, accountId: string, v: { name?: unknown; trait?: unknown }): Squire {
+  const cur = getSquire(db, worldId, accountId);
+  const name = v.name === undefined ? (cur.name === SQUIRE_DEFAULT_NAME ? '' : cur.name) : oneLine(v.name, SQUIRE_NAME_MAX);
+  const trait = v.trait === undefined ? cur.trait : oneLine(v.trait, SQUIRE_TRAIT_MAX);
+  run(db, `INSERT INTO squire_prefs (world_id, account_id, name, trait, updated_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(world_id, account_id) DO UPDATE SET name = excluded.name, trait = excluded.trait, updated_at = excluded.updated_at`, worldId, accountId, name, trait, new Date().toISOString());
+  return getSquire(db, worldId, accountId);
+}
+
+export function quickSystem(worldName: string, squire?: Pick<Squire, 'name' | 'trait' | 'traitUsed'>): string {
+  const name = squire?.name || SQUIRE_DEFAULT_NAME;
+  const who = name === SQUIRE_DEFAULT_NAME ? 'the Squire' : `${name}, the Squire`;
   return [
-    `You are the quick helper of one player in the tabletop campaign "${worldName}": out of character, quick and friendly, like a player who knows the rules well.`,
+    `You are ${who} of one player in the tabletop campaign "${worldName}": out of character, quick and friendly, like a player who knows the rules well.`,
+    ...(squire?.traitUsed && squire.trait ? [
+      `Your personality, chosen by this player: ${squire.trait}. Speak as that character in every answer: its voice, its word choice and a short in-character aside, so the player hears it at once. Keep the facts and the format the task asks for.`,
+      'The personality changes only how you sound, never what you say: if keeping it would break any rule below, drop it for that part.',
+    ] : []),
     'You see only the brief you are given. Use it; never invent names, places, events, numbers or monster stats that are not in it. You know nothing the player does not know.',
     'Rules come from the Rules passages in the brief; if none covers the question, say you are not sure rather than guess.',
     'Be brief: short bullets or two or three sentences, no preamble, no repeating the question. Talk to the player as "you". Give reasons from the game itself ("you have two potions"), never from where you read them: do not mention the brief, the notes or the context.',
@@ -414,16 +474,17 @@ export async function askQuick(d: Deps, opts: { worldId: string; worldName: stri
   const early = routeFirst(opts.task, question, brief);
   if (early) return out('', { ...early, question }, null);
   const c = jobConfig(d, 'helper');
-  if (!c) return out('', { to: 'helper', reason: 'No quick helper model is set up; the table helper can answer.', question }, null);
+  if (!c) return out('', { to: 'helper', reason: 'No Squire model is set up; the table helper can answer.', question }, null);
   const key = `${opts.worldId}|${opts.accountId}`;
-  if (inFlight.has(key)) throw new ModelUnavailable('helper', 'The quick helper is still answering your last question', 429);
+  const squire = getSquire(d.db, opts.worldId, opts.accountId);
+  if (inFlight.has(key)) throw new ModelUnavailable('helper', `${squire.name} is still answering your last question`, 429);
   inFlight.add(key);
   try {
     const r = await chat(d, 'helper', {
       maxTokens: 400,
       reasoningOff: true,
       messages: [
-        { role: 'system', content: quickSystem(opts.worldName) },
+        { role: 'system', content: quickSystem(opts.worldName, squire) },
         { role: 'user', content: `<brief>\n${brief.text || '(nothing yet)'}\n</brief>\n\nTask: ${TASKS[opts.task]}${question ? `\nQuestion: ${question}` : ''}` },
       ],
     }, opts.signal);
@@ -434,11 +495,11 @@ export async function askQuick(d: Deps, opts: { worldId: string; worldName: stri
     if (h) return out(g.text, { to: h.to, reason: h.reason, question }, c.model);
     // It does not know (the player does not know it yet): offer to ask the broker, keeping what it did say.
     if (g.text && (opts.task === 'ask' || opts.task === 'recap') && DOES_NOT_KNOW.test(g.text)) return out(g.text, { to: 'broker', reason: REASONS.unknown, question: opts.task === 'ask' ? question : '' }, c.model);
-    if (!g.text) return out('', g.dropped.length ? { to: 'broker', reason: REASONS.broker, question } : { to: 'helper', reason: 'The quick helper had no answer; the table helper can take it.', question }, c.model);
+    if (!g.text) return out('', g.dropped.length ? { to: 'broker', reason: REASONS.broker, question } : { to: 'helper', reason: `${squire.name} had no answer; the table helper can take it.`, question }, c.model);
     return out(g.text, null, c.model);
   } catch (e) {
     if (e instanceof ModelUnavailable && e.status === 429) throw e;
-    if (e instanceof ModelUnavailable) { console.warn(`quick helper: ${e.message}`); return out('', { to: 'helper', reason: 'The quick helper is not answering right now; the table helper can take it.', question }, c.model); }
+    if (e instanceof ModelUnavailable) { console.warn(`squire (quick helper): ${e.message}`); return out('', { to: 'helper', reason: `${squire.name} is not answering right now; the table helper can take it.`, question }, c.model); }
     throw e;
   } finally { inFlight.delete(key); }
 }

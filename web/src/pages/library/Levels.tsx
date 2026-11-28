@@ -25,7 +25,7 @@ export function LevelChip({ level, all }: { level: unknown; all?: boolean }) {
 export function ClassifiedFrame() {
   return (
     <div className="lvl-frame" role="note">
-      <i className="fa-solid fa-lock" aria-hidden="true" /> <strong>Classified: never shared with any AI.</strong> Players, the broker and every model or MCP client are kept from it. Only you see it here.
+      <i className="fa-solid fa-lock" aria-hidden="true" /> <strong>Classified: never shared with any AI.</strong> Players, The Broker and every model or MCP client are kept from it. Only you see it here.
     </div>
   );
 }

@@ -47,17 +47,17 @@ interface Row {
 }
 
 const USES: Record<Job, string> = {
-  chat: 'GM agent, player Ask, broker answers, summaries',
+  chat: 'Minerva, player Ask, The Broker’s answers, summaries',
   audit: 'Question routing and spoiler checks (small model)',
   audio: 'Speech to text',
   voice: 'Text to speech',
-  extra: 'Embeddings for search and matching',
-  rerank: 'Optional: reorders the top search results (stays out of the way when slow)',
-  gm: 'The GM’s assistant. Not set: the Chat model',
-  player: 'What players ask: the broker and their helper. Not set: the Chat model',
+  extra: 'Historian: embeddings for search and matching',
+  rerank: 'Arbiter (optional): ranks the top search results and lists such as downtime activities (stays out of the way when slow)',
+  gm: 'Minerva, the GM’s assistant. Not set: the Chat model',
+  player: 'What players ask: The Broker and their table helper. Not set: the Chat model',
   bible: 'Reading pages for the story bible. Not set: the Chat model',
-  helper: 'The players’ quick helper: a small model (4B or less) for rules, turn options and sheet summaries. Not set: the Players model',
-  vision: 'Map vision: a model that can see pictures reads a map (where the rooms are) so the assistant uncovers fog in the right place. Not set: the GM assistant model, if it can see pictures',
+  helper: 'Squire, the players’ quick helper: a small model (4B or less) for rules, turn options and sheet summaries. Not set: The Broker (players) model',
+  vision: 'Oracle, map vision: a model that can see pictures reads a map (where the rooms are) so the assistant uncovers fog in the right place. Not set: Minerva’s model (the GM assistant), if it can see pictures',
 };
 
 const saved = (d: Deps, job: Job) => one<Row>(d.db, 'SELECT * FROM models_jobs WHERE job = ?', job);

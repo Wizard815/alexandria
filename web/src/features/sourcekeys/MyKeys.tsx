@@ -51,7 +51,7 @@ export default function MyKeys() {
           </section>
         ))}
       </div>
-      <h2 style={{ marginTop: 24 }}>My questions to the broker</h2>
+      <h2 style={{ marginTop: 24 }}>My questions to The Broker</h2>
       <Questions />
       {adding && d && <AddKey sources={d.sources} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void data.reload(); }} />}
       {toastNode}
