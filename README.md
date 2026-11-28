@@ -77,6 +77,15 @@ The librarian is an MCP server at `/mcp`.
 Keys are stored only as hashes and shown once. Read keys refuse every
 write, and a write key stops writing if its owner stops being the GM.
 
+## Biblio: a world library Alexandria hosts itself
+
+No LegendKeeper or Kanka? Write the world in **Biblio** (open `/biblio`):
+articles with templates and infoboxes, GM-only fields and secret callouts,
+nested pages, `[[links]]` with backlinks, a timeline, history with restore,
+a trash, and player suggestions. Players read what you share, and every
+assistant reads and writes it through tools. *Copy all into Biblio* brings a
+world over from any source. See [docs/BIBLIO.md](docs/BIBLIO.md).
+
 ## World sources
 
 Alexandria imports any world that has an API or files. It has connectors

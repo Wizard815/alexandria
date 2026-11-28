@@ -236,6 +236,7 @@ export default function sourceRoutes(d: Deps) {
   r.delete('/sources/:sid', (req, res) => {
     const s = one<any>(db, 'SELECT * FROM sources WHERE id = ?', String(req.params.sid));
     if (!s) throw new HttpError(404, 'Source not found');
+    if (s.kind === 'biblio') throw new HttpError(409, "Biblio is this world's own library, kept in Alexandria: it is not removed with the sources. Move its articles to the trash in Biblio instead.");
     stopSync(s.id);
     if (req.query.pages) d.library.removeMissing(s.world_id, s.id, new Set());
     run(db, 'DELETE FROM sources WHERE id = ?', s.id);

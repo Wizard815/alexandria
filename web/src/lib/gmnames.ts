@@ -39,6 +39,7 @@ export const GM_NAMES: Record<string, GMName> = {
   calendar: { group: 'players', label: 'Game nights', icon: 'fa-calendar-days', desc: 'Real-life sessions: RSVPs and rescheduling.' },
 
   library: { group: 'world', label: 'Library', icon: 'fa-book', desc: 'Every page in the world, searchable. Share pages, files and folders with players.' },
+  biblio: { group: 'world', label: 'Biblio', icon: 'fa-book-atlas', desc: 'Your world’s own library, kept in Alexandria: articles, templates, timeline and history.' },
   people: { group: 'world', label: 'People', icon: 'fa-user-group', desc: 'Everyone the party has met.' },
   relations: { group: 'world', label: 'Relations', icon: 'fa-diagram-project', desc: 'Who is related to, or a member of, whom.' },
   map: { group: 'world', label: 'Map', icon: 'fa-map', desc: 'Pins and notes on the map; hide or erase any.' },

@@ -57,6 +57,8 @@ export type Block =
 export interface Entry {
   /** Stable id within the source (never the title: titles repeat). */
   externalId: string;
+  /** The library page id to use if the page is new (a page that comes back keeps its id). Ignored when that id is taken. */
+  pageId?: string | null;
   parentExternalId?: string | null;
   /** Folder path for the file browser, e.g. ["Japan", "People"]. */
   folder?: string[];

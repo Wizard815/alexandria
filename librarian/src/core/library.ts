@@ -321,7 +321,8 @@ export class Library {
         run(this.db, `UPDATE pages SET title = ?, visibility = ?, frontmatter = ?, body = ?, blocks = ?, origin = ?, parent_external = ?, folder = ?, aliases = ?, tags = ?, kind = ?, icon = ?, banner = ?, url = ?,
           knowledge = ?, properties = ?, position = ?, updated_at = ?, updated_by = ?, source_level = ?, marker_level = ?, ${CLEAR_COPIES} WHERE id = ?`, ...vals, pid);
       } else {
-        pid = id('pg_');
+        // A page that comes back (a Biblio article out of the trash) keeps its old id, so links, shares and people still find it.
+        pid = e.pageId && /^pg_[\w-]{6,40}$/.test(e.pageId) && !one(this.db, 'SELECT 1 FROM pages WHERE id = ?', e.pageId) ? e.pageId : id('pg_');
         run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, position, updated_at, updated_by, source_level, marker_level, id, world_id, path, source_id, external_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
       }
@@ -553,7 +554,7 @@ export class Library {
    * that is not stored falls back to the resource's first page.
    */
   private resolverCache = new Map<string, { rev: number; R: ReturnType<Library['buildResolver']> }>();
-  private resolver(worldId: string) {
+  resolver(worldId: string) {
     const hit = this.resolverCache.get(worldId);
     if (hit && hit.rev === this.pagesRev) return hit.R;
     const R = this.buildResolver(worldId);
@@ -1159,6 +1160,7 @@ export function sourceApp(kind: string | null): string {
   if (k.startsWith('kanka') || k === 'mcp:kanka') return 'kanka';
   if (k.startsWith('worldanvil')) return 'worldanvil';
   if (k.startsWith('notion')) return 'notion';
+  if (k === 'biblio') return 'biblio';
   if (k === 'obsidian-publish') return 'obsidian-publish';
   if (k === 'obsidian-portal') return 'obsidian-portal';
   if (['markdown-folder', 'vault', 'git', 'mcp-files', 'obsidian-sync', 'obsidian-rest'].includes(k)) return 'markdown';
@@ -1177,5 +1179,5 @@ export function safeSourceUrl(u: unknown): string | null {
 }
 
 function slugPart(s: string) {
-  return String(s).normalize('NFKC').replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').replace(/^\.+/, '').trim().slice(0, 80) || 'page';
+  return String(s).normalize('NFKC').replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').trim().replace(/^[.\s]+/, '').trim().slice(0, 80) || 'page';
 }

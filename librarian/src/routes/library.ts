@@ -16,6 +16,10 @@ import { readOnOpen, readSearchHits } from '../features/connections/ondemand.ts'
 import { allShares, shareRoutes } from '../features/sourcekeys/share.ts';
 import { logSearch, roleOf } from '../features/gatewaystatus/searchlog.ts';
 
+const biblioPage = (d: Deps, worldId: string, pagePath: string): boolean => {
+  try { return !!d.db.prepare(`SELECT 1 FROM pages p JOIN sources s ON s.id = p.source_id WHERE p.world_id = ? AND p.path = ? AND s.kind = 'biblio'`).get(worldId, pagePath); } catch { return false; }
+};
+
 export default function libraryRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const L = d.library;
@@ -85,6 +89,8 @@ export default function libraryRoutes(d: Deps) {
     // A model never saw classified text, so what it writes must not replace a page that holds some.
     const target = typeof b.path === 'string' ? safePagePath(b.path) : '';
     if (c.viewer.audience === 'ai' && target && L.hasClassified(c.world.id, target)) throw new HttpError(409, 'This page holds classified content that no AI can see. Edit it in the app.');
+    // A Biblio article's page is written by Biblio: a page saved over it here would be lost on its next save.
+    if (target && biblioPage(d, c.world.id, target)) throw new HttpError(409, 'This page is a Biblio article: change it in Biblio (PATCH /biblio/articles/<id>, or the biblio_write tool).');
     const saved = L.save(c.world.id, { path: str(b.path, 'path', { max: 300 }), title: b.title, body, frontmatter: fm, visibility: b.visibility ?? fm.visibility }, me(res));
     audit(d.db, c.world.id, me(res), 'page.save', `${saved.path} ${saved.visibility}`);
     d.hub.emit(c.world.id, 'page', { id: saved.id, path: saved.path, title: saved.title }, (v) => v.role === 'gm' || saved.visibility === 'party');
@@ -103,6 +109,8 @@ export default function libraryRoutes(d: Deps) {
 
   r.delete('/pages/:id', requireGM, (req, res) => {
     const c = ctx(res);
+    const pg = d.db.prepare('SELECT path FROM pages WHERE world_id = ? AND id = ?').get(c.world.id, String(req.params.id)) as { path: string } | undefined;
+    if (pg && biblioPage(d, c.world.id, pg.path)) throw new HttpError(409, 'This page is a Biblio article: move it to the trash in Biblio (DELETE /biblio/articles/<id>, or the biblio_trash tool).');
     L.remove(c.world.id, String(req.params.id));
     audit(d.db, c.world.id, me(res), 'page.delete', String(req.params.id));
     res.json({ ok: true });
