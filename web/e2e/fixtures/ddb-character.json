@@ -1,0 +1,486 @@
+{
+ "id": 87654321,
+ "success": true,
+ "message": "Character successfully received.",
+ "data": {
+  "id": 87654321,
+  "name": "Brindle Ashvale",
+  "readonlyUrl": "https://www.dndbeyond.com/characters/87654321",
+  "race": {
+   "fullName": "Hill Dwarf",
+   "baseName": "Dwarf",
+   "weightSpeeds": {
+    "normal": {
+     "walk": 25
+    }
+   },
+   "racialTraits": [
+    {
+     "definition": {
+      "name": "Darkvision"
+     }
+    },
+    {
+     "definition": {
+      "name": "Dwarven Resilience"
+     }
+    }
+   ]
+  },
+  "spellSlots": [
+   {
+    "level": 1,
+    "used": 3,
+    "available": 0
+   },
+   {
+    "level": 2,
+    "used": 0,
+    "available": 0
+   }
+  ],
+  "inspiration": true,
+  "traits": {
+   "personalityTraits": "Reads at the table.",
+   "ideals": "Knowledge.",
+   "bonds": "My spellbook.",
+   "flaws": "Too curious."
+  },
+  "notes": {
+   "backstory": "Raised in a library.\nLeft to find a lost page."
+  },
+  "actions": {
+   "class": [
+    {
+     "name": "Arcane Recovery",
+     "limitedUse": {
+      "maxUses": 1,
+      "numberUsed": 0,
+      "resetType": 2
+     }
+    },
+    {
+     "name": "Second Wind",
+     "limitedUse": {
+      "maxUses": 1,
+      "numberUsed": 1,
+      "resetType": 1
+     }
+    },
+    {
+     "name": "Not counted",
+     "limitedUse": null
+    }
+   ],
+   "race": [],
+   "feat": [
+    {
+     "name": "Lucky",
+     "limitedUse": {
+      "maxUses": 0,
+      "useProficiencyBonus": true,
+      "numberUsed": 1,
+      "resetType": 2
+     }
+    }
+   ]
+  },
+  "background": {
+   "definition": {
+    "name": "Sage"
+   }
+  },
+  "alignmentId": 2,
+  "classes": [
+   {
+    "level": 4,
+    "isStartingClass": true,
+    "hitDiceUsed": 1,
+    "definition": {
+     "name": "Wizard",
+     "hitDice": 6,
+     "spellCastingAbilityId": 4,
+     "canCastSpells": true,
+     "spellRules": {
+      "multiClassSpellSlotDivisor": 1,
+      "multiClassSpellSlotRounding": 1,
+      "levelSpellSlots": [
+       [],
+       [
+        2
+       ],
+       [
+        3
+       ],
+       [
+        4,
+        2
+       ],
+       [
+        4,
+        3
+       ]
+      ]
+     }
+    },
+    "classFeatures": [
+     {
+      "definition": {
+       "name": "Arcane Recovery",
+       "requiredLevel": 1
+      }
+     },
+     {
+      "definition": {
+       "name": "Spellcasting",
+       "requiredLevel": 1
+      }
+     },
+     {
+      "definition": {
+       "name": "Ability Score Improvement",
+       "requiredLevel": 4
+      }
+     },
+     {
+      "definition": {
+       "name": "Arcane Tradition Feature",
+       "requiredLevel": 6
+      }
+     }
+    ],
+    "subclassDefinition": {
+     "name": "School of Evocation",
+     "classFeatures": [
+      {
+       "definition": {
+        "name": "Sculpt Spells",
+        "requiredLevel": 2
+       }
+      }
+     ]
+    }
+   },
+   {
+    "level": 1,
+    "definition": {
+     "name": "Fighter",
+     "hitDice": 10,
+     "spellCastingAbilityId": null,
+     "canCastSpells": false
+    },
+    "subclassDefinition": null,
+    "classFeatures": [
+     {
+      "definition": {
+       "name": "Second Wind",
+       "requiredLevel": 1
+      }
+     }
+    ]
+   }
+  ],
+  "stats": [
+   {
+    "id": 1,
+    "value": 10
+   },
+   {
+    "id": 2,
+    "value": 14
+   },
+   {
+    "id": 3,
+    "value": 13
+   },
+   {
+    "id": 4,
+    "value": 15
+   },
+   {
+    "id": 5,
+    "value": 12
+   },
+   {
+    "id": 6,
+    "value": 8
+   }
+  ],
+  "bonusStats": [
+   {
+    "id": 1,
+    "value": null
+   },
+   {
+    "id": 2,
+    "value": null
+   },
+   {
+    "id": 3,
+    "value": null
+   },
+   {
+    "id": 4,
+    "value": 1
+   },
+   {
+    "id": 5,
+    "value": null
+   },
+   {
+    "id": 6,
+    "value": null
+   }
+  ],
+  "overrideStats": [
+   {
+    "id": 1,
+    "value": null
+   },
+   {
+    "id": 2,
+    "value": null
+   },
+   {
+    "id": 3,
+    "value": null
+   },
+   {
+    "id": 4,
+    "value": null
+   },
+   {
+    "id": 5,
+    "value": null
+   },
+   {
+    "id": 6,
+    "value": null
+   }
+  ],
+  "baseHitPoints": 32,
+  "bonusHitPoints": null,
+  "overrideHitPoints": null,
+  "removedHitPoints": 7,
+  "temporaryHitPoints": 3,
+  "modifiers": {
+   "race": [
+    {
+     "type": "bonus",
+     "subType": "constitution-score",
+     "value": 2
+    },
+    {
+     "type": "bonus",
+     "subType": "wisdom-score",
+     "value": 1
+    },
+    {
+     "type": "bonus",
+     "subType": "hit-points-per-level",
+     "value": 1
+    },
+    {
+     "type": "language",
+     "subType": "common",
+     "friendlySubtypeName": "Common"
+    },
+    {
+     "type": "language",
+     "subType": "dwarvish",
+     "friendlySubtypeName": "Dwarvish"
+    }
+   ],
+   "class": [
+    {
+     "type": "proficiency",
+     "subType": "intelligence-saving-throws"
+    },
+    {
+     "type": "proficiency",
+     "subType": "wisdom-saving-throws"
+    },
+    {
+     "type": "proficiency",
+     "subType": "arcana"
+    },
+    {
+     "type": "expertise",
+     "subType": "history"
+    }
+   ],
+   "background": [
+    {
+     "type": "language",
+     "subType": "common",
+     "friendlySubtypeName": "Common"
+    }
+   ],
+   "item": [
+    {
+     "type": "bonus",
+     "subType": "armor-class",
+     "value": 1
+    }
+   ],
+   "feat": [],
+   "condition": []
+  },
+  "inventory": [
+   {
+    "quantity": 1,
+    "equipped": true,
+    "definition": {
+     "name": "Leather Armor",
+     "armorClass": 11,
+     "armorTypeId": 1,
+     "filterType": "Armor"
+    }
+   },
+   {
+    "quantity": 1,
+    "equipped": true,
+    "definition": {
+     "name": "Shield",
+     "armorClass": 2,
+     "armorTypeId": 4,
+     "filterType": "Armor"
+    }
+   },
+   {
+    "quantity": 1,
+    "equipped": false,
+    "definition": {
+     "name": "Plate Armor",
+     "armorClass": 18,
+     "armorTypeId": 3,
+     "filterType": "Armor"
+    }
+   },
+   {
+    "quantity": 20,
+    "equipped": false,
+    "definition": {
+     "name": "Crossbow Bolts",
+     "filterType": "Other Gear"
+    }
+   },
+   {
+    "quantity": 1,
+    "equipped": true,
+    "definition": {
+     "name": "Dagger",
+     "filterType": "Weapon",
+     "attackType": 1,
+     "range": 20,
+     "longRange": 60,
+     "damage": {
+      "diceString": "1d4"
+     },
+     "damageType": "Piercing",
+     "properties": [
+      {
+       "name": "Finesse"
+      },
+      {
+       "name": "Thrown"
+      }
+     ]
+    }
+   },
+   {
+    "quantity": 1,
+    "equipped": true,
+    "definition": {
+     "name": "Light Crossbow +1",
+     "filterType": "Weapon",
+     "attackType": 2,
+     "range": 80,
+     "longRange": 320,
+     "damage": {
+      "diceString": "1d8"
+     },
+     "damageType": "Piercing",
+     "grantedModifiers": [
+      {
+       "type": "bonus",
+       "subType": "magic",
+       "value": 1
+      }
+     ]
+    }
+   },
+   {
+    "quantity": 1,
+    "equipped": true,
+    "definition": {
+     "name": "Ring of Protection",
+     "filterType": "Ring"
+    }
+   }
+  ],
+  "currencies": {
+   "cp": 12,
+   "sp": 0,
+   "gp": 85,
+   "ep": 0,
+   "pp": 1
+  },
+  "conditions": [
+   {
+    "id": 11,
+    "level": null
+   },
+   {
+    "id": 4,
+    "level": 2
+   }
+  ],
+  "feats": [
+   {
+    "definition": {
+     "name": "Tough"
+    }
+   }
+  ],
+  "classSpells": [
+   {
+    "characterClassId": 1,
+    "spells": [
+     {
+      "definition": {
+       "name": "Magic Missile",
+       "level": 1
+      }
+     },
+     {
+      "definition": {
+       "name": "Fire Bolt",
+       "level": 0
+      }
+     },
+     {
+      "definition": {
+       "name": "Shield",
+       "level": 1
+      }
+     }
+    ]
+   }
+  ],
+  "spells": {
+   "race": [],
+   "class": [],
+   "item": [
+    {
+     "definition": {
+      "name": "Blorbo’s Homebrew Bolt",
+      "level": 2
+     }
+    }
+   ],
+   "feat": []
+  },
+  "characterValues": []
+ }
+}

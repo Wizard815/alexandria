@@ -16,6 +16,7 @@
 // date) rides in the user message, so most questions are answered in one
 // model round. Only the tools that fit the message are offered. Replies
 // stream to the owner as 'agent' events. Obvious commands run with no model.
+import { characterPart } from '../playerhelp/quick.ts';
 import type { Deps } from '../../app.ts';
 import { chatStream, hasJob, jobConfig, rerankItems, ModelPreempted, ModelUnavailable, type ChatMessage, type ChatTool } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
@@ -498,6 +499,8 @@ export async function buildContext(d: Deps, c: Caller, input: { text: string; co
   if (!dm && c.mode === 'helper') {
     const me_ = one<any>(d.db, 'SELECT a.display_name AS d, m.character_name AS ch FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.account_id = ?', c.worldId, c.accountId);
     if (me_) L.push(`You are helping ${me_.d}${me_.ch ? `, who plays ${me_.ch}` : ''}.`);
+    // Their own sheet (HP, conditions, stats such as AC and passive scores), so "what's my AC?" needs no tool call.
+    try { const sheet = characterPart(d, c.worldId, c.accountId).split('\n').filter((l) => !l.startsWith('Player:')).join('\n'); if (sheet) L.push(`This player's sheet:\n${sheet}`); } catch { /* no sheet feature */ }
   }
   const budget = budgetFor(d, c.harness);
   // The running summary of tonight's session (the DM's, or the players' for a player): the whole night in a few

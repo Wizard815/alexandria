@@ -442,7 +442,7 @@ const feature: Feature = {
     // marked private are left out of every copy but their own.
     {
       name: 'read_sheet',
-      description: "One character sheet: HP, max and temporary HP, conditions, mana, re-roll tokens, the notes and goals the DM set for that player, and the sheet modules (counters, checklists, notes). A player reads their own ('me'); the DM any player.",
+      description: "One character sheet: HP, max and temporary HP, conditions, mana, re-roll tokens, the notes and goals the DM set for that player, and the sheet modules (character summary, stats like AC, initiative, passive scores and spell DC, counters, checklists, notes). A player reads their own ('me'); the DM any player.",
       props: { accountId: { type: 'string', description: "'me', or (DM) a player's account id or character name" } },
       call: ({ accountId }) => ({ method: 'GET', path: `/sheet/${encodeURIComponent(String(accountId ?? 'me'))}` }),
     },
@@ -451,6 +451,13 @@ const feature: Feature = {
       description: 'The history of HP and mana changes, newest first: who changed what, by how much and why. A player sees their own; the DM sees everyone or one player.',
       props: { accountId: { type: 'string', description: "(DM) one player's account id or character name; leave out for everyone" } },
       call: ({ accountId }) => ({ method: 'GET', path: `/sheet/log${accountId && accountId !== 'me' ? `?account=${encodeURIComponent(String(accountId))}` : ''}` }),
+    },
+    {
+      name: 'import_ddb_character', write: true,
+      description: "DM: import a character from D&D Beyond onto a player's sheet (public characters only; the D&D Beyond import house rule must be on). Brings in the Character and Stats modules (AC, initiative, passive scores, spell DC), HP, conditions and limited uses. D&D Beyond has no official API, so it can break; a pasted character JSON works too.",
+      props: { accountId: { type: 'string', description: "The player's account id or character name" }, url: { type: 'string', description: 'The D&D Beyond character link, like https://www.dndbeyond.com/characters/12345678' }, json: { type: 'string', description: 'Or the character JSON pasted by hand' } },
+      required: ['accountId'],
+      call: (a) => ({ method: 'POST', path: `/sheet/${encodeURIComponent(String(a.accountId))}/import/ddb`, body: { url: a.url, json: a.json } }),
     },
     {
       name: 'add_sheet_note', write: true,

@@ -330,6 +330,8 @@ const ARGS: Record<string, Maker> = {
   // Session prep: each call drafts its own fresh prep for Jessamine, so the order the tools run in does not matter.
   edit_session_prep: async () => ({ id: (await dm('POST', '/prep', { accountIds: [ID.jess] })).preps[0].id, text: 'See you Friday at the crypt.' }),
   send_session_prep: async () => ({ ids: [(await dm('POST', '/prep', { accountIds: [ID.jess] })).preps[0].id] }),
+  // The D&D Beyond import house rule is off by default: switched on the first time, and the character pasted as JSON (no network).
+  import_ddb_character: async () => { await once('ddb-on', () => dm('PATCH', '/settings', { sheetDdbImport: true })); return { accountId: 'tom', json: fs.readFileSync(path.join(import.meta.dirname, '../../web/e2e/fixtures/ddb-character.json'), 'utf8') }; },
   add_sheet_note: () => ({ accountId: 'jess', kind: 'goal', text: 'Find out who darkened the lighthouse.' }),
   update_sheet_note: async () => ({ accountId: 'jess', noteId: await sheetNote(), done: true }),
   // Mana is off by default: the first time a mana tool runs, it is switched on and Jessamine gets a pool.
@@ -442,6 +444,8 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['give Captain Vex a gravelly voice in encounters', ['set_npc_voice']],
     ['turn on npc voices', ['set_npc_voices']],
     ['send each player a session prep before friday', ['draft_session_prep', 'send_session_prep']],
+    ['import Tomas from D&D Beyond', ['import_ddb_character']],
+    ["what's my armor class?", ['read_sheet']],
     ['start recording the session', ['start_recording', 'start_game_session']],
     ['publish the session log', ['publish_session_log']],
     ['approve the coin request', ['decide_approval']],

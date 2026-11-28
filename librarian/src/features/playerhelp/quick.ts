@@ -166,17 +166,22 @@ export function briefBudget(d: Deps): number {
 }
 
 /** The character: name, the sheet's health and conditions, goals the DM set for them. */
-function characterPart(d: Deps, worldId: string, accountId: string): string {
+/** One player's own sheet in a few lines: HP, conditions, stats, the DM's goals. Only for that player's own helper. */
+export function characterPart(d: Deps, worldId: string, accountId: string): string {
   const m = one<any>(d.db, 'SELECT a.display_name AS name, m.character_name AS ch FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.account_id = ?', worldId, accountId);
   const L: string[] = [];
   if (m) L.push(`Player: ${m.name}${m.ch ? `, playing ${m.ch}` : ''}.`);
   // The player sheet (features/sheet) keeps HP and conditions; worlds without it simply have none here.
   if (tableExists(d, 'sheets')) {
-    const s = one<any>(d.db, 'SELECT hp, max_hp, temp_hp, conditions FROM sheets WHERE world_id = ? AND account_id = ?', worldId, accountId);
+    const s = one<any>(d.db, 'SELECT hp, max_hp, temp_hp, conditions, modules FROM sheets WHERE world_id = ? AND account_id = ?', worldId, accountId);
     if (s) {
       const conds = parseJson<string[]>(s.conditions, []).filter((x) => typeof x === 'string');
       if (s.hp !== null || s.max_hp !== null) L.push(`HP: ${s.hp ?? '?'}${s.max_hp !== null ? ` of ${s.max_hp}` : ''}${s.temp_hp ? ` (+${s.temp_hp} temporary)` : ''}.`);
       L.push(`Conditions: ${conds.length ? conds.join(', ') : 'none'}.`);
+      // The Stats module on their own sheet (typed by the player or imported from D&D Beyond): AC, initiative, passives…
+      const stats = parseJson<any[]>(s.modules, []).find((m) => m?.type === 'stats')?.data?.entries;
+      const rows = (Array.isArray(stats) ? stats : []).filter((e) => e && String(e.value ?? '').trim()).slice(0, 20).map((e) => `${clip(flat(String(e.label)), 40)} ${clip(flat(String(e.value)), 40)}`);
+      if (rows.length) L.push(`Stats: ${rows.join('; ')}.`);
     }
   }
   // No sheet (or nothing on it): their own line in the combat tracker, which a player may always see.

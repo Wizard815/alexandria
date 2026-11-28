@@ -40,7 +40,7 @@ try {
   const [jessId, tomId] = [acc('jess'), acc('tom')];
 
   // The state the prompts act on: Jessamine is hurt and poisoned and has a goal; Tomas has a private DM note.
-  await j('PATCH', `${P}/settings`, dm, { sheetRerolls: true, downtimeOn: true, agentAutoApprove: [] });
+  await j('PATCH', `${P}/settings`, dm, { sheetRerolls: true, downtimeOn: true, sheetDdbImport: true, agentAutoApprove: [] });
   await j('POST', `${P}/sheet/${jessId}/vitals`, dm, { maxHp: 24, hp: 24 });
   await j('POST', `${P}/sheet/${jessId}/vitals`, dm, { damage: 7, conditions: ['Poisoned'], note: 'Spider bite' });
   await j('POST', `${P}/sheet/${jessId}/dm-notes`, dm, { kind: 'goal', text: 'Find the lighthouse keeper before the new moon.' });
@@ -82,6 +82,7 @@ try {
     ['NPC voices', 'Give Captain Vex the Gravel voice in encounters, and turn NPC voices on.', ['set_npc_voice', 'set_npc_voices']],
     ['Story events by place', 'Save a story event for the docks: a pickpocket bumps into the player and they can chase or let it go.', ['save_encounter_template']],
     ['Homebrew spell', 'Save a homebrew spell: Lantern Ward, 1st-level abjuration, a ring of light that gives allies +1 AC for a minute.', ['save_homebrew_spell']],
+    ['D&D Beyond import', 'Import Anselm from D&D Beyond: https://www.dndbeyond.com/characters/12345678', ['import_ddb_character']],
     ['Roll20', 'Is our Roll20 game connected? If so, send the players the Saltmarsh handout there.', ['roll20_status', 'roll20_send_handout']],
     ['Foundry VTT', "Move Tomas's token to the docks in Foundry.", ['foundry_move_token', 'foundry_status']],
     ['Open5e content', 'Which Open5e books could I import monsters from? Tome of Beasts maybe.', ['list_content_books', 'import_content']],
@@ -91,6 +92,20 @@ try {
     const hit = want.some((t) => r.used.includes(t));
     rows.push({ who: 'DM', feature, hit, used: r.used.join(', ') || '(none)' });
     if (!hit) problems.push(`DM, ${feature}: wanted ${want.join(' or ')}, used ${r.used.join(', ') || 'nothing'}`);
+  }
+
+  // A character imported from D&D Beyond (pasted JSON, no network): its stats reach the DM's assistant and that player's helper.
+  {
+    await j('POST', `${P}/sheet/${tomId}/import/ddb`, dm, { json: fs.readFileSync(path.join(root, 'web/e2e/fixtures/ddb-character.json'), 'utf8'), apply: { name: false } });
+    const tom = (await j('POST', '/api/auth/login', null, { username: 'tom', password: 'player pass 123' })).x.token;
+    const a = await ask(dm, "What are Tomas's AC and passive Perception?");
+    const okDm = /\b16\b/.test(a.reply) && /\b11\b/.test(a.reply);
+    rows.push({ who: 'DM', feature: 'Imported stats', hit: okDm, used: `${a.used.join(', ')}: ${a.reply.replace(/\s+/g, ' ').slice(0, 120)}` });
+    if (!okDm) problems.push(`DM, imported stats: ${a.reply.slice(0, 300)}`);
+    const b = await ask(tom, "What's my armor class?", 'helper');
+    const okPl = /\b16\b/.test(b.reply);
+    rows.push({ who: 'Player', feature: 'Imported stats', hit: okPl, used: `${b.used.join(', ')}: ${b.reply.replace(/\s+/g, ' ').slice(0, 140)}` });
+    if (!okPl) problems.push(`Player, imported stats: ${b.reply.slice(0, 300)}`);
   }
 
   // Session prep, written by the Players model from each player's own brief: Jessamine's must not carry Tomas's private note.
