@@ -11,17 +11,16 @@ import { openDb } from '../src/core/db.ts';
 import { gmJson, gmName, gmRequest, gmText } from '../src/core/gmcompat.ts';
 import { splitFrontmatter } from '../src/core/frontmatter.ts';
 
-/** Turn a current database back into the old dm layout. */
+/** A database in the old dm layout: the current schema with gm turned back into dm. */
 function makeOld(file: string) {
+  const back = (q: string) => q.replace(/'gm'/g, "'dm'").replace(/\bgm_note\b/g, 'dm_note');
+  const cur = new DatabaseSync(file);
+  const defs = (cur.prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type = 'table' DESC`).all() as any[])
+    .filter((r) => !/^CREATE VIRTUAL/i.test(r.sql) && !/^fts_|^page_names/.test(r.name));
+  cur.close();
+  fs.rmSync(file);
   const db = new DatabaseSync(file);
-  const back = (s: string) => s.replace(/'gm'/g, "'dm'").replace(/\bgm_note\b/g, 'dm_note');
-  const v = (db.prepare('PRAGMA schema_version').get() as any).schema_version as number;
-  db.exec('PRAGMA writable_schema = ON');
-  for (const r of db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND sql NOT LIKE 'CREATE VIRTUAL%' AND name IN ('members', 'pages', 'items')`).all() as any[]) {
-    db.prepare('UPDATE sqlite_master SET sql = ? WHERE type = ? AND name = ?').run(back(r.sql), r.type, r.name);
-  }
-  db.exec(`PRAGMA schema_version = ${v + 1}`);
-  db.exec('PRAGMA writable_schema = OFF');
+  for (const r of defs) db.exec(['members', 'pages', 'items'].includes(r.name) ? back(r.sql) : r.sql);
   db.exec(`DELETE FROM alx_renames`);
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO worlds (id, slug, name, settings, created_at) VALUES ('w1', 'w1', 'W', ?, ?)`).run(JSON.stringify({ dmFirst: true, agentAutoApprove: ['list_dm_templates'], whiteboardWipe: 'dm' }), now);

@@ -93,20 +93,38 @@ export function migrateDmToGm(db: DB) {
     db.exec('BEGIN');
     // FTS tables named for the GM are rebuilt by the search code under their new names.
     for (const v of virtual) if (gmName(v.name) !== v.name) db.exec(`DROP TABLE IF EXISTS "${v.name}"`);
-    for (const r of rows()) {
-      if (r.type !== 'table' || /^CREATE VIRTUAL TABLE/i.test(r.sql) || shadowOf(r.name) || r.name.startsWith('sqlite_')) continue;
-      const n = gmName(r.name);
-      if (n !== r.name) db.exec(`ALTER TABLE "${r.name}" RENAME TO "${n}"`);
+    // Tables whose definition names the GM with dm (a column, a CHECK, a DEFAULT, the table
+    // itself) are rebuilt the way SQLite documents it: a new table from the gm definition,
+    // the rows copied over with their dm values turned to gm, the old one dropped, its
+    // indexes and triggers made again. (Editing sqlite_master is refused by newer SQLite.)
+    // Triggers and views can name any table: set them aside while tables are rebuilt.
+    const later = rows().filter((r) => r.type === 'trigger' || r.type === 'view');
+    for (const x of later) db.exec(`DROP ${x.type === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS "${x.name}"`);
+    const plain = (r: { type: string; name: string; sql: string }) => r.type === 'table' && !/^CREATE VIRTUAL TABLE/i.test(r.sql) && !shadowOf(r.name) && !r.name.startsWith('sqlite_') && r.name !== 'alx_renames';
+    for (const r of rows().filter(plain)) {
+      const def = sqlName(r.sql);
+      if (def === r.sql) continue;
+      const to = gmName(r.name);
+      const tmp = `alx_gm_new_${to}`;
+      const made = def.replace(/^(\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z0-9_$]+)/i, `$1"${tmp}"`);
+      const extras = rows().filter((x) => x.tbl_name === r.name && x.type === 'index');
+      db.exec(`DROP TABLE IF EXISTS "${tmp}"`);
+      db.exec(made);
+      const cols = db.prepare(`PRAGMA table_info("${r.name}")`).all() as any[];
+      const newCols = new Set((db.prepare(`PRAGMA table_info("${tmp}")`).all() as any[]).map((c) => c.name));
+      const keep = cols.filter((c) => newCols.has(gmName(c.name)));
+      const rowidAlias = cols.some((c) => c.pk === 1 && /^INTEGER$/i.test(String(c.type)) && cols.filter((x) => x.pk > 0).length === 1);
+      const withRowid = !/WITHOUT\s+ROWID\s*;?\s*$/i.test(r.sql) && !rowidAlias;
+      const cases = Object.entries(VALUES).map(([a, b]) => `WHEN '${a}' THEN '${b}'`).join(' ');
+      const pickCol = (c: any) => (FREE.test(c.name) || /INT|REAL|BLOB|NUM/i.test(String(c.type ?? '')) ? `"${c.name}"` : `CASE "${c.name}" ${cases} ELSE "${c.name}" END`);
+      db.exec(`INSERT INTO "${tmp}" (${withRowid ? 'rowid, ' : ''}${keep.map((c) => `"${gmName(c.name)}"`).join(', ')}) SELECT ${withRowid ? 'rowid, ' : ''}${keep.map(pickCol).join(', ')} FROM "${r.name}"`);
+      db.exec(`DROP TABLE "${r.name}"`);
+      db.exec(`ALTER TABLE "${tmp}" RENAME TO "${to}"`);
+      for (const x of extras) {
+        try { db.exec(sqlName(x.sql)); } catch { /* an index the new schema makes again anyway */ }
+      }
     }
-    const version = (db.prepare('PRAGMA schema_version').get() as any).schema_version as number;
-    const edits = rows().filter((r) => !/^CREATE VIRTUAL TABLE/i.test(r.sql) && !shadowOf(r.name) && !r.name.startsWith('sqlite_') && sqlName(r.sql) !== r.sql);
-    if (edits.length) {
-      db.exec('PRAGMA writable_schema = ON');
-      const up = db.prepare('UPDATE sqlite_master SET sql = ?, name = ?, tbl_name = ? WHERE type = ? AND name = ?');
-      for (const r of edits) up.run(sqlName(r.sql), r.type === 'table' ? r.name : gmName(r.name), gmName(r.tbl_name), r.type, r.name);
-      db.exec(`PRAGMA schema_version = ${version + 1}`);
-      db.exec('PRAGMA writable_schema = OFF');
-    }
+    for (const x of later) db.exec(sqlName(x.sql));
     // Stored values.
     for (const t of rows().filter((r) => r.type === 'table' && !/^CREATE VIRTUAL TABLE/i.test(r.sql) && !shadowOf(r.name) && !r.name.startsWith('sqlite_'))) {
       const cols = (db.prepare(`PRAGMA table_info("${t.name}")`).all() as any[]).filter((c) => !/INT|REAL|BLOB|NUM/i.test(String(c.type ?? '')));
