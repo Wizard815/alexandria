@@ -19,9 +19,10 @@ import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { manaRules } from '../spells/index.ts';
 import { poolMax, poolNow } from '../spells/mana.ts';
-import { character, logEntry, saveCharacter } from '../spells/store.ts';
+import { addKnown, character, findSpell, logEntry, saveCharacter } from '../spells/store.ts';
+import { DDB_WARNING, ddbCharacterId, ddbStats, fetchDdb, mapDdb, type DdbCharacter } from './ddb.ts';
 import type { Feature } from '../types.ts';
-import { cleanModules, DEFAULT_MODULES, shownTo, type Module } from './modules.ts';
+import { cleanModules, DEFAULT_MODULES, shownTo, statEntries, type Module } from './modules.ts';
 import { recentFor } from './recent.ts';
 import { changeReroll, REROLL_SCHEMA, rerollsOf } from './rerolls.ts';
 import { changeVitals, vitalsLog, vitalsOf, type VitalsChange } from './vitals.ts';
@@ -149,6 +150,121 @@ function routes(d: Deps) {
     const aid = who(res, req.params.aid);
     // What that player may see, even when the DM asks.
     res.json(recentFor(d, W(res), { accountId: aid, role: 'player' }));
+  });
+
+  // ---- import a character from D&D Beyond (unofficial: it can break without notice) ----
+  // { url | json, dryRun?, apply?: { health, conditions, name, stats, sheetStats, counters, spells } }. Off unless the
+  // DM turns on the "D&D Beyond import" house rule (sheetDdbImport). The player imports onto their own
+  // sheet, the DM onto anyone's. dryRun only reads it, so the screen can show what will change first.
+  // Items are not added here: the sheet sends them through Inventory, where the DM approves them as usual.
+  r.post('/:aid/import/ddb', requirePlayerOrDM, async (req, res) => {
+    const aid = who(res, req.params.aid);
+    const w = W(res);
+    const b = req.body ?? {};
+    const dm = isDM(res);
+    if (featureSetting<boolean>(settings(res), 'sheetDdbImport') !== true) throw new HttpError(403, dm ? 'Turn on the D&D Beyond import under World → House rules first' : 'The DM has not turned on the D&D Beyond import in this world');
+    let raw: unknown;
+    let url = '';
+    if (b.json !== undefined && b.json !== null && b.json !== '') {
+      try { raw = typeof b.json === 'string' ? JSON.parse(b.json) : b.json; } catch { throw new HttpError(400, 'That is not valid JSON'); }
+    } else {
+      const ddbId = ddbCharacterId(b.url);
+      if (!ddbId) throw new HttpError(400, 'Paste a D&D Beyond character link like https://www.dndbeyond.com/characters/12345678');
+      url = `https://www.dndbeyond.com/characters/${ddbId}`;
+      raw = await fetchDdb(d.fetch, ddbId);
+    }
+    const ch = mapDdb(raw, url);
+    if (b.dryRun === true) return res.json({ character: ch, warning: DDB_WARNING, applied: [] });
+
+    const want = { health: true, conditions: true, name: true, stats: true, sheetStats: true, counters: true, spells: false, ...(b.apply && typeof b.apply === 'object' ? b.apply : {}) };
+    const applied: string[] = [];
+    const notes: string[] = [];
+    const s = settings(res);
+    const out = tx(db, () => {
+      // The Character module: replaced in place, or put first on the sheet.
+      const mods = modulesOf(w, aid);
+      const mod: Module = { id: 'character', type: 'character', title: 'Character', wide: false, private: false, collapsed: false, data: ch };
+      const at = mods.findIndex((m) => m.type === 'character');
+      let list = at >= 0 ? mods.map((m, i) => (i === at ? { ...m, data: ch } : m)) : [mod, ...mods];
+      // Limited uses (Rage, Ki…) and hit dice as counters: an entry with the same name is updated, others are added.
+      if (want.counters) {
+        const wanted = [...ch.uses.map((u) => ({ label: u.name, max: u.max, value: u.max - u.used })),
+          ...ch.hitDice.map((h) => ({ label: `Hit dice (d${h.die})`, max: h.total, value: h.total - h.used }))].map((e) => ({ ...e, label: e.label.slice(0, 40) }));
+        if (wanted.length) {
+          const ci = list.findIndex((m) => m.type === 'counters');
+          const entries: any[] = ci >= 0 ? [...(list[ci].data?.entries ?? [])] : [];
+          for (const e of wanted) {
+            const j = entries.findIndex((x) => String(x.label).toLowerCase() === e.label.toLowerCase());
+            if (j >= 0) entries[j] = { ...entries[j], value: e.value, max: e.max };
+            else if (entries.length < 30) entries.push({ id: id('c'), ...e });
+          }
+          list = ci >= 0 ? list.map((m, i) => (i === ci ? { ...m, data: { entries } } : m)) : [...list, { id: 'counters', type: 'counters', title: 'Counters', wide: false, private: false, collapsed: false, data: { entries } }];
+          applied.push('counters');
+        }
+      }
+      // The Stats module: rows with the same label get D&D Beyond's number, the player's own rows stay.
+      if (want.sheetStats) {
+        const vals = ddbStats(ch);
+        const si = list.findIndex((m) => m.type === 'stats');
+        const entries: any[] = si >= 0 ? [...(list[si].data?.entries ?? [])] : statEntries();
+        for (const [label, value] of Object.entries(vals)) {
+          if (!value) continue;
+          const j = entries.findIndex((x) => String(x.label).toLowerCase() === label.toLowerCase());
+          if (j >= 0) entries[j] = { ...entries[j], value };
+          else if (entries.length < 30) entries.push({ id: id('s'), label, value });
+        }
+        const statsMod: Module = { id: 'stats', type: 'stats', title: 'Stats', wide: false, private: false, collapsed: false, data: { entries } };
+        if (si >= 0) list = list.map((m, i) => (i === si ? { ...m, data: { entries } } : m));
+        else { const ci = list.findIndex((m) => m.type === 'character'); list = [...list.slice(0, ci + 1), statsMod, ...list.slice(ci + 1)]; }
+        applied.push('sheetStats');
+      }
+      const next = cleanModules(list);
+      run(db, `INSERT INTO sheets (world_id, account_id, conditions, modules, updated_at) VALUES (?, ?, '[]', ?, ?)
+        ON CONFLICT (world_id, account_id) DO UPDATE SET modules = excluded.modules, updated_at = excluded.updated_at`, w, aid, JSON.stringify(next), now());
+      applied.push('character');
+      let combat = false;
+      const vc: VitalsChange = {};
+      if (want.health) { vc.maxHp = ch.hp.max; vc.hp = ch.hp.now; vc.setTempHp = ch.hp.temp; }
+      if (want.conditions && ch.conditions.length) {
+        const cur = vitalsOf(db, w, aid).conditions;
+        vc.conditions = [...cur, ...ch.conditions.filter((c) => !cur.some((x) => x.toLowerCase() === c.toLowerCase()))].slice(0, CONDITIONS_MAX);
+      }
+      if (Object.keys(vc).length) {
+        const v = changeVitals(db, w, aid, vc, 'import', me(res), 'Imported from D&D Beyond');
+        combat = v.combat;
+        if (want.health) applied.push('health');
+        if (vc.conditions) applied.push('conditions');
+      }
+      if (want.name && ch.name) {
+        run(db, 'UPDATE members SET character_name = ? WHERE world_id = ? AND account_id = ?', ch.name, w, aid);
+        applied.push('name');
+      }
+      if (want.stats) {
+        if (!dm && featureSetting<boolean>(s, 'spellPlayerStats') === false) notes.push('The DM keeps ability scores in this world, so class, level and ability scores were not changed');
+        else {
+          const top = [...ch.classes].sort((a, b2) => b2.level - a.level)[0];
+          saveCharacter(db, w, aid, { class: top?.name ?? '', level: ch.level, abilities: ch.abilities, ...(ch.castingAbility ? { castingAbility: ch.castingAbility } : {}) });
+          applied.push('stats');
+        }
+      }
+      // Known spells are the DM's to give: a player's import lists them on the Character module only.
+      let learned = 0;
+      const missing: string[] = [];
+      if (want.spells && dm) {
+        for (const sp of ch.spells) {
+          const found = findSpell(db, w, sp.name);
+          if (!found) { missing.push(sp.name); continue; }
+          if (addKnown(db, w, aid, found.id, 'import')) { learned++; logEntry(db, w, aid, 'learn', me(res), { spellId: found.id, note: `Imported from D&D Beyond: ${found.name}` }); }
+        }
+        applied.push('spells');
+        if (missing.length) notes.push(`Not in this world's spell list, so not added: ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ` and ${missing.length - 10} more` : ''}`);
+      }
+      return { combat, learned };
+    });
+    audit(db, w, me(res), 'sheet.import.ddb', `${aid}: ${ch.name} (${ch.ddbId || 'pasted'}) ${applied.join(',')}`);
+    if (applied.includes('stats') || out.learned) d.hub.emit(w, 'spells-char', { accountId: aid }, dmAnd(aid));
+    changed(w, aid, out.combat);
+    res.json({ character: ch satisfies DdbCharacter, warning: DDB_WARNING, applied, notes, learned: out.learned });
   });
 
   // Only the player arranges their own sheet.
@@ -284,7 +400,10 @@ const feature: Feature = {
   settings: {
     sheetRerolls: { type: 'boolean', default: false },
     sheetRerollCap: { type: 'int', default: 3, min: 1, max: 20 },
+    // House rule "D&D Beyond import" (mods/dndbeyond-import.alxmod.json) turns it on.
+    sheetDdbImport: { type: 'boolean', default: false },
   },
+  houseRules: ['dndbeyond-import'],
   worldMount: 'sheet',
   worldRoutes: routes,
   mcpTools: [
