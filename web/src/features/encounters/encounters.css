@@ -20,21 +20,20 @@
 .enc-h { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin: 4px 0 0; }
 .enc-pick { text-align: left; cursor: pointer; }
 .enc-pick.on { border-color: var(--accent); }
-.enc-node { background: var(--panel-2); }
-.enc-gamebox { padding: 8px 10px; border-left: 3px solid var(--accent); }
-.enc-opt-edit { padding: 8px 0; border-top: 1px dashed var(--line); }
-.enc-fx { padding-left: 16px; align-items: flex-end; }
 .enc-watch .enc-log { max-height: 260px; }
 .enc-draft summary { cursor: pointer; }
 .enc-countdown { position: relative; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); overflow: hidden; display: flex; align-items: center; }
 .enc-countdown-bar { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 35%, transparent); transition: width 0.25s linear; }
 .enc-countdown.urgent .enc-countdown-bar { background: color-mix(in srgb, var(--danger, #d0584a) 45%, transparent); }
 .enc-countdown-text { position: relative; padding: 0 10px; font-size: 14px; font-weight: 600; }
-.enc-timer-edit { align-items: flex-end; }
 .enc-star { padding: 4px 6px; color: var(--faint, inherit); }
 .enc-star.on { color: var(--accent); }
-.enc-preview { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
-.enc-preview li { overflow-wrap: anywhere; }
 /* On a wider screen the popup sits in the middle; on a phone it is a bottom sheet (phone.css). */
 @media (min-width: 761px) { .modal-back:has(> .modal.enc) { align-items: center; padding-block: 24px; } .modal.enc { max-height: calc(100dvh - 48px); overflow-y: auto; } }
 .enc-crit { gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.blk-wander { margin-left: auto; align-items: center; gap: 8px; }
+/* The Tweak screen needs room for the blocks. */
+.modal:has(.enc-editor) { width: min(820px, 100%); }
+/* A "go to step" picker in a check's pass or fail slot (a column, so the kit's flex-basis would be its height). */
+.blk-slot > .blk-pick { flex: none; align-self: flex-start; width: auto; max-width: 100%; }

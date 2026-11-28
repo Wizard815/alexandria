@@ -394,3 +394,48 @@ test('TestTemplates_SpellTemplateDraftsAndSaves', async () => {
   const ev = await ok('GET', TP(), T.dm);
   assert.equal((await call('POST', `${TP()}/${ev.templates.find((t: any) => t.kind === 'event').id}/spell`, T.dm, { prompt: 'x' })).status, 400);
 });
+
+test('TestStoryEvents_FillKeepsWhatTheDmWrote', async () => {
+  const { mergeFill } = await import('../src/features/encounters/draft.ts');
+  const orig = { start: 'a', nodes: [
+    { id: 'a', text: 'A kid tugs your purse.', options: [{ label: '', next: 'b', effects: [] }, { label: 'Let it go', next: null, effects: [{ kind: 'dmnote', text: '' }] }], game: null },
+    { id: 'b', text: '', options: [], game: { kind: 'check', skill: null, dc: 10, dcMax: 14, stakeCp: 0, winCp: 0, win: 'a', lose: 'a' } },
+    { id: 'c', text: '', options: [], game: null },
+  ] };
+  const model = { start: 'zz', nodes: [
+    { id: 'a', text: 'CHANGED', options: [{ label: 'Chase them', next: 'nowhere', effects: [{ kind: 'gold', cp: 5000 }] }, { label: 'CHANGED', effects: [{ kind: 'dmnote', text: 'The kid remembers you' }] }] },
+    { id: 'b', text: 'You sprint after them.', game: { skill: 'Athletics', dc: 30 } },
+    { id: 'c', text: 'The market goes quiet.', options: [{ label: 'Look around', next: 'ghost' }, { label: 'Leave', next: 'a', effects: [{ kind: 'lose', cp: 3 }] }] },
+    { id: 'new', text: 'An extra step', options: [] },
+  ] };
+  const { script, filled } = mergeFill(orig, model);
+  assert.equal(script.start, 'a');
+  assert.equal(script.nodes.length, 3, 'no step added');
+  const [a, b, c] = script.nodes;
+  assert.equal(a.text, 'A kid tugs your purse.');
+  assert.equal(a.options[0].label, 'Chase them');
+  assert.equal(a.options[0].next, 'b', 'the DM link stays');
+  assert.deepEqual(a.options[0].effects, [], 'an out-of-bounds effect is dropped');
+  assert.equal(a.options[1].label, 'Let it go');
+  assert.equal(a.options[1].effects[0].text, 'The kid remembers you');
+  assert.equal(b.text, 'You sprint after them.');
+  assert.equal(b.game.skill, 'Athletics');
+  assert.equal(b.game.dc, 10);
+  assert.equal(c.options.length, 2);
+  assert.equal(c.options[0].next, null, 'a link to a missing step ends');
+  assert.equal(c.options[1].next, 'a');
+  assert.equal(filled, 7);
+  // One step only.
+  const one = mergeFill(orig, model, 'c');
+  assert.equal(one.script.nodes[1].text, '');
+  assert.equal(one.script.nodes[2].text, 'The market goes quiet.');
+});
+
+test('TestStoryEvents_FillWithoutModel', async () => {
+  const r = await ok('POST', `${P()}/templates/fill`, T.dm, { kind: 'event', script: { start: 'a', nodes: [{ id: 'a', text: '', options: [] }] } });
+  assert.equal(r.usedModel, false);
+  assert.equal(r.filled, 0);
+  assert.equal(r.script.nodes[0].id, 'a');
+  assert.match(r.note, /No chat model/);
+  assert.equal((await call('POST', `${P()}/templates/fill`, T.jess, { script: { nodes: [] } })).status, 403);
+});

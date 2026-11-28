@@ -10,8 +10,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { coins, parseCoins, when } from '../../lib/format.ts';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
-import { GAME_HELP, type Effect, type Encounter, type EncounterConfig, type EncounterKind, type GameKind, type Node, type PlaceOpt, type Script, type Template } from './types.ts';
+import { type Encounter, type EncounterConfig, type EncounterKind, type PlaceOpt, type Script, type Template } from './types.ts';
 import { Countdown } from './Countdown.tsx';
+import { EventFlow, StepBlocks } from './Blocks.tsx';
 import './encounters.css';
 
 type Tab = 'live' | 'events' | 'library' | 'settings';
@@ -358,7 +359,6 @@ function Generate({ place, placeLabel, onClose, onDraft }: { place: string; plac
   );
 }
 
-const fxText = (fx: Effect, money: (cp: number) => string): string => fx.kind === 'gold' ? `gets ${money(fx.cp)}` : fx.kind === 'pay' ? `pays ${money(fx.cp)}` : fx.kind === 'lose' ? `loses ${money(fx.cp)}` : fx.kind === 'item' ? `gets ${fx.qty > 1 ? `${fx.qty} × ` : ''}${fx.name}` : fx.kind === 'dmnote' ? `DM note: ${fx.text}` : 'opens a shop';
 
 /** The event before it goes out: every step, answer, check and timer. Send, tweak (edit and save), or try another. */
 function StoryPreview({ pick, shops, places, label, who, busy, error, fav, onStar, onSend, onClose, onAnother, onSaved }: {
@@ -369,7 +369,6 @@ function StoryPreview({ pick, shops, places, label, who, busy, error, fav, onSta
   const [tweak, setTweak] = useState(false);
   const t = pick.t;
   const money = (cp: number) => coins(cp, info.settings.coins);
-  const order = [t.script.nodes.find((n) => n.id === t.script.start), ...t.script.nodes.filter((n) => n.id !== t.script.start)].filter(Boolean) as Node[];
   if (tweak) {
     // A built-in or a fresh draft becomes your own saved copy; your own event is edited in place.
     const start = t.builtin ? { ...structuredClone(t), id: '', builtin: false, wander: false } : t;
@@ -391,17 +390,7 @@ function StoryPreview({ pick, shops, places, label, who, busy, error, fav, onSta
           {fav !== null && <button type="button" className={`btn ghost small enc-star${fav ? ' on' : ''}`} aria-pressed={fav} onClick={onStar} aria-label={fav ? 'Unstar' : 'Star'}><i className={`fa-${fav ? 'solid' : 'regular'} fa-star`} aria-hidden="true" /> {fav ? 'Favourite' : 'Star'}</button>}
         </div>
         <span className="tiny faint">{pick.draft ? 'New draft, not saved' : t.builtin ? 'Built-in' : 'Saved'} · {(t.places ?? []).map(label).join(' · ') || 'Anywhere'}</span>
-        <ol className="enc-preview">
-          {order.map((n) => (
-            <li key={n.id} className="stack tight">
-              <span className="tiny faint">{n.id}{n.timer ? ` · ⏱ ${n.timer.secs}s` : ''}</span>
-              <span>{n.text}</span>
-              {n.game && <span className="small"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> {n.game.kind === 'check' ? `${n.game.skill || 'Skill'} check, ${dcLabel(n.game)}` : GAME_LABEL_DM[n.game.kind]}: pass → {n.game.win}, fail → {n.game.lose}</span>}
-              {n.options.map((o, j) => <span key={j} className="small">• {o.label}{o.effects.length ? ` (${o.effects.map((fx) => fxText(fx, money)).join('; ')})` : ''} → {o.next ?? 'ends'}</span>)}
-              {n.timer && <span className="tiny faint">If time runs out: {n.timer.fallback === -1 ? 'the check fails' : `“${n.options[n.timer.fallback]?.label ?? 'the last answer'}”`}</span>}
-            </li>
-          ))}
-        </ol>
+        <EventFlow script={t.script} money={money} />
         <ErrorBox error={error} />
         <div className="row wrap">
           <button type="button" className="btn primary" disabled={busy || !who} onClick={onSend} data-testid="story-send">{who ? `Send to ${who}` : 'Pick who it happens to first'}</button>
@@ -414,8 +403,6 @@ function StoryPreview({ pick, shops, places, label, who, busy, error, fav, onSta
   );
 }
 
-const GAME_LABEL_DM: Record<GameKind, string> = { coin: 'Coin toss', shells: 'Shell game', dice: 'Dice duel', check: 'Skill check' };
-const dcLabel = (g: { dc: number | null; dcMax?: number | null }) => (g.dc === null ? 'DC ?' : `DC ${g.dc}${g.dcMax ? `–${g.dcMax}` : ''}`);
 
 // ---------------- saved encounters ----------------
 
@@ -499,28 +486,13 @@ function DraftBox({ onDraft, kind = 'npc', places = [] }: { onDraft: (t: Templat
   );
 }
 
-const slug = (s: string, taken: string[]) => {
-  const b = s.toLowerCase().replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'step';
-  let id = b, n = 2;
-  while (taken.includes(id)) id = `${b}-${n++}`;
-  return id;
-};
-
 function Editor({ start, shops, places = [], onSaved, onGone }: { start: Template; shops: ShopLite[]; places?: PlaceOpt[]; onSaved: (t: Template) => void; onGone: () => void }) {
   const { w, info } = useWorld();
   const act = useAction();
   const { toast, toastNode } = useToast();
   const [t, setT] = useState<Template>(start);
   useEffect(() => setT(start), [start]);
-  const ids = t.script.nodes.map((n) => n.id);
   const setScript = (s: Script) => setT({ ...t, script: s });
-  const setNode = (i: number, n: Node) => setScript({ ...t.script, nodes: t.script.nodes.map((x, j) => (j === i ? n : x)) });
-  const addNode = () => setScript({ ...t.script, nodes: [...t.script.nodes, { id: slug('step', ids), text: '', options: [], game: null }] });
-  const delNode = (i: number) => {
-    const gone = t.script.nodes[i].id;
-    const nodes = t.script.nodes.filter((_, j) => j !== i).map((n) => ({ ...n, options: n.options.map((o) => (o.next === gone ? { ...o, next: null } : o)), game: n.game && (n.game.win === gone || n.game.lose === gone) ? null : n.game }));
-    setScript({ start: t.script.start === gone ? nodes[0]?.id ?? '' : t.script.start, nodes });
-  };
   const save = () => act.run(async () => {
     const body = { kind: t.kind ?? 'npc', places: t.places ?? [], name: t.name, npcName: t.npcName, npcBlurb: t.npcBlurb, wander: t.wander, script: t.script };
     const saved = t.id ? await w.call<Template>('PUT', `/encounters/templates/all/${encodeURIComponent(t.id)}`, body) : await w.call<Template>('POST', '/encounters/templates/all', body);
@@ -531,131 +503,47 @@ function Editor({ start, shops, places = [], onSaved, onGone }: { start: Templat
   const money = (cp: number) => coins(cp, info.settings.coins);
   const ev = t.kind === 'event';
   const tagged = t.places ?? [];
+  // The assistant fills the blanks (the whole event, or one step); what the DM wrote stays.
+  const [hint, setHint] = useState('');
+  const [filling, setFilling] = useState<string | null>(null);
+  const fill = (step: string | null) => {
+    setFilling(step ?? '*');
+    void act.run(async () => {
+      try {
+        const r = await w.call<{ script: Script; name: string; npcName: string; npcBlurb: string; filled: number; note: string | null }>('POST', '/encounters/templates/fill', { kind: t.kind ?? 'npc', script: t.script, name: t.name, npcName: t.npcName, npcBlurb: t.npcBlurb, hint: hint.trim() || undefined, step: step ?? undefined });
+        setT((cur) => ({ ...cur, script: r.script, name: r.name || cur.name, npcName: r.npcName || cur.npcName, npcBlurb: r.npcBlurb }));
+        toast(r.note ?? `Filled ${r.filled} blank${r.filled === 1 ? '' : 's'}. Check it over, then Save.`);
+      } finally { setFilling(null); }
+    });
+  };
   return (
-    <section className="card stack loose" aria-label={ev ? 'Edit story event' : 'Edit encounter'}>
-      <div className="row wrap">
-        <Field label="Name"><input value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} maxLength={120} /></Field>
-        <Field label={ev ? 'Who or what it is about' : 'NPC'}><input value={t.npcName} onChange={(e) => setT({ ...t, npcName: e.target.value })} maxLength={80} placeholder={ev ? 'A pickpocket' : ''} /></Field>
-      </div>
-      <Field label={ev ? 'The scene, in a line' : 'Looks like'}><input value={t.npcBlurb} onChange={(e) => setT({ ...t, npcBlurb: e.target.value })} maxLength={300} /></Field>
-      {ev && (
-        <Field label="Places it fits" help="The Story events tab offers it for these places; a random event for a place picks among them.">
-          <div className="row wrap" role="group" aria-label="Places it fits">
-            {places.map((p) => <button key={p.id} type="button" className={`btn small${tagged.includes(p.id) ? ' on' : ''}`} aria-pressed={tagged.includes(p.id)} onClick={() => setT({ ...t, places: tagged.includes(p.id) ? tagged.filter((x) => x !== p.id) : [...tagged, p.id] })}>{p.label}</button>)}
-          </div>
-        </Field>
-      )}
-      <div className="row between">
-        <div className="stack tight"><strong style={{ fontWeight: 500 }}>{ev ? 'Wandering players can run into this' : 'Wandering players can meet this NPC'}</strong><span className="small muted">Only when wandering is on in Settings.</span></div>
-        <Switch checked={t.wander} onChange={(v) => setT({ ...t, wander: v })} label="Wander" />
-      </div>
-      <Field label="Starts at">
-        <select value={t.script.start} onChange={(e) => setScript({ ...t.script, start: e.target.value })}>{ids.map((id) => <option key={id} value={id}>{id}</option>)}</select>
-      </Field>
-
-      {t.script.nodes.map((n, i) => (
-        <div key={i} className="card enc-node">
-          <div className="row between">
-            <label className="field" style={{ width: 180 }}><span className="label">Step id</span>
-              <input value={n.id} onChange={(e) => {
-                const nid = e.target.value.replace(/[^\w-]/g, '').slice(0, 40);
-                // Renaming a step renames every link to it.
-                const nodes = t.script.nodes.map((x, j) => ({ ...(j === i ? { ...x, id: nid } : x), options: x.options.map((o) => (o.next === n.id ? { ...o, next: nid } : o)), game: x.game && { ...x.game, win: x.game.win === n.id ? nid : x.game.win, lose: x.game.lose === n.id ? nid : x.game.lose } }));
-                setScript({ start: t.script.start === n.id ? nid : t.script.start, nodes });
-              }} />
-            </label>
-            {t.script.nodes.length > 1 && <button type="button" className="btn ghost small" onClick={() => delNode(i)}>Remove step</button>}
-          </div>
-          <Field label={ev ? 'What happens' : 'NPC says'}><textarea rows={2} value={n.text} onChange={(e) => setNode(i, { ...n, text: e.target.value })} maxLength={1000} /></Field>
-
-          <div className="row between">
-            <span className="small">Game here</span>
-            <select className="input" aria-label="Game here" value={n.game?.kind ?? ''} onChange={(e) => setNode(i, { ...n, game: e.target.value ? { kind: e.target.value as GameKind, stakeCp: n.game?.stakeCp ?? 0, winCp: n.game?.winCp ?? 10, dc: e.target.value === 'check' ? n.game?.dc ?? 12 : null, skill: n.game?.skill ?? null, win: n.game?.win ?? n.id, lose: n.game?.lose ?? n.id } : null })} style={{ width: 'auto' }}>
-              <option value="">None</option>
-              {(['coin', 'shells', 'dice', 'check'] as GameKind[]).map((k) => <option key={k} value={k}>{k === 'coin' ? 'Coin toss' : k === 'shells' ? 'Shell game' : k === 'dice' ? 'Dice duel' : 'Skill check'}</option>)}
-            </select>
-          </div>
-          {n.game && (
-            <div className="stack tight enc-gamebox">
-              <span className="tiny faint">{GAME_HELP[n.game.kind]}</span>
-              <div className="row wrap">
-                <CoinInput label="Stake" cp={n.game.stakeCp} money={money} onChange={(cp) => setNode(i, { ...n, game: { ...n.game!, stakeCp: cp } })} />
-                <CoinInput label="Win pays" cp={n.game.winCp} money={money} onChange={(cp) => setNode(i, { ...n, game: { ...n.game!, winCp: cp } })} />
-                {n.game.kind === 'check' && <>
-                  <label className="field" style={{ width: 80 }}><span className="label">DC from</span><input inputMode="numeric" aria-label="DC from" value={n.game.dc ?? ''} onChange={(e) => setNode(i, { ...n, game: { ...n.game!, dc: Number(e.target.value.replace(/\D/g, '')) || null } })} /></label>
-                  <label className="field" style={{ width: 80 }}><span className="label">to</span><input inputMode="numeric" aria-label="DC to" placeholder="same" value={n.game.dcMax ?? ''} onChange={(e) => setNode(i, { ...n, game: { ...n.game!, dcMax: Number(e.target.value.replace(/\D/g, '')) || null } })} /></label>
-                  <label className="field" style={{ width: 140 }}><span className="label">Skill</span><input value={n.game.skill ?? ''} onChange={(e) => setNode(i, { ...n, game: { ...n.game!, skill: e.target.value || null } })} maxLength={40} /></label>
-                </>}
-              </div>
-              <div className="row wrap">
-                <label className="field" style={{ width: 160 }}><span className="label">On a win go to</span><NextPicker ids={ids} value={n.game.win} required onChange={(v) => setNode(i, { ...n, game: { ...n.game!, win: v ?? n.id } })} /></label>
-                <label className="field" style={{ width: 160 }}><span className="label">On a loss go to</span><NextPicker ids={ids} value={n.game.lose} required onChange={(v) => setNode(i, { ...n, game: { ...n.game!, lose: v ?? n.id } })} /></label>
-              </div>
-            </div>
-          )}
-
-          <div className="row wrap enc-timer-edit" data-testid="enc-timer-edit">
-            <label className="row tight small"><input type="checkbox" checked={!!n.timer} onChange={(e) => setNode(i, { ...n, timer: e.target.checked ? { secs: 20, fallback: n.game ? -1 : Math.max(0, n.options.length - 1) } : null })} /> <i className="fa-solid fa-stopwatch" aria-hidden="true" /> Timed: they must answer quickly</label>
-            {n.timer && <>
-              <label className="field" style={{ width: 90 }}><span className="label">Seconds</span><input inputMode="numeric" aria-label="Seconds to answer" value={n.timer.secs} onChange={(e) => setNode(i, { ...n, timer: { ...n.timer!, secs: Math.min(600, Number(e.target.value.replace(/\D/g, '')) || 0) } })} /></label>
-              <label className="field" style={{ flex: '1 1 200px' }}><span className="label">If time runs out</span>
-                <select className="input" aria-label="If time runs out" value={n.timer.fallback} onChange={(e) => setNode(i, { ...n, timer: { ...n.timer!, fallback: Number(e.target.value) } })}>
-                  {n.game && <option value={-1}>{n.game.kind === 'check' ? 'The check fails' : 'They lose the game'}</option>}
-                  {n.options.map((o, j) => <option key={j} value={j}>{o.label || `Answer ${j + 1}`}</option>)}
-                </select>
-              </label>
-            </>}
-          </div>
-
-          <span className="small">{n.game ? 'Other answers (e.g. walk away)' : 'Answers'}</span>
-          {n.options.map((o, j) => {
-            const setOpt = (patch: Partial<typeof o>) => setNode(i, { ...n, options: n.options.map((x, k) => (k === j ? { ...x, ...patch } : x)) });
-            const setFx = (fx: Effect[]) => setOpt({ effects: fx });
-            return (
-              <div key={j} className="enc-opt-edit stack tight">
-                <div className="row wrap">
-                  <input className="input" style={{ flex: '2 1 200px', width: 'auto' }} value={o.label} placeholder="What the player says" onChange={(e) => setOpt({ label: e.target.value })} maxLength={120} />
-                  <NextPicker ids={ids} value={o.next} onChange={(v) => setOpt({ next: v })} />
-                  <button type="button" className="btn ghost small" aria-label="Remove answer" onClick={() => setNode(i, { ...n, options: n.options.filter((_, k) => k !== j) })}>✕</button>
-                </div>
-                {o.effects.map((fx, k) => (
-                  <div key={k} className="row wrap enc-fx">
-                    {fx.kind === 'gold' && <CoinInput label="Gives coin" cp={fx.cp} money={money} onChange={(cp) => setFx(o.effects.map((x, m) => (m === k ? { kind: 'gold', cp } : x)))} />}
-                    {(fx.kind === 'pay' || fx.kind === 'lose') && <CoinInput label={fx.kind === 'pay' ? 'They pay' : 'They lose'} cp={fx.cp} money={money} onChange={(cp) => setFx(o.effects.map((x, m) => (m === k ? { kind: fx.kind, cp: Math.max(1, cp) } : x)))} />}
-                    {fx.kind === 'dmnote' && <label className="field" style={{ flex: '1 1 260px' }}><span className="label">Note for you (the player never sees it)</span><input value={fx.text} maxLength={300} placeholder="Kept the stolen purse; the thieves remember" onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { kind: 'dmnote', text: e.target.value } : x)))} /></label>}
-                    {fx.kind === 'item' && <>
-                      <label className="field" style={{ flex: '1 1 160px' }}><span className="label">Gives item</span><input value={fx.name} maxLength={120} onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { ...fx, name: e.target.value } : x)))} /></label>
-                      <label className="field" style={{ width: 70 }}><span className="label">Qty</span><input inputMode="numeric" value={fx.qty} onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { ...fx, qty: Math.max(1, Math.min(20, Number(e.target.value.replace(/\D/g, '')) || 1)) } : x)))} /></label>
-                      <label className="field" style={{ flex: '1 1 200px' }}><span className="label">Note on the item (optional)</span><input value={fx.note ?? ''} maxLength={200} placeholder="Worth about 10 gp to a jeweller" onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { ...fx, note: e.target.value || undefined } : x)))} /></label>
-                    </>}
-                    {fx.kind === 'shop' && (
-                      <label className="field" style={{ flex: '1 1 200px' }}><span className="label">Opens a shop</span>
-                        <select value={fx.shopId} onChange={(e) => setFx(o.effects.map((x, m) => (m === k ? { kind: 'shop', shopId: e.target.value } : x)))}>
-                          <option value="">Chosen when sent (or any open shop)</option>
-                          {shops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                      </label>
-                    )}
-                    <button type="button" className="btn ghost small" aria-label="Remove" onClick={() => setFx(o.effects.filter((_, m) => m !== k))}>✕</button>
-                  </div>
-                ))}
-                {o.effects.length < 3 && (
-                  <div className="row" style={{ gap: 6 }}>
-                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'gold', cp: 10 }])}>+ Coin</button>
-                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'item', name: '', qty: 1 }])}>+ Item</button>
-                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'shop', shopId: '' }])}>+ Shop</button>
-                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'pay', cp: 10 }])}>+ They pay</button>
-                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'lose', cp: 10 }])}>+ They lose</button>
-                    <button type="button" className="btn ghost small" onClick={() => setFx([...o.effects, { kind: 'dmnote', text: '' }])}>+ DM note</button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {n.options.length < 6 && <button type="button" className="btn ghost small" onClick={() => setNode(i, { ...n, options: [...n.options, { label: '', next: null, effects: [] }] })}>+ Answer</button>}
+    <section className="card stack enc-editor" aria-label={ev ? 'Edit story event' : 'Edit encounter'}>
+      <div className="blk-header" data-testid="blk-header">
+        <input className="input blk-title" aria-label="Name" value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} maxLength={120} placeholder="Name" />
+        <div className="blk-row">
+          <i className={`fa-solid ${ev ? 'fa-bolt' : 'fa-user'} blk-ico`} aria-hidden="true" />
+          <input className="input blk-grow" aria-label={ev ? 'Who or what it is about' : 'NPC'} value={t.npcName} onChange={(e) => setT({ ...t, npcName: e.target.value })} maxLength={80} placeholder={ev ? 'Who or what (a pickpocket)' : 'NPC name'} />
+          <input className="input blk-grow2" aria-label={ev ? 'The scene, in a line' : 'Looks like'} value={t.npcBlurb} onChange={(e) => setT({ ...t, npcBlurb: e.target.value })} maxLength={300} placeholder={ev ? 'The scene, in a line' : 'How they look'} />
         </div>
-      ))}
-      {t.script.nodes.length < 40 && <button type="button" className="btn" onClick={addNode}>+ Step</button>}
+        <div className="blk-row">
+          {ev && (
+            <details className="blk-places">
+              <summary className="small"><i className="fa-solid fa-location-dot" aria-hidden="true" /> {tagged.length ? tagged.map((p) => places.find((x) => x.id === p)?.label ?? p).join(', ') : 'Anywhere'}</summary>
+              <div className="row wrap" role="group" aria-label="Places it fits">
+                {places.map((p) => <button key={p.id} type="button" className={`btn small${tagged.includes(p.id) ? ' on' : ''}`} aria-pressed={tagged.includes(p.id)} onClick={() => setT({ ...t, places: tagged.includes(p.id) ? tagged.filter((x) => x !== p.id) : [...tagged, p.id] })}>{p.label}</button>)}
+              </div>
+            </details>
+          )}
+          <span className="row tight small blk-wander" title="Only when wandering is on in Settings"><Switch checked={t.wander} onChange={(v) => setT({ ...t, wander: v })} label="Wander" /> {ev ? 'Wanderers can run into it' : 'Wanderers can meet them'}</span>
+        </div>
+        <div className="blk-row" data-testid="blk-fill-bar">
+          <i className="fa-solid fa-wand-magic-sparkles blk-ico" aria-hidden="true" />
+          <input className="input blk-grow2" aria-label="A hint for the assistant" value={hint} onChange={(e) => setHint(e.target.value)} maxLength={500} placeholder="Optional hint: make the fail step nastier" />
+          <button type="button" className="btn small" disabled={filling !== null} onClick={() => fill(null)} data-testid="blk-fill">{filling === '*' ? 'Filling…' : 'Fill the blanks'}</button>
+        </div>
+        <span className="tiny faint">The assistant fills only what is empty; what you wrote stays. Nothing is saved until you Save.</span>
+      </div>
+      <StepBlocks script={t.script} setScript={setScript} money={money} shops={shops} eventKind={ev} onFill={(id) => fill(id)} filling={filling} />
       <ErrorBox error={act.error} />
       <div className="row">
         <button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save</button>
@@ -663,25 +551,6 @@ function Editor({ start, shops, places = [], onSaved, onGone }: { start: Templat
       </div>
       {toastNode}
     </section>
-  );
-}
-
-function NextPicker({ ids, value, onChange, required }: { ids: string[]; value: string | null; onChange: (v: string | null) => void; required?: boolean }) {
-  return (
-    <select className="input" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} aria-label="Goes to" style={{ flex: '1 1 140px', width: 'auto' }}>
-      {!required && <option value="">Ends the talk</option>}
-      {ids.map((id) => <option key={id} value={id}>→ {id}</option>)}
-    </select>
-  );
-}
-
-function CoinInput({ label, cp, onChange, money }: { label: string; cp: number; onChange: (cp: number) => void; money: (cp: number) => string }) {
-  const [s, setS] = useState(money(cp));
-  useEffect(() => setS(money(cp)), [cp]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <label className="field" style={{ width: 130 }}><span className="label">{label}</span>
-      <input value={s} onChange={(e) => setS(e.target.value)} onBlur={() => { const v = parseCoins(s); onChange(v === null ? 0 : Math.max(0, Math.min(100_000, v))); }} />
-    </label>
   );
 }
 
