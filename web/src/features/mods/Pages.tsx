@@ -6,6 +6,7 @@ import { timeShort } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { MakeHouseRule, RulesList } from './Settings.tsx';
+import { HomebrewRules, HomebrewRollsCard } from './Homebrew.tsx';
 import { houseRuleTabs } from '../registry.ts';
 import { DMSystemTab, ViewsFor } from './System.tsx';
 import { Chip, useHouseRules, type HouseRule, type LogLine } from './shared.tsx';
@@ -35,12 +36,14 @@ export function DMHouseRules() {
       <Tabs<Tab> label="House rules" value={shown} onChange={setTab} items={[
         ['play', 'In play'],
         ['rules', rules.data ? `Rules (${on} on of ${list.length})` : 'Rules'],
+        ['homebrew', 'Homebrew'],
         ...extra.map((t) => [t.key, t.title] as [Tab, string]),
         ['make', 'Make or add one'],
       ]} />
       {extra1?.render()}
       {shown === 'play' && <InPlay onRules={() => setTab('rules')} />}
       {shown === 'rules' && <RulesList />}
+      {shown === 'homebrew' && <HomebrewRules />}
       {shown === 'make' && <MakeHouseRule />}
     </div>
   );
@@ -159,12 +162,13 @@ export function PlayerHouseRules() {
       <PageHead title="House rules" lead="The rules your table plays with on top of the game module." />
       <ErrorBox error={rules.error} />
       <MyHouseRulesCard />
+      <HomebrewRollsCard />
       <ViewsFor place="sheet" />
       <ViewsFor place="player" />
       {!rules.data ? <Loading /> : list.length === 0 ? <Empty>Your DM has no house rules on.</Empty> : list.map((r) => (
         <section key={r.id} className="card stack">
-          <h2 style={{ margin: 0 }}>{r.name}</h2>
-          <div className="small">{r.summary}</div>
+          <h2 style={{ margin: 0 }}>{r.name}{r.homebrew && <span className="chip teal tiny" style={{ marginLeft: 8 }}>Homebrew</span>}</h2>
+          {!r.homebrew && <div className="small">{r.summary}</div>}
           {r.rules.map((x) => <div key={x.term} className="small"><strong>{x.term}.</strong> {x.text}</div>)}
           {r.commands.length > 0 && <div className="tiny muted">In chat: {r.commands.map((c) => <code key={c} style={{ marginRight: 6 }}>{c}</code>)}</div>}
         </section>

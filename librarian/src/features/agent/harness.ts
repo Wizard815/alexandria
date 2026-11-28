@@ -57,6 +57,8 @@ import { setGuideNotes } from './store.ts';
 import { checkArgs, nearestToolNames, parseToolArgs } from './toolargs.ts';
 import { saveProblem } from '../mods/drafts.ts';
 import { ruleHints } from '../mods/assist.ts';
+import { alwaysNote } from '../mods/homebrew.ts';
+import { enabledModFiles } from '../mods/store.ts';
 import { heldItemFacts, itemHints } from '../shop/assist.ts';
 import { think, took, type ThoughtSource } from '../active/thoughts.ts';
 
@@ -851,6 +853,12 @@ export async function runAgent(d: Deps, c: Caller, input: RunInput): Promise<voi
         for (const n of hr.tools) if (byName.has(n)) picked.add(n);
         if (dmHarness) think(d, c.worldId, { ...meta, kind: 'look', chatId: input.chatId, text: `House rules this is about: ${hr.mods.join(', ')}.` });
       }
+    }
+    // Homebrew rules (and any rule marked always) are small changes to the 5e rules: every assistant keeps them in mind,
+    // whatever the message says, so "what can I do with my bonus action?" gets the table's answer.
+    {
+      const always = alwaysNote(enabledModFiles(d.db, c.worldId), dmHarness);
+      if (always) built.text += `\n\n${always}`;
     }
     // Items from the world's item database that the DM's message names (a new homebrew item has no word in the tool picker).
     if (dmHarness) {

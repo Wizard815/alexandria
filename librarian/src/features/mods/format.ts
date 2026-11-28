@@ -30,7 +30,7 @@ export const PERMISSIONS = {
 } as const;
 export type Permission = keyof typeof PERMISSIONS;
 export const MAX_JSON = 128_000;
-const MAX = { options: 16, resources: 12, actions: 24, triggers: 12, commands: 8, rules: 12, presets: 24, args: 8 };
+const MAX = { options: 16, resources: 12, actions: 24, triggers: 12, commands: 8, rules: 12, presets: 24, args: 8, rolls: 6 };
 
 export type OptionSpec =
   | { type: 'boolean'; default: boolean; label: string; help?: string }
@@ -59,6 +59,14 @@ export type When = 'longRest' | 'shortRest' | 'sessionStart' | 'sessionEnd';
 export interface Trigger { on: When; resource: string; set?: Num | 'max'; add?: Num }
 export interface Command { word: string; args: string[]; action: string }
 export interface Rule { term: string; text: string }
+/** A roll button a rule adds to the player's sheet: a d20 with advantage, disadvantage or neither, plus a weapon's
+ *  attack bonus (`attack`, picked from the Character module) or a number the player types (`d20`). The server rolls it
+ *  and posts it in table chat with the rule's name, so everyone sees the house rule was used. */
+export type RollKind = 'attack' | 'd20';
+export type RollMode = 'normal' | 'advantage' | 'disadvantage';
+export interface SheetRoll { id: string; label: string; kind: RollKind; mode: RollMode; note: string }
+export const ROLL_KINDS: readonly RollKind[] = ['attack', 'd20'];
+export const ROLL_MODES: readonly RollMode[] = ['normal', 'advantage', 'disadvantage'];
 export interface Requires { settings: string[]; /** Other house rules it builds on: id → version range. */ mods: Record<string, string> }
 export interface Targets { /** Parts of Alexandria or game modules it is made for: it cannot be turned on without them. */ builtFor: string[]; /** Ones it adds to when present. */ worksWith: string[] }
 
@@ -80,6 +88,10 @@ export interface ModFile {
   dmBand: { chips: string[]; actions: string[] } | null;
   table: { title: string; actions: string[] } | null;
   rules: Rule[];
+  /** Roll buttons on the player's sheet (see SheetRoll). */
+  rolls: SheetRoll[];
+  /** Made with the quick Homebrew rule form: a small change to the 5e rules that every assistant always keeps in mind. */
+  homebrew: boolean;
   /** World settings to set while the mod is on (values may be "$option"); restored when it goes off. */
   presets: Record<string, unknown>;
   requires: Requires;
@@ -97,7 +109,7 @@ export interface ModFile {
    *  player helper (each sees only its own), and other tools to offer with it (a feature's, such as the Codex's). */
   assistant: Assistant | null;
 }
-export interface Assistant { words: string[]; dm: string; player: string; tools: string[] }
+export interface Assistant { words: string[]; dm: string; player: string; tools: string[]; /** Always in the assistants' context while on, not only when a message names it. */ always: boolean }
 
 export interface Checked { mod: ModFile | null; errors: string[] }
 
@@ -151,7 +163,7 @@ export function checkMod(raw: unknown): Checked {
     author: text(o.author, 'author', 60),
     summary: text(o.summary, 'summary', 300),
     group: o.group === undefined || o.group === '' ? '' : slug(o.group, 'group'),
-    options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, dmBand: null, table: null, rules: [], presets: {},
+    options: {}, resources: [], actions: [], triggers: [], commands: [], sheet: null, dmBand: null, table: null, rules: [], rolls: [], homebrew: o.homebrew === true, presets: {},
     requires: { settings: [], mods: {} },
     alexandria: '', api: 0, targets: { builtFor: [], worksWith: [] }, conflicts: [], permissions: [], system: emptySystem(), assistant: null,
   };
@@ -288,6 +300,20 @@ export function checkMod(raw: unknown): Checked {
     mod.rules.push({ term: text(r.term, `${at}.term`, 80, true), text: text(r.text, `${at}.text`, 4000, true) });
   });
 
+  // ---- roll buttons on the sheet
+  const rollIds = new Set<string>();
+  list(o.rolls, 'rolls', MAX.rolls).forEach((r: any, i: number) => {
+    const at = `rolls[${i}]`;
+    if (!r || typeof r !== 'object') { err(`${at} must be { id, label, kind, mode }`); return; }
+    const rid = slug(r.id, `${at}.id`);
+    if (rid && rollIds.has(rid)) err(`${at}.id "${rid}" is used twice`);
+    rollIds.add(rid);
+    const kind = r.kind === undefined ? 'attack' : ROLL_KINDS.includes(r.kind) ? r.kind as RollKind : (err(`${at}.kind must be one of ${ROLL_KINDS.join(', ')}`), 'attack' as RollKind);
+    const mode = r.mode === undefined ? 'normal' : ROLL_MODES.includes(r.mode) ? r.mode as RollMode : (err(`${at}.mode must be one of ${ROLL_MODES.join(', ')}`), 'normal' as RollMode);
+    mod.rolls.push({ id: rid, label: text(r.label, `${at}.label`, 40, true), kind, mode, note: text(r.note, `${at}.note`, 120) });
+  });
+  if (o.homebrew !== undefined && typeof o.homebrew !== 'boolean') err('homebrew must be true or false');
+
   // ---- presets and what they need
   if (o.presets !== undefined) {
     if (!o.presets || typeof o.presets !== 'object' || Array.isArray(o.presets)) err('presets must be an object of world setting: value');
@@ -351,10 +377,11 @@ export function checkMod(raw: unknown): Checked {
     const a = o.assistant;
     if (!a || typeof a !== 'object' || Array.isArray(a)) err('assistant must be { words, dm, player, tools }');
     else {
-      for (const k of Object.keys(a)) if (!['words', 'dm', 'player', 'tools'].includes(k)) err(`assistant.${k} is not part of assistant (words, dm, player, tools)`);
+      for (const k of Object.keys(a)) if (!['words', 'dm', 'player', 'tools', 'always'].includes(k)) err(`assistant.${k} is not part of assistant (words, dm, player, tools, always)`);
+      if (a.always !== undefined && typeof a.always !== 'boolean') err('assistant.always must be true or false');
       const words = list(a.words, 'assistant.words', 24).filter((w: unknown, i: number) => typeof w === 'string' && w.trim().length >= 3 && w.length <= 40 ? true : (err(`assistant.words[${i}] must be a word or short phrase (3 to 40 letters)`), false)).map((w: string) => w.trim().toLowerCase());
       const tools = list(a.tools, 'assistant.tools', 12).filter((t: unknown, i: number) => typeof t === 'string' && /^[a-z][a-z0-9_]{1,60}$/.test(t) ? true : (err(`assistant.tools[${i}] must be a tool name like codex_search`), false));
-      mod.assistant = { words: [...new Set(words)] as string[], dm: text(a.dm, 'assistant.dm', 1200), player: text(a.player, 'assistant.player', 1200), tools: [...new Set(tools)] as string[] };
+      mod.assistant = { words: [...new Set(words)] as string[], dm: text(a.dm, 'assistant.dm', 1200), player: text(a.player, 'assistant.player', 1200), tools: [...new Set(tools)] as string[], always: a.always === true };
     }
   }
 
@@ -366,7 +393,7 @@ export function checkMod(raw: unknown): Checked {
     for (const ra of mod.system.recordActions) if (taken.has(ra.id)) err(`recordActions: "${ra.id}" is also the id of an action; give it another`);
   }
 
-  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant']);
+  const known = new Set(['kit', 'id', 'name', 'version', 'author', 'summary', 'group', 'options', 'resources', 'actions', 'triggers', 'commands', 'sheet', 'dmBand', 'table', 'rules', 'presets', 'requires', 'alexandria', 'api', 'targets', 'conflicts', 'permissions', 'records', 'recordActions', 'timers', 'prompts', 'views', 'assistant', 'rolls', 'homebrew']);
   for (const k of Object.keys(o)) if (!known.has(k)) err(`"${k}" is not part of a mod (see docs/MODS.md for the parts)`);
 
   if (o.version !== undefined && !parseVer(mod.version)) err(`version must look like 1.0.0 (major.minor.patch)`);
@@ -376,8 +403,8 @@ export function checkMod(raw: unknown): Checked {
 
 /** A checked rule back in the shape of a file (what is saved, exported and shown to the assistant). */
 export function toFile(mod: ModFile): Record<string, unknown> {
-  const { system, assistant, ...rest0 } = mod;
-  const rest = assistant ? { ...rest0, assistant } : rest0;
+  const { system, assistant, rolls, homebrew, ...rest0 } = mod;
+  const rest: Record<string, unknown> = { ...rest0, ...(rolls.length ? { rolls } : {}), ...(homebrew ? { homebrew } : {}), ...(assistant ? { assistant: assistant.always ? assistant : (({ always: _a, ...x }) => x)(assistant) } : {}) };
   if (!system.records.length) return rest;
   return {
     ...rest,
@@ -395,7 +422,8 @@ export function impliedPermissions(mod: ModFile): Permission[] {
   if (mod.commands.length) p.add('chat.commands');
   if (mod.actions.some((a) => a.effect?.chat || a.effect?.reroll)) p.add('chat.post');
   if (mod.actions.some((a) => a.effect?.reroll)) p.add('chat.buttons');
-  if (mod.sheet) p.add('sheet.card');
+  if (mod.sheet || mod.rolls.length) p.add('sheet.card');
+  if (mod.rolls.length) p.add('chat.post');
   if (mod.dmBand) p.add('dmband');
   if (mod.table) p.add('table');
   if (mod.triggers.length) p.add('clock.read');

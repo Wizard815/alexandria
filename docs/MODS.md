@@ -9,6 +9,8 @@ rules**, one page with three tabs:
   Take back, and the log of every change with its reason.
 - **Rules**: every rule this world has, the spell systems included, with its
   switch, options and Export.
+- **Homebrew**: change one 5e rule in a sentence, no file (see
+  [Homebrew rules](#homebrew-rules)).
 - **Make or add one**: describe a rule and the assistant writes it, open or
   paste a file someone shared, and how to go further with code.
 
@@ -31,6 +33,46 @@ every world.
 ![House rules, the Rules tab](screenshots/house-rules/6-dm-house-rules-all-rules.png)
 
 ![World settings, House rules](screenshots/house-rules/1-world-settings-house-rules.png)
+
+## Homebrew rules
+
+For a small change to the 5e rules ("you can make one weapon attack with your
+bonus action, at disadvantage"), open **House rules → Homebrew**:
+
+1. Give it a name and write the rule the way players should read it. **Start
+   from** fills in a few examples.
+2. Optionally, under **For the assistants**, add a note only your assistant
+   sees ("only with a light weapon") and extra words that bring it up. 5e
+   terms in the rule, such as *bonus action*, *reaction*, *short rest* or
+   *potion*, are found for you.
+3. Optionally, turn on **Add a roll button to the players' sheets**: a weapon
+   attack or a check/save, at disadvantage, with advantage or a plain d20.
+4. Press **Save and turn on**.
+
+What it does while it is on:
+
+- Players see it on their **House rules** page with a *Homebrew* badge, and
+  its text joins the rules glossary.
+- Every assistant keeps it in mind on every message, not only when a message
+  uses its words: Minerva, the player's table helper, Squire (in the quick
+  helper's brief, ahead of the rules passages) and the Broker (its rules
+  answer puts a matching homebrew rule before the rules book). Your note goes
+  to your assistant only.
+- The roll button shows on the player's home page under **Homebrew rolls**.
+  For a weapon attack the player picks a weapon from their Character module
+  (its attack bonus is added) or types a bonus. Alexandria rolls on the server
+  (`2d20kl1+6` at disadvantage, `2d20kh1` with advantage) and posts it in
+  table chat with the rule's name. It needs a running session.
+
+**Your homebrew rules**, under the form, has each one's switch, Edit (the id
+stays the same and the version goes up) and Remove. A homebrew rule is an
+ordinary rule file underneath (`homebrew: true`, `assistant.always: true`,
+optionally `rolls`), so Export and sharing work as usual.
+
+What goes wrong: the roll button says *No session is running* until you start
+one. A weapon only shows up in the list after the player imports a character
+(the Character module). Without one they type their bonus. A rule that is off
+is left out of every assistant's context.
 
 ## What comes with Alexandria
 
@@ -159,7 +201,9 @@ A file holds one rule, or a **package** of several (see Sharing).
 | `targets` | Kit 2: `{ builtFor: [...], worksWith: [...] }`. The parts it is made for (`sheet`, `codex`, `chat`, `table`, `combat`, `inventory`, `clock`, `map`, `shop`, `encounters`, `stage`, `assistant`, `library`, or a game module id such as `dnd-2024`) and the ones it only adds to. Shown as badges; a missing `builtFor` part keeps it off. |
 | `conflicts` | Kit 2: ids of rules that cannot be on at the same time. Turning this one on turns them off, like a `group`. |
 | `permissions` | Kit 2: what it touches beyond what its parts already say (`records`, `net`, ...). The DM sees the full list under Options and details. |
-| `assistant` | Kit 2: how the DM's assistant and the player helper work with the rule (see below). |
+| `assistant` | Kit 2: how the DM's assistant and the player helper work with the rule (see below). `always: true` keeps it in every assistant's context while it is on. |
+| `rolls` | Up to 6 roll buttons on the player's sheet: `{ id, label, kind: attack \| d20, mode: normal \| advantage \| disadvantage, note? }`. The server rolls and posts in table chat. |
+| `homebrew` | `true` for a rule made with the Homebrew form (it is listed there to edit). |
 | `api` | Kit 2: the mod API version a code mod was written against (data rules leave it out). |
 
 Limits: 128 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16
@@ -346,6 +390,10 @@ only those on), `GET /rules`, `GET /counters`, `GET /log`, `POST /check`,
 those rules, or of every rule that is on), `GET /:id/export` (a package of one), `PUT /:id/enabled { on }`,
 `PUT /:id/options { options }`, `DELETE /:id` (DM only, except the reads), and
 `POST /:id/act { action, player?, resource?, note?, rollId?, channel?, atTable? }`.
+Homebrew: `POST /homebrew { id?, name, text, gm?, words?, roll?: { label, kind, mode }, on? }`
+(Game Master; no `id` makes a new rule `hb-<name>` and turns it on),
+`POST /:id/rolls/:roll { attack? (index into the Character module's attacks), bonus? }`
+and `GET /attacks` (my Character module's attacks).
 Mod studio: `GET /guide?part=start|counters|data|presets|manifest` and
 `GET /:id/file` (a rule or an example as its file), both DM only; `POST /check`
 also returns `preview` (lines) and `draft`, and `POST /import { draft }` saves

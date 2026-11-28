@@ -160,6 +160,8 @@ export function getModRaw(db: DB, worldId: string, modId: string): Installed {
 }
 
 export const enabledMods = (db: DB, worldId: string) => listMods(db, worldId).filter((m) => m.enabled);
+/** The files of the rules that are on, or none when the house rules tables are not there yet. */
+export function enabledModFiles(db: DB, worldId: string): ModFile[] { try { return enabledMods(db, worldId).map((m) => m.mod); } catch { return []; } }
 
 function upsert(db: DB, worldId: string, modId: string, source: string, fields: { json?: string | null; enabled?: boolean; options?: unknown; saved?: unknown }, by: string | null) {
   const cur = one<any>(db, 'SELECT * FROM mods WHERE world_id = ? AND id = ?', worldId, modId);
