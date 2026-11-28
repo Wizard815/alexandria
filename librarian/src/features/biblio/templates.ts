@@ -64,7 +64,8 @@ export const BUILTIN_TEMPLATES: Template[] = [
   {
     id: 'creature', name: 'Creature', icon: 'fa-dragon', description: 'A monster, beast or other being.',
     fields: [
-      f('type', 'Kind'), f('size', 'Size'), f('cr', 'Challenge rating'), f('habitat', 'Found in', 'links'), f('behaviour', 'Behaviour', 'long'),
+      f('type', 'Kind'), f('size', 'Size'), f('cr', 'Challenge rating'), f('ac', 'Armour class', 'number'), f('hp', 'Hit points'), f('speed', 'Speed'),
+      f('abilities', 'Ability scores'), f('actions', 'Actions', 'long'), f('habitat', 'Found in', 'links'), f('behaviour', 'Behaviour', 'long'),
       gm('weakness', 'Weakness'), gm('tactics', 'Tactics'),
     ],
   },

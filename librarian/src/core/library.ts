@@ -321,7 +321,8 @@ export class Library {
         run(this.db, `UPDATE pages SET title = ?, visibility = ?, frontmatter = ?, body = ?, blocks = ?, origin = ?, parent_external = ?, folder = ?, aliases = ?, tags = ?, kind = ?, icon = ?, banner = ?, url = ?,
           knowledge = ?, properties = ?, position = ?, updated_at = ?, updated_by = ?, source_level = ?, marker_level = ?, ${CLEAR_COPIES} WHERE id = ?`, ...vals, pid);
       } else {
-        pid = id('pg_');
+        // A page that comes back (a Biblio article out of the trash) keeps its old id, so links, shares and people still find it.
+        pid = e.pageId && /^pg_[\w-]{6,40}$/.test(e.pageId) && !one(this.db, 'SELECT 1 FROM pages WHERE id = ?', e.pageId) ? e.pageId : id('pg_');
         run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, position, updated_at, updated_by, source_level, marker_level, id, world_id, path, source_id, external_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
       }
@@ -1178,5 +1179,5 @@ export function safeSourceUrl(u: unknown): string | null {
 }
 
 function slugPart(s: string) {
-  return String(s).normalize('NFKC').replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').replace(/^\.+/, '').trim().slice(0, 80) || 'page';
+  return String(s).normalize('NFKC').replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').trim().replace(/^[.\s]+/, '').trim().slice(0, 80) || 'page';
 }

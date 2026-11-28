@@ -291,3 +291,40 @@ test('TestBiblio_McpTools', async () => {
     assert.equal(revs[0].byKind, 'ai', 'an MCP client counts as an AI');
   } finally { t.close(); }
 });
+
+test('TestBiblio_BreakItFixes', async () => {
+  const t = await boot();
+  try {
+    const W = `/api/worlds/${t.W}`;
+    // A title the library cannot make a path from is either cleaned or refused, and never leaves half an article behind.
+    const dots = await t.call('POST', `${t.B}/articles`, t.T.gm, { title: '../../../etc/passwd', level: 'party' });
+    assert.equal(dots.status, 201, 'a ../ title is cleaned into a safe path');
+    assert.ok(!String(dots.body.page.path).includes('..'), dots.body.page.path);
+    const huge = await t.call('PATCH', `${t.B}/articles/${dots.body.id}`, t.T.gm, { body: 'y'.repeat(1_990_000) + '\n\n' + '[[x]] '.repeat(5000) });
+    assert.ok(huge.status >= 400, 'a body the library will not take is refused');
+    const after = await t.ok('GET', `${t.B}/articles/${dots.body.id}`, t.T.gm);
+    assert.equal(after.article.rev, 1, 'the refused save is undone');
+    await t.ok('POST', `${t.B}/republish`, t.T.gm);
+    // The library will not delete a Biblio page behind Biblio's back.
+    const watch = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'Harbour Watch', template: 'organisation', level: 'party' });
+    const del = await t.call('DELETE', `${W}/library/pages/${watch.pageId}`, t.T.gm);
+    assert.equal(del.status, 409);
+    // A link in an infobox field counts for Mentioned in, for whoever may read the field.
+    const hand = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'Gilded Hand', template: 'organisation', level: 'gm', fields: { enemies: '[[Harbour Watch]]' } });
+    const odda = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'Odda', template: 'character', level: 'party', fields: { member_of: '[[Harbour Watch]]', secret: '[[Gilded Hand]] pays her' } });
+    const gmBack = (await t.ok('GET', `${t.B}/articles/${watch.id}`, t.T.gm)).backlinks.map((b: any) => b.title);
+    assert.deepEqual(gmBack.sort(), ['Gilded Hand', 'Odda']);
+    const plBack = (await t.ok('GET', `${t.B}/articles/${watch.id}`, t.T.jess)).backlinks.map((b: any) => b.title);
+    assert.deepEqual(plBack, ['Odda'], 'players never see the GM-only Hand');
+    const handBack = (await t.ok('GET', `${t.B}/articles/${hand.id}`, t.T.gm)).backlinks.map((b: any) => b.title);
+    assert.deepEqual(handBack, ['Odda'], 'a GM-only field links for the GM');
+    // Out of the trash on the same page, so links, shares and people still find it.
+    await t.ok('DELETE', `${t.B}/articles/${odda.id}`, t.T.gm);
+    const back = await t.ok('POST', `${t.B}/articles/${odda.id}/restore`, t.T.gm);
+    assert.equal((back.pageId ?? back.article?.pageId), odda.pageId);
+    // Creatures carry what combat needs.
+    const hag = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'Brine Hag', template: 'creature', level: 'party', fields: { ac: '15', hp: '52 (8d8+16)', speed: '30 ft' } });
+    assert.equal(hag.article.fields.ac, '15');
+    assert.match(t.text(await t.ok('GET', `${t.B}/articles/${hag.id}`, t.T.jess)), /52 \(8d8\+16\)/);
+  } finally { t.close(); }
+});

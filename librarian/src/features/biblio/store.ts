@@ -254,7 +254,20 @@ export function saveArticle(d: Deps, worldId: string, aid: string | null, input:
     keepRevision(d, worldId, aid2, rev, c, String(input.note ?? (prev ? '' : 'Created')).slice(0, 200));
   });
   const saved = getArticle(d, worldId, aid2);
-  publish(d, worldId, saved, { batch: opts.batch, linksChanged: !prev || prev.title !== saved.title || prev.level !== saved.level || prev.aliases.join('|') !== saved.aliases.join('|') });
+  try {
+    publish(d, worldId, saved, { batch: opts.batch, linksChanged: !prev || prev.title !== saved.title || prev.level !== saved.level || prev.aliases.join('|') !== saved.aliases.join('|') });
+  } catch (err) {
+    // The library would not take it (a bad path, a page too large): undo the save, so the article and its page never disagree.
+    tx(d.db, () => {
+      run(d.db, 'DELETE FROM biblio_revisions WHERE article_id = ? AND rev = ?', aid2, rev);
+      if (!prev) run(d.db, 'DELETE FROM biblio_articles WHERE id = ?', aid2);
+      else run(d.db, `UPDATE biblio_articles SET parent_id = ?, position = ?, title = ?, template = ?, icon = ?, cover = ?, summary = ?, tags = ?, aliases = ?, fields = ?, level = ?, knowledge = ?, body = ?,
+        rev = ?, updated_at = ?, updated_by = ? WHERE id = ?`, prev.parentId, prev.position, prev.title, prev.template, prev.icon, prev.cover, prev.summary, JSON.stringify(prev.tags),
+        JSON.stringify(prev.aliases), JSON.stringify(prev.fields), prev.level, prev.knowledge, prev.body, prev.rev, prev.updatedAt, prev.updatedBy, aid2);
+    });
+    if (prev) try { publish(d, worldId, getArticle(d, worldId, aid2), { batch: opts.batch }); } catch { /* the old page stays as it was */ }
+    throw err;
+  }
   return getArticle(d, worldId, aid2);
 }
 
@@ -298,8 +311,8 @@ export function trashArticle(d: Deps, worldId: string, aid: string): string[] {
     const a = getArticle(d, worldId, x, { trash: true });
     if (a.deletedAt) continue;
     run(d.db, 'UPDATE biblio_articles SET deleted_at = ? WHERE id = ?', at, x);
+    // The page goes; its id is kept, so the article comes back from the trash on the same page (links, shares, people).
     if (a.pageId && one(d.db, 'SELECT 1 FROM pages WHERE id = ?', a.pageId)) d.library.remove(worldId, a.pageId);
-    run(d.db, 'UPDATE biblio_articles SET page_id = NULL WHERE id = ?', x);
   }
   return ids;
 }
@@ -421,7 +434,7 @@ export function entryOf(d: Deps, worldId: string, a: Article): Entry {
   const tpl = templateOf(d, worldId, a.template);
   const summary = a.summary ? `${a.summary}\n\n` : '';
   return {
-    externalId: a.id, parentExternalId: a.parentId, folder: folderOf(d, worldId, a), title: a.title, aliases: a.aliases, tags: a.tags,
+    externalId: a.id, pageId: a.pageId, parentExternalId: a.parentId, folder: folderOf(d, worldId, a), title: a.title, aliases: a.aliases, tags: a.tags,
     type: tpl.id, icon: { glyph: a.icon ?? tpl.icon }, banner: a.cover, properties: infobox(tpl, a.fields),
     blocks: [], markdown: summary + a.body, frontmatter: frontmatterOf(a, tpl),
     visibility: a.level, level: a.level, knowledge: a.knowledge, position: a.position, updatedAt: a.updatedAt, sourceShared: a.level === 'party',
@@ -448,7 +461,10 @@ export function publish(d: Deps, worldId: string, a: Article, opts: { linksChang
 /** Publish every article again (the source was deleted, or a template changed). */
 export function republishAll(d: Deps, worldId: string, only?: (a: Article) => boolean): number {
   const list = listArticles(d, worldId).filter((a) => !only || only(a));
-  for (const x of topoOrder(d, worldId, list.map((a) => a.id))) publish(d, worldId, getArticle(d, worldId, x), { batch: true });
+  // One article the library will not take (an old bad title) must not stop the rest.
+  for (const x of topoOrder(d, worldId, list.map((a) => a.id))) {
+    try { publish(d, worldId, getArticle(d, worldId, x), { batch: true }); } catch (err: any) { console.warn(`biblio: could not publish ${x}: ${err?.message ?? err}`); }
+  }
   if (list.length) d.library.rebuildPlayerCopies(worldId);
   return list.length;
 }
@@ -458,13 +474,17 @@ export function republishAll(d: Deps, worldId: string, only?: (a: Article) => bo
 /** Pages (any source) whose copy for this viewer links to the article by its title or an alias. Only pages the viewer may open. */
 export function backlinks(d: Deps, worldId: string, a: Article, viewer: Viewer): { id: string; title: string; articleId: string | null }[] {
   const aud = audienceOf(viewer);
-  const col = aud === 'gm' ? 'p.body' : aud === 'ai' ? 'p.ai_body' : aud === 'broker' ? 'p.broker_body' : 'p.player_body';
+  const pre = aud === 'gm' ? 'p.' : aud === 'ai' ? 'p.ai_' : aud === 'broker' ? 'p.broker_' : 'p.player_';
+  const col = `${pre}body`, props = `${pre}properties`;
   const names = [a.title, ...a.aliases].map((n) => n.toLowerCase());
-  const like = names.map(() => `lower(${col}) LIKE ?`).join(' OR ');
-  const rows = all<any>(d.db, `SELECT p.id, p.title, p.visibility, ${col} AS text, b.id AS article_id FROM pages p LEFT JOIN biblio_articles b ON b.page_id = p.id
-    WHERE p.world_id = ? AND ${col} IS NOT NULL AND p.id IS NOT ? AND (${like}) ORDER BY p.title COLLATE NOCASE LIMIT 200`, worldId, a.pageId, ...names.map((n) => `%[[${n}%`));
+  // A link in the text ([[Name]]) or in an infobox link field (a mention in that viewer's copy of the infobox).
+  const mention = (n: string) => `%"mention":{"name":${JSON.stringify(n)}%`;
+  const like = names.map(() => `lower(${col}) LIKE ? OR lower(coalesce(${props}, '')) LIKE ?`).join(' OR ');
+  const rows = all<any>(d.db, `SELECT p.id, p.title, p.visibility, ${col} AS text, ${props} AS props, b.id AS article_id FROM pages p LEFT JOIN biblio_articles b ON b.page_id = p.id
+    WHERE p.world_id = ? AND ${col} IS NOT NULL AND p.id IS NOT ? AND (${like}) ORDER BY p.title COLLATE NOCASE LIMIT 200`, worldId, a.pageId, ...names.flatMap((n) => [`%[[${n}%`, mention(n)]));
   const re = new RegExp(`\\[\\[\\s*(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\s*(\\||#|\\]\\])`, 'i');
-  return rows.filter((r) => canSeeLevel(normLevel(r.visibility), aud) && re.test(String(r.text))).map((r) => ({ id: r.id, title: r.title, articleId: r.article_id ?? null }));
+  const inProps = (raw: unknown) => { const t = String(raw ?? '').toLowerCase(); return names.some((n) => t.includes(`"mention":{"name":${JSON.stringify(n)}`)); };
+  return rows.filter((r) => canSeeLevel(normLevel(r.visibility), aud) && (re.test(String(r.text)) || inProps(r.props))).map((r) => ({ id: r.id, title: r.title, articleId: r.article_id ?? null }));
 }
 
 /** The first whole number in an in-world date sorts it ("3 Frostfall 1042 AR" -> 1042, "-300" -> -300). Null: no number, kept last. */

@@ -109,6 +109,8 @@ export default function libraryRoutes(d: Deps) {
 
   r.delete('/pages/:id', requireGM, (req, res) => {
     const c = ctx(res);
+    const pg = d.db.prepare('SELECT path FROM pages WHERE world_id = ? AND id = ?').get(c.world.id, String(req.params.id)) as { path: string } | undefined;
+    if (pg && biblioPage(d, c.world.id, pg.path)) throw new HttpError(409, 'This page is a Biblio article: move it to the trash in Biblio (DELETE /biblio/articles/<id>, or the biblio_trash tool).');
     L.remove(c.world.id, String(req.params.id));
     audit(d.db, c.world.id, me(res), 'page.delete', String(req.params.id));
     res.json({ ok: true });

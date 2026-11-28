@@ -25,7 +25,7 @@ reads Biblio and can write to it through tools.
 | **Relations** | Link fields such as *Member of*, *Allies*, *Enemies*, *Parents* and *Spouse* become relations on the Relations page and in the assistants' `who_is` answers. A GM-only link field makes a GM-only relation. |
 | **Timeline** | Every date field (*When*, *Born*, *Founded*…) puts the article on the timeline. The first whole number in the date sorts it, and *BC*, *BCE* or *BR* makes it negative, so "3 Frostfall 1042 AR" sorts as 1042 and "212 BR" as -212. Players see only the dates in their own copy. |
 | **History** | Every save keeps a version (the last 200). *History* shows what changed and brings an old version back as a new one. Versions made by an assistant are marked. Two people (or you and the assistant) saving the same article at once get "changed since you opened it" instead of one overwriting the other. |
-| **Trash** | Trashing an article takes everything under it. *Restore* brings them all back. *Delete for good* empties it from the trash. |
+| **Trash** | Trashing an article takes everything under it. *Restore* brings them all back on the same library pages, so links, shares and People entries still find them. *Delete for good* empties it from the trash. |
 | **Suggestions** | Players press *Suggest an edit* on an article, or suggest a new one. The GM accepts (the text is added to the article under the player's name, or becomes a new GM-only article) or turns it down. Ordinary change requests on a Biblio article are applied through Biblio too. |
 | **Move in & out** | *Copy all into Biblio* copies every page of a LegendKeeper, Kanka, World Anvil, Notion, Obsidian or other source, keeping their places in the tree, levels, tags, other names and secrets. Infobox rows that match the template's fields fill them, and the rest go into the text (GM-only rows inside a `> [!secret]` callout). The originals stay until you switch the source off. *Download Biblio* saves everything as one JSON file that *Load a Biblio file* reads into any world. |
 
@@ -42,8 +42,8 @@ nothing to sync:
   (`list_pages`, `read_page`, `search_library`)
 
 The Biblio source can't be deleted from the sources list. The library won't
-save over a Biblio page (`PUT /library/pages` answers 409); change it in
-Biblio. If the pages were ever lost, the server publishes the articles again
+save over or delete a Biblio page (`PUT /library/pages` and
+`DELETE /library/pages/:id` answer 409); change it in Biblio. If the pages were ever lost, the server publishes the articles again
 on its next start.
 
 **Who gets what.** Players never read the stored article. Everything they get
@@ -52,6 +52,23 @@ library copy, so a GM-only field, a secret callout or a link to a hidden page
 can't reach them. A model working for the GM gets the AI copy: no classified
 article or classified part, no old versions, and it may not write an article
 that holds classified parts (it never saw them) or make anything classified.
+
+## With the rest of Alexandria
+
+| Part | How it works with Biblio |
+|---|---|
+| **People and organisations** | Characters, organisations (factions, guilds, militias) and peoples are templates. *Member of*, *Allies*, *Enemies*, *Parents* and *Spouse* become relations on the Relations page and in `who_is`. A *People* entry the party met can point at a Biblio page (`pageId`), and each player keeps their own private note on it. |
+| **Regions and places** | A location's *Kind* says region, town, inn and so on, and *Located in* plus the tree say what sits inside what. |
+| **Maps, pictures and markers** | A map picture is uploaded to Files with the article as its page (`POST /files?kind=map&page=<pageId>&level=…`). It shows on the Map page for whoever may read it, and pins, notes and icon markers go on it there, with GM-only markers. A picture can be the article's cover. Pins don't link back to articles yet. |
+| **Items and creatures** | Items have rarity, attunement, owner and a GM-only true nature. Creatures have challenge rating, armour class, hit points, speed, ability scores and actions, so Minerva can put one into combat with the right numbers. |
+| **Spells, skills, health and mana** | These live on the character sheet and the Spells page, not in Biblio. A *Lore* article can describe a spell's history. Minerva reads both. |
+| **Search and embeddings** | Each article is a library page, so keyword search, semantic search (the Historian's embeddings), Related pages and the knowledge refresh index it, each viewer from their own copy. |
+| **Story bible** | The story bible reads Biblio pages like any other. Players get facts only from their own copy. |
+| **Permissions** | The level sets who can read it (party, GM only with broker, GM only, classified). *Share with one player* (Library → Sharing) works on a Biblio page and survives edits. Guests read party articles but can't suggest. Player and read-only MCP keys can't write. An admin who isn't in the world gets nothing. |
+| **Assistants** | Minerva reads and writes through the `biblio_*` tools (writes become approval cards). The players' assistant reads their copy only, and an article that tells an AI to print secrets gets nowhere because the secrets aren't in its copy. |
+
+`librarian/scripts/biblio-real.ts` checks all of this (about 150 checks) against a fresh server, with real models from OpenRouter or with `--no-models`:
+`BIBLIO_REAL=1 NODE_USE_ENV_PROXY=1 node --experimental-strip-types scripts/biblio-real.ts`.
 
 ## Assistant tools
 
