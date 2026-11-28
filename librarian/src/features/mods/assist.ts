@@ -45,12 +45,21 @@ const short = (k: RecordKind, r: Rec, nm: Record<string, string>, withPlayer: bo
   return `${withPlayer && r.player ? `${nm[r.player] ?? 'a player'}: ` : ''}${r[k.title] !== undefined ? show(k.title) : r.id} (id ${r.id}${rest ? `; ${rest}` : ''})`;
 };
 
+/** A rule's own text in plain words, capped (bold and links dropped). */
+export function ruleText(rules: { term: string; text: string }[], max: number): string {
+  const t = rules.map((r) => r.text).join(' ').replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
+  return t.length > max ? t.slice(0, max - 1) + '…' : t;
+}
+
 /** One rule's note for this person. */
 function ruleNote(db: DB, worldId: string, m: Installed, dm: boolean, accountId: string, nm: Record<string, string>): { text: string; tools: string[] } {
   const mod = m.mod;
   const L: string[] = [`House rule "${mod.name}" (mod id ${mod.id}) is on at this table.${mod.summary ? ` ${mod.summary}` : ''}`];
   const guide = dm ? mod.assistant?.dm : mod.assistant?.player;
   if (guide) L.push(guide);
+  // The rule text itself: a rule written without an assistant part (downloaded, or made by hand) still says what it does.
+  const text = ruleText(mod.rules, guide ? 300 : 900);
+  if (text) L.push(`The rule: ${text}`);
   const tools = new Set<string>(['house_rules', ...(mod.assistant?.tools ?? [])]);
   const can = (by: string) => dm || by !== 'dm';
   const calls: string[] = [];

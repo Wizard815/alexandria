@@ -205,6 +205,10 @@ its `assistant` part), they get a short note with:
 
 - the rule's summary and the guidance written for them. The DM's text is
   only for the DM, and the player's text only for players.
+- the rule text itself (its `rules` entries, in plain words). So a rule with
+  no `assistant` part, such as one downloaded or written by hand, still
+  explains itself: asked "what happens if my corruption keeps going up?", the
+  player helper answers from the rule's own text.
 - the exact calls they can make with it, such as
   `house_rule_my_record {"mod":"downtime-lite","action":"start","values":{"activity":...}}`.
 - what they may see now. The DM sees every record and counter. A player sees
@@ -240,6 +244,22 @@ proposed opening the Downtime day (`web/e2e/houserule-helpers-real.mjs`).
 What goes wrong: a word that is too common (`day`, `rest`) brings the rule
 into messages that are not about it. Use phrases. At most three rules are
 added to one message.
+
+The `house_rules` tool gives the assistant a short list: the rules that are
+on, the DM's own and imported ones first, and only the names of the rest.
+The full list runs to tens of kilobytes with thirty rules, and a tool result
+is cut long before that, which used to hide a new rule at the end.
+
+### New things piling up
+
+`web/e2e/buildup-real.mjs` (real models, about half a cent) turns on most
+shipped rules, then over four sessions adds a new rule with no `assistant`
+part, a new item, and a templates pack. After each one, a fresh chat must use
+it, and the last session asks for all of them at once and asks "what have I
+added lately?". The `whats_new` tool answers that from the audit log: house
+rules added or turned on, items, templates and guides, game modules and
+spells. A new item the DM names in a message comes with its item database
+entry (see SHOPS.md).
 
 ## Making one with the assistant (the Mod studio)
 

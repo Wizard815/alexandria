@@ -16,6 +16,7 @@ import { addTermSource, enabledIds as gameModuleIds } from '../modules/store.ts'
 import { shippedMods, targetInfo } from './catalog.ts';
 import { exampleFiles, guideText, previewMod } from './guide.ts';
 import { keepDraft, takeDraft } from './drafts.ts';
+import { ruleText } from './assist.ts';
 import { satisfies } from './semver.ts';
 import { canRead, type Channel } from '../sessionchat/chat.ts';
 import { SCHEMA as RECORDS_SCHEMA, answerPrompt, closePrompt, listRecords, openPrompt, openRounds, readRecordLog, recordAct, runTimers, type Rec, type Said } from './recstore.ts';
@@ -48,6 +49,31 @@ function view(m: Installed, dm: boolean) {
       prompts: mod.system.prompts, views: mod.system.views,
     } : null,
     ...(dm ? { presets: presetValues(mod, m.options), missing: m.missing, waiting: m.waiting, needs: m.needs, alexandria: mod.alexandria || null, api: mod.api, permissions: impliedPermissions(mod).map((k) => PERMISSIONS[k]) } : {}),
+  };
+}
+
+/** The house rules for the assistant: the ones that are on in a few lines each (the DM's own and imported ones
+ * first, so a long list never cuts off the new one), and only the names of the rest. The full view runs to tens of
+ * kilobytes once thirty rules ship, and a model's tool result is cut long before that. */
+function brief(list: Installed[], dm: boolean) {
+  const on = list.filter((m) => m.enabled).sort((a, b) => Number(b.source === 'imported') - Number(a.source === 'imported'));
+  const line = (m: Installed) => {
+    const mod = m.mod;
+    const acts = mod.actions.map((a) => `${a.id} (${a.label}, by ${a.by})`);
+    return {
+      id: mod.id, name: mod.name, source: m.source === 'imported' ? 'added by the DM' : 'ships with Alexandria', summary: mod.summary,
+      rule: ruleText(mod.rules, 500) || undefined,
+      counters: mod.resources.length ? mod.resources.map((r) => `${r.id} (${r.label}${r.max !== null && r.max !== undefined ? `, max ${r.max}` : ''})`) : undefined,
+      actions: acts.length ? acts : undefined,
+      commands: mod.commands.length ? commandActions(mod).map((c) => `/${c.word}`) : undefined,
+      records: mod.system.records.length ? mod.system.records.map((k) => k.plural) : undefined,
+      prompts: mod.system.prompts.length ? mod.system.prompts.map((p) => p.button) : undefined,
+    };
+  };
+  return {
+    on: on.map(line),
+    ...(dm ? { off: list.filter((m) => !m.enabled).map((m) => `${m.mod.name} (${m.mod.id}${m.source === 'imported' ? ', added by the DM' : ''})`) } : {}),
+    note: 'Ask with a rule id (house_rule_records, house_rule_counters) for its details.',
   };
 }
 
@@ -191,9 +217,11 @@ function routes(d: Deps) {
     res.json(round);
   });
 
-  r.get('/', (_req, res) => {
+  r.get('/', (req, res) => {
     const dm = isDM(res);
-    res.json({ mods: listMods(db, W(res)).filter((m) => dm || m.enabled).map((m) => view(m, dm)) });
+    const list = listMods(db, W(res)).filter((m) => dm || m.enabled);
+    if (req.query.brief === '1') { res.json(brief(list, dm)); return; }
+    res.json({ mods: list.map((m) => view(m, dm)) });
   });
 
   r.get('/rules', (_req, res) => {
@@ -446,7 +474,7 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'house_rules', description: "The world's house rules (mods) that are on: what each does, its rule text, its counters (e.g. reroll tokens) and the actions and chat words it adds. The DM also sees rules that are off. Use it to explain a house rule or before granting or spending.",
-      props: {}, call: () => ({ method: 'GET', path: '/mods' }),
+      props: {}, call: () => ({ method: 'GET', path: '/mods?brief=1' }),
     },
     {
       name: 'house_rule_counters', description: 'How many of each house rule counter (reroll tokens, hero points...) each player holds. A player sees their own.',
