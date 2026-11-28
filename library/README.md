@@ -154,4 +154,5 @@ npm run build
 
 ## License
 
-MIT
+Part of Alexandria, under the PolyForm Shield License 1.0.0. See
+[LICENSE](../LICENSE) and [docs/LICENSING.md](../docs/LICENSING.md).
