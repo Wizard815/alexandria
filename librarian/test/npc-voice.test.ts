@@ -54,40 +54,40 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = baseOf(server);
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Voiceland', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Voiceland', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', api('/invites'), T.dm, { role: 'player' });
+    const inv = await ok('POST', api('/invites'), T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
     T[name] = j.token;
     ID[name] = j.account.id;
     await ok('PUT', api('/sound/me/switches'), j.token, { device: `${name}-phone-1`, sfx: true });
   }
-  await ok('POST', api('/voice/presets'), T.dm, { name: 'Gravel', voice: 'bm_george', speed: 0.9, target: 'table' });
-  await ok('POST', api('/voice/presets'), T.dm, { name: 'Sprite', voice: 'af_sky', speed: 1.2, target: 'table' });
+  await ok('POST', api('/voice/presets'), T.gm, { name: 'Gravel', voice: 'bm_george', speed: 0.9, target: 'table' });
+  await ok('POST', api('/voice/presets'), T.gm, { name: 'Sprite', voice: 'af_sky', speed: 1.2, target: 'table' });
 });
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 test('TestNpcVoice_OffByDefaultNothingIsSpoken', async () => {
   const before = tts.length;
-  await ok('POST', api('/encounters'), T.dm, { accountIds: [ID.jess], npcName: 'Old Bram', line: 'Spare a coin?', answers: ['No'] });
+  await ok('POST', api('/encounters'), T.gm, { accountIds: [ID.jess], npcName: 'Old Bram', line: 'Spare a coin?', answers: ['No'] });
   await wait(150);
   assert.equal(tts.length, before);
-  const s = await ok('GET', api('/voice/npcs'), T.dm);
+  const s = await ok('GET', api('/voice/npcs'), T.gm);
   assert.equal(s.npcVoices, false);
 });
 
 test('TestNpcVoice_AnNpcSpeaksToThatPlayerOnly', async () => {
-  await ok('PATCH', api('/settings'), T.dm, { npcVoices: true, npcVoicePreset: 'Sprite' });
-  await ok('PUT', api('/voice/npcs'), T.dm, { npc: 'Captain Vex', preset: 'gravel' });
-  assert.equal((await call('PUT', api('/voice/npcs'), T.dm, { npc: 'Nobody', preset: 'No such voice' })).status, 404);
+  await ok('PATCH', api('/settings'), T.gm, { npcVoices: true, npcVoicePreset: 'Sprite' });
+  await ok('PUT', api('/voice/npcs'), T.gm, { npc: 'Captain Vex', preset: 'gravel' });
+  assert.equal((await call('PUT', api('/voice/npcs'), T.gm, { npc: 'Nobody', preset: 'No such voice' })).status, 404);
   const jess = await listen(base, W, T.jess);
   const tom = await listen(base, W, T.tom);
-  const dm = await listen(base, W, T.dm);
+  const gm = await listen(base, W, T.gm);
   await wait();
   const n = tts.length;
-  const [e] = await ok('POST', api('/encounters'), T.dm, { accountIds: [ID.jess], npcName: 'Captain Vex', line: 'You there. You owe me passage money.', answers: ['Pay', 'Run'] });
+  const [e] = await ok('POST', api('/encounters'), T.gm, { accountIds: [ID.jess], npcName: 'Captain Vex', line: 'You there. You owe me passage money.', answers: ['Pay', 'Run'] });
   await spoken(n + 1);
   assert.equal(tts.length, n + 1);
   assert.match(tts.at(-1).input, /You owe me passage money/);
@@ -96,55 +96,55 @@ test('TestNpcVoice_AnNpcSpeaksToThatPlayerOnly', async () => {
   assert.equal(jessSound.length, 1, 'the player in the talk hears it');
   assert.equal(jessSound[0].data.label, 'Captain Vex');
   assert.equal(tom.events.filter((x) => x.type === 'sound').length, 0, 'the rest of the party does not');
-  assert.equal(dm.events.filter((x) => x.type === 'sound').at(-1)?.data.target, 'players', 'not played at the table');
+  assert.equal(gm.events.filter((x) => x.type === 'sound').at(-1)?.data.target, 'players', 'not played at the table');
   const file = jessSound[0].data.url.split('/').pop();
   assert.equal((await call('GET', api(`/voice/file/${file}`), T.jess)).status, 200);
   assert.equal((await call('GET', api(`/voice/file/${file}`), T.tom)).status, 404, 'another player cannot fetch it');
   assert.equal((await call('GET', api(`/voice/file/${file}/ticket`), T.tom)).status, 404);
-  // The DM speaks live as the NPC: only the new line is read.
-  await ok('POST', api(`/encounters/${e.id}/say`), T.dm, { text: 'Last chance, sailor.', answers: ['Fine'] });
+  // The GM speaks live as the NPC: only the new line is read.
+  await ok('POST', api(`/encounters/${e.id}/say`), T.gm, { text: 'Last chance, sailor.', answers: ['Fine'] });
   await spoken(n + 2);
   assert.equal(tts.length, n + 2);
   assert.equal(tts.at(-1).input, 'Last chance, sailor.');
   // The player answering adds no NPC line here, so nothing new is spoken twice.
-  await ok('POST', api(`/encounters/${e.id}/end`), T.dm, {});
+  await ok('POST', api(`/encounters/${e.id}/end`), T.gm, {});
   await wait(150);
   assert.equal(tts.length, n + 2);
-  jess.stop(); tom.stop(); dm.stop();
+  jess.stop(); tom.stop(); gm.stop();
 });
 
 test('TestNpcVoice_DefaultVoiceForOtherNpcs', async () => {
   const n = tts.length;
-  await ok('POST', api('/encounters'), T.dm, { accountIds: [ID.tom], npcName: 'A street urchin', line: 'Psst. Want to buy a map?', answers: ['Sure'] });
+  await ok('POST', api('/encounters'), T.gm, { accountIds: [ID.tom], npcName: 'A street urchin', line: 'Psst. Want to buy a map?', answers: ['Sure'] });
   await spoken(n + 1);
   assert.equal(tts.at(-1).voice, 'af_sky');
 });
 
 test('TestNpcVoice_QuickEventPromptToItsAudience', async () => {
-  await ok('PATCH', api('/settings'), T.dm, { quickEventVoicePreset: 'Gravel' });
+  await ok('PATCH', api('/settings'), T.gm, { quickEventVoicePreset: 'Gravel' });
   const jess = await listen(base, W, T.jess);
   const tom = await listen(base, W, T.tom);
   await wait();
   const n = tts.length;
-  const ev = await ok('POST', api('/quick-events'), T.dm, { kind: 'recall', title: 'The old song', prompt: 'Do you remember how it ends?', audience: [ID.tom] });
+  const ev = await ok('POST', api('/quick-events'), T.gm, { kind: 'recall', title: 'The old song', prompt: 'Do you remember how it ends?', audience: [ID.tom] });
   await spoken(n + 1);
   assert.equal(tts.length, n + 1);
   assert.equal(tts.at(-1).input, 'The old song. Do you remember how it ends?');
   assert.equal(tom.events.filter((x) => x.type === 'sound').length, 1);
   assert.equal(jess.events.filter((x) => x.type === 'sound').length, 0);
-  await ok('POST', api(`/quick-events/${ev.id}/cancel`), T.dm, {}).catch(() => undefined);
+  await ok('POST', api(`/quick-events/${ev.id}/cancel`), T.gm, {}).catch(() => undefined);
   await wait(150);
   assert.equal(tts.length, n + 1, 'spoken once');
   jess.stop(); tom.stop();
 });
 
 test('TestNpcVoice_ToolsAndPlayerAccess', async () => {
-  assert.ok(toolsFor(false).find((t) => t.name === 'list_npc_voices')?.dmOnly);
+  assert.ok(toolsFor(false).find((t) => t.name === 'list_npc_voices')?.gmOnly);
   assert.ok(toolsFor(true).find((t) => t.name === 'set_npc_voice')?.write);
   assert.equal((await call('GET', api('/voice/npcs'), T.jess)).status, 403);
   assert.equal((await call('PUT', api('/voice/npcs'), T.jess, { npc: 'x', preset: 'Gravel' })).status, 403);
-  const list = await ok('GET', api('/voice/npcs'), T.dm);
+  const list = await ok('GET', api('/voice/npcs'), T.gm);
   assert.deepEqual(list.npcs.map((x: any) => [x.npc, x.preset]), [['Captain Vex', 'Gravel']]);
-  await ok('PUT', api('/voice/npcs'), T.dm, { npc: 'captain vex', preset: '' });
-  assert.equal((await ok('GET', api('/voice/npcs'), T.dm)).npcs.length, 0);
+  await ok('PUT', api('/voice/npcs'), T.gm, { npc: 'captain vex', preset: '' });
+  assert.equal((await ok('GET', api('/voice/npcs'), T.gm)).npcs.length, 0);
 });

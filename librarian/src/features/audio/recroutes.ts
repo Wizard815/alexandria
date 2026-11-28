@@ -1,15 +1,15 @@
-// The recordings API: lists, build / retention / delete (DM), and the audio files.
+// The recordings API: lists, build / retention / delete (GM), and the audio files.
 // Fails closed: every file request names a track id (never a path), the stored path
 // is checked to stay inside data/recordings, and a player may only reach the tracks
-// of their own mics. The full mix and everyone else's tracks are DM-only.
+// of their own mics. The full mix and everyone else's tracks are GM-only.
 import type { Express, Response, Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { all, one, run } from '../../core/db.ts';
 import { HttpError, int, now, oneOf, parseJson } from '../../core/util.ts';
-import { ctx, isDM, me } from '../../routes/_shared.ts';
+import { ctx, isGM, me } from '../../routes/_shared.ts';
 import { serveFile } from '../sound/files.ts';
 import { engine } from './engine.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
@@ -23,12 +23,12 @@ import { writeZip, type ZipEntry } from '../../core/zipstream.ts';
 
 const audit = (d: Deps, worldId: string, accountId: string, action: string, detail = '') => { run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
 
-/** May this account read this track? A DM: any track of the world. A player: a track of a mic registered from their own account. */
+/** May this account read this track? A GM: any track of the world. A player: a track of a mic registered from their own account. */
 export function mayHear(d: Deps, worldId: string, accountId: string, t: TrackRow & { world_id: string }): boolean {
   if (t.world_id !== worldId) return false;
   const m = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, accountId);
   if (!m) return false;
-  if (m.role === 'dm') return true;
+  if (m.role === 'gm') return true;
   return m.role === 'player' && t.kind === 'mic' && !!t.account_id && t.account_id === accountId;
 }
 
@@ -64,12 +64,12 @@ const recordedIn = (d: Deps, sessionId: string, accountId: string) => !!one(d.db
     EXISTS (SELECT 1 FROM audio_tracks t WHERE t.session_id = s.id AND t.kind = 'mic' AND t.account_id = ?)
     OR EXISTS (SELECT 1 FROM audio_chunks k JOIN audio_mics m ON m.id = k.mic_id WHERE k.session_id = s.id AND m.account_id = ?))`, sessionId, accountId, accountId);
 
-const linesMd = (title: string, sub: string, lines: { start: number; speaker: string; text: string; audience?: string }[], dm: boolean) => [
-  `# ${title}`, '', sub, '', ...(dm ? ['Lines marked **DM only** were not shown to the players.', ''] : []),
-  ...lines.map((l) => `- \`${fmtTime(l.start)}\` **${l.speaker || 'Someone'}**${dm && l.audience === 'dm' ? ' (**DM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`), '',
+const linesMd = (title: string, sub: string, lines: { start: number; speaker: string; text: string; audience?: string }[], gm: boolean) => [
+  `# ${title}`, '', sub, '', ...(gm ? ['Lines marked **GM only** were not shown to the players.', ''] : []),
+  ...lines.map((l) => `- \`${fmtTime(l.start)}\` **${l.speaker || 'Someone'}**${gm && l.audience === 'gm' ? ' (**GM only**)' : ''}: ${String(l.text).replace(/\s+/g, ' ').trim()}`), '',
 ].join('\n');
 
-/** The DM's approved summary: the hand-off approved on Recordings or in Minerva's queue (the newest). Never one still pending. */
+/** The GM's approved summary: the hand-off approved on Recordings or in Minerva's queue (the newest). Never one still pending. */
 function approvedSummary(d: Deps, s: SessionRow): string | null {
   const card = one<any>(d.db, "SELECT text, decided_at FROM audio_handoffs WHERE session_id = ? AND status = 'approved' ORDER BY decided_at DESC LIMIT 1", s.id);
   let draft: any;
@@ -80,14 +80,14 @@ function approvedSummary(d: Deps, s: SessionRow): string | null {
 }
 
 /**
- * What "Download all" holds for this viewer. The DM: the full recording, every mic track, Transcript.md (the final
+ * What "Download all" holds for this viewer. The GM: the full recording, every mic track, Transcript.md (the final
  * transcript when there is one), the live transcript it replaced, the approved summary and session.json. A player:
  * only the tracks of their own mics, the players' transcript and the players' summary. Anyone else: nothing (null).
  */
 export function zipEntries(d: Deps, s: SessionRow, accountId: string): { name: string; entries: ZipEntry[] } | null {
   const role = one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', s.world_id, accountId)?.role;
-  if (role !== 'dm' && !(role === 'player' && recordedIn(d, s.id, accountId))) return null;
-  const dm = role === 'dm';
+  if (role !== 'gm' && !(role === 'player' && recordedIn(d, s.id, accountId))) return null;
+  const gm = role === 'gm';
   const world = one<{ name: string }>(d.db, 'SELECT name FROM worlds WHERE id = ?', s.world_id)?.name ?? '';
   const base = `${localDate(s.started_at)} ${cleanFileName(s.name, 'Session')}`;
   const sub = `${world} - ${localDate(s.started_at)}`;
@@ -103,7 +103,7 @@ export function zipEntries(d: Deps, s: SessionRow, accountId: string): { name: s
       entries.push({ name: `${base}/${t.file}`, file: abs, size: st.size, mtime: st.mtime });
     }
   }
-  if (dm) {
+  if (gm) {
     text('Transcript.md', transcriptMarkdown(d, s, world));
     const eng = engine(d);
     const f = eng.finalView(s.id);
@@ -113,10 +113,10 @@ export function zipEntries(d: Deps, s: SessionRow, accountId: string): { name: s
       text('Live transcript.md', linesMd(`${s.name} (live transcript)`, `${sub} - as it was written during the session, before the final transcript replaced it.`, live, true));
     }
     const sum = approvedSummary(d, s);
-    if (sum) text('Summary.md', `# ${s.name}: summary\n\n${sub} - approved by the DM.\n\n${sum.trim()}\n`);
+    if (sum) text('Summary.md', `# ${s.name}: summary\n\n${sub} - approved by the GM.\n\n${sum.trim()}\n`);
     text('session.json', JSON.stringify(sessionJsonDoc(d, s, world), null, 2) + '\n');
   } else {
-    text('Transcript (players).md', linesMd(s.name, sub, sessionLines(d.db, s.world_id, s.id, { includeDm: false }), false));
+    text('Transcript (players).md', linesMd(s.name, sub, sessionLines(d.db, s.world_id, s.id, { includeGm: false }), false));
     const party = getSummary(d, s.id, 'party').text.trim();
     if (party) text('Summary (players).md', `# ${s.name}: summary\n\n${sub}\n\n${party}\n`);
   }
@@ -137,7 +137,7 @@ function chunkBytes(d: Deps, sid: string): { n: number; bytes: number } {
   return { n, bytes };
 }
 
-function sessionView(d: Deps, s: SessionRow, accountId: string, dm: boolean, withTracks: boolean) {
+function sessionView(d: Deps, s: SessionRow, accountId: string, gm: boolean, withTracks: boolean) {
   const tracks = sessionTracks(d, s.id);
   const chunks = s.audio_deleted_at ? { n: 0, bytes: 0 } : chunkBytes(d, s.id);
   const days = effectiveDays(d, s);
@@ -150,8 +150,8 @@ function sessionView(d: Deps, s: SessionRow, accountId: string, dm: boolean, wit
     id: s.id, name: s.name, date: localDate(s.started_at), startedAt: s.started_at, stoppedAt: s.stopped_at, active: !s.stopped_at,
     durationMs, status: s.rec_status ?? (chunks.n ? 'raw' : s.audio_deleted_at ? 'deleted' : 'none'),
     error: s.rec_error, warnings: parseJson<string[]>(s.rec_warnings, []), progress: prog, builtAt: s.rec_built_at,
-    final: dm ? engine(d).finalView(s.id) : undefined,
-    folder: dm && s.rec_dir ? s.rec_dir.replace(/\\/g, '/') : undefined,
+    final: gm ? engine(d).finalView(s.id) : undefined,
+    folder: gm && s.rec_dir ? s.rec_dir.replace(/\\/g, '/') : undefined,
     people: people.length ? people : [...new Set(micNames.map((m) => m.display_name))],
     mics: tracks.filter((t) => t.kind === 'mic').length || micNames.length,
     bytes: tracks.reduce((a, t) => a + t.bytes, 0) + chunks.bytes, rawChunks: chunks.n,
@@ -159,7 +159,7 @@ function sessionView(d: Deps, s: SessionRow, accountId: string, dm: boolean, wit
     audioDeleted: !!s.audio_deleted_at, audioDeletedAt: s.audio_deleted_at,
     canBuild: !!s.stopped_at && !s.audio_deleted_at && chunks.n > 0 && !isBuilding(d, s.id),
     zipUrl: s.stopped_at && withTracks ? zipUrl(s.world_id, s.id, accountId) : null,
-    ...(withTracks ? { tracks: tracks.filter((t) => (dm ? true : t.kind === 'mic' && t.account_id === accountId)).map((t) => trackOut(s.world_id, accountId, t)) } : {}),
+    ...(withTracks ? { tracks: tracks.filter((t) => (gm ? true : t.kind === 'mic' && t.account_id === accountId)).map((t) => trackOut(s.world_id, accountId, t)) } : {}),
   };
 }
 
@@ -170,8 +170,8 @@ export function recordingRoutes(r: Router, d: Deps) {
     return s;
   };
 
-  // DM: every session with its recording.
-  r.get('/recordings', requireDM, async (_req, res) => {
+  // GM: every session with its recording.
+  r.get('/recordings', requireGM, async (_req, res) => {
     const c = ctx(res);
     const rows = all<SessionRow>(d.db, 'SELECT * FROM audio_sessions WHERE world_id = ? ORDER BY started_at DESC LIMIT 500', c.world.id);
     res.json({ sessions: rows.map((s) => sessionView(d, s, me(res), true, false)), ffmpeg: await ffmpegAvailable(), serverNow: now() });
@@ -193,12 +193,12 @@ export function recordingRoutes(r: Router, d: Deps) {
     });
   });
 
-  // DM: one session, with every track (and tickets to play them).
-  r.get('/recordings/:sid', requireDM, (req, res) => {
+  // GM: one session, with every track (and tickets to play them).
+  r.get('/recordings/:sid', requireGM, (req, res) => {
     res.json(sessionView(d, sess(res, String(req.params.sid)), me(res), true, true));
   });
 
-  r.post('/recordings/:sid/build', requireDM, async (req, res) => {
+  r.post('/recordings/:sid/build', requireGM, async (req, res) => {
     const s = sess(res, String(req.params.sid));
     if (!s.stopped_at) throw new HttpError(409, 'Stop the recording first');
     if (s.audio_deleted_at) throw new HttpError(409, 'The audio of this session was deleted');
@@ -210,7 +210,7 @@ export function recordingRoutes(r: Router, d: Deps) {
     res.status(202).json(sessionView(d, sess(res, s.id), me(res), true, false));
   });
 
-  r.post('/recordings/:sid/retention', requireDM, (req, res) => {
+  r.post('/recordings/:sid/retention', requireGM, (req, res) => {
     const s = sess(res, String(req.params.sid));
     const mode = oneOf(req.body?.mode, 'mode', ['default', 'forever', 'days'] as const);
     const days = mode === 'days' ? int(req.body?.days, 'days', { min: 1, max: 3650 }) : null;
@@ -221,7 +221,7 @@ export function recordingRoutes(r: Router, d: Deps) {
     res.json(sessionView(d, sess(res, s.id), me(res), true, false));
   });
 
-  r.post('/recordings/:sid/delete-audio', requireDM, (req, res) => {
+  r.post('/recordings/:sid/delete-audio', requireGM, (req, res) => {
     const s = sess(res, String(req.params.sid));
     if (req.body?.confirm !== true) throw new HttpError(400, 'Send confirm: true to delete this session\'s audio');
     if (!s.stopped_at) throw new HttpError(409, 'Stop the recording first');

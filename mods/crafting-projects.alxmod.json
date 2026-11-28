@@ -4,7 +4,7 @@
   "name": "Crafting projects",
   "version": "1.0.0",
   "author": "Alexandria",
-  "summary": "Players start crafting projects (an item, its cost and days of work) that move forward on each long rest or when the DM adds days.",
+  "summary": "Players start crafting projects (an item, its cost and days of work) that move forward on each long rest or when the GM adds days.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": [],
@@ -78,7 +78,7 @@
     {
       "id": "work",
       "label": "Add work days",
-      "by": "dm",
+      "by": "gm",
       "record": "project",
       "do": "add",
       "field": "done",
@@ -139,10 +139,10 @@
       ]
     },
     {
-      "id": "dm",
+      "id": "gm",
       "title": "Crafting",
       "record": "project",
-      "place": "dm",
+      "place": "gm",
       "columns": [
         "item",
         "tool",
@@ -160,7 +160,7 @@
   "rules": [
     {
       "term": "Crafting projects (house rule)",
-      "text": "Start a project with the right **tools**, paying **half the item's price** in materials. Each **long rest** spent working adds a day; the DM can add more for downtime. When the days are done the item is yours."
+      "text": "Start a project with the right **tools**, paying **half the item's price** in materials. Each **long rest** spent working adds a day; the GM can add more for downtime. When the days are done the item is yours."
     }
   ],
   "assistant": {
@@ -171,7 +171,7 @@
       "forge",
       "brew"
     ],
-    "dm": "Crafting projects are on: a project needs the right tools and half the item's price in materials; it gains a day per long rest and the DM can add days for downtime. Suggest days by price: about 1 day per 50 gp of the item's value, minimum 1.",
+    "gm": "Crafting projects are on: a project needs the right tools and half the item's price in materials; it gains a day per long rest and the GM can add days for downtime. Suggest days by price: about 1 day per 50 gp of the item's value, minimum 1.",
     "player": "Players can start crafting projects with the right tools and half the item's price in gold. Each long rest of work adds a day. Help pick a fitting item and tool."
   }
 }

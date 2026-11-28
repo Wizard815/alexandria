@@ -21,16 +21,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('mobile'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tokDM = await login('dm', 'dungeon master 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokDM } })).json())[0].id;
-const dm = async (method, p, body) => (await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tokDM }, body: body ? JSON.stringify(body) : undefined })).json().catch(() => ({}));
+const tokGM = await login('gm', 'game master 123');
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokGM } })).json())[0].id;
+const gm = async (method, p, body) => (await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tokGM }, body: body ? JSON.stringify(body) : undefined })).json().catch(() => ({}));
 
 // Something to look at: a fight with a turn, a quick event, a chat line.
-await dm('POST', '/live/combatants', { name: 'Sera Vane', initiative: 18, hp: 30, maxHp: 30 });
-await dm('POST', '/live/combatants', { name: 'Goblin boss', initiative: 14, hp: 21, maxHp: 21 });
-await dm('PUT', '/live/combat', { active: true, round: 1, turn: 0 });
+await gm('POST', '/live/combatants', { name: 'Sera Vane', initiative: 18, hp: 30, maxHp: 30 });
+await gm('POST', '/live/combatants', { name: 'Goblin boss', initiative: 14, hp: 21, maxHp: 21 });
+await gm('PUT', '/live/combat', { active: true, round: 1, turn: 0 });
 // An open shop, so the Shop page is audited with a keeper and stock on it.
-await dm('POST', '/shop/generate', { kind: 'general', size: 'town', seed: 'mobile', save: true, status: 'open' });
+await gm('POST', '/shop/generate', { kind: 'general', size: 'town', seed: 'mobile', save: true, status: 'open' });
 
 const PROFILES = [
   { name: 'android-360', viewport: { width: 360, height: 800 }, ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36', dpr: 3 },
@@ -147,7 +147,7 @@ for (const profile of PROFILES) {
 {
   const p = PROFILES[1];
   const { ctx, page } = await open(p);
-  await dm('POST', '/quick-events', { kind: 'notice', title: 'A sound in the reeds', prompt: 'Something moves out there.', skill: 'Perception', dc: 12 });
+  await gm('POST', '/quick-events', { kind: 'notice', title: 'A sound in the reeds', prompt: 'Something moves out there.', skill: 'Perception', dc: 12 });
   const modal = page.locator('.modal[role=dialog]');
   const ok = await modal.waitFor({ timeout: 8000 }).then(() => true, () => false);
   if (check(ok, 'quick event prompt did not appear')) {
@@ -240,7 +240,7 @@ for (const profile of PROFILES) {
 
 // ---- 4. the world turned the broker off -------------------------------------------------------------
 {
-  await dm('PATCH', '/settings', { brokerEnabled: false, calendar: 'off' });
+  await gm('PATCH', '/settings', { brokerEnabled: false, calendar: 'off' });
   const { ctx, page } = await open(PROFILES[0]);
   const tabs = await page.$$eval('[data-tab]', (els) => els.map((e) => e.getAttribute('data-tab')));
   check(!tabs.includes('broker'), 'broker is in the tab bar with the broker off');
@@ -255,7 +255,7 @@ for (const profile of PROFILES) {
   await page.waitForSelector('[data-testid=tabbar]');
   check(await page.getByTestId('ask-broker').count() === 0, 'Ask still offers the broker when it is off');
   await ctx.close();
-  await dm('PATCH', '/settings', { brokerEnabled: true, calendar: 'builtin' });
+  await gm('PATCH', '/settings', { brokerEnabled: true, calendar: 'builtin' });
 }
 
 await browser.close();

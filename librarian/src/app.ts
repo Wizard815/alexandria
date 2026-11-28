@@ -1,4 +1,5 @@
 import { RELEASE, VERSION } from './version.ts';
+import { gmRequest, gmValue } from './core/gmcompat.ts';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +9,7 @@ import { Jobs, jobsOf } from './core/jobs.ts';
 import { Library } from './core/library.ts';
 import { authenticate, loadWorld, requireAdmin, Throttle } from './core/auth.ts';
 import { HttpError, now } from './core/util.ts';
-import { DM_PRIORITY, withPriority } from './core/ai.ts';
+import { GM_PRIORITY, withPriority } from './core/ai.ts';
 import type { WorldCtx } from './core/auth.ts';
 import authRoutes from './routes/auth.ts';
 import adminRoutes from './routes/admin.ts';
@@ -110,6 +111,8 @@ export function createApp(opts: AppOptions = {}) {
     next();
   });
   app.use(express.json({ limit: '4mb' }));
+  // Old callers may still say dm for the GM (role, level, audience): read it as gm.
+  app.use((req, _res, next) => { if (req.body && typeof req.body === 'object') gmRequest(req.body); if (req.query) for (const k of Object.keys(req.query)) { const v = (req.query as any)[k]; if (typeof v === 'string') { const g = gmValue(v); if (g !== v && /^(role|level|visibility|audience|kind|scope|perspective|whose|place|view|mode)$/.test(k)) { try { (req.query as any)[k] = g; } catch { /* read-only query */ } } } } next(); });
   // Browser apps on other origins (the scribe desktop app in dev, a phone
   // build) must be listed in ALX_CORS_ORIGINS, comma separated.
   const origins = (deps.env.ALX_CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -156,7 +159,7 @@ export function createApp(opts: AppOptions = {}) {
   for (const f of FEATURES) if (f.adminRoutes) app.use(`/api/admin/${f.adminMount ?? f.id}`, authenticate(db), requireAdmin, f.adminRoutes(deps));
 
   const w = express.Router({ mergeParams: true });
-  w.use(authenticate(db), loadWorld(db), dmGoesFirst);
+  w.use(authenticate(db), loadWorld(db), gmGoesFirst);
   w.use(worldRoutes(deps));
   w.use('/library', libraryRoutes(deps));
   w.use('/requests', requestRoutes(deps));
@@ -213,10 +216,10 @@ export function createApp(opts: AppOptions = {}) {
 }
 
 /**
- * Model calls made while answering the DM of a world (a generator, a statblock, the assistant's tools) go before the
+ * Model calls made while answering the GM of a world (a generator, a statblock, the assistant's tools) go before the
  * players' (core/ai.ts, the queue). Work that sets its own priority (background passes, tracked jobs) keeps it.
  */
-function dmGoesFirst(_req: Request, res: Response, next: NextFunction) {
-  if ((res.locals.w as WorldCtx | undefined)?.viewer.role !== 'dm') return next();
-  void withPriority(DM_PRIORITY, async () => next());
+function gmGoesFirst(_req: Request, res: Response, next: NextFunction) {
+  if ((res.locals.w as WorldCtx | undefined)?.viewer.role !== 'gm') return next();
+  void withPriority(GM_PRIORITY, async () => next());
 }

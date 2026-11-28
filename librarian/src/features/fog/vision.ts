@@ -1,12 +1,12 @@
 // Map vision: a model that can see pictures reads a map picture and says where its rooms and areas are, on the
 // same 0 to 100 grid as map marks, so the assistant can uncover fog in the right place ("open the crypt").
 //
-// The model is the 'vision' job (Admin → Models; unset: the DM assistant's model). Before a picture is sent the
+// The model is the 'vision' job (Admin → Models; unset: the GM assistant's model). Before a picture is sent the
 // provider's own model list is asked whether that model takes images (Argos: capabilities.vision; OpenRouter and
-// others: an "image" input modality). A model listed without image input is never sent one: the DM is told to
+// others: an "image" input modality). A model listed without image input is never sent one: the GM is told to
 // attach a model that can see. A provider that does not describe its models is tried once and the answer says so.
 //
-// Only the DM uses this (a map picture can show what the fog still hides), and only map pictures are sent.
+// Only the GM uses this (a map picture can show what the fog still hides), and only map pictures are sent.
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
@@ -24,7 +24,7 @@ const seen = new Map<string, { at: number; sees: Sight }>();
 /** Whether the model attached to map vision can see pictures, from the provider's model list. */
 export async function visionCheck(d: Deps): Promise<VisionCheck> {
   const c = jobConfig(d, 'vision');
-  if (!c) return { model: null, sees: 'no', why: 'No model is attached for map vision or the DM assistant (Admin → Models).' };
+  if (!c) return { model: null, sees: 'no', why: 'No model is attached for map vision or the GM assistant (Admin → Models).' };
   const key = `${c.baseUrl}|${c.model}`;
   const hit = seen.get(key);
   let sees: Sight;
@@ -82,12 +82,12 @@ export interface Area { name: string; x: number; y: number; w: number; h: number
 export interface Look { model: string; sees: Sight; areas: Area[]; summary: string; answer?: string }
 
 const PROMPT = [
-  'You read tabletop RPG battle maps and dungeon maps for a Dungeon Master.',
+  'You read tabletop RPG battle maps and dungeon maps for a Game Master.',
   'List every distinct room, area or landmark you can see (rooms, corridors, doors that matter, stairs, buildings, clearings), with a box around each.',
   'Coordinates are percent of the picture: x and y are the top-left corner from 0 to 100 (x across from the left, y down from the top), w and h the size from 0 to 100.',
   'Use labels written on the map when there are any (room numbers, names); otherwise a short plain name like "north hall".',
   'Answer only with JSON: {"summary":"one sentence about the map","areas":[{"name":"","x":0,"y":0,"w":0,"h":0,"note":""}],"answer":""}.',
-  'If the DM asked something about the map, put the short answer in "answer".',
+  'If the GM asked something about the map, put the short answer in "answer".',
 ].join('\n');
 
 const clamp = (v: unknown) => Math.max(0, Math.min(100, Math.round(Number(v) * 10) / 10 || 0));
@@ -102,7 +102,7 @@ export async function lookAtMap(d: Deps, worldId: string, pic: string, question 
   let content = '';
   try {
     const r = await chat(d, 'vision', {
-      messages: [{ role: 'system', content: PROMPT }, { role: 'user', content: `Map picture: ${p.name}.${question ? ` The DM asks: ${question.slice(0, 400)}` : ''}`, images: [dataUrl] }],
+      messages: [{ role: 'system', content: PROMPT }, { role: 'user', content: `Map picture: ${p.name}.${question ? ` The GM asks: ${question.slice(0, 400)}` : ''}`, images: [dataUrl] }],
       json: true, maxTokens: 1500, temperature: 0,
     });
     content = r.content;

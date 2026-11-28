@@ -1,4 +1,4 @@
-// Scenes for the DM: the list, activation with its per-part report, and undo. Shared by the Scenes page, the big-button panel
+// Scenes for the GM: the list, activation with its per-part report, and undo. Shared by the Scenes page, the big-button panel
 // (side screen and pop-out) and the phone's Remote tab, so they all behave the same.
 import { useState } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';

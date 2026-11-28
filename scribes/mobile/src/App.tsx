@@ -14,7 +14,7 @@ export default function App() {
       <Stack.Navigator initialRouteName="Login">
         <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Connect' }} />
         <Stack.Screen name="WorldList" component={WorldListScreen} options={{ title: 'Select World' }} />
-        <Stack.Screen name="DM" component={DMScreen} options={{ title: 'DM Dashboard' }} />
+        <Stack.Screen name="GM" component={DMScreen} options={{ title: 'GM Dashboard' }} />
         <Stack.Screen name="Player" component={PlayerScreen} options={{ title: 'Player View' }} />
       </Stack.Navigator>
     </NavigationContainer>

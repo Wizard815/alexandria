@@ -1,14 +1,14 @@
 # Learning Spells: Research and a Time/Cost Rule for the Mana-Tree Homebrew
 
-Prepared for a D&D 2024 homebrew with a mana-point system. In that system you learn a new spell by combining 1–5 spells you already know, plus an optional item, stat minimum, level minimum and mana minimum.
+Prepared for a 5e 2024 homebrew with a mana-point system. In that system you learn a new spell by combining 1–5 spells you already know, plus an optional item, stat minimum, level minimum and mana minimum.
 
-**How sure each number is.** A **[V]** tag means I checked the number against a primary source fetched for this report: SRD 5.2 (D&D 2024), Archives of Nethys for Pathfinder 2e, and the legacy Pathfinder 1e PRD. An **[M]** tag means the number comes from my knowledge of the rulebook, or from secondary search results, and someone should check it against the book before relying on it. Many wikis (UESP, Fandom, d20srd, D&D Beyond) blocked automated fetches, so most video-game numbers are [M].
+**How sure each number is.** A **[V]** tag means I checked the number against a primary source fetched for this report: SRD 5.2 (5e 2024), Archives of Nethys for Pathfinder 2e, and the legacy Pathfinder 1e PRD. An **[M]** tag means the number comes from my knowledge of the rulebook, or from secondary search results, and someone should check it against the book before relying on it. Many wikis (UESP, Fandom, d20srd, D&D Beyond) blocked automated fetches, so most video-game numbers are [M].
 
 ---
 
 ## Part 1: Tabletop RPGs
 
-### D&D 5e (2014) and D&D 2024
+### 5e (2014) and 5e 2024
 - **Copying into a spellbook.** In 2024 each spell level takes 2 hours and costs 50 GP [V, SRD 5.2]. 2014 uses the same numbers [M]. Recopying a spell you already know into a backup book costs 1 hour and 10 GP per level [V]. A wizard also learns 2 spells free at each level-up.
 - **Copying from a scroll (2024).** The copier makes an Intelligence (Arcana) check against DC 10 + spell level. The scroll is destroyed whether the check succeeds or fails [V].
 - **Scribing scrolls (2024)** [V], working 8-hour days that need not be consecutive:
@@ -46,16 +46,16 @@ Prepared for a D&D 2024 homebrew with a mana-point system. In that system you le
 
 **Good:** costs rise roughly geometrically, the four degrees of success are elegant, and failure is cheap but blocks retries. **Bad:** the hours are trivial, so this is a gold and skill gate, not a time gate. Source: [AoN – Learn a Spell](https://2e.aonprd.com/Actions.aspx?ID=2366).
 
-### Pathfinder 1e / D&D 3.5 [V for PF1]
+### Pathfinder 1e / 3.5e [V for PF1]
 - **Learning from a book or scroll.** Decipher the text, study for 1 hour, then roll Spellcraft against DC 15 + spell level. On a failure you can't retry that spell for a week.
 - **Writing it into your book.** 1 hour per spell level (30 minutes for a cantrip). Cost is 10 gp × level²: 0th 5, 1st 10, 2nd 40, 3rd 90, 4th 160, 5th 250, 6th 360, 7th 490, 8th 640, 9th 810 gp.
 - **Copying fee.** Another wizard usually charges half the writing cost to let you copy.
 - **Independent research.** At GM discretion, but "at least 1 week and at least 1,000 gp per level" of the spell, plus Spellcraft and Knowledge checks.
-- **D&D 3.5 [M].** Writing a spell takes 24 hours and costs 100 gp per page.
+- **3.5e [M].** Writing a spell takes 24 hours and costs 100 gp per page.
 
 **Good:** a quadratic gold curve, and a clear split between copying a known spell (cheap) and inventing one (slow and expensive). Source: [PF1 PRD – Magic](https://legacy.aonprd.com/coreRulebook/magic.html).
 
-### OSR (B/X, Old-School Essentials, AD&D) [M]
+### OSR (B/X, Old-School Essentials, 1e/2e) [M]
 Researching a spell takes about 2 weeks and 1,000 gp per spell level, often with a minimum chance of failure (around 15%). A 9th-level spell takes 18 weeks. **Good:** research is a real campaign undertaking and a gold sink. **Bad:** it is very slow at the low end. Source: [OSE SRD](https://oldschoolessentials.necroticgnome.com/srd/).
 
 ### GURPS Magic (4e) [M]
@@ -64,7 +64,7 @@ Researching a spell takes about 2 weeks and 1,000 gp per spell level, often with
 - **Study time.** One point takes about 200 hours with a teacher. Self-study counts at half (400 hours).
 - **Combinations.** Learning a new spell requires knowing its parents. This is the closest tabletop analogue to your spell trees.
 
-**Good:** the tree is the gate, and time is measured in study hours, so downtime matters. **Bad:** a lot of bookkeeping, and points-per-hour doesn't map onto D&D. Source: [Gaming Ballistic on GURPS study rates](https://gamingballistic.com/2015/01/12/10000-hours-and-gurps/); GURPS Basic Set p.292 and GURPS Magic.
+**Good:** the tree is the gate, and time is measured in study hours, so downtime matters. **Bad:** a lot of bookkeeping, and points-per-hour doesn't map onto 5e. Source: [Gaming Ballistic on GURPS study rates](https://gamingballistic.com/2015/01/12/10000-hours-and-gurps/); GURPS Basic Set p.292 and GURPS Magic.
 
 ### Ars Magica 5e [M/secondary]
 - **Seasons.** Lab work happens in seasons of about 3 months. A magus usually gets 2–3 lab seasons a year.
@@ -76,7 +76,7 @@ Researching a spell takes about 2 weeks and 1,000 gp per spell level, often with
   - If you know a *similar spell*, add its magnitude (level ÷ 5) to the Lab Total. Only the single best similar spell counts.
 - **Takeaway.** Banked partial progress, plus a bonus from a related spell you already know, is exactly the "combining known spells reduces time" lever you want. Note that Ars Magica deliberately does **not** stack bonuses from several similar spells.
 
-**Bad:** a season is very coarse for D&D. Source: [Redcap – ArM5 Chapter 8: Laboratory](https://www.redcap.org/page/Ars_Magica_5E_Standard_Edition,_Chapter_Eight:_Laboratory).
+**Bad:** a season is very coarse for 5e. Source: [Redcap – ArM5 Chapter 8: Laboratory](https://www.redcap.org/page/Ars_Magica_5E_Standard_Edition,_Chapter_Eight:_Laboratory).
 
 ### Shadowrun (4e/5e) [M/secondary]
 - A spell costs 5 Karma (4e, stated; the 5e cost is assumed to be the same).
@@ -196,7 +196,7 @@ Spell research for 5e is usually adapted from 3.5 (a week and 1,000 gp per level
 | Rule | Problem |
 |---|---|
 | Study alone, 3 days per level (9th = 27 days) | Linear time against superlinear power. Your mana scale goes 2 → 15 (7.5×), but time goes 3 → 27 (9×) even for 1st-level spells, so the low end is slow and the high end is fast. 9th-level spells take less time than PF1 research (≥ 9 weeks), OSR research (18 weeks) or 2024 scroll scribing (120 days). |
-| Mentor, 1 day per level + 10 coins × level | A 9th-level spell takes 9 days and 90 coins. That fee is trivial next to any D&D economy, where 5e copying alone is 450 GP and PF2 is 1,500 gp. |
+| Mentor, 1 day per level + 10 coins × level | A 9th-level spell takes 9 days and 90 coins. That fee is trivial next to any 5e economy, where 5e copying alone is 450 GP and PF2 is 1,500 gp. |
 | Lab research, 1 week flat | The incentives are inverted. Lab beats studying alone from 3rd level up and beats a mentor from 8th up. A flat time ignores spell level entirely. |
 | memory relic, instant | Fine as a rare consumable shortcut. At 9th level the WIS save is DC 28, which is nearly impossible, so it is self-limiting, but it gives no partial benefit on a failure. |
 | Scroll decode, 1 hour per level | Fine. This matches 5e and PF2 scales. |
@@ -239,7 +239,7 @@ Spell research for 5e is usually adapted from 3.5 (a week and 1,000 gp per level
    - Level-up Insight roll: succeed and you learn one eligible spell free; fail and you bank half its SP.
    - memory relic: unchanged, except a failed save banks a quarter of the SP.
    - Consuming a decoded scroll of the spell during study completes a quarter of the SP.
-8. **DM dial:** for a grander top tier, double the SP of 8th–9th spells ("Grand Research").
+8. **GM dial:** for a grander top tier, double the SP of 8th–9th spells ("Grand Research").
 
 ### B. Simple alternative: "level squared"
 - **Days:** level² days alone (half a day for a cantrip). Divide by 2 with a text and by 3 with a mentor. A lab removes 25%.

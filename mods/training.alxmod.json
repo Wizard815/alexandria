@@ -72,7 +72,7 @@
     {
       "id": "days",
       "label": "Add training days",
-      "by": "dm",
+      "by": "gm",
       "record": "course",
       "do": "add",
       "field": "done",
@@ -133,10 +133,10 @@
       ]
     },
     {
-      "id": "dm",
+      "id": "gm",
       "title": "Training",
       "record": "course",
-      "place": "dm",
+      "place": "gm",
       "columns": [
         "skill",
         "trainer",
@@ -164,7 +164,7 @@
       "tool proficiency",
       "teacher"
     ],
-    "dm": "Training is on: a language or tool takes 10 days (minus the Intelligence modifier, minimum 5) at 25 gp a day with a willing trainer. Each long rest of training adds a day; add more with Add training days during downtime.",
+    "gm": "Training is on: a language or tool takes 10 days (minus the Intelligence modifier, minimum 5) at 25 gp a day with a willing trainer. Each long rest of training adds a day; add more with Add training days during downtime.",
     "player": "Players can train a language or tool: 10 days (less with a good Intelligence) at 25 gp a day with a trainer. Help them find a trainer and start it."
   }
 }

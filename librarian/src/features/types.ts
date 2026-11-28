@@ -22,18 +22,18 @@ export type SettingSpec =
 export interface McpTool {
   name: string;
   description: string;
-  /** Only listed for a DM's write key. */
+  /** Only listed for a GM's write key. */
   write?: boolean;
-  /** Only listed for a player's key (never a DM's, read or write). */
+  /** Only listed for a player's key (never a GM's, read or write). */
   playerOnly?: boolean;
-  /** Only listed for the DM (any key): a DM-only read players would only get 403 from. */
-  dmOnly?: boolean;
+  /** Only listed for the GM (any key): a GM-only read players would only get 403 from. */
+  gmOnly?: boolean;
   /**
-   * A player's own action that the in-app helper may take for them (a request the DM still decides, like asking to
+   * A player's own action that the in-app helper may take for them (a request the GM still decides, like asking to
    * learn a spell). Never listed over MCP, where a player's key is read-only.
    */
   selfAction?: boolean;
-  /** Listed for a player only when this is true for the world's settings (a feature the DM may open to players). */
+  /** Listed for a player only when this is true for the world's settings (a feature the GM may open to players). */
   playerWhen?: (settings: WorldSettings) => boolean;
   props: Record<string, any>;
   required?: string[];
@@ -67,7 +67,7 @@ export interface Feature {
   /**
    * House rules (mods, see features/mods and docs/MODS.md) this feature ships: the id of a rule file in the repo's
    * mods/ folder, or a mod file object. A big system usually ships one whose `presets` switch its own settings on,
-   * so the DM turns it on under House rules.
+   * so the GM turns it on under House rules.
    */
   houseRules?: unknown[];
 }

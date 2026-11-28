@@ -2,7 +2,7 @@
 
 export type Effect =
   | { kind: 'gold'; cp: number } | { kind: 'item'; name: string; qty: number; note?: string } | { kind: 'shop'; shopId: string }
-  | { kind: 'pay'; cp: number } | { kind: 'lose'; cp: number } | { kind: 'dmnote'; text: string };
+  | { kind: 'pay'; cp: number } | { kind: 'lose'; cp: number } | { kind: 'gmnote'; text: string };
 export type EncounterKind = 'npc' | 'event';
 export interface PlaceOpt { id: string; label: string }
 export interface Option { label: string; next: string | null; effects: Effect[] }
@@ -13,16 +13,16 @@ export interface Timer { secs: number; fallback: number }
 export interface Node { id: string; text: string; options: Option[]; game: Game | null; timer?: Timer | null }
 export interface Script { start: string; nodes: Node[] }
 
-export interface Line { who: 'npc' | 'you' | 'game' | 'gain' | 'loss' | 'dm' | 'note' | 'secret'; text: string; at: string }
+export interface Line { who: 'npc' | 'you' | 'game' | 'gain' | 'loss' | 'gm' | 'note' | 'secret'; text: string; at: string }
 
 export interface Encounter {
-  id: string; kind?: EncounterKind; npc: { name: string; blurb: string }; status: 'open' | 'done' | 'cancelled'; source: 'dm' | 'wander';
+  id: string; kind?: EncounterKind; npc: { name: string; blurb: string }; status: 'open' | 'done' | 'cancelled'; source: 'gm' | 'wander';
   createdAt: string; updatedAt: string; log: Line[]; text: string | null; options: { label: string }[];
   game: { kind: GameKind; label: string; stakeCp: number; winCp: number; skill: string | null } | null;
   shop: { id: string; name: string } | null;
   /** A timed step. endsAt is null until the player has seen it. */
   timer?: { secs: number; endsAt: string | null } | null;
-  // DM only:
+  // GM only:
   accountId?: string; player?: string; templateId?: string | null; templateName?: string; nodeId?: string; dc?: number | null; dcMax?: number | null; paidCp?: number; script?: Script;
 }
 

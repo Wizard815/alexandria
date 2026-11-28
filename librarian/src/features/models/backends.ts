@@ -7,7 +7,7 @@
 //               (ttl 0 = never unloads), so holding = reload if gone + a tiny request
 //               before a non-zero ttl runs out.
 //   llama-swap  GET /running, POST /api/models/unload/{model} (GET /unload for older builds).
-//               No pin and no ttl in /running: tiny requests just inside the ttl the DM tells us.
+//               No pin and no ttl in /running: tiny requests just inside the ttl the GM tells us.
 //   ollama      GET /api/ps, POST /api/generate with keep_alive -1 (hold) or 0 (unload).
 //   lmstudio    GET /api/v0/models (state), POST /api/v1/models/load|unload when it has them.
 //   generic     a local OpenAI-compatible server (vLLM, llama.cpp, ...): nothing to load or

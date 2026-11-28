@@ -21,15 +21,15 @@ const GIVEAWAYS: RegExp[] = [
   /\bmemory vault\b/i,
 ];
 
-/** Is the match inside a denial ("I'm not Minerva", "I don't have any DM notes")? A negation earlier in the same sentence makes it one. */
+/** Is the match inside a denial ("I'm not Minerva", "I don't have any GM notes")? A negation earlier in the same sentence makes it one. */
 function denied(text: string, index: number): boolean {
   const start = Math.max(text.lastIndexOf('.', index - 1), text.lastIndexOf('!', index - 1), text.lastIndexOf('?', index - 1), text.lastIndexOf('\n', index - 1)) + 1;
   return /\b(not|never|no|none|nothing|nobody|neither|nor|cannot|without)\b|n['’]t\b/i.test(text.slice(start, index));
 }
 
 /**
- * A phrase in a reply to a player that gives the DM's assistant away (her name, or that the broker works for the DM), or null.
- * A denial is not a giveaway: "I'm not Minerva" and "I don't work for the DM" pass. Only a reply that affirms or names her is held.
+ * A phrase in a reply to a player that gives the GM's assistant away (her name, or that the broker works for the GM), or null.
+ * A denial is not a giveaway: "I'm not Minerva" and "I don't work for the GM" pass. Only a reply that affirms or names her is held.
  */
 export function personaGiveaway(text: string, name = 'Minerva'): string | null {
   const t = String(text ?? '');
@@ -114,10 +114,10 @@ export function brokerContext(d: Deps, worldId: string, accountId: string, quest
   const L: string[] = [];
   if (v.knowledge && clip(v.knowledge.body, 1000)) L.push(`What this player knows (clues they found, what they worked out). Answer only from this, the party's shared pages and the library pages shown:\n${v.knowledge.body.slice(0, 2500)}`);
   if (v.goals.length) L.push(`This player's goals:\n${v.goals.map((g) => `- ${g.title} (${g.heat ?? 'ongoing'}): ${clip(g.body, 200)}`).join('\n').slice(0, 1500)}`);
-  // What the DM put on this player's sheet (features/sheet, From the DM): only this player and the DM see it.
+  // What the GM put on this player's sheet (features/sheet, From the GM): only this player and the GM see it.
   try {
-    const fromDm = all<any>(d.db, 'SELECT kind, text, done FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? ORDER BY kind DESC, done, created_at LIMIT 10', worldId, accountId);
-    if (fromDm.length) L.push(`What the DM put on this player's sheet (goals and notes, for this player only):\n${fromDm.map((x) => `- ${x.kind === 'goal' ? `Goal${x.done ? ' (done)' : ''}` : 'Note'}: ${clip(String(x.text), 300)}`).join('\n').slice(0, 1500)}`);
+    const fromGm = all<any>(d.db, 'SELECT kind, text, done FROM sheet_gm_notes WHERE world_id = ? AND account_id = ? ORDER BY kind DESC, done, created_at LIMIT 10', worldId, accountId);
+    if (fromGm.length) L.push(`What the GM put on this player's sheet (goals and notes, for this player only):\n${fromGm.map((x) => `- ${x.kind === 'goal' ? `Goal${x.done ? ' (done)' : ''}` : 'Note'}: ${clip(String(x.text), 300)}`).join('\n').slice(0, 1500)}`);
   } catch { /* no sheet feature */ }
   if (v.journal.length) L.push(`This player's recent journal:\n${v.journal.slice(-2).map((j) => `${j.title}: ${clip(j.body, 500)}`).join('\n').slice(0, 1500)}`);
   const terms = searchTerms(question);
@@ -144,11 +144,11 @@ export function playerWhoIs(d: Deps, worldId: string, accountId: string, name: s
 
 export interface Wrote { queued: boolean; draft?: string; note: string }
 
-/** A player's write: a draft on the DM's list, or applied at once when the DM turned auto-approve on for that tool. */
+/** A player's write: a draft on the GM's list, or applied at once when the GM turned auto-approve on for that tool. */
 function playerWrite(d: Deps, worldId: string, accountId: string, tool: string, kind: string, title: string, op: Op): Wrote {
   if (autoApproved(d, worldId, tool)) { applyOp(d, worldId, op, accountId); return { queued: false, note: 'Saved to your notes.' }; }
   const dr = createDraft(d, worldId, { kind, title, op, byAccount: accountId, tool });
-  return { queued: true, draft: dr.id, note: 'Noted. It will be in your journal once the DM has looked it over.' };
+  return { queued: true, draft: dr.id, note: 'Noted. It will be in your journal once the GM has looked it over.' };
 }
 
 const clip = (s: unknown, max: number) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -173,7 +173,7 @@ export function playerCapture(d: Deps, worldId: string, accountId: string, a: { 
   });
 }
 
-/** A line the player lets the other players read ("Shared with the party"). Waits for the DM like every player write. */
+/** A line the player lets the other players read ("Shared with the party"). Waits for the GM like every player write. */
 export function playerShare(d: Deps, worldId: string, accountId: string, a: { text: string }): Wrote {
   const text = needText(a.text);
   return playerWrite(d, worldId, accountId, 'my_memory_capture', 'share', 'Shared with the party', {

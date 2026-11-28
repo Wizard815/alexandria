@@ -4,7 +4,7 @@
   "name": "D&D Beyond import",
   "version": "1.0.0",
   "author": "Alexandria",
-  "summary": "Players (and the DM) import characters from D&D Beyond onto the player sheet: a Character module, the Stats module, HP, counters for limited uses, items for Inventory. Unofficial: D&D Beyond has no official API, so the import can break without notice.",
+  "summary": "Players (and the GM) import characters from D&D Beyond onto the player sheet: a Character module, the Stats module, HP, counters for limited uses, items for Inventory. Unofficial: D&D Beyond has no official API, so the import can break without notice.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": ["sheet"],
@@ -21,7 +21,7 @@
   ],
   "assistant": {
     "words": ["d&d beyond", "dnd beyond", "dndbeyond", "ddb", "import my character"],
-    "player": "A player can import their character from D&D Beyond with Import on their sheet: paste the character link (the character must be public on D&D Beyond), or paste the character JSON if the link fails. It fills the Character and Stats modules, HP and counters, and sends items to Inventory for the DM to approve. It only reads D&D Beyond, never writes back, and is unofficial so it can break without notice.",
-    "dm": "Characters can be imported from D&D Beyond with Import on a player sheet (the DM can import onto any player's sheet and add known spells). It is unofficial and can break without notice; nothing is written back to D&D Beyond."
+    "player": "A player can import their character from D&D Beyond with Import on their sheet: paste the character link (the character must be public on D&D Beyond), or paste the character JSON if the link fails. It fills the Character and Stats modules, HP and counters, and sends items to Inventory for the GM to approve. It only reads D&D Beyond, never writes back, and is unofficial so it can break without notice.",
+    "gm": "Characters can be imported from D&D Beyond with Import on a player sheet (the GM can import onto any player's sheet and add known spells). It is unofficial and can break without notice; nothing is written back to D&D Beyond."
   }
 }

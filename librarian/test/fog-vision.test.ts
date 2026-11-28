@@ -1,6 +1,6 @@
-// Map vision: the model attached to the vision job (unset: the DM assistant's) is asked whether it can see pictures
+// Map vision: the model attached to the vision job (unset: the GM assistant's) is asked whether it can see pictures
 // before a map is sent; a model listed without image input is never sent one; a model that can see gets the picture
-// as an image part and its boxes come back on the 0 to 100 grid. Only the DM may ask, and the tool is hidden from players.
+// as an image part and its boxes come back on the 0 to 100 grid. Only the GM may ask, and the tool is hidden from players.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -51,29 +51,29 @@ let PIC = '';
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-vision-'));
   const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), fetch: fakeFetch,
-    env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0', ALX_MODEL_DM_URL: 'http://vision.test/v1', ALX_MODEL_DM_MODEL: 'eyes-1' } });
+    env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0', ALX_MODEL_GM_URL: 'http://vision.test/v1', ALX_MODEL_GM_MODEL: 'eyes-1' } });
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dmId = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Visionland', dmAccountId: dmId })).id;
-  const inv = await ok('POST', api('/invites'), T.dm, { role: 'player' });
+  const gmId = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Visionland', gmAccountId: gmId })).id;
+  const inv = await ok('POST', api('/invites'), T.gm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
-  const f = await ok('POST', api('/files?name=dungeon.png&kind=map&title=Dungeon'), T.dm, undefined, PNG);
+  const f = await ok('POST', api('/files?name=dungeon.png&kind=map&title=Dungeon'), T.gm, undefined, PNG);
   PIC = `lib:${f.id ?? f.file?.id}`;
-  await ok('PUT', api('/fog/table'), T.dm, { mapId: 'world', pic: PIC });
+  await ok('PUT', api('/fog/table'), T.gm, { mapId: 'world', pic: PIC });
 });
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 test('TestFogVision_ABlindModelIsNeverSentTheMap', async () => {
   forgetVision();
   fake.modalities = ['text'];
-  const chk = await ok('GET', api('/fog/vision'), T.dm);
+  const chk = await ok('GET', api('/fog/vision'), T.gm);
   assert.equal(chk.sees, 'no');
   assert.match(chk.why, /cannot see pictures/);
-  const r = await call('POST', api('/fog/look'), T.dm, {});
+  const r = await call('POST', api('/fog/look'), T.gm, {});
   assert.equal(r.status, 409);
   assert.match(r.body.error, /eyes-1 cannot see pictures.*Map vision/);
   assert.equal(fake.chats.length, 0, 'no request reached the model');
@@ -82,8 +82,8 @@ test('TestFogVision_ABlindModelIsNeverSentTheMap', async () => {
 test('TestFogVision_ASeeingModelGetsThePictureAndBoxesComeBack', async () => {
   forgetVision();
   fake.modalities = ['text', 'image'];
-  assert.equal((await ok('GET', api('/fog/vision'), T.dm)).sees, 'yes');
-  const look = await ok('POST', api('/fog/look'), T.dm, { question: 'Where is the crypt?' });
+  assert.equal((await ok('GET', api('/fog/vision'), T.gm)).sees, 'yes');
+  const look = await ok('POST', api('/fog/look'), T.gm, { question: 'Where is the crypt?' });
   assert.equal(look.pic, PIC, 'the picture on the table screen by default');
   assert.equal(look.answer, 'The crypt is top right.');
   assert.deepEqual(look.areas[0], { name: '2 Crypt', x: 60, y: 10, w: 32, h: 33 });
@@ -99,14 +99,14 @@ test('TestFogVision_AProviderThatSaysNothingIsTried', async () => {
   forgetVision();
   fake.listed = false;
   try {
-    assert.equal((await ok('GET', api('/fog/vision'), T.dm)).sees, 'unknown');
-    assert.equal((await ok('POST', api('/fog/look'), T.dm, { pic: PIC })).areas.length, 2);
+    assert.equal((await ok('GET', api('/fog/vision'), T.gm)).sees, 'unknown');
+    assert.equal((await ok('POST', api('/fog/look'), T.gm, { pic: PIC })).areas.length, 2);
   } finally { fake.listed = true; }
 });
 
-test('TestFogVision_OnlyTheDmMayLook', async () => {
+test('TestFogVision_OnlyTheGmMayLook', async () => {
   assert.equal((await call('POST', api('/fog/look'), T.jess, { pic: PIC })).status, 403);
   assert.equal((await call('GET', api('/fog/vision'), T.jess)).status, 403);
-  assert.ok(toolsFor(false).find((t) => t.name === 'look_at_map')?.dmOnly, 'look_at_map is DM-only');
-  assert.equal((await call('POST', api('/fog/look'), T.dm, { pic: 'none' })).status, 400);
+  assert.ok(toolsFor(false).find((t) => t.name === 'look_at_map')?.gmOnly, 'look_at_map is GM-only');
+  assert.equal((await call('POST', api('/fog/look'), T.gm, { pic: 'none' })).status, 400);
 });

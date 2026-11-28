@@ -25,7 +25,7 @@ after(() => k?.close());
 const MAPPING = { transport: 'http', itemsPath: 'data', idField: 'id', titleField: 'name', bodyField: 'body', tagsField: 'tags', visibilityField: 'is_private', sharedValues: 'false' };
 let n = 0;
 async function source(path: string, cfg: Record<string, unknown> = {}) {
-  const s = await k.ok('POST', `/api/admin/worlds/${k.W}/sources`, k.T.admin, { kind: 'api', name: `Fake ${++n}`, config: { ...MAPPING, url: `https://api.example.com${path}`, ...cfg }, defaultVisibility: 'dm' });
+  const s = await k.ok('POST', `/api/admin/worlds/${k.W}/sources`, k.T.admin, { kind: 'api', name: `Fake ${++n}`, config: { ...MAPPING, url: `https://api.example.com${path}`, ...cfg }, defaultVisibility: 'gm' });
   return s.id as string;
 }
 const sync = (sid: string, full = true) => k.call('POST', `/api/admin/sources/${sid}/sync?wait=1`, k.T.admin, { full });
@@ -38,10 +38,10 @@ test('Audit_Crawl: odd JSON (nulls, nested arrays, non-string ids, object titles
   assert.equal(r.status, 200, r.text.slice(0, 300));
   const titles = pagesOf(sid).map((p) => p.title);
   assert.ok(titles.includes('Good page') && titles.includes('Zero id'), `saved: ${JSON.stringify(titles)}`);
-  const dm = await k.call('GET', k.w('/library/pages'), k.T.dm);
-  assert.equal(dm.status, 200);
+  const gm = await k.call('GET', k.w('/library/pages'), k.T.gm);
+  assert.equal(gm.status, 200);
   const jess = await k.call('GET', k.w('/library/pages'), k.T.jess);
-  assert.ok(!jess.text.includes('Good page'), 'a dm-default source shares nothing');
+  assert.ok(!jess.text.includes('Good page'), 'a gm-default source shares nothing');
 });
 
 test('Audit_Crawl: lists of exactly one page size, a short last page and duplicates across pages', async () => {

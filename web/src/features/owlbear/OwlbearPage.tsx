@@ -1,5 +1,5 @@
-// DM → Owlbear Rodeo: link an Owlbear Rodeo room to this world for casual online play. The extension is served by this
-// Alexandria server; here the DM gets its address, makes the link key, picks the map picture the Owlbear scene shows
+// GM → Owlbear Rodeo: link an Owlbear Rodeo room to this world for casual online play. The extension is served by this
+// Alexandria server; here the GM gets its address, makes the link key, picks the map picture the Owlbear scene shows
 // and who leads the fog of war.
 import { useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';

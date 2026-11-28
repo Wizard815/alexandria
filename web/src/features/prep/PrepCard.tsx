@@ -1,5 +1,5 @@
-// DM home: Session prep. The assistant drafts a short note for each player from what that player knows (last time,
-// where they stand, their threads, one thing to think about); the DM adds a line for everyone, reads and edits each
+// GM home: Session prep. The assistant drafts a short note for each player from what that player knows (last time,
+// where they stand, their threads, one thing to think about); the GM adds a line for everyone, reads and edits each
 // draft, and sends them. Each player gets theirs as a private message (Messages), kept so it does not expire.
 import { useEffect, useState } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';
@@ -36,13 +36,13 @@ function Draft({ p, onSent }: { p: Prep; onSent: (n: number) => void }) {
 }
 
 export function PrepCard() {
-  const { w, isDM } = useWorld();
-  const list = useLoad<{ preps: Prep[]; model: boolean }>(() => (isDM ? w.call('GET', '/prep') : Promise.resolve({ preps: [], model: false })), [w, isDM], ['prep']);
+  const { w, isGM } = useWorld();
+  const list = useLoad<{ preps: Prep[]; model: boolean }>(() => (isGM ? w.call('GET', '/prep') : Promise.resolve({ preps: [], model: false })), [w, isGM], ['prep']);
   const act = useAction();
   const { toast, toastNode } = useToast();
   const [note, setNote] = useState('');
   const [open, setOpen] = useState(false);
-  if (!isDM) return null;
+  if (!isGM) return null;
   const preps = list.data?.preps ?? [];
   const drafts = preps.filter((p) => p.status === 'draft');
   const sent = preps.filter((p) => p.status === 'sent');

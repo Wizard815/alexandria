@@ -16,7 +16,7 @@ import { HttpError, id, int, oneOf, str } from '../core/util.ts';
 import { CONNECTORS, connectorFor, mergeSecrets } from '../intake/registry.ts';
 import { ConfigError, type Connector } from '../intake/connector.ts';
 import { connectorContext, getRun, isRunning, listRuns, runSync, stopSync } from '../intake/sync.ts';
-import { AUDIENCES, AUDIENCE_LABEL, SECRET_MASK, adoptSource, effectiveConfig, forceRecordsDm, getConnection, maskedConfig, normAudience, splitConfig, type SourceAudience } from '../intake/connections.ts';
+import { AUDIENCES, AUDIENCE_LABEL, SECRET_MASK, adoptSource, effectiveConfig, forceRecordsGm, getConnection, maskedConfig, normAudience, splitConfig, type SourceAudience } from '../intake/connections.ts';
 import { BUILTIN_PRESETS } from '../intake/presets.ts';
 import { embeddingCoverage } from '../features/search/embeddings.ts';
 import { worldStatus } from '../features/connections/status.ts';
@@ -82,7 +82,7 @@ export default function sourceRoutes(d: Deps) {
   };
   const applyAudience = (s: any, prev: SourceAudience, next: SourceAudience, res: any) => {
     audit(db, s.world_id, me(res), 'source.audience', `${s.id} ${prev} -> ${next}${next === 'party' ? ' (confirmed by the admin)' : ''}`.slice(0, 480));
-    if (next === 'dm') forceRecordsDm(db, s.id);
+    if (next === 'gm') forceRecordsGm(db, s.id);
     return d.library.applyAudience(s.world_id, s.id);
   };
 
@@ -115,7 +115,7 @@ export default function sourceRoutes(d: Deps) {
       c = validated(str(req.body?.kind, 'kind', { max: 40 }), input);
     }
     const sid = id('src_');
-    const vis = oneOf(req.body?.defaultVisibility, 'defaultVisibility', ['dm', 'party'] as const, 'dm');
+    const vis = oneOf(req.body?.defaultVisibility, 'defaultVisibility', ['gm', 'party'] as const, 'gm');
     const audience = audienceOf(req.body ?? {}, 'auto');
     needConfirm(audience, 'auto', req.body ?? {});
     const sched = req.body?.scheduleMinutes === null ? null : int(req.body?.scheduleMinutes, 'scheduleMinutes', { min: 5, max: 10080, optional: true });
@@ -153,7 +153,7 @@ export default function sourceRoutes(d: Deps) {
     if (nextAud !== prevAud) needConfirm(nextAud, prevAud, b);
     run(db, 'UPDATE sources SET name = ?, config = ?, default_visibility = ?, schedule_minutes = ?, enabled = ?, audience = ? WHERE id = ?',
       b.name !== undefined ? str(b.name, 'name', { max: 80 }) : s.name, JSON.stringify(own),
-      b.defaultVisibility !== undefined ? oneOf(b.defaultVisibility, 'defaultVisibility', ['dm', 'party'] as const) : s.default_visibility,
+      b.defaultVisibility !== undefined ? oneOf(b.defaultVisibility, 'defaultVisibility', ['gm', 'party'] as const) : s.default_visibility,
       b.scheduleMinutes !== undefined ? (b.scheduleMinutes === null ? null : int(b.scheduleMinutes, 'scheduleMinutes', { min: 5, max: 10080 })) : s.schedule_minutes,
       b.enabled !== undefined ? (b.enabled ? 1 : 0) : s.enabled, nextAud, s.id);
     audit(db, s.world_id, me(res), 'source.update', s.id);
@@ -195,9 +195,9 @@ export default function sourceRoutes(d: Deps) {
     if (req.body?.connectionId) {
       const { conn, c } = connectionFor(req.body.connectionId, typeof req.body?.kind === 'string' ? req.body.kind : undefined);
       const cfg = effectiveConfig(db, { kind: c.id, config: JSON.stringify(splitConfig(c, input).source), connection_id: conn.id });
-      return res.json(await test(c.id, cfg, { id: 'test', default_visibility: 'dm', audience: 'dm' }));
+      return res.json(await test(c.id, cfg, { id: 'test', default_visibility: 'gm', audience: 'gm' }));
     }
-    res.json(await test(str(req.body?.kind, 'kind', { max: 40 }), input, { id: 'test', default_visibility: 'dm', audience: 'dm' }));
+    res.json(await test(str(req.body?.kind, 'kind', { max: 40 }), input, { id: 'test', default_visibility: 'gm', audience: 'gm' }));
   });
   r.post('/sources/:sid/test', async (req, res) => {
     const s = one<any>(db, 'SELECT * FROM sources WHERE id = ?', String(req.params.sid));

@@ -1,4 +1,4 @@
-// Fog of war for maps: what the DM has uncovered on one map picture, in map-normalised 0..1 coordinates so it fits any size.
+// Fog of war for maps: what the GM has uncovered on one map picture, in map-normalised 0..1 coordinates so it fits any size.
 // Kept as a short list of strokes (circle or rectangle, reveal or hide) on top of a base: fully fogged, or a low-res bitmask
 // once the list has been compacted. The server decides what is fogged (marks under fog are never sent to players); the
 // client only draws it. A circle's radius is a fraction of the map's width, and the map is taken as FOG_ASPECT wide to tall,

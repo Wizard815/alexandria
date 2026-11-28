@@ -1,5 +1,5 @@
-// DM: World settings → Source keys. Every key of the world with its users, uses and trust, the probe result and revoke;
-// how questions beyond a player's view are escalated; and the queue of those questions with the hidden context (DM only).
+// GM: World settings → Source keys. Every key of the world with its users, uses and trust, the probe result and revoke;
+// how questions beyond a player's view are escalated; and the queue of those questions with the hidden context (GM only).
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Field, Modal, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
@@ -33,7 +33,7 @@ export default function KeysAdmin() {
     <section className="card stack">
       <ErrorBox error={act.error ?? keys.error} />
       <div className="row between" style={{ flexWrap: 'wrap', gap: 12 }}>
-        <Field label="When a player needs more than their own view"><select value={String(s.escalation ?? 'broker-deal')} onChange={(e) => void set({ escalation: e.target.value })}><option value="broker-deal">A broker deal: I price it and it waits</option><option value="dm-question">A question for me to answer</option></select></Field>
+        <Field label="When a player needs more than their own view"><select value={String(s.escalation ?? 'broker-deal')} onChange={(e) => void set({ escalation: e.target.value })}><option value="broker-deal">A broker deal: I price it and it waits</option><option value="gm-question">A question for me to answer</option></select></Field>
         {String(s.escalation ?? 'broker-deal') === 'broker-deal' && <Field label="Sessions to wait"><input type="number" min={0} max={50} value={Number(s.escalationSessions ?? 2)} onChange={(e) => void set({ escalationSessions: Number(e.target.value) })} style={{ width: 90 }} /></Field>}
         <Switch label="Players may add their own keys" checked={s.sourceKeysPlayers !== false} onChange={(v) => void set({ sourceKeysPlayers: v })} />
       </div>
@@ -116,7 +116,7 @@ function AddKey({ sources, members, onClose, onDone }: { sources: { id: string; 
   const act = useAction();
   const [f, setF] = useState({ sourceId: sources[0]?.id ?? '', secret: '', label: '', trust: 'unsure' });
   const [users, setUsers] = useState<string[]>([]);
-  // Until the DM picks, a key with its own view may feed the library and agents; any other key only answers agents.
+  // Until the GM picks, a key with its own view may feed the library and agents; any other key only answers agents.
   const [chosen, setChosen] = useState<string[] | null>(null);
   const uses = chosen ?? (f.trust === 'per-user' ? ['library', 'agent'] : ['agent']);
   const flip = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);

@@ -1,7 +1,7 @@
 // Session chat storage and rules. Two channels per game session:
-//   table: everyone in the world (DM included)
+//   table: everyone in the world (GM included)
 //   party: players only. Nobody else can read, list or receive it: not the
-//          DM, not an admin, not a DM's key, not the DM agent.
+//          GM, not an admin, not a GM's key, not the GM agent.
 // Every reader goes through canRead(); there is no other path to party rows.
 import { type DB, all, one, run } from '../../core/db.ts';
 import { DEFAULT_SETTINGS } from '../../core/policy.ts';
@@ -25,7 +25,7 @@ export function readable(v: Viewer): Channel[] { return CHANNELS.filter((c) => c
 // ---- sessions ----
 
 /**
- * The session chats belong to: the one the DM started, else the recording
+ * The session chats belong to: the one the GM started, else the recording
  * session or the people checked in on /live. Starts one by itself only when
  * something is going on that began after the last chat session ended.
  */
@@ -68,7 +68,7 @@ const PAGE_TOKEN = /\[\[page:([A-Za-z0-9_-]{1,120})\]\]/g;
 function pageFor(db: DB, worldId: string, pageId: string, role: Role): { id: string; title: string } | null {
   const pg = one<any>(db, 'SELECT id, title, visibility, player_body FROM pages WHERE world_id = ? AND id = ?', worldId, pageId);
   if (!pg) return null;
-  if (role !== 'dm' && (pg.visibility !== 'party' || pg.player_body === null)) return null;
+  if (role !== 'gm' && (pg.visibility !== 'party' || pg.player_body === null)) return null;
   return { id: pg.id, title: pg.title };
 }
 
@@ -83,7 +83,7 @@ export function renderBody(db: DB, worldId: string, body: string, role: Role): s
   });
 }
 
-/** Players may only link what they can open; the DM may link any page of the world. */
+/** Players may only link what they can open; the GM may link any page of the world. */
 export function checkLinks(db: DB, worldId: string, body: string, role: Role) {
   for (const pid of linkedPages(body)) {
     if (!pageFor(db, worldId, pid, role)) throw new HttpError(400, 'You can only link pages you can see');
@@ -117,8 +117,8 @@ export function mentionIds(db: DB, worldId: string, body: string): string[] {
 export function viewMessage(db: DB, m: any, v: Viewer, worldId: string) {
   const hidden = !!m.hidden_at;
   const deleted = !!m.deleted_at;
-  const dm = v.role === 'dm';
-  const blank = deleted || (hidden && !dm);
+  const gm = v.role === 'gm';
+  const blank = deleted || (hidden && !gm);
   const body = blank ? '' : renderBody(db, worldId, m.body, v.role);
   const reactions: Record<string, { emoji: string; count: number; mine: boolean }> = {};
   for (const r of all<any>(db, 'SELECT emoji, account_id FROM sessionchat_reactions WHERE message_id = ?', m.id)) {
@@ -130,7 +130,7 @@ export function viewMessage(db: DB, m: any, v: Viewer, worldId: string) {
   if (m.reply_to) {
     const p = one<any>(db, 'SELECT * FROM sessionchat_messages WHERE id = ?', m.reply_to);
     if (p) {
-      const pBlank = !!p.deleted_at || (!!p.hidden_at && !dm);
+      const pBlank = !!p.deleted_at || (!!p.hidden_at && !gm);
       reply = { id: p.id, authorId: p.author_id, snippet: pBlank ? '' : renderBody(db, worldId, p.body, v.role).replace(/\[\[page:[^|\]]+\|([^\]]*)\]\]/g, '$1').slice(0, 90) };
     }
   }

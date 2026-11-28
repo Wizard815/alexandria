@@ -28,7 +28,7 @@ function Countdown({ endsAt }: { endsAt: string }) {
 
 function PageBody({ page }: { page: PageOut }) {
   const nav = useNavigate();
-  const ctx: RenderCtx = useMemo(() => ({ links: page.links ?? {}, isDM: false, children: [], open: (id: string) => nav(`${page.openPath.split('?')[0]}?page=${encodeURIComponent(id)}`) }), [page, nav]);
+  const ctx: RenderCtx = useMemo(() => ({ links: page.links ?? {}, isGM: false, children: [], open: (id: string) => nav(`${page.openPath.split('?')[0]}?page=${encodeURIComponent(id)}`) }), [page, nav]);
   return (
     <div className="lib-page" style={{ fontSize: 15 }}>
       {page.facts.length > 0 && <Facts groups={page.facts} ctx={ctx} />}
@@ -39,13 +39,13 @@ function PageBody({ page }: { page: PageOut }) {
 }
 
 function Shop({ card }: { card: StageCard }) {
-  const { w, isDM, info } = useWorld();
+  const { w, isGM, info } = useWorld();
   const act = useAction();
   const [done, setDone] = useState<string | null>(null);
   const d = card.data;
   const buy = (name: string) => act.run(async () => {
     const r = await w.call<{ pending: boolean }>('POST', `/stage/cards/${card.id}/buy`, { item: name, qty: 1 });
-    setDone(r.pending ? `Asked to buy ${name}. Waiting for the DM to approve.` : `Bought ${name}.`);
+    setDone(r.pending ? `Asked to buy ${name}. Waiting for the GM to approve.` : `Bought ${name}.`);
   });
   return (
     <>
@@ -56,7 +56,7 @@ function Shop({ card }: { card: StageCard }) {
             <tr key={it.name}>
               <td>{it.name}</td>
               <td className="muted" style={{ whiteSpace: 'nowrap' }}>{it.priceCp ? coins(it.priceCp, info.settings.coins) : it.price || '—'}</td>
-              {!isDM && d.canBuy && <td style={{ textAlign: 'right' }}>{it.priceCp ? <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void buy(it.name)}>Buy</button> : null}</td>}
+              {!isGM && d.canBuy && <td style={{ textAlign: 'right' }}>{it.priceCp ? <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void buy(it.name)}>Buy</button> : null}</td>}
             </tr>
           ))}
         </tbody>
@@ -67,7 +67,7 @@ function Shop({ card }: { card: StageCard }) {
   );
 }
 
-function DmCombat({ view }: { view: any }) {
+function GmCombat({ view }: { view: any }) {
   const list = (view.combatants ?? []) as any[];
   return (
     <div className="stack tight">
@@ -100,14 +100,14 @@ export function cardTitle(c: StageCard): string {
 const ICON: Record<string, string> = { image: 'fa-image', combat: 'fa-khanda', person: 'fa-user', shop: 'fa-store', place: 'fa-location-dot', event: 'fa-bolt', text: 'fa-scroll', drawing: 'fa-chalkboard' };
 
 export function CardView({ card, big = false, controls }: { card: StageCard; big?: boolean; controls?: ReactNode }) {
-  const { isDM } = useWorld();
+  const { isGM } = useWorld();
   const [board, setBoard] = useState(big);
   const d = card.data ?? {};
   let body: ReactNode;
   if (card.unavailable) body = <p className="muted small">Players can't open this right now (the page or person is not shared with the party). It will not show on their board.</p>;
   else switch (card.kind) {
     case 'image': body = <><Img url={d.url} alt={d.caption || 'Picture'} />{d.caption && <p className="small muted" style={{ margin: 0 }}>{d.caption}</p>}</>; break;
-    case 'combat': body = isDM ? <DmCombat view={d.view} /> : <CombatPanel c={d.view} compact />; break;
+    case 'combat': body = isGM ? <GmCombat view={d.view} /> : <CombatPanel c={d.view} compact />; break;
     case 'person': body = (
       <>
         <div className="small muted">{[d.person.role, d.person.attitude, d.person.met && `met ${d.person.met}`].filter(Boolean).join(' · ')}</div>
@@ -135,7 +135,7 @@ export function CardView({ card, big = false, controls }: { card: StageCard; big
           {card.kind === 'place' || card.kind === 'shop' ? <Icon icon={card.data?.page?.icon} size={18} /> : <i className={`fa-solid ${ICON[card.kind]}`} aria-hidden="true" />}
           <span>{title}</span>
         </h2>
-        {isDM && card.label && card.kind !== 'event' && card.kind !== 'text' && <span className="tiny muted">{card.label}</span>}
+        {isGM && card.label && card.kind !== 'event' && card.kind !== 'text' && <span className="tiny muted">{card.label}</span>}
       </div>
       {body}
       {controls}

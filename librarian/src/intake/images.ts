@@ -18,7 +18,7 @@ export function privateHost(hostname: string): boolean {
 
 /**
  * Download one picture. Never sends the API token off the endpoint's own host; a picture on another host is fetched only when the mapped URL
- * is absolute (the DM accepted this endpoint, so its address list is theirs), without the token, never from a private address, and redirects
+ * is absolute (the GM accepted this endpoint, so its address list is theirs), without the token, never from a private address, and redirects
  * are followed only within the host they started on. Only PNG, JPEG, GIF and WebP (by content type AND by the file's own first bytes), at most
  * `maxBytes`. SVG and anything else is refused. Null: not stored.
  */
@@ -86,7 +86,7 @@ export async function pictureRecord(ctx: ConnectorContext, a: { externalId: stri
   const lim = ctx.imageLimits ?? { maxBytes: 20 * 1024 * 1024, perRun: 20, maxHeld: 500, maxMapBytes: 60 * 1024 * 1024 };
   const held = ctx.heldImages ?? new Map<string, string>();
   const marker = `${a.url}|${a.updated ?? ''}`;
-  const rec: SyncRecord = { kind: 'image', externalId: a.externalId, pageRef: a.pageRef, name: a.name, marker, url: a.url, visibility: a.visible ? 'party' : 'dm', ...(a.map ? { map: true } : {}) };
+  const rec: SyncRecord = { kind: 'image', externalId: a.externalId, pageRef: a.pageRef, name: a.name, marker, url: a.url, visibility: a.visible ? 'party' : 'gm', ...(a.map ? { map: true } : {}) };
   if (held.get(a.externalId) === marker) return rec;
   const n = downloadedBy.get(ctx) ?? 0;
   const keepOld = (): SyncRecord | null => (held.has(a.externalId) ? { ...rec, marker: held.get(a.externalId)! } : null);
@@ -108,7 +108,7 @@ const httpUrl = (u: unknown): u is string => typeof u === 'string' && /^https?:\
 /**
  * The pictures a page shows by address, as records queued for the downloader (`later`), so they are stored here and served from here (and
  * kept for offline reading) instead of loaded from the source's servers: its banner or portrait (`picture`, the page's primary picture) and
- * every picture in its text (`inline`). A picture inside a secret block is the DM's even on a shared page; the rest follow the page. A map
+ * every picture in its text (`inline`). A picture inside a secret block is the GM's even on a shared page; the rest follow the page. A map
  * block's picture is left out (the connector stores maps itself). Nothing is downloaded here.
  */
 export function entryPictures(e: Entry): SyncRecord[] {
@@ -119,7 +119,7 @@ export function entryPictures(e: Entry): SyncRecord[] {
   const add = (url: string, name: string, inline: boolean, secret: boolean) => {
     if (seen.has(url) || out.length >= MAX_PICTURES_A_PAGE) return;
     seen.add(url);
-    out.push({ kind: 'image', externalId: `${e.externalId}#pic:${shortHash(url)}`, pageRef: e.externalId, name: name.slice(0, 300), marker: url, url, later: true, visibility: shared && !secret ? 'party' : 'dm', ...(inline ? { inline: true } : {}) });
+    out.push({ kind: 'image', externalId: `${e.externalId}#pic:${shortHash(url)}`, pageRef: e.externalId, name: name.slice(0, 300), marker: url, url, later: true, visibility: shared && !secret ? 'party' : 'gm', ...(inline ? { inline: true } : {}) });
   };
   // A map page's picture is the map itself, which the connector stores as a map (Kanka gives it as the entity's image too).
   if (httpUrl(e.banner) && e.type !== 'map') add(e.banner, e.title, false, false);

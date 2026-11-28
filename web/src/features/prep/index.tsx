@@ -3,6 +3,6 @@ import { PrepCard } from './PrepCard.tsx';
 
 const feature: WebFeature = {
   id: 'prep',
-  dmHome: [PrepCard],
+  gmHome: [PrepCard],
 };
 export default feature;

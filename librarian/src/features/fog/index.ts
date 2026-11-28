@@ -1,16 +1,16 @@
-// Fog of war and the table display. Fog is off by default for a map picture; the DM turns it on (starts fully fogged) and
+// Fog of war and the table display. Fog is off by default for a map picture; the GM turns it on (starts fully fogged) and
 // uncovers it with circles and rectangles. Everyone may read it (players draw it over the map picture; the table screen is
-// seen by players); only the DM writes. The real protection is on the server: map marks under fog are never sent to
+// seen by players); only the GM writes. The real protection is on the server: map marks under fog are never sent to
 // players (routes/map.ts), so a client that ignored the fog would still learn nothing from marks.
 //
-// The table display is which map picture the face-up table screen shows, set by the DM and followed live.
+// The table display is which map picture the face-up table screen shows, set by the GM and followed live.
 //
 // Live events (clients refetch): `fog` { mapId, pic, version }, `table-display` { version }.
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { one, run, tx } from '../../core/db.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { everyone } from '../../core/events.ts';
 import { compact, readFog, withoutLastStroke, type FogOp, type FogState } from '../../core/fog.ts';
 import { HttpError, now, str } from '../../core/util.ts';
@@ -103,7 +103,7 @@ const feature: Feature = {
 
     // ---- the table display ----
     r.get('/table', (_req, res) => res.json(tableOf(d, W(res))));
-    r.put('/table', requireDM, (req, res) => {
+    r.put('/table', requireGM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       const cur = tableOf(d, w);
@@ -122,7 +122,7 @@ const feature: Feature = {
     const target = (req: any, res: any) => ({ w: W(res), mapId: mapKey(req.params.mapId), pic: picKey(req.body?.pic) });
 
     // Turning fog on starts fully fogged; off keeps the strokes, so turning it on again picks up where it was.
-    r.put('/map/:mapId/enabled', requireDM, (req, res) => {
+    r.put('/map/:mapId/enabled', requireGM, (req, res) => {
       const t = target(req, res);
       const cur = fogOf(d, t.w, t.mapId, t.pic);
       const enabled = !!req.body?.enabled;
@@ -131,7 +131,7 @@ const feature: Feature = {
       res.json(fogOf(d, t.w, t.mapId, t.pic));
     });
 
-    r.post('/map/:mapId/ops', requireDM, (req, res) => {
+    r.post('/map/:mapId/ops', requireGM, (req, res) => {
       const t = target(req, res);
       const cur = fogOf(d, t.w, t.mapId, t.pic);
       if (!cur.enabled) throw new HttpError(409, 'Turn fog on for this map picture first');
@@ -142,7 +142,7 @@ const feature: Feature = {
       res.json(fogOf(d, t.w, t.mapId, t.pic));
     });
 
-    r.post('/map/:mapId/undo', requireDM, (req, res) => {
+    r.post('/map/:mapId/undo', requireGM, (req, res) => {
       const t = target(req, res);
       const cur = fogOf(d, t.w, t.mapId, t.pic);
       if (!cur.ops.length) throw new HttpError(409, 'Nothing to undo');
@@ -150,9 +150,9 @@ const feature: Feature = {
       res.json(fogOf(d, t.w, t.mapId, t.pic));
     });
 
-    // ---- map vision: where the rooms of a map picture are (DM only: a picture can show what the fog still hides) ----
-    r.get('/vision', requireDM, async (_req, res) => res.json(await visionCheck(d)));
-    r.post('/look', requireDM, async (req, res) => {
+    // ---- map vision: where the rooms of a map picture are (GM only: a picture can show what the fog still hides) ----
+    r.get('/vision', requireGM, async (_req, res) => res.json(await visionCheck(d)));
+    r.post('/look', requireGM, async (req, res) => {
       const w = W(res);
       const pic = req.body?.pic ? picKey(req.body.pic) : tableOf(d, w).pic;
       if (!pic || pic === 'none') throw new HttpError(400, "Say which map picture (pic), or show one on the table screen first");
@@ -160,7 +160,7 @@ const feature: Feature = {
     });
 
     // Put a whole fog state back (a scene's saved fog, or an undo of one).
-    r.put('/map/:mapId/state', requireDM, (req, res) => {
+    r.put('/map/:mapId/state', requireGM, (req, res) => {
       const t = target(req, res);
       const b = req.body ?? {};
       const ops = Array.isArray(b.ops) ? b.ops.slice(0, 400).map(cleanOp) : [];
@@ -179,27 +179,27 @@ const feature: Feature = {
       props: {}, call: () => ({ method: 'GET', path: '/fog/table' }),
     },
     {
-      name: 'look_at_map', dmOnly: true,
-      description: "DM: have the map vision model look at a map picture and list its rooms and areas with boxes (x, y, w, h from 0 to 100, the grid reveal_fog uses). Use it before reveal_fog when the DM names a room (\"open the crypt\"). Leave pic out for the picture on the table screen. Says plainly when the attached model cannot see pictures.",
+      name: 'look_at_map', gmOnly: true,
+      description: "GM: have the map vision model look at a map picture and list its rooms and areas with boxes (x, y, w, h from 0 to 100, the grid reveal_fog uses). Use it before reveal_fog when the GM names a room (\"open the crypt\"). Leave pic out for the picture on the table screen. Says plainly when the attached model cannot see pictures.",
       props: { pic: { type: 'string', description: 'The map picture (from get_table_display); default the one on the table screen' }, question: { type: 'string', description: 'Something to look for, e.g. where is the crypt' } },
       call: (a) => ({ method: 'POST', path: '/fog/look', body: { pic: a.pic, question: a.question } }),
     },
     {
-      name: 'get_fog', dmOnly: true,
-      description: "DM: the fog of war on one map picture: whether it is on and the areas uncovered or covered so far (x, y, r, w, h from 0 to 1). Leave mapId and pic out for what the table screen shows (see get_table_display).",
+      name: 'get_fog', gmOnly: true,
+      description: "GM: the fog of war on one map picture: whether it is on and the areas uncovered or covered so far (x, y, r, w, h from 0 to 1). Leave mapId and pic out for what the table screen shows (see get_table_display).",
       props: { mapId: { type: 'string', description: 'Map id (default world)' }, pic: { type: 'string', description: "The map picture (from get_table_display; default 'none')" } },
       call: (a) => ({ method: 'GET', path: `/fog/map/${encodeURIComponent(a.mapId ?? 'world')}?pic=${encodeURIComponent(a.pic ?? 'none')}` }),
     },
     {
       name: 'set_fog', write: true,
-      description: 'DM: turn the fog of war on (the map starts fully fogged) or off for one map picture. Off keeps what was uncovered.',
+      description: 'GM: turn the fog of war on (the map starts fully fogged) or off for one map picture. Off keeps what was uncovered.',
       props: { mapId: { type: 'string', description: 'Map id (default world)' }, pic: { type: 'string', description: "The map picture (default 'none')" }, enabled: { type: 'boolean' } },
       required: ['enabled'],
       call: (a) => ({ method: 'PUT', path: `/fog/map/${encodeURIComponent(a.mapId ?? 'world')}/enabled`, body: { pic: a.pic ?? 'none', enabled: a.enabled } }),
     },
     {
       name: 'reveal_fog', write: true,
-      description: "DM: uncover (or cover again) part of a fogged map picture: a circle at x,y with radius r, a rectangle from x,y of size w by h, or all of it. Numbers are 0 to 100 across and down, the same grid as map marks, so you can uncover around a pin from list_map_marks or a room box from look_at_map (for a room, use shape rect with its x, y, w, h). Fog must be on (set_fog).",
+      description: "GM: uncover (or cover again) part of a fogged map picture: a circle at x,y with radius r, a rectangle from x,y of size w by h, or all of it. Numbers are 0 to 100 across and down, the same grid as map marks, so you can uncover around a pin from list_map_marks or a room box from look_at_map (for a room, use shape rect with its x, y, w, h). Fog must be on (set_fog).",
       props: {
         mapId: { type: 'string', description: 'Map id (default world)' }, pic: { type: 'string', description: "The map picture (default 'none')" },
         shape: { type: 'string', enum: ['circle', 'rect', 'all'] },

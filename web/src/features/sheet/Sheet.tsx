@@ -1,12 +1,12 @@
 // One player's sheet. The owner arranges it (add, move, widen, hide, rename,
-// remove modules) and fills it in; the DM reads it (without the private
+// remove modules) and fills it in; the GM reads it (without the private
 // modules) and can change health and mana from it. Built-in modules show
 // live data: health, mana, the pack, and recently seen people and places.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, Modal, PageHead, useAction, useToast } from '../../ui/index.tsx';
-import { AskModal, FromDm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
+import { AskModal, FromGm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
 import { ConditionChip, useConditions } from './conditions.tsx';
 import { RerollMod } from './rerolls.tsx';
 import { CharacterMod, ImportModal } from './ddb.tsx';
@@ -19,7 +19,7 @@ const STAT_LABELS = ['AC', 'Initiative', 'Speed', 'Proficiency', 'Passive Percep
 const uid = () => Math.random().toString(36).slice(2, 10);
 const EVENTS = ['sheet', 'spells-char', 'combat', 'settings'];
 
-/** What the world calls its spell pool: "Spell points" when the DM's house rule names it so (the mod kit sets spellManaName), else Mana. */
+/** What the world calls its spell pool: "Spell points" when the GM's house rule names it so (the mod kit sets spellManaName), else Mana. */
 export const poolName = (settings: unknown): string => { const n = (settings as any)?.spellManaName; return typeof n === 'string' && n.trim() ? n.trim() : 'Mana'; };
 
 /** How many 250px columns fit the grid's width (one on a phone). */
@@ -51,9 +51,9 @@ function layout(mods: Module[], n: number): ({ wide: Module; cols?: never } | { 
   return out as any;
 }
 
-/** Sheets saved before "From the DM" became a module get it after Health and Mana. */
-const withDm = (list: Module[]): Module[] => (list.some((m) => m.type === 'dm') ? list
-  : [...list.slice(0, 2), { id: 'dm', type: 'dm', title: 'From the DM', wide: false, private: false, collapsed: false }, ...list.slice(2)]);
+/** Sheets saved before "From the GM" became a module get it after Health and Mana. */
+const withGm = (list: Module[]): Module[] => (list.some((m) => m.type === 'gm') ? list
+  : [...list.slice(0, 2), { id: 'gm', type: 'gm', title: 'From the GM', wide: false, private: false, collapsed: false }, ...list.slice(2)]);
 /** With the re-roll house rule on, every sheet has the Re-rolls module (after Health). */
 const withRerolls = (list: Module[], on: boolean): Module[] => {
   if (!on || list.some((m) => m.type === 'rerolls')) return list;
@@ -61,12 +61,12 @@ const withRerolls = (list: Module[], on: boolean): Module[] => {
   return [...list.slice(0, at), { id: 'rerolls', type: 'rerolls', title: 'Re-rolls', wide: false, private: false, collapsed: false }, ...list.slice(at)];
 };
 /** The default order, most used first; "Sort like the default" puts a player's own modules in it (their data stays). */
-const RANK: ModuleType[] = ['character', 'vitals', 'mana', 'stats', 'rerolls', 'counters', 'dm', 'notes', 'list', 'downtime', 'inventory', 'contacts', 'text', 'recent'];
+const RANK: ModuleType[] = ['character', 'vitals', 'mana', 'stats', 'rerolls', 'counters', 'gm', 'notes', 'list', 'downtime', 'inventory', 'contacts', 'text', 'recent'];
 const byRank = (list: Module[]) => [...list].sort((a, b) => RANK.indexOf(a.type) - RANK.indexOf(b.type));
 
 /** `page`: the player's own page, where the character's name is the page title. */
 export default function Sheet({ account, page = false }: { account: string; page?: boolean }) {
-  const { w, info, isDM, me } = useWorld();
+  const { w, info, isGM, me } = useWorld();
   const sheet = useLoad<SheetT>(() => w.call('GET', `/sheet/${account}`), [w, account, (info.settings as any).sheetRerolls], EVENTS);
   const [mods, setMods] = useState<Module[] | null>(null);
   const [editing, setEditing] = useState(false);
@@ -84,18 +84,18 @@ export default function Sheet({ account, page = false }: { account: string; page
   const cols = useColumns(gridRef);
 
   // Local copy of the modules: edits show at once and save a moment later. The owner's copy is the truth once loaded
-  // (a reload racing a save must not bring back an older layout); the DM's follows the server.
-  useEffect(() => { if (sheet.data && (!own || mods === null)) setMods(withRerolls(withDm(sheet.data.modules), sheet.data.rerolls?.on === true)); }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The DM turns re-rolls on while the sheet is open: the module shows up.
+  // (a reload racing a save must not bring back an older layout); the GM's follows the server.
+  useEffect(() => { if (sheet.data && (!own || mods === null)) setMods(withRerolls(withGm(sheet.data.modules), sheet.data.rerolls?.on === true)); }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The GM turns re-rolls on while the sheet is open: the module shows up.
   useEffect(() => { if (mods && sheet.data?.rerolls?.on && !mods.some((m) => m.type === 'rerolls')) setMods(withRerolls(mods, true)); }, [sheet.data, mods]);
-  // A note or goal the DM adds while the player has the sheet open: say so.
-  const dmIds = useRef<Set<string> | null>(null);
+  // A note or goal the GM adds while the player has the sheet open: say so.
+  const gmIds = useRef<Set<string> | null>(null);
   useEffect(() => {
-    const list = sheet.data?.fromDm;
+    const list = sheet.data?.fromGm;
     if (!list) return;
     const ids = new Set(list.map((n) => n.id));
-    if (own && !isDM && dmIds.current && list.some((n) => !dmIds.current!.has(n.id))) toast('The DM left you something new under From the DM');
-    dmIds.current = ids;
+    if (own && !isGM && gmIds.current && list.some((n) => !gmIds.current!.has(n.id))) toast('The GM left you something new under From the GM');
+    gmIds.current = ids;
   }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const persist = (next: Module[], wait = 600) => {
     setMods(next);
@@ -144,14 +144,14 @@ export default function Sheet({ account, page = false }: { account: string; page
   const pool = poolName(info.settings);
   const buttons = (
     <span className="row" style={{ gap: 6 }}>
-      <button type="button" className={`btn small${showLog ? ' on' : ''}`} onClick={() => setShowLog((v) => !v)} title={isDM ? 'Every HP and mana change for this player' : 'Every change to your HP and mana (the DM sees these too)'}><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Log</button>
-      {ddbOn && (own || isDM) && <button type="button" className="btn small" onClick={() => setImporting({ url: '' })} title="Import a character from D&D Beyond (unofficial: it can break without notice)" data-testid="sheet-import"><i className="fa-solid fa-file-import" aria-hidden="true" /> Import</button>}
+      <button type="button" className={`btn small${showLog ? ' on' : ''}`} onClick={() => setShowLog((v) => !v)} title={isGM ? 'Every HP and mana change for this player' : 'Every change to your HP and mana (the GM sees these too)'}><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Log</button>
+      {ddbOn && (own || isGM) && <button type="button" className="btn small" onClick={() => setImporting({ url: '' })} title="Import a character from D&D Beyond (unofficial: it can break without notice)" data-testid="sheet-import"><i className="fa-solid fa-file-import" aria-hidden="true" /> Import</button>}
       {own && <button type="button" className={`btn small${editing ? ' on' : ''}`} data-testid="sheet-edit" onClick={() => { setEditing((v) => !v); setAdding(false); }}>{editing ? 'Done' : 'Arrange'}</button>}
     </span>
   );
 
   const card = (m: Module, i: number) => (
-          <section key={m.id} className={`card sht-mod${m.wide ? ' wide' : ''}${editing ? ' editing' : ''}${m.type === 'dm' ? ' sht-dm' : ''}`} data-testid={`mod-${m.type}`}>
+          <section key={m.id} className={`card sht-mod${m.wide ? ' wide' : ''}${editing ? ' editing' : ''}${m.type === 'gm' ? ' sht-gm' : ''}`} data-testid={`mod-${m.type}`}>
             <div className="card-head">
               {editing
                 ? <input className="sht-in" aria-label="Module title" value={m.title} maxLength={60} onChange={(e) => update(m.id, { title: e.target.value })} style={{ flex: 1 }} />
@@ -164,16 +164,16 @@ export default function Sheet({ account, page = false }: { account: string; page
                 <button type="button" className="btn" aria-label={`Move ${m.title} up`} disabled={i === 0} onClick={() => move(i, -1)}><i className="fa-solid fa-arrow-up" aria-hidden="true" /></button>
                 <button type="button" className="btn" aria-label={`Move ${m.title} down`} disabled={i === mods.length - 1} onClick={() => move(i, 1)}><i className="fa-solid fa-arrow-down" aria-hidden="true" /></button>
                 <button type="button" className={`btn${m.wide ? ' on' : ''}`} aria-pressed={m.wide} onClick={() => update(m.id, { wide: !m.wide }, 0)}><i className="fa-solid fa-left-right" aria-hidden="true" /> Wide</button>
-                {CAN_BE_PRIVATE.includes(m.type) && <button type="button" className={`btn${m.private ? ' on' : ''}`} aria-pressed={m.private} title="Only me (hidden from the DM too)" onClick={() => update(m.id, { private: !m.private }, 0)}><i className="fa-solid fa-lock" aria-hidden="true" /> Private</button>}
-                {m.type !== 'dm' && !(m.type === 'rerolls' && s.rerolls?.on) && <button type="button" className="btn danger" aria-label={`Remove ${m.title}`} onClick={() => remove(m)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>}
+                {CAN_BE_PRIVATE.includes(m.type) && <button type="button" className={`btn${m.private ? ' on' : ''}`} aria-pressed={m.private} title="Only me (hidden from the GM too)" onClick={() => update(m.id, { private: !m.private }, 0)}><i className="fa-solid fa-lock" aria-hidden="true" /> Private</button>}
+                {m.type !== 'gm' && !(m.type === 'rerolls' && s.rerolls?.on) && <button type="button" className="btn danger" aria-label={`Remove ${m.title}`} onClick={() => remove(m)}><i className="fa-solid fa-trash" aria-hidden="true" /></button>}
               </div>
             )}
             {!editing && !m.collapsed && (
-              m.type === 'character' ? (m.data?.name ? <CharacterMod c={m.data} onUpdate={ddbOn && (own || isDM) ? () => setImporting({ url: m.data.url ?? '' }) : undefined} />
-                : <span className="tiny muted">{!ddbOn ? 'The DM turns on the D&D Beyond import under House rules.' : own ? <button type="button" className="btn small" onClick={() => setImporting({ url: '' })}>Import from D&amp;D Beyond</button> : 'No character imported yet.'}</span>)
+              m.type === 'character' ? (m.data?.name ? <CharacterMod c={m.data} onUpdate={ddbOn && (own || isGM) ? () => setImporting({ url: m.data.url ?? '' }) : undefined} />
+                : <span className="tiny muted">{!ddbOn ? 'The GM turns on the D&D Beyond import under House rules.' : own ? <button type="button" className="btn small" onClick={() => setImporting({ url: '' })}>Import from D&amp;D Beyond</button> : 'No character imported yet.'}</span>)
               : m.type === 'stats' ? <StatsMod entries={m.data?.entries ?? []} readOnly={!own} onChange={(entries, wait) => update(m.id, { data: { entries } }, wait)} />
-              : m.type === 'dm' ? <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
-              : m.type === 'rerolls' ? <RerollMod account={own ? 'me' : account} r={s.rerolls ?? { on: false }} dm={isDM && !own} onChanged={() => void sheet.reload()} />
+              : m.type === 'gm' ? <FromGm account={own ? me : account} notes={s.fromGm ?? []} gm={isGM && !own} onChanged={() => void sheet.reload()} />
+              : m.type === 'rerolls' ? <RerollMod account={own ? 'me' : account} r={s.rerolls ?? { on: false }} gm={isGM && !own} onChanged={() => void sheet.reload()} />
               : m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
               : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} name={pool} /> : <p className="tiny muted">{pool} is off in this world.</p>)
               : m.type === 'inventory' ? <Inventory account={account} own={own} />
@@ -189,7 +189,7 @@ export default function Sheet({ account, page = false }: { account: string; page
     <div className="stack" data-testid="sheet">
       {page ? <PageHead title={s.name} lead="Your quick sheet next to the paper one.">{buttons}</PageHead>
         : <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
-          <span className="row" style={{ gap: 8 }}><strong style={{ fontSize: 18 }}>{s.name}</strong>{isDM && !own && <span className="tiny faint">played by {s.player}</span>}</span>
+          <span className="row" style={{ gap: 8 }}><strong style={{ fontSize: 18 }}>{s.name}</strong>{isGM && !own && <span className="tiny faint">played by {s.player}</span>}</span>
           {buttons}
         </div>}
       <ErrorBox error={act.error} />
@@ -201,14 +201,14 @@ export default function Sheet({ account, page = false }: { account: string; page
       </div>
       {own && editing && (adding
         ? <section className="card sht-mod"><div className="card-head"><h3>Add a module</h3><button type="button" className="btn small ghost" onClick={() => setAdding(false)}>Cancel</button></div>
-            <div className="sht-add">{KINDS.filter((k) => k.type !== 'dm' && k.type !== 'rerolls' && (!SINGLE.includes(k.type) || !mods.some((m) => m.type === k.type))).map((k) => (
+            <div className="sht-add">{KINDS.filter((k) => k.type !== 'gm' && k.type !== 'rerolls' && (!SINGLE.includes(k.type) || !mods.some((m) => m.type === k.type))).map((k) => (
               <button key={k.type} type="button" className="btn" onClick={() => add(k.type)} data-testid={`add-${k.type}`}><strong><i className={`fa-solid ${k.icon}`} aria-hidden="true" /> {k.label}</strong><span className="tiny muted">{k.desc}</span></button>
             ))}</div></section>
         : <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
             <button type="button" className="btn grow" onClick={() => setAdding(true)} data-testid="sheet-add">＋ Add a module</button>
             <button type="button" className="btn" onClick={() => persist(byRank(mods), 0)} title="Health and mana first, then what you use most">Sort like the default</button>
           </div>)}
-      {importing && <ImportModal account={account} own={own} dm={isDM} url={importing.url} onClose={() => setImporting(null)}
+      {importing && <ImportModal account={account} own={own} gm={isGM} url={importing.url} onClose={() => setImporting(null)}
         onDone={(msg) => { setImporting(null); setMods(null); void sheet.reload(); toast(msg); }} />}
       {asking && <AskModal subject={asking} onClose={() => setAsking(null)} />}
       {adding1 && <PersonModal person={adding1} onClose={() => setAdding1(null)} onSave={(p) => { saveContact(p); setAdding1(null); }} />}
@@ -349,7 +349,7 @@ function RecentMod({ account, onAdd, onAsk }: { account: string; onAdd?: (p: Par
   const rec = useLoad<any>(() => w.call('GET', `/sheet/${account}/recent`), [w, account], ['sessionlog', 'person']);
   if (rec.loading && !rec.data) return <Loading />;
   const people = rec.data?.people ?? [], places = rec.data?.places ?? [], factions = rec.data?.factions ?? [];
-  if (!people.length && !places.length && !factions.length) return <span className="tiny muted">Names show up here after the DM publishes a session summary.</span>;
+  if (!people.length && !places.length && !factions.length) return <span className="tiny muted">Names show up here after the GM publishes a session summary.</span>;
   const part = (title: string, icon: string, list: any[], what: Subject['what']): ReactNode => list.length > 0 && (
     <div className="stack tight">
       <span className="tiny faint"><i className={`fa-solid ${icon}`} aria-hidden="true" /> {title}</span>

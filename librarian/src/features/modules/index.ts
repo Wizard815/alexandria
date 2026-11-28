@@ -1,13 +1,13 @@
 // Game modules: rules and term glossaries (spells, conditions, monsters,
-// rules...). Two come with the app (SRD 5.2 and SRD 5.1); a DM can import
+// rules...). Two come with the app (SRD 5.2 and SRD 5.1); a GM can import
 // more. See docs/MODULES.md.
 import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { run } from '../../core/db.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { HttpError, now, str } from '../../core/util.ts';
-import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, settings } from '../../routes/_shared.ts';
 import { playerCard } from './hide.ts';
 import { summarize, preview } from './format.ts';
 import { readModule } from './importers.ts';
@@ -24,7 +24,7 @@ const audit = (db: any, worldId: string, accountId: string, action: string, deta
 const intQ = (v: unknown, d: number) => { const n = Number(v); return Number.isFinite(n) ? Math.trunc(n) : d; };
 
 // Open5e and the 5e SRD API are a house rule (features/open5e): off, the world cannot pull from them.
-const OPEN5E_OFF = 'Open5e is off in this world: the DM turns it on under House rules';
+const OPEN5E_OFF = 'Open5e is off in this world: the GM turns it on under House rules';
 const open5eOn = (res: any) => featureSetting<boolean>(settings(res), 'open5e') === true;
 const needOpen5e = (req: any, res: any, next: any) => (open5eOn(res) ? next() : next(new HttpError(403, OPEN5E_OFF)));
 
@@ -38,7 +38,7 @@ function routes(d: Deps) {
     res.json({ modules: w.enabled, available: available(d.db, W(res)), termCount: w.terms.length });
   });
 
-  r.put('/enabled', requireDM, (req, res) => {
+  r.put('/enabled', requireGM, (req, res) => {
     const ids: unknown = req.body?.ids;
     if (!Array.isArray(ids) || ids.length > 50) throw new HttpError(400, 'ids must be a list of module ids, in order');
     setEnabled(d.db, W(res), ids as string[]);
@@ -47,7 +47,7 @@ function routes(d: Deps) {
     res.json({ modules: worldModules(d.db, W(res)).enabled });
   });
 
-  r.delete('/imported/:id', requireDM, (req, res) => {
+  r.delete('/imported/:id', requireGM, (req, res) => {
     removeImported(d.db, W(res), String(req.params.id));
     audit(d.db, W(res), me(res), 'modules.remove', String(req.params.id));
     d.hub.emit(W(res), 'modules', {}, () => true);
@@ -64,7 +64,7 @@ function routes(d: Deps) {
       offset: intQ(req.query.offset, 0),
     });
     // A player's monster summaries have no AC, HP or CR (unless the world shows monster health exactly).
-    if (!isDM(res)) { const s = settings(res); res.json({ ...out, ...(Array.isArray((out as any).terms) ? { terms: (out as any).terms.map((t: any) => playerCard(t, s)) } : {}), ...(Array.isArray((out as any).results) ? { results: (out as any).results.map((t: any) => playerCard(t, s)) } : {}) }); return; }
+    if (!isGM(res)) { const s = settings(res); res.json({ ...out, ...(Array.isArray((out as any).terms) ? { terms: (out as any).terms.map((t: any) => playerCard(t, s)) } : {}), ...(Array.isArray((out as any).results) ? { results: (out as any).results.map((t: any) => playerCard(t, s)) } : {}) }); return; }
     res.json(out);
   });
 
@@ -73,14 +73,14 @@ function routes(d: Deps) {
     if (!t) throw new HttpError(404, 'Term not found');
     const m = worldModules(d.db, W(res)).enabled.find((x) => x.id === t.moduleId);
     const full = { id: t.ref, moduleId: t.moduleId, module: t.moduleName, term: t.term, aliases: t.aliases, kind: t.kind, summary: t.summary, text: t.text, data: t.data ?? null, license: m?.license ?? '', attribution: m?.attribution ?? '' };
-    res.json(isDM(res) ? full : playerCard(full, settings(res)));
+    res.json(isGM(res) ? full : playerCard(full, settings(res)));
   });
 
   r.get('/rules/search', (req, res) => {
     const q = str(req.query.q, 'q', { max: 300 });
     const results = searchRules(d.db, W(res), q, intQ(req.query.limit, 5));
     const ps = settings(res);
-    res.json({ query: q, results: isDM(res) ? results : results.map((h) => ({ ...h, passage: playerCard({ kind: h.kind, text: h.passage }, ps).text, summary: playerCard({ kind: h.kind, summary: h.summary }, ps).summary })) });
+    res.json({ query: q, results: isGM(res) ? results : results.map((h) => ({ ...h, passage: playerCard({ kind: h.kind, text: h.passage }, ps).text, summary: playerCard({ kind: h.kind, summary: h.summary }, ps).summary })) });
   });
 
   // The highlighting contract: text in, matches out. Library titles are
@@ -99,7 +99,7 @@ function routes(d: Deps) {
       if (!t) throw new HttpError(404, 'Term not found');
       const m = w.enabled.find((x) => x.id === t.moduleId);
       const card = { source, id: t.ref, title: t.term, kind: t.kind, summary: t.summary, text: t.text, data: t.data ?? null, module: t.moduleName, attribution: m?.attribution ?? '' };
-      return res.json(isDM(res) ? card : playerCard(card, settings(res)));
+      return res.json(isGM(res) ? card : playerCard(card, settings(res)));
     }
     if (source === 'library') {
       // L.get serves players only the player copy, and 404s on anything else.
@@ -110,20 +110,20 @@ function routes(d: Deps) {
     throw new HttpError(404, 'Unknown card source');
   });
 
-  // ---- free content sources (DM): what can be pulled in one step ----
-  r.get('/sources', requireDM, needOpen5e, async (req, res) => {
+  // ---- free content sources (GM): what can be pulled in one step ----
+  r.get('/sources', requireGM, needOpen5e, async (req, res) => {
     const kinds = [...new Set(OPEN5E_ENDPOINTS.map((e) => e.kind))];
     let open5e: any;
     try { open5e = await open5eDocuments(d, { base: typeof req.query.open5e === 'string' ? req.query.open5e : undefined }); }
     catch (e: any) { open5e = { base: OPEN5E_BASE, documents: [], error: String(e?.message ?? e).slice(0, 200) }; }
     res.json({
       open5e: { ...open5e, kinds, lists: OPEN5E_ENDPOINTS.map((e) => ({ kind: e.kind, label: e.label })) },
-      dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }], kinds: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] },
+      dnd5eapi: { base: DND5EAPI_BASE, editions: [{ id: '2024', name: 'SRD 5.2 (5e 2024)' }, { id: '2014', name: 'SRD 5.1 (5e 2014)' }], kinds: ['spell', 'monster', 'item', 'condition', 'rule', 'class', 'other'] },
     });
   });
 
-  // ---- browse one module and leave single entries out of this world (DM) ----
-  r.get('/browse/:id', requireDM, (req, res) => {
+  // ---- browse one module and leave single entries out of this world (GM) ----
+  r.get('/browse/:id', requireGM, (req, res) => {
     const id = String(req.params.id);
     if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
     const m = moduleDoc(d.db, W(res), id)!;
@@ -144,7 +144,7 @@ function routes(d: Deps) {
     });
   });
 
-  r.get('/browse/:id/:termId', requireDM, (req, res) => {
+  r.get('/browse/:id/:termId', requireGM, (req, res) => {
     const id = String(req.params.id);
     if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
     const t = moduleDoc(d.db, W(res), id)!.doc.terms.find((x) => x.id === String(req.params.termId));
@@ -152,7 +152,7 @@ function routes(d: Deps) {
     res.json({ id: t.id, term: t.term, kind: t.kind, aliases: t.aliases, summary: t.summary, text: t.text, data: t.data ?? null, leftOut: leftOut(d.db, W(res), id).has(t.id) });
   });
 
-  r.put('/left-out', requireDM, (req, res) => {
+  r.put('/left-out', requireGM, (req, res) => {
     const id = str(req.body?.module, 'module', { max: 120 });
     const m = available(d.db, W(res)).some((x) => x.id === id) ? moduleDoc(d.db, W(res), id) : null;
     if (!m) throw new HttpError(404, 'Module not found');
@@ -169,7 +169,7 @@ function routes(d: Deps) {
   });
 
   // A module the world already has (the server library's or an import): its spells into the Codex, its items into the shop.
-  r.post('/feed', requireDM, (req, res) => {
+  r.post('/feed', requireGM, (req, res) => {
     const id = str(req.body?.id, 'id', { max: 120 });
     if (!available(d.db, W(res)).some((m) => m.id === id)) throw new HttpError(404, 'Module not found');
     const feed = readFeed({ spells: req.body?.spells !== false, items: req.body?.items !== false, replace: req.body?.replace === true })!;
@@ -178,7 +178,7 @@ function routes(d: Deps) {
     res.json({ fed });
   });
 
-  // ---- import (DM): always preview, then save ----
+  // ---- import (GM): always preview, then save ----
   const raw = express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '16mb' });
   const body = (req: any): { b: any; zip?: Buffer } => {
     if (Buffer.isBuffer(req.body)) {
@@ -190,7 +190,7 @@ function routes(d: Deps) {
     return { b: req.body ?? {} };
   };
 
-  r.post('/import/preview', requireDM, raw, async (req, res) => {
+  r.post('/import/preview', requireGM, raw, async (req, res) => {
     const { b, zip } = body(req);
     if (!zip && (b?.type === 'open5e' || b?.type === 'dnd5eapi') && !open5eOn(res)) throw new HttpError(403, OPEN5E_OFF);
     const m = await readModule(b, d, zip);
@@ -200,7 +200,7 @@ function routes(d: Deps) {
     res.json({ ...p, exists, reserved });
   });
 
-  r.post('/import', requireDM, raw, async (req, res) => {
+  r.post('/import', requireGM, raw, async (req, res) => {
     const { b, zip } = body(req);
     if (!zip && (b?.type === 'open5e' || b?.type === 'dnd5eapi') && !open5eOn(res)) throw new HttpError(403, OPEN5E_OFF);
     const m = await readModule(b, d, zip);

@@ -127,7 +127,7 @@ const ARCHS: Record<MonsterType, Arch> = {
   },
   aberration: {
     type: 'aberration',
-    bases: [['Gibbering Mouther', 'Eye Mote'], ['Tentacled Lurker', 'Spined Watcher'], ['Mind Flayer Thrall', 'Veil Strangler'], ['Deep Seer', 'Many-Eyed Warden'], ['Warp Sovereign', 'Brain Weaver'], ['Void Idol', 'Star-Eater']],
+    bases: [['Gibbering Mouther', 'Eye Mote'], ['Tentacled Lurker', 'Spined Watcher'], ['Mind-Bound Thrall', 'Veil Strangler'], ['Deep Seer', 'Many-Eyed Warden'], ['Warp Sovereign', 'Brain Weaver'], ['Void Idol', 'Star-Eater']],
     adjs: ['Gaunt', 'Dripping', 'Warped', 'Whispering', 'Hollow', 'Pale', 'Slick', 'Lidless'],
     sizes: ['Small', 'Medium', 'Large', 'Large', 'Huge', 'Huge'],
     primary: 'int',
@@ -405,26 +405,26 @@ export function genHumanoid(role: string, cr: number, name: string, r: Rng): Sta
   const kind = /wizard|mage|sorcer|warlock/.test(role) ? 'mage' : /cleric|priest|healer/.test(role) ? 'priest' : /rogue|thief|spy|assassin/.test(role) ? 'rogue' : /guard|soldier|captain|knight|villain|warrior/.test(role) ? 'fighter' : 'commoner';
   const ab = { str: score(kind === 'fighter' ? pm : Math.max(0, pm - 2)), dex: score(kind === 'rogue' ? pm : Math.max(0, pm - 1)), con: score(Math.max(0, Math.round(pm * 0.6))), int: score(kind === 'mage' ? pm : 0), wis: score(kind === 'priest' ? pm : Math.round(pm * 0.3)), cha: score(Math.round(pm * 0.3)) };
   const hp = Math.max(4, Math.round(T.hp * (0.95 + r() * 0.1)));
-  const dm = (avg: number, m: number, s: number) => dmg(avg, m, s).text;
+  const gm = (avg: number, m: number, s: number) => dmg(avg, m, s).text;
   const hit = (ranged = false) => `${ranged ? 'Ranged' : 'Melee'} Attack Roll: ${signed(T.atk)}, ${ranged ? 'range 60 ft.' : 'reach 5 ft.'}`;
   const actions: Feature[] = [];
   const traits: Feature[] = [];
   if (kind === 'mage') {
-    actions.push({ name: 'Arcane Bolt', text: `${hit(true)} Hit: ${dm(Math.max(2, T.dmg), mod(ab.int), 8)} Force damage.` }, { name: 'Quarterstaff', text: `${hit()} Hit: ${dm(Math.max(1, Math.round(T.dmg / 3)), mod(ab.str), 6)} Bludgeoning damage.` });
-    if (cr >= 1) actions.push({ name: 'Fire Burst (Recharge 6)', text: `Dexterity Saving Throw: DC ${T.dc}, each creature in a 20-foot-radius Sphere within 60 feet. Failure: ${dm(Math.round(T.dmg * 1.5), 0, 6)} Fire damage. Success: Half damage.` });
+    actions.push({ name: 'Arcane Bolt', text: `${hit(true)} Hit: ${gm(Math.max(2, T.dmg), mod(ab.int), 8)} Force damage.` }, { name: 'Quarterstaff', text: `${hit()} Hit: ${gm(Math.max(1, Math.round(T.dmg / 3)), mod(ab.str), 6)} Bludgeoning damage.` });
+    if (cr >= 1) actions.push({ name: 'Fire Burst (Recharge 6)', text: `Dexterity Saving Throw: DC ${T.dc}, each creature in a 20-foot-radius Sphere within 60 feet. Failure: ${gm(Math.round(T.dmg * 1.5), 0, 6)} Fire damage. Success: Half damage.` });
     traits.push({ name: 'Spellcasting', text: `The mage's spellcasting ability is Intelligence (spell save DC ${T.dc}). It can cast Mage Hand and Light at will, and Shield and Misty Step once each per day.` });
   } else if (kind === 'priest') {
-    actions.push({ name: 'Mace', text: `${hit()} Hit: ${dm(Math.max(2, Math.round(T.dmg * 0.8)), mod(ab.str), 6)} Bludgeoning damage plus ${dm(Math.max(1, Math.round(T.dmg * 0.3)), 0, 6)} Radiant damage.` });
-    if (cr >= 0.5) actions.push({ name: 'Healing Word (3/Day)', text: `One creature within 60 feet regains ${dm(Math.max(3, Math.round(T.dmg * 0.6)), mod(ab.wis), 4)} Hit Points.` });
+    actions.push({ name: 'Mace', text: `${hit()} Hit: ${gm(Math.max(2, Math.round(T.dmg * 0.8)), mod(ab.str), 6)} Bludgeoning damage plus ${gm(Math.max(1, Math.round(T.dmg * 0.3)), 0, 6)} Radiant damage.` });
+    if (cr >= 0.5) actions.push({ name: 'Healing Word (3/Day)', text: `One creature within 60 feet regains ${gm(Math.max(3, Math.round(T.dmg * 0.6)), mod(ab.wis), 4)} Hit Points.` });
     traits.push({ name: 'Divine Favor', text: 'The priest has Advantage on saving throws against being Charmed or Frightened.' });
   } else if (kind === 'rogue') {
-    actions.push({ name: 'Shortsword', text: `${hit()} Hit: ${dm(Math.max(2, Math.round(T.dmg * 0.7)), mod(ab.dex), 6)} Piercing damage.` }, { name: 'Light Crossbow', text: `${hit(true).replace('60 ft.', '80/320 ft.')} Hit: ${dm(Math.max(2, Math.round(T.dmg * 0.6)), mod(ab.dex), 8)} Piercing damage.` });
-    traits.push({ name: 'Sneak Attack (1/Turn)', text: `The rogue deals an extra ${dm(Math.max(2, prof * 3), 0, 6)} damage when it hits with an attack roll that has Advantage, or when an ally is within 5 feet of the target.` }, { name: 'Cunning Action', text: 'The rogue can Dash, Disengage or Hide as a Bonus Action.' });
+    actions.push({ name: 'Shortsword', text: `${hit()} Hit: ${gm(Math.max(2, Math.round(T.dmg * 0.7)), mod(ab.dex), 6)} Piercing damage.` }, { name: 'Light Crossbow', text: `${hit(true).replace('60 ft.', '80/320 ft.')} Hit: ${gm(Math.max(2, Math.round(T.dmg * 0.6)), mod(ab.dex), 8)} Piercing damage.` });
+    traits.push({ name: 'Sneak Attack (1/Turn)', text: `The rogue deals an extra ${gm(Math.max(2, prof * 3), 0, 6)} damage when it hits with an attack roll that has Advantage, or when an ally is within 5 feet of the target.` }, { name: 'Cunning Action', text: 'The rogue can Dash, Disengage or Hide as a Bonus Action.' });
   } else if (kind === 'fighter') {
-    actions.push({ name: 'Multiattack', text: cr >= 2 ? 'The creature makes two Longsword attacks.' : 'The creature makes one Spear attack.' }, { name: cr >= 2 ? 'Longsword' : 'Spear', text: `${hit()} Hit: ${dm(Math.max(2, Math.round(T.dmg / (cr >= 2 ? 2 : 1))), mod(ab.str), 8)} Slashing damage.` });
+    actions.push({ name: 'Multiattack', text: cr >= 2 ? 'The creature makes two Longsword attacks.' : 'The creature makes one Spear attack.' }, { name: cr >= 2 ? 'Longsword' : 'Spear', text: `${hit()} Hit: ${gm(Math.max(2, Math.round(T.dmg / (cr >= 2 ? 2 : 1))), mod(ab.str), 8)} Slashing damage.` });
     traits.push({ name: 'Disciplined', text: 'The creature has Advantage on saving throws against being Frightened.' });
   } else {
-    actions.push({ name: 'Club', text: `${hit()} Hit: ${dm(Math.max(1, T.dmg), mod(ab.str), 4)} Bludgeoning damage.` });
+    actions.push({ name: 'Club', text: `${hit()} Hit: ${gm(Math.max(1, T.dmg), mod(ab.str), 4)} Bludgeoning damage.` });
   }
   return normalizeStatblock({
     name, size: 'Medium', type: 'humanoid', alignment: 'any alignment', cr: crLabel(T.cr) === String(T.cr) ? T.cr : crLabel(T.cr), xp: T.xp,

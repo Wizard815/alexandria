@@ -4,7 +4,7 @@
   "name": "Honor",
   "version": "1.0.0",
   "author": "Alexandria",
-  "summary": "An Honor score tracks how a character keeps their word and their code; the DM raises or lowers it.",
+  "summary": "An Honor score tracks how a character keeps their word and their code; the GM raises or lowers it.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": [],
@@ -19,7 +19,7 @@
       "honor"
     ]
   },
-  "dmBand": {
+  "gmBand": {
     "chips": [
       "honor"
     ],
@@ -41,7 +41,7 @@
     {
       "id": "raise",
       "label": "Raise",
-      "by": "dm",
+      "by": "gm",
       "resource": "honor",
       "add": 1,
       "askReason": true,
@@ -52,7 +52,7 @@
     {
       "id": "lower",
       "label": "Lower",
-      "by": "dm",
+      "by": "gm",
       "resource": "honor",
       "add": -1,
       "askReason": true,
@@ -75,7 +75,7 @@
       "reputation",
       "betray"
     ],
-    "dm": "Honor is on: raise a character's Honor for keeping oaths, mercy and fair dealing, lower it for betrayal and cruelty, and use it for checks where reputation and trust matter (modifier as for an ability score).",
+    "gm": "Honor is on: raise a character's Honor for keeping oaths, mercy and fair dealing, lower it for betrayal and cruelty, and use it for checks where reputation and trust matter (modifier as for an ability score).",
     "player": "Your Honor score (0 to 20) shows how you keep your word. NPCs who value honour trust a high score, so think about promises."
   }
 }

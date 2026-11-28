@@ -27,7 +27,7 @@
       "resting",
       "gritty"
     ],
-    "dm": "Gritty realism is on: a short rest is 8 hours and a long rest is 7 days somewhere safe. When advancing the clock for a rest, use 8 hours or 7 days, not the usual 1 or 8 hours.",
+    "gm": "Gritty realism is on: a short rest is 8 hours and a long rest is 7 days somewhere safe. When advancing the clock for a rest, use 8 hours or 7 days, not the usual 1 or 8 hours.",
     "player": "Gritty realism is on at this table: a short rest is 8 hours and a long rest is 7 days somewhere safe, so plan spells and hit dice around fewer rests."
   }
 }

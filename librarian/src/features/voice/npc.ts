@@ -1,4 +1,4 @@
-// NPC voices: when the DM turns it on, what an NPC says in an encounter is read aloud on that player's device only
+// NPC voices: when the GM turns it on, what an NPC says in an encounter is read aloud on that player's device only
 // (the other players do not hear a private talk), in the NPC's own voice preset or the default NPC voice. A quick
 // event's prompt can be read aloud too, to the players it went to. Nothing new is revealed: a voiced line is the
 // same text that player already sees on screen.
@@ -39,9 +39,9 @@ export function presetForNpc(d: Deps, worldId: string, npcName: string, s: World
 }
 
 interface Line { who: string; text: string; at: string }
-/** An encounter's NPC lines (the script's and the DM's live ones) after the last one spoken. */
+/** An encounter's NPC lines (the script's and the GM's live ones) after the last one spoken. */
 function newLines(log: Line[], last: { last_at: string; last_text: string } | undefined): Line[] {
-  const said = log.filter((l) => (l.who === 'npc' || l.who === 'dm') && l.text?.trim());
+  const said = log.filter((l) => (l.who === 'npc' || l.who === 'gm') && l.text?.trim());
   if (!last) return said;
   let i = said.length - 1;
   while (i >= 0 && !(said[i].at === last.last_at && said[i].text === last.last_text)) i--;

@@ -2,12 +2,12 @@
 
 An NPC walks up to one player and a short talk plays out in that player's
 app: the NPC's words, the answers they can pick, a small gift, a shop to
-browse, or a quick game of chance. It is for the player the DM is not busy
-with right now: they still get something to do, and the DM sees every
-word live. DM menu: **Encounters** (Players group). Code:
+browse, or a quick game of chance. It is for the player the GM is not busy
+with right now: they still get something to do, and the GM sees every
+word live. GM menu: **Encounters** (Players group). Code:
 `librarian/src/features/encounters/`, `web/src/features/encounters/`.
 
-## Sending one (DM)
+## Sending one (GM)
 
 **Encounters → Send & watch.** Pick one player, several, or everyone, then:
 
@@ -28,7 +28,7 @@ word live. DM menu: **Encounters** (Players group). Code:
 One NPC at a time: sending to a player who is still talking to someone
 closes that older talk ("… wanders off").
 
-While a talk is open the DM's card shows the log, what the player can pick
+While a talk is open the GM's card shows the log, what the player can pick
 (and a game's DC), and two controls:
 - **Speak as the NPC**: say something new with new answers. The player's
   next answer ends the talk unless you speak again.
@@ -85,7 +85,7 @@ Answers in any encounter or event can now also:
   2 sp for that" when they cannot afford it.
 - **They lose** coin (a thief, a spill): up to what they have, never below
   nothing.
-- **DM note**: a line only you see in the log (and in Minerva's session
+- **GM note**: a line only you see in the log (and in Minerva's session
   notes), for the consequence: "Kept a stranger's stolen purse", "Took 1d4
   piercing". The player never gets it.
 - **Item note**: an item can carry a line on its card ("Worth about 10 gp
@@ -97,7 +97,7 @@ the number; the app never rolls for them in an event. A check has a DC or
 a **DC range** (DC from 10 to 14): the DC is picked from the range when
 they send the roll, so it is never quite predictable. The player only sees
 their total and whether it was enough; you see "DC 12 (picked from
-10–14): passed" as a DM note.
+10–14): passed" as a GM note.
 
 **Timers.** Any step can be **timed** (5 seconds to 10 minutes): the
 player sees a countdown bar and must answer before it runs out. You choose
@@ -131,9 +131,9 @@ a check's DC and the encounter's coin cap stay on the server.
 - **Recaps**: a session log draft lists who met whom under "People met"
   (never what was said; the talk was between the NPC and one player).
 - **Minerva**: with Minerva on, a finished talk is logged to the session in
-  progress (DM-only notes): who met whom, what the player answered, and
+  progress (GM-only notes): who met whom, what the player answered, and
   what they won or lost.
-- **The assistant**: the DM's assistant can list, send, speak in and end
+- **The assistant**: the GM's assistant can list, send, speak in and end
   encounters (tools below).
 
 ## Saved encounters
@@ -184,7 +184,7 @@ and not while already in a talk.
 winnings per encounter; losses count against it. So "Again!" loops cannot
 farm gold. Payouts are logged in the player's ledger ("From Pip",
 "Won at coin toss with Pip", "Lost at coin toss to Pip") and need no
-approval: the DM wrote the encounter and watches it live.
+approval: the GM wrote the encounter and watches it live.
 
 Settings: `encounterWander` (default off), `encounterWanderMinutes`
 (default 30, 0 to 1440), `encounterRewardCapCp` (default 1000 copper, 0 to
@@ -206,34 +206,34 @@ Guests get 403 everywhere.
 | | |
 |---|---|
 | `GET /config` | wandering, its wait, the cap, coin style, the places; players also get `nextWanderAt` |
-| `GET /` | DM: the last 60 (`?status=open` for open ones); player: their own last 20 |
+| `GET /` | GM: the last 60 (`?status=open` for open ones); player: their own last 20 |
 | `GET /:id` | one encounter (a player only their own) |
-| `POST /` | DM: `{accountIds: [...] \| 'party', templateId \| place \| script \| line + answers, kind?, npcName?, npcBlurb?, shopId?, addToPeople?}`; `place` alone sends a random story event for it; `from: fav \| mine \| builtin \| any` picks which ones; with `script`, `name` labels it |
+| `POST /` | GM: `{accountIds: [...] \| 'party', templateId \| place \| script \| line + answers, kind?, npcName?, npcBlurb?, shopId?, addToPeople?}`; `place` alone sends a random story event for it; `from: fav \| mine \| builtin \| any` picks which ones; with `script`, `name` labels it |
 | `POST /wander` | player: start a random encounter |
 | `POST /:id/choose` | player: `{option}`, `{play: true, pick?, total?, roll?, modifier?}` for the step's game (a story event's check needs `total`), or `{timeout: true}` when a timed step's countdown hits zero (409 while there is still time) |
 | `POST /:id/leave` | player: walk away |
-| `POST /:id/say` | DM: `{text, answers?}` |
-| `POST /:id/end` | DM |
-| `GET/POST /templates/all`, `PUT/DELETE /templates/all/:tid` | DM: saved encounters and story events (`{kind: npc \| event, places}`); `GET ?kind=&place=` filters, and also returns the starters and the places |
-| `PUT /templates/fav/:tid` | DM: `{fav: true \| false}` stars a saved or built-in one; the lists return `fav` |
-| `POST /templates/draft` | DM: `{prompt, kind?, places?, guide?}`: a draft from the chat model, not saved; `guide` is a quick event template id |
+| `POST /:id/say` | GM: `{text, answers?}` |
+| `POST /:id/end` | GM |
+| `GET/POST /templates/all`, `PUT/DELETE /templates/all/:tid` | GM: saved encounters and story events (`{kind: npc \| event, places}`); `GET ?kind=&place=` filters, and also returns the starters and the places |
+| `PUT /templates/fav/:tid` | GM: `{fav: true \| false}` stars a saved or built-in one; the lists return `fav` |
+| `POST /templates/draft` | GM: `{prompt, kind?, places?, guide?}`: a draft from the chat model, not saved; `guide` is a quick event template id |
 
-Live event `encounter` `{id}` goes to the DM and that player; clients
+Live event `encounter` `{id}` goes to the GM and that player; clients
 refetch. An open encounter on a timed step carries `timer: {secs, endsAt}`
 (`endsAt` is null until the player has seen it). In a script, a check takes
 `dc` and optional `dcMax`, and a step takes optional `timer: {secs,
 fallback}` (`fallback` is an answer's index, or -1 to fail the step's
 check).
 
-MCP tools: `list_encounters`, `list_encounter_templates` (DM, with `kind`
+MCP tools: `list_encounters`, `list_encounter_templates` (GM, with `kind`
 and `place`), `send_encounter` (with `place` and `from` for a random story event),
-`save_encounter_template`, `encounter_say`, `end_encounter` (DM write key).
+`save_encounter_template`, `encounter_say`, `end_encounter` (GM write key).
 
 ## NPC voices
 
 Off by default. With `npcVoices` on (a world setting; the assistant's
 `set_npc_voices` tool sets it), what an NPC says in an encounter (the
-script's lines and the DM's live `say` lines) is read aloud by the voice
+script's lines and the GM's live `say` lines) is read aloud by the voice
 model on **that player's device only**: the other players do not hear a
 private talk, the table does not play it, and another player cannot fetch
 the audio file. The player hears it when one of their devices has the sound
@@ -249,6 +249,6 @@ effects switch on.
 - Nothing new is revealed: a voiced line is the text that player already
   sees on screen.
 
-`GET /voice/npcs` (DM) returns the settings and the NPCs with their own
-voice. MCP tools: `list_npc_voices` (DM), `set_npc_voice`,
-`set_npc_voices` (DM write key).
+`GET /voice/npcs` (GM) returns the settings and the NPCs with their own
+voice. MCP tools: `list_npc_voices` (GM), `set_npc_voice`,
+`set_npc_voices` (GM write key).

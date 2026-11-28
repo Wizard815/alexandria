@@ -5,13 +5,13 @@
 //            GET  /v1/blocks/{id}/children          the page's blocks (100 a call), read again below any block with children
 //   Database GET  /v1/databases/{id}               its title and description (its rows are pages, listed by search)
 //
-// Notion only shows an integration the pages someone shared with it (Share → Connections), so the DM chooses what Alexandria reads.
-// Who may read a page (fails closed: anything unsure is the DM's):
+// Notion only shows an integration the pages someone shared with it (Share → Connections), so the GM chooses what Alexandria reads.
+// Who may read a page (fails closed: anything unsure is the GM's):
 //   - a "Visibility" property (select, status or multi-select) on a database row: party, players, public or shared is the players';
-//     broker and classified are those levels; anything else (dm, gm, secret...) the DM's;
+//     broker and classified are those levels; anything else (dm, gm, secret...) the GM's;
 //   - else a page published to the web (Share → Publish) is the players';
 //   - else the source's "Pages without a visibility are shared" setting (off by default).
-// Toggles, toggle headings and callouts whose title starts with Secret, DM or GM become secret blocks: players never see them.
+// Toggles, toggle headings and callouts whose title starts with Secret, GM or GM become secret blocks: players never see them.
 import type { Connector, ConnectorContext, SyncItem } from '../connector.ts';
 import { ConfigError } from '../connector.ts';
 import { type Block, type Entry, type Inline, type PropertyRow, indexBlocks } from '../model.ts';
@@ -106,7 +106,7 @@ export function notionInline(rich: any[] | undefined): Inline[] {
 }
 const plain = (rich: any[] | undefined) => (Array.isArray(rich) ? rich.map((t) => String(t?.plain_text ?? t?.text?.content ?? '')).join('') : '');
 
-/** A title that marks a hidden part: Secret, DM, GM (with "notes", "only" and the like after it). */
+/** A title that marks a hidden part: Secret, GM, GM (with "notes", "only" and the like after it). */
 export const SECRET_TITLE = /^\s*(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*)?(secret|secrets|dm|gm|dungeon master|game master)\b/iu;
 
 /** A Notion block (with `children` already read in) as Alexandria blocks. */
@@ -192,7 +192,7 @@ const PARTY = /^(party|players?|public|shared|everyone|all)$/i;
 export function notionAccess(x: any, cfg: Record<string, any>): { shared: boolean; level?: Level } {
   for (const [name, p] of Object.entries<any>(x?.properties ?? {})) {
     if (!VIS_PROP.test(name.trim())) continue;
-    const vals: string[] = p?.type === 'select' ? [p.select?.name] : p?.type === 'status' ? [p.status?.name] : p?.type === 'multi_select' ? (p.multi_select ?? []).map((o: any) => o?.name) : p?.type === 'checkbox' ? [p.checkbox ? 'party' : 'dm'] : [];
+    const vals: string[] = p?.type === 'select' ? [p.select?.name] : p?.type === 'status' ? [p.status?.name] : p?.type === 'multi_select' ? (p.multi_select ?? []).map((o: any) => o?.name) : p?.type === 'checkbox' ? [p.checkbox ? 'party' : 'gm'] : [];
     const names = vals.filter((v) => typeof v === 'string' && v.trim()).map((v) => v.trim());
     if (!names.length) continue; // an empty property says nothing
     if (names.every((n) => PARTY.test(n))) return { shared: true };
@@ -262,7 +262,7 @@ export function notionEntry(x: any, blocks: any[], cfg: Record<string, any>, kin
     externalId: ext(id), parentExternalId: parentOf(x, kinds), title: notionTitle(x), tags, type: x.object === 'database' ? 'collection' : 'page',
     icon: iconOf(x), banner: coverOf(x), properties: rows.length ? [{ title: 'Properties', rows }] : [],
     blocks: [...head, ...notionBlocks(blocks)],
-    visibility: acc.shared && shareVisible ? 'party' : 'dm', sourceShared: acc.shared, ...(acc.level ? { level: acc.level } : {}),
+    visibility: acc.shared && shareVisible ? 'party' : 'gm', sourceShared: acc.shared, ...(acc.level ? { level: acc.level } : {}),
     url: httpUrl(x.url), updatedAt: x.last_edited_time ?? null, sourceUpdatedAt: x.last_edited_time ?? null, depth: 'full',
   };
 }
@@ -317,7 +317,7 @@ async function* notionIndex(cfg: Record<string, any>, ctx: ConnectorContext, sta
     yield {
       externalId: ext(notionId(x.id)!), parentExternalId: parentOf(x, kinds), title, tags, type, icon: iconOf(x),
       blocks: indexBlocks({ title, type, tags }), url: httpUrl(x.url),
-      visibility: 'dm', restricted: !notionAccess(x, cfg).shared, updatedAt: x.last_edited_time ?? null, sourceUpdatedAt: x.last_edited_time ?? null, depth: 'index',
+      visibility: 'gm', restricted: !notionAccess(x, cfg).shared, updatedAt: x.last_edited_time ?? null, sourceUpdatedAt: x.last_edited_time ?? null, depth: 'index',
     } satisfies Entry;
   }
 }

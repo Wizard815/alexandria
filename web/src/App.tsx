@@ -1,8 +1,8 @@
-import { Navigate, Route, Routes, Link } from 'react-router-dom';
+import { Navigate, Route, Routes, Link, useLocation } from 'react-router-dom';
 import { useAuth } from './lib/auth.tsx';
 import { WorldProvider } from './lib/world.tsx';
 import { AdminLayout } from './layouts/AdminLayout.tsx';
-import { DMLayout } from './layouts/DMLayout.tsx';
+import { GMLayout } from './layouts/GMLayout.tsx';
 import { PlayerLayout } from './layouts/PlayerLayout.tsx';
 import { Setup, Login, Join, Reset } from './pages/auth/Auth.tsx';
 import AdminOverview from './pages/admin/Overview.tsx';
@@ -11,24 +11,24 @@ import AdminWorlds from './pages/admin/Worlds.tsx';
 import AdminAudit from './pages/admin/Audit.tsx';
 import { AccessHub, SearchHub, SourcesHub } from './pages/admin/Hubs.tsx';
 import { ADMIN_REDIRECTS } from './lib/adminnames.ts';
-import DMTable from './pages/dm/Table.tsx';
-import DMInbox from './pages/dm/Inbox.tsx';
-import DMCombat from './pages/dm/Combat.tsx';
-import DMQuickEvents from './pages/dm/QuickEvents.tsx';
-import DMParty from './pages/dm/Party.tsx';
-import DMPeople from './pages/dm/People.tsx';
-import DMRelations from './pages/dm/Relations.tsx';
-import DMSharing from './pages/dm/Sharing.tsx';
-import DMSettings from './pages/dm/Settings.tsx';
+import GMTable from './pages/gm/Table.tsx';
+import GMInbox from './pages/gm/Inbox.tsx';
+import GMCombat from './pages/gm/Combat.tsx';
+import GMQuickEvents from './pages/gm/QuickEvents.tsx';
+import GMParty from './pages/gm/Party.tsx';
+import GMPeople from './pages/gm/People.tsx';
+import GMRelations from './pages/gm/Relations.tsx';
+import GMSharing from './pages/gm/Sharing.tsx';
+import GMSettings from './pages/gm/Settings.tsx';
 import PlayerHome from './pages/player/Home.tsx';
 import PlayerLive from './pages/player/Live.tsx';
 import LibraryPage from './pages/library/LibraryPage.tsx';
 import PlayerBroker from './pages/broker/PlayerBroker.tsx';
-import DMBroker from './pages/broker/DMBroker.tsx';
+import GMBroker from './pages/broker/GMBroker.tsx';
 import PlayerPeople from './pages/player/People.tsx';
 import PlayerMe from './pages/player/Me.tsx';
 import PlayerInventory from './pages/player/Inventory.tsx';
-import PlayerAskDM from './pages/player/AskDM.tsx';
+import PlayerAskGM from './pages/player/AskGM.tsx';
 import Messages from './pages/shared/Messages.tsx';
 import Calendar from './pages/shared/Calendar.tsx';
 import Whiteboard from './pages/shared/Whiteboard.tsx';
@@ -69,26 +69,27 @@ export function App() {
         <Route path="panel/:name" element={<PanelRoute />} />
         <Route path="screen/side" element={<SideScreen />} />
         <Route path="screen/table" element={<TableScreen />} />
-        <Route path="dm" element={<DMLayout />}>
-          <Route index element={<DMTable />} />
+        <Route path="gm/*" element={<OldGmPath />} />
+        <Route path="gm" element={<GMLayout />}>
+          <Route index element={<GMTable />} />
           <Route path="library" element={<LibraryPage />} />
-          <Route path="broker" element={<DMBroker />} />
-          <Route path="inbox" element={<DMInbox />} />
+          <Route path="broker" element={<GMBroker />} />
+          <Route path="inbox" element={<GMInbox />} />
           <Route path="approvals" element={<Navigate to="../inbox?tab=approvals" replace />} />
           <Route path="requests" element={<Navigate to="../inbox?tab=requests" replace />} />
-          <Route path="combat" element={<DMCombat />} />
-          <Route path="quick" element={<DMQuickEvents />} />
-          <Route path="party" element={<DMParty />} />
-          <Route path="people" element={<DMPeople />} />
-          <Route path="relations" element={<DMRelations />} />
+          <Route path="combat" element={<GMCombat />} />
+          <Route path="quick" element={<GMQuickEvents />} />
+          <Route path="party" element={<GMParty />} />
+          <Route path="people" element={<GMPeople />} />
+          <Route path="relations" element={<GMRelations />} />
           <Route path="map" element={<MapBoard />} />
           <Route path="messages" element={<Messages />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="whiteboard" element={<Whiteboard />} />
-          <Route path="sharing" element={<DMSharing />} />
-          <Route path="settings" element={<DMSettings />} />
+          <Route path="sharing" element={<GMSharing />} />
+          <Route path="settings" element={<GMSettings />} />
           <Route path="connect" element={<ConnectAI />} />
-          {F.dmRoutes.map((r) => <Route key={r.path} path={r.path} element={r.element} />)}
+          {F.gmRoutes.map((r) => <Route key={r.path} path={r.path} element={r.element} />)}
         </Route>
         <Route element={<PlayerLayout />}>
           <Route index element={<PlayerHome />} />
@@ -102,7 +103,7 @@ export function App() {
           <Route path="map" element={<MapBoard />} />
           <Route path="messages" element={<Messages />} />
           <Route path="calendar" element={<Calendar />} />
-          <Route path="ask" element={<PlayerAskDM />} />
+          <Route path="ask" element={<PlayerAskGM />} />
           <Route path="whiteboard" element={<Whiteboard />} />
           <Route path="connect" element={<ConnectAI />} />
           {F.playerRoutes.map((r) => <Route key={r.path} path={r.path} element={r.element} />)}
@@ -114,6 +115,12 @@ export function App() {
 }
 
 import { Outlet } from 'react-router-dom';
+/** Old GM addresses (/w/:world/dm/...) keep working: same page under /gm, query and hash kept (OAuth return links too). */
+function OldGmPath() {
+  const loc = useLocation();
+  return <Navigate to={`${loc.pathname.replace(/\/dm(?=\/|$)/, '/gm')}${loc.search}${loc.hash}`} replace />;
+}
+
 function WorldOutlet() {
   return <Outlet />;
 }
@@ -125,7 +132,7 @@ function Worlds() {
   if (!me) return <Navigate to="/login" replace />;
   if (me.worlds.length === 1 && !me.account.is_admin) {
     const w = me.worlds[0];
-    return <Navigate to={w.role === 'dm' ? `/w/${w.slug}/dm` : `/w/${w.slug}`} replace />;
+    return <Navigate to={w.role === 'gm' ? `/w/${w.slug}/gm` : `/w/${w.slug}`} replace />;
   }
   return (
     <div className="t-fantasy">
@@ -135,12 +142,12 @@ function Worlds() {
         <div className="card flush">
           <div className="list">
             {me.worlds.map((w) => (
-              <Link key={w.id} className="list-item" to={w.role === 'dm' ? `/w/${w.slug}/dm` : `/w/${w.slug}`}>
+              <Link key={w.id} className="list-item" to={w.role === 'gm' ? `/w/${w.slug}/gm` : `/w/${w.slug}`}>
                 <span className="grow"><strong>{w.name}</strong>{w.character_name && <span className="muted"> · {w.character_name}</span>}</span>
-                <span className={`chip ${w.role === 'dm' ? 'red' : 'teal'}`}>{w.role === 'dm' ? 'Dungeon Master' : w.role === 'player' ? 'Player' : 'Guest'}</span>
+                <span className={`chip ${w.role === 'gm' ? 'red' : 'teal'}`}>{w.role === 'gm' ? 'Game Master' : w.role === 'player' ? 'Player' : 'Guest'}</span>
               </Link>
             ))}
-            {!me.worlds.length && <div className="empty">You are not in a world yet. Ask your DM for an invite code{me.account.is_admin ? ', or make a world in Library admin' : ''}.</div>}
+            {!me.worlds.length && <div className="empty">You are not in a world yet. Ask your GM for an invite code{me.account.is_admin ? ', or make a world in Library admin' : ''}.</div>}
           </div>
         </div>
         <div className="row">

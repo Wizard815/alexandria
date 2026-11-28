@@ -151,7 +151,7 @@ export function genRegion(o: MapOpts = {}): MapResult {
     const rad = t.tier === 3 ? 7 : t.tier === 2 ? 5.5 : 4.2;
     c.ops.push({ t: 'circle', x: X(t.x + 0.5), y: Y(t.y + 0.5), r: rad, fill: t.tier === 3 ? '#8a2a20' : '#fffaf0', stroke: '#2a2218', sw: 1.8 });
     c.ops.push({ t: 'text', x: X(t.x + 0.5), y: Y(t.y + 0.5) - rad - 4, s: t.name, size: 10, fill: '#1f1b18', anchor: 'middle', bold: true });
-    key.push({ n: String(i + 1), name: t.name, text: `${t.tier === 3 ? 'The largest city of the region' : t.tier === 2 ? 'A walled town' : 'A village'}: ${pick(r, REGION_TOWN_NOTE)}.`, dm: chance(r, 0.5) ? pick(r, ['The reeve is quietly afraid of someone.', 'A shrine here is older than the town and not entirely harmless.', 'Trade has dried up, and nobody says why.', 'A rival town funds raiders against this one.', 'A visitor from the capital has overstayed.']) : undefined });
+    key.push({ n: String(i + 1), name: t.name, text: `${t.tier === 3 ? 'The largest city of the region' : t.tier === 2 ? 'A walled town' : 'A village'}: ${pick(r, REGION_TOWN_NOTE)}.`, gm: chance(r, 0.5) ? pick(r, ['The reeve is quietly afraid of someone.', 'A shrine here is older than the town and not entirely harmless.', 'Trade has dried up, and nobody says why.', 'A rival town funds raiders against this one.', 'A visitor from the capital has overstayed.']) : undefined });
   });
   // features (letters)
   const fcand = cand.filter((q) => towns.every((t) => Math.hypot(t.x - q.x, t.y - q.y) > 6));
@@ -164,7 +164,7 @@ export function genRegion(o: MapOpts = {}): MapResult {
     const ch = String.fromCharCode(65 + fpts.length - 1);
     c.ops.push({ t: 'poly', pts: [X(q.x + 0.5), Y(q.y + 0.5) - 8, X(q.x + 0.5) + 7, Y(q.y + 0.5), X(q.x + 0.5), Y(q.y + 0.5) + 8, X(q.x + 0.5) - 7, Y(q.y + 0.5)], fill: '#f3e7b3', stroke: '#2a2218', sw: 1.4 });
     c.ops.push({ t: 'text', x: X(q.x + 0.5), y: Y(q.y + 0.5) + 3.5, s: ch, size: 9, fill: '#1f1b18', anchor: 'middle', bold: true });
-    key.push({ n: ch, name: cap(fnames[i % fnames.length]), text: `${cap(fnames[i % fnames.length])}, a day or two from the nearest road.`, dm: pick(r, ['Something stirs here at night.', 'Locals avoid it and will not say why.', 'It is exactly what it looks like, which is the problem.', 'A faction wants it, and has quietly begun to dig.']) });
+    key.push({ n: ch, name: cap(fnames[i % fnames.length]), text: `${cap(fnames[i % fnames.length])}, a day or two from the nearest road.`, gm: pick(r, ['Something stirs here at night.', 'Locals avoid it and will not say why.', 'It is exactly what it looks like, which is the problem.', 'A faction wants it, and has quietly begun to dig.']) });
   }
   const title = `${placeName('town', 'common', r, avoid).replace(/ on the .*/, '')} ${pick(r, ['Marches', 'Reaches', 'Vales', 'Isles', 'Realm', 'Coast'])}`;
   c.ops.push({ t: 'text', x: PX, y: 26, s: title, size: 20, fill: '#2a2218', bold: true });

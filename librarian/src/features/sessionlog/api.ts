@@ -26,8 +26,8 @@ export interface Gathered {
   to: string;
   worldStartMinutes: number;
   playerLines: { at: number; speaker: string; text: string }[];
-  /** DM-only and aside lines: only ever used for the DM notes. */
-  dmLines: { speaker: string; text: string; aside: boolean }[];
+  /** GM-only and aside lines: only ever used for the GM notes. */
+  gmLines: { speaker: string; text: string; aside: boolean }[];
   combat: string[];
   coin: string[];
   loot: string[];
@@ -67,14 +67,14 @@ export function gather(db: DB, worldId: string, range: { from: string; to: strin
   const mics = new Map(all<any>(db, 'SELECT id, aside FROM audio_mics WHERE world_id = ?', worldId).map((m) => [m.id as string, m.aside === 1]));
   const holds = all<any>(db, "SELECT h.session_id, h.start_ms, h.end_ms FROM audio_holds h JOIN audio_sessions s ON s.id = h.session_id WHERE s.world_id = ? AND h.kind = 'aside'", worldId);
   const playerLines: Gathered['playerLines'] = [];
-  const dmLines: Gathered['dmLines'] = [];
+  const gmLines: Gathered['gmLines'] = [];
   const notes: string[] = [];
   for (const sid of range.sessionIds) {
     const n = one<any>(db, "SELECT text FROM audio_summaries WHERE session_id = ? AND audience = 'party'", sid);
     if (n?.text) notes.push(String(n.text));
     for (const l of sessionLines(db, worldId, sid)) playerLines.push({ at: l.start, speaker: l.speaker, text: l.text });
-    const rows = all<any>(db, "SELECT session_id, start_ms, end_ms, speaker_label, text, sources FROM audio_lines WHERE world_id = ? AND session_id = ? AND audience = 'dm' ORDER BY start_ms", worldId, sid);
-    for (const l of rows) dmLines.push({ speaker: l.speaker_label || 'DM', text: l.text, aside: lineIsAside(l, mics, holds) });
+    const rows = all<any>(db, "SELECT session_id, start_ms, end_ms, speaker_label, text, sources FROM audio_lines WHERE world_id = ? AND session_id = ? AND audience = 'gm' ORDER BY start_ms", worldId, sid);
+    for (const l of rows) gmLines.push({ speaker: l.speaker_label || 'GM', text: l.text, aside: lineIsAside(l, mics, holds) });
   }
   const inRange = (col: string) => `${col} >= ? AND ${col} <= ?`;
   const combat = all<any>(db, 'SELECT name FROM combatants WHERE world_id = ? AND is_pc = 0 AND hidden = 0 AND hp IS NOT NULL AND hp <= 0', worldId).map((c) => `${c.name} was defeated`);
@@ -89,12 +89,12 @@ export function gather(db: DB, worldId: string, range: { from: string; to: strin
   const worldStartMinutes = clockRows.length ? (clockRows[0].before_minutes as number) : getClock(db, worldId).minutes;
   const meetings = all<any>(db, `SELECT account_id, npc_name, source FROM encounters WHERE world_id = ? AND ${inRange('created_at')} ORDER BY created_at`, worldId, range.from, range.to)
     .map((e) => `${nm[e.account_id] ?? 'Someone'} met ${e.npc_name}${e.source === 'wander' ? ' while wandering' : ''}`);
-  return { from: range.from, to: range.to, worldStartMinutes, playerLines, dmLines, combat, coin, loot, broker, clock, audioSessionIds: range.sessionIds, notes, meetings };
+  return { from: range.from, to: range.to, worldStartMinutes, playerLines, gmLines, combat, coin, loot, broker, clock, audioSessionIds: range.sessionIds, notes, meetings };
 }
 
 const bullets = (xs: string[], none: string) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : none);
 
-/** The player-safe material as plain text for a model. DM and aside lines are never in it. */
+/** The player-safe material as plain text for a model. GM and aside lines are never in it. */
 export function material(g: Gathered): string {
   let t = g.playerLines.map((l) => `${l.speaker}: ${l.text}`).join('\n');
   if (t.length > MAX_MATERIAL) {
@@ -137,9 +137,9 @@ export function skeleton(g: Gathered): string {
   ].join('\n\n') + '\n';
 }
 
-/** Notes from the DM-only and aside lines. Never published. */
-export function dmNotes(g: Gathered): string {
-  const xs = g.dmLines.filter((l) => l.text.trim().split(/\s+/).length >= 3).slice(0, 25).map((l) => `${l.aside ? '(aside) ' : ''}${l.speaker}: ${l.text.trim()}`);
+/** Notes from the GM-only and aside lines. Never published. */
+export function gmNotes(g: Gathered): string {
+  const xs = g.gmLines.filter((l) => l.text.trim().split(/\s+/).length >= 3).slice(0, 25).map((l) => `${l.aside ? '(aside) ' : ''}${l.speaker}: ${l.text.trim()}`);
   return xs.length ? xs.map((x) => `- ${x}`).join('\n') : '';
 }
 
@@ -188,7 +188,7 @@ export async function draftSummary(d: Deps, g: Gathered): Promise<Drafted> {
 export async function reviseSummary(d: Deps, markdown: string, instruction: string): Promise<string> {
   try {
     const r = await chat(d, 'chat', { messages: [
-      { role: 'system', content: `${SYSTEM} You are given a draft and an instruction from the DM. Return the full revised summary only.` },
+      { role: 'system', content: `${SYSTEM} You are given a draft and an instruction from the GM. Return the full revised summary only.` },
       { role: 'user', content: `DRAFT:\n${markdown}\n\nINSTRUCTION:\n${instruction}` },
     ], temperature: 0.3 });
     if (!r.content.trim()) throw new HttpError(502, 'The model sent an empty answer');
@@ -205,7 +205,7 @@ export function draftOut(db: DB, r: any, withVersions = false) {
   const cur = one<any>(db, 'SELECT * FROM sessionlog_versions WHERE draft_id = ? AND n = ?', r.id, r.current_version);
   const base = {
     id: r.id, title: r.title, audioSessionId: r.audio_session_id, from: r.from_at, to: r.to_at,
-    version: r.current_version, markdown: cur?.markdown ?? '', dmNotes: r.dm_notes, usedModel: r.used_model === 1,
+    version: r.current_version, markdown: cur?.markdown ?? '', gmNotes: r.gm_notes, usedModel: r.used_model === 1,
     proposal: parseJson<DateProposal | null>(r.proposal, null), dateStatus: r.date_status as string,
     dateApplied: parseJson<any>(r.date_applied, null), entryId: r.entry_id as string | null,
     createdAt: r.created_at, updatedAt: r.updated_at,

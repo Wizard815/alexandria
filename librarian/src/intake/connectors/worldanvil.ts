@@ -15,7 +15,7 @@
 // changed since" filter, so every listing is complete: a page is read again
 // (tier 3) only when its listed update time moved.
 //
-// Who may see what (fail closed): a draft is DM-only; a public page is the
+// Who may see what (fail closed): a draft is GM-only; a public page is the
 // players'; a private page is the players' only when one of its subscriber
 // groups is named in "Player subscriber groups". A secret is a secret block
 // unless it is shared with one of those groups.
@@ -112,7 +112,7 @@ export function waDate(v: unknown): string | null {
   return Number.isNaN(Date.parse(iso)) ? null : new Date(iso).toISOString();
 }
 
-/** The player subscriber groups the DM named (ids or titles), lower-cased. */
+/** The player subscriber groups the GM named (ids or titles), lower-cased. */
 export function playerGroups(cfg: Record<string, any>): Set<string> {
   return new Set(String(cfg.playerGroups ?? '').split(/[,\n]/).map((s) => s.trim().toLowerCase()).filter(Boolean));
 }
@@ -143,7 +143,7 @@ export const waType = (entityClass: unknown) => { const c = String(entityClass ?
 export interface BbcodeCtx {
   /** An image id to its address (from the world's image list). */
   image?: (id: string) => string | null | undefined;
-  /** A secret's content and whether players may see it; undefined when it could not be read (DM-only, with a note). */
+  /** A secret's content and whether players may see it; undefined when it could not be read (GM-only, with a note). */
   secret?: (id: string) => { title: string; content: string; shared: boolean } | undefined;
   /** The player subscriber groups (ids or titles, lower-case). */
   groups?: Set<string>;
@@ -350,7 +350,7 @@ export function waArticleEntry(a: any, worldId: string, lk: WaLookups, secrets: 
     banner: typeof a.cover?.url === 'string' && /^https?:\/\//i.test(a.cover.url) ? a.cover.url : null,
     properties: facts.length ? [{ title: 'Facts', rows: facts }] : [],
     blocks: fixRefs(blocks),
-    visibility: shared && lk.shareVisible ? 'party' : 'dm', sourceShared: shared,
+    visibility: shared && lk.shareVisible ? 'party' : 'gm', sourceShared: shared,
     url: typeof a.url === 'string' && /^https?:\/\//i.test(a.url) ? a.url : null,
     position: Number.isFinite(Number(a.position)) && a.position !== null ? Number(a.position) : null,
     updatedAt: updated, sourceUpdatedAt: updated, depth: 'full',
@@ -367,7 +367,7 @@ export function waCategoryEntry(x: any, worldId: string, lk: WaLookups): Entry {
     externalId: `wa:${String(x.id).toLowerCase()}`, parentExternalId: parentOf(x, worldId, lk), title: String(x.title ?? 'Category'), tags: tagsOf(x), type: 'category', icon: null,
     banner: typeof x.pagecover?.url === 'string' && /^https?:\/\//i.test(x.pagecover.url) ? x.pagecover.url : null,
     blocks: fixRefs([...waBlocks(x.description ?? x.excerpt, bb), ...custom.flatMap((t) => waBlocks(t, bb))]),
-    visibility: shared && lk.shareVisible ? 'party' : 'dm', sourceShared: shared,
+    visibility: shared && lk.shareVisible ? 'party' : 'gm', sourceShared: shared,
     url: typeof x.url === 'string' && /^https?:\/\//i.test(x.url) ? x.url : null,
     position: Number.isFinite(Number(x.position)) && x.position !== null ? Number(x.position) : null,
     updatedAt: updated, sourceUpdatedAt: updated, depth: 'full',
@@ -383,7 +383,7 @@ export function waMapEntry(x: any, worldId: string, lk: WaLookups): Entry {
   return {
     externalId: `wa:${String(x.id).toLowerCase()}`, parentExternalId: parentOf(x, worldId, lk), title: String(x.title ?? 'Map'), tags: tagsOf(x), type: 'map', icon: null, banner: null,
     blocks: fixRefs([...waBlocks(x.description, bb), ...(legend ? [{ kind: 'heading', level: 2, content: [{ text: 'Legend' }] } as Block, ...waBlocks(legend, bb)] : [])]),
-    visibility: shared && lk.shareVisible ? 'party' : 'dm', sourceShared: shared,
+    visibility: shared && lk.shareVisible ? 'party' : 'gm', sourceShared: shared,
     url: typeof x.url === 'string' && /^https?:\/\//i.test(x.url) ? x.url : null,
     position: Number.isFinite(Number(x.position)) && x.position !== null ? Number(x.position) : null,
     updatedAt: updated, sourceUpdatedAt: updated, depth: 'full',
@@ -432,7 +432,7 @@ const lookupsOf = (cache: WaCache, cfg: Record<string, any>, ctx: ConnectorConte
 });
 
 /**
- * Tier 1: list categories, articles and maps (index depth, DM-only until read), the image list (for [img:id]), and the map markers and
+ * Tier 1: list categories, articles and maps (index depth, GM-only until read), the image list (for [img:id]), and the map markers and
  * timeline events that changed since the last listing (one call each; unchanged ones come from the cache). Every listing is complete.
  */
 async function* waIndex(cfg: Record<string, any>, ctx: ConnectorContext, state: { prev: WaCache | null; next?: WaCache }): AsyncIterable<SyncItem> {
@@ -465,11 +465,11 @@ async function* waIndex(cfg: Record<string, any>, ctx: ConnectorContext, state: 
         externalId: `wa:${String(x.id).toLowerCase()}`, parentExternalId: parentOf(x, worldId, lk), title, tags, type, icon: null,
         blocks: indexBlocks({ title, type, tags }),
         url: typeof x.url === 'string' && /^https?:\/\//i.test(x.url) ? x.url : null,
-        visibility: 'dm', restricted: !waShared(x, groups), updatedAt: updated, sourceUpdatedAt: updated, depth: 'index',
+        visibility: 'gm', restricted: !waShared(x, groups), updatedAt: updated, sourceUpdatedAt: updated, depth: 'index',
       } satisfies Entry;
     }
   }
-  const share = (ok: boolean) => (ok && ctx.shareVisible ? 'party' : 'dm') as 'dm' | 'party';
+  const share = (ok: boolean) => (ok && ctx.shareVisible ? 'party' : 'gm') as 'gm' | 'party';
 
   // Map pictures and markers: read again only for a map whose update time moved (a marker's own change moves the map's too, as far as
   // World Anvil documents; a full refresh reads them all).
@@ -616,7 +616,7 @@ async function* waSync(cfg: Record<string, any>, ctx: ConnectorContext): AsyncIt
 export const worldAnvilApi: Connector = {
   id: 'worldanvil-api',
   label: 'World Anvil (API)',
-  description: 'Reads a World Anvil world with an application key and your user token: articles, categories, secrets, maps with markers, and timelines. Drafts, private pages and secrets stay DM-only unless shared with a player subscriber group.',
+  description: 'Reads a World Anvil world with an application key and your user token: articles, categories, secrets, maps with markers, and timelines. Drafts, private pages and secrets stay GM-only unless shared with a player subscriber group.',
   aliases: ['worldanvil'],
   capabilities: ['pages', 'properties', 'tags', 'images', 'timelines', 'maps', 'items', 'characters'],
   fields: [
@@ -624,7 +624,7 @@ export const worldAnvilApi: Connector = {
     { key: 'token', label: 'User API token', type: 'password', secret: true, required: true, help: 'World Anvil → your account → API Tokens. It reads what you can read, secrets included.' },
     { key: 'appKey', label: 'Application key', type: 'password', secret: true, help: 'The key World Anvil gave you for this app (request form; Grandmaster guild and above). Leave empty if the server sets ALX_WORLDANVIL_APP_KEY.' },
     { key: 'apiUrl', label: 'API URL', type: 'url', placeholder: WA_API, help: 'Leave empty.' },
-    { key: 'playerGroups', label: 'Player subscriber groups', type: 'text', help: 'Names or ids of the subscriber groups your players are in, comma separated. Private pages and secrets shared with these groups are the players’; everything else private stays DM-only.' },
+    { key: 'playerGroups', label: 'Player subscriber groups', type: 'text', help: 'Names or ids of the subscriber groups your players are in, comma separated. Private pages and secrets shared with these groups are the players’; everything else private stays GM-only.' },
     { key: 'importMaps', label: 'Import maps and markers', type: 'boolean', default: true, help: 'One call per changed map and one per marker on it.' },
     { key: 'importTimelines', label: 'Import timelines', type: 'boolean', default: true, help: 'One call per changed timeline event.' },
   ],

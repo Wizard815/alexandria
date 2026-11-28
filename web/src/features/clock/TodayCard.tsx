@@ -47,7 +47,7 @@ export function EventList({ events }: { events: WEvent[] }) {
       {events.map((e, i) => (
         <li key={`${e.id}-${e.occursAt}-${i}`}>
           <strong style={{ fontWeight: 500 }}>{e.title}</strong>{' '}
-          <span className="tiny muted">{dayWord(e.daysAway)} · {e.occursLabel}{e.visibility === 'dm' ? ' · DM only' : ''}</span>
+          <span className="tiny muted">{dayWord(e.daysAway)} · {e.occursLabel}{e.visibility === 'gm' ? ' · GM only' : ''}</span>
           {e.description && <div className="small muted">{e.description}</div>}
         </li>
       ))}

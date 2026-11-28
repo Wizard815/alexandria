@@ -36,7 +36,7 @@ export function RecipeCard({ r, children }: { r: RecipeView; children?: ReactNod
       {r.status === 'locked' && (r.missing ?? []).length > 0 && (
         <ul className="spl-miss" aria-label={`Still needed for ${r.result.name}`}>{r.missing!.map((m, i) => <li key={i}>{missingText(m)}</li>)}</ul>
       )}
-      {r.dmNotes ? <div className="tiny note"><strong>DM notes.</strong> {r.dmNotes}</div> : null}
+      {r.gmNotes ? <div className="tiny note"><strong>GM notes.</strong> {r.gmNotes}</div> : null}
       {children}
     </div>
   );
@@ -60,7 +60,7 @@ export default function PlayerCodex() {
 
   const learn = (r: RecipeView) => act.run(async () => {
     const out: any = await w.call('POST', '/spells/learn', { recipeId: r.id });
-    toast(out.status === 'approved' ? `You learned ${r.result.name}` : `Asked the DM to learn ${r.result.name}`);
+    toast(out.status === 'approved' ? `You learned ${r.result.name}` : `Asked the GM to learn ${r.result.name}`);
     await codex.reload();
   });
   const cancel = (lid: string) => act.run(async () => { await w.call('POST', `/spells/learn/${lid}/cancel`); await codex.reload(); });
@@ -73,7 +73,7 @@ export default function PlayerCodex() {
   const tabs: [Tab, string][] = [['mine', `My spells (${learned.length})`], ...(crafting.on ? [['learn', `Learn${ready.length ? ` (${ready.length} ready)` : ''}`] as [Tab, string]] : []), ['all', 'All spells']];
   return (
     <div className="page wide">
-      <PageHead title="Codex" lead={`Spells in ${info.name}: the ones you know, ${crafting.on ? 'what you can learn by combining them, ' : ''}and the ones the DM has opened to the table.`} />
+      <PageHead title="Codex" lead={`Spells in ${info.name}: the ones you know, ${crafting.on ? 'what you can learn by combining them, ' : ''}and the ones the GM has opened to the table.`} />
       <ErrorBox error={codex.error ?? act.error} />
       {codex.loading && !codex.data ? <Loading /> : (
         <>
@@ -90,7 +90,7 @@ export default function PlayerCodex() {
           <Tabs label="Codex" value={tab} onChange={setTab} items={tabs} />
           {tab === 'mine' && (
             <section className="stack">
-              {learned.length === 0 ? <Empty>You know no spells yet. The DM adds the ones your character starts with.</Empty> : (
+              {learned.length === 0 ? <Empty>You know no spells yet. The GM adds the ones your character starts with.</Empty> : (
                 <div className="grid">
                   {learned.map((s) => (
                     <div key={s.id} className="card stack tight">
@@ -112,7 +112,7 @@ export default function PlayerCodex() {
               {ready.length === 0 ? <p className="muted">Nothing yet: see what each spell below still needs.</p> : ready.map((r) => (
                 <RecipeCard key={r.id} r={r}>
                   {r.pending ? (
-                    <div className="row between"><span className="tiny">Waiting for the DM.</span><button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void cancel(r.pending!)}>Take back</button></div>
+                    <div className="row between"><span className="tiny">Waiting for the GM.</span><button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void cancel(r.pending!)}>Take back</button></div>
                   ) : <button type="button" className="btn primary" disabled={act.busy} onClick={() => void learn(r)}>{crafting.approval === 'auto' ? 'Learn' : 'Ask to learn'} {r.result.name}</button>}
                 </RecipeCard>
               ))}
@@ -159,7 +159,7 @@ export default function PlayerCodex() {
 }
 
 /** The player's spell sheet: class, level, ability scores and spellcasting ability. */
-export function SheetButton({ c, onSaved, accountId = 'me', dm = false }: { c: Character; onSaved: () => void; accountId?: string; dm?: boolean }) {
+export function SheetButton({ c, onSaved, accountId = 'me', gm = false }: { c: Character; onSaved: () => void; accountId?: string; gm?: boolean }) {
   const { w } = useWorld();
   const [open, setOpen] = useState(false);
   const [f, setF] = useState<any>(null);
@@ -167,15 +167,15 @@ export function SheetButton({ c, onSaved, accountId = 'me', dm = false }: { c: C
   const start = () => { setF({ class: c.class, level: c.level ?? '', castingAbility: c.castingAbility, manaMax: c.manaMax ?? '', ...Object.fromEntries(ABILITIES.map(([k]) => [k, c.abilities[k] ?? ''])) }); setOpen(true); };
   const save = () => act.run(async () => {
     const abilities = Object.fromEntries(ABILITIES.map(([k]) => [k, f[k] === '' ? null : Number(f[k])]));
-    await w.call('PUT', `/spells/characters/${accountId}`, { class: f.class, level: f.level === '' ? null : Number(f.level), castingAbility: f.castingAbility, abilities, ...(dm ? { manaMax: f.manaMax === '' ? null : Number(f.manaMax) } : {}) });
+    await w.call('PUT', `/spells/characters/${accountId}`, { class: f.class, level: f.level === '' ? null : Number(f.level), castingAbility: f.castingAbility, abilities, ...(gm ? { manaMax: f.manaMax === '' ? null : Number(f.manaMax) } : {}) });
     setOpen(false);
     onSaved();
   });
   return (
     <>
-      <button type="button" className="btn small" onClick={start}>{dm ? 'Edit sheet' : 'My spell sheet'}</button>
+      <button type="button" className="btn small" onClick={start}>{gm ? 'Edit sheet' : 'My spell sheet'}</button>
       {open && f && (
-        <Modal title={dm ? `${c.name}: spell sheet` : 'My spell sheet'} onClose={() => setOpen(false)}>
+        <Modal title={gm ? `${c.name}: spell sheet` : 'My spell sheet'} onClose={() => setOpen(false)}>
           <div className="stack">
             <ErrorBox error={act.error} />
             <div className="row" style={{ gap: 10 }}>
@@ -189,7 +189,7 @@ export function SheetButton({ c, onSaved, accountId = 'me', dm = false }: { c: C
               {ABILITIES.map(([k, l]) => <label key={k} className="field"><span className="tiny">{l}</span><input type="number" min={1} max={30} aria-label={l} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>)}
             </div>
             {c.from.abilities?.length ? <p className="tiny muted">From the Me page: {c.from.abilities.map((x) => x.toUpperCase()).join(', ')}. A number here replaces it.</p> : null}
-            {dm && <Field label="Mana maximum by hand" help="Empty: the world's formula or table by level."><input type="number" min={0} value={f.manaMax} onChange={(e) => setF({ ...f, manaMax: e.target.value })} style={{ width: 120 }} /></Field>}
+            {gm && <Field label="Mana maximum by hand" help="Empty: the world's formula or table by level."><input type="number" min={0} value={f.manaMax} onChange={(e) => setF({ ...f, manaMax: e.target.value })} style={{ width: 120 }} /></Field>}
             <div className="row end"><button type="button" className="btn primary" disabled={act.busy} onClick={() => void save()}>Save sheet</button></div>
           </div>
         </Modal>

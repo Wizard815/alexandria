@@ -1,7 +1,7 @@
 // The story bible for one caller: facts of the pages that caller may open now,
 // in the caller's own scope (scopes.ts), grouped by subject.
 //
-//   DM / model   the 'dm' facts (AI copy)
+//   GM / model   the 'gm' facts (AI copy)
 //   broker       the 'broker' facts
 //   player       the 'party' facts plus the 'lifted' facts of pages they may open now
 //
@@ -22,7 +22,7 @@ import { KINDS, normSubject } from './extract.ts';
 export interface BibleFact { text: string; kind: string; pages: { id: string; title: string; path: string }[] }
 export interface BibleSubject { subject: string; key: string; kind: string; facts: BibleFact[] }
 export interface Bible {
-  scope: 'dm' | 'broker' | 'party';
+  scope: 'gm' | 'broker' | 'party';
   total: number;
   kinds: Record<string, number>;
   subjects: BibleSubject[];

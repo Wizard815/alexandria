@@ -1,4 +1,4 @@
-// DM → Macros: the action list, a macro builder, key bindings and trigger URLs.
+// GM → Macros: the action list, a macro builder, key bindings and trigger URLs.
 import { useEffect, useState } from 'react';
 import { Empty, ErrorBox, Field, Loading, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';

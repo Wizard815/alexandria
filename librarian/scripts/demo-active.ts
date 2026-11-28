@@ -1,5 +1,5 @@
 // A short tour of Minerva's two modes on the seeded demo world and its fake models:
-// Assistant mode (a proposal the DM approves), /takeover and Active mode reading
+// Assistant mode (a proposal the GM approves), /takeover and Active mode reading
 // a spoken session (music, tracker, items, the stage), the command log with an
 // undo, a reject and a "wrong", an agent macro, and a player using the journal
 // draft helper. It leaves the demo running with that history in place, so the
@@ -39,95 +39,95 @@ let checks = 0;
 const check = (cond: unknown, msg: string): void => { checks++; if (!cond) { log(`  ✗ ${msg}`); process.exitCode = 1; throw new Error(`Check failed: ${msg}`); } log(`  ✓ ${msg}`); };
 
 const login = async (u: string, p: string) => (await api('POST', '/api/auth/login', undefined, { username: u, password: p })).token as string;
-const dm = await login('dm', 'dungeon master 123');
+const gm = await login('gm', 'game master 123');
 const tom = await login('tom', 'player pass 123');
 const jess = await login('jess', 'player pass 123');
-const worlds = await api('GET', '/api/worlds', dm);
+const worlds = await api('GET', '/api/worlds', gm);
 const W = `/api/worlds/${(worlds.worlds ?? worlds)[0].slug}`;
-const members = await api('GET', `${W}/members`, dm);
+const members = await api('GET', `${W}/members`, gm);
 const tomId = members.find((m: any) => m.display_name === 'tom').id;
-const logRows = async (status?: string) => (await api('GET', `${W}/active/log${status ? `?status=${status}` : ''}`, dm)).log as any[];
+const logRows = async (status?: string) => (await api('GET', `${W}/active/log${status ? `?status=${status}` : ''}`, gm)).log as any[];
 
 log('\nMinerva: Assistant and Active mode\n');
 
 // ---- 1. Assistant mode -----------------------------------------------------------------
-log('1. Assistant mode: she proposes, the DM approves');
-await api('PUT', `${W}/active`, dm, { mode: 'assistant' });
-const chat = (await api('POST', `${W}/agent/chats`, dm, { title: 'Tonight' })).id;
-await api('POST', `${W}/agent/chats/${chat}/messages`, dm, { text: 'Put on something tense for the cellar.\nFAKE_CALL play_music {"mood":"tense"}' });
+log('1. Assistant mode: she proposes, the GM approves');
+await api('PUT', `${W}/active`, gm, { mode: 'assistant' });
+const chat = (await api('POST', `${W}/agent/chats`, gm, { title: 'Tonight' })).id;
+await api('POST', `${W}/agent/chats/${chat}/messages`, gm, { text: 'Put on something tense for the cellar.\nFAKE_CALL play_music {"mood":"tense"}' });
 let prop: any;
-for (let i = 0; i < 60 && !prop; i++) { await sleep(200); const c = await api('GET', `${W}/agent/chats/${chat}`, dm); prop = c.actions.find((a: any) => a.status === 'pending'); }
+for (let i = 0; i < 60 && !prop; i++) { await sleep(200); const c = await api('GET', `${W}/agent/chats/${chat}`, gm); prop = c.actions.find((a: any) => a.status === 'pending'); }
 check(prop?.tool === 'play_music', 'the music is proposed, not played');
 check((await logRows('pending')).some((r) => r.tool === 'play_music' && r.mode === 'assistant'), 'the proposal is in the command log, pending');
-await api('POST', `${W}/agent/actions/${prop.id}`, dm, { decision: 'approve' });
+await api('POST', `${W}/agent/actions/${prop.id}`, gm, { decision: 'approve' });
 check((await logRows('done')).some((r) => r.tool === 'play_music' && r.mode === 'assistant'), 'approved: the log row is done');
 
 // ---- 2. /takeover ----------------------------------------------------------------------
 log('2. /takeover: every category to auto');
-await api('PUT', `${W}/active`, dm, { cats: { stage: 'ask', items: 'ask' } });
-const c2 = (await api('POST', `${W}/active/command`, dm, { text: '/takeover' }));
+await api('PUT', `${W}/active`, gm, { cats: { stage: 'ask', items: 'ask' } });
+const c2 = (await api('POST', `${W}/active/command`, gm, { text: '/takeover' }));
 check(c2.mode === 'active' && Object.entries(c2.cats).every(([k, v]) => (k === 'notes' ? v === 'draft' : v === 'auto')), 'Active mode on, every category auto');
 
 // ---- 3. a session, spoken ---------------------------------------------------------------
 log('3. Active mode reads the spoken session');
 for (const u of ['jess', 'tom']) await api('POST', `${W}/audio/consent`, u === 'jess' ? jess : tom, { agree: true });
-await raw('POST', `${W}/actions/run`, dm, { action: 'recording.stop', args: {} });
-const ses = await api('POST', `${W}/audio/sessions`, dm, { name: 'Active mode demo' });
+await raw('POST', `${W}/actions/run`, gm, { action: 'recording.stop', args: {} });
+const ses = await api('POST', `${W}/audio/sessions`, gm, { name: 'Active mode demo' });
 const mic = async (tok: string, dev: string, lab: string, extra: object = {}) => (await api('POST', `${W}/audio/mics`, tok, { deviceId: dev, label: lab, mode: 'always', playersTranscript: true, ...extra })).id as string;
-const mics = { dm: await mic(dm, 'act-dm', 'DM voice', { room: false }), tom: await mic(tom, 'act-tom', 'Tomas phone') };
-const tokOf: Record<string, string> = { dm, tom };
+const mics = { gm: await mic(gm, 'act-gm', 'GM voice', { room: false }), tom: await mic(tom, 'act-tom', 'Tomas phone') };
+const tokOf: Record<string, string> = { gm, tom };
 const WEBM = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01]);
 let at = 1000, seq = 0;
-const speak = async (who: 'dm' | 'tom', text: string) => {
+const speak = async (who: 'gm' | 'tom', text: string) => {
   const r = await fetch(`${base}${W}/audio/sessions/${ses.id}/chunks?mic=${mics[who]}&seq=${seq++}&start=${at}&end=${at + 4000}&level=0.6`, { method: 'POST', headers: { Authorization: `Bearer ${tokOf[who]}`, 'Content-Type': 'audio/webm' }, body: Buffer.concat([WEBM, Buffer.from(`FAKE:${text}`)]) });
   if (r.status >= 300) throw new Error(`chunk ${r.status}`);
   at += 9000;
   await sleep(2200);
 };
-await api('POST', `${W}/live/combatants`, dm, { name: 'Ogre', initiative: 12, hp: 59, maxHp: 59 });
-await api('PUT', `${W}/live/combat`, dm, { active: true });
-await api('PUT', `${W}/library/pages`, dm, { path: 'maps/Docks Map', visibility: 'party', markdown: '# Docks Map\nThe docks of Saltmarsh.\n' });
-await api('PUT', `${W}/library/pages`, dm, { path: 'dm/Velmira Ledger', visibility: 'dm', markdown: '# Velmira Ledger\nVelmira pays three captains. SECRETLEDGER\n' });
-await speak('dm', 'You step into a cold cellar. Music: something sneaky.');
-await speak('dm', 'The ogre takes 12 from the fireball.');
-await speak('dm', 'You find a silver key under the barrel.');
-await speak('dm', 'Show them the map of the docks.');
-await speak('dm', 'Show them the Velmira ledger.');
+await api('POST', `${W}/live/combatants`, gm, { name: 'Ogre', initiative: 12, hp: 59, maxHp: 59 });
+await api('PUT', `${W}/live/combat`, gm, { active: true });
+await api('PUT', `${W}/library/pages`, gm, { path: 'maps/Docks Map', visibility: 'party', markdown: '# Docks Map\nThe docks of Saltmarsh.\n' });
+await api('PUT', `${W}/library/pages`, gm, { path: 'gm/Velmira Ledger', visibility: 'gm', markdown: '# Velmira Ledger\nVelmira pays three captains. SECRETLEDGER\n' });
+await speak('gm', 'You step into a cold cellar. Music: something sneaky.');
+await speak('gm', 'The ogre takes 12 from the fireball.');
+await speak('gm', 'You find a silver key under the barrel.');
+await speak('gm', 'Show them the map of the docks.');
+await speak('gm', 'Show them the Velmira ledger.');
 let rows = await logRows();
 check(rows.some((r) => r.tool === 'play_music' && r.status === 'done' && r.trigger === 'line'), 'sneaky music started by itself');
 const dmg = rows.find((r) => r.tool === 'damage_combatant' && r.status === 'done');
 check(!!dmg, 'the ogre\'s 12 damage went into the tracker');
 const keyCard = rows.find((r) => r.tool === 'add_item' && r.status === 'pending');
 check(!!keyCard, 'the silver key is a card, not an action: the rules alone are not sure it is a pickup (no audit model settled it)');
-await api('POST', `${W}/active/log/${keyCard.id}/approve`, dm);
+await api('POST', `${W}/active/log/${keyCard.id}/approve`, gm);
 rows = await logRows();
 check(rows.some((r) => r.tool === 'show_on_stage' && r.status === 'done' && JSON.stringify(r.args).includes('Docks')), 'the docks map is on the stage (a party page)');
-check(!JSON.stringify(rows).includes('SECRETLEDGER') && !rows.some((r) => r.status === 'done' && /ledger/i.test(r.summary)), 'the DM-only ledger was never shown');
+check(!JSON.stringify(rows).includes('SECRETLEDGER') && !rows.some((r) => r.status === 'done' && /ledger/i.test(r.summary)), 'the GM-only ledger was never shown');
 check(!JSON.stringify(await api('GET', `${W}/stage`, jess)).includes('SECRETLEDGER'), 'players see none of it');
 
 // ---- 4. undo, wrong, reject ---------------------------------------------------------------
 log('4. The command log: undo, wrong, reject');
-await api('POST', `${W}/active/log/${dmg.id}/undo`, dm);
-check((await api('GET', `${W}/live/combat`, dm)).combatants.find((c: any) => c.name === 'Ogre').hp === 59, 'undo put the ogre\'s hit points back');
+await api('POST', `${W}/active/log/${dmg.id}/undo`, gm);
+check((await api('GET', `${W}/live/combat`, gm)).combatants.find((c: any) => c.name === 'Ogre').hp === 59, 'undo put the ogre\'s hit points back');
 const key = rows.find((r) => r.tool === 'add_item' && r.status === 'done');
 check(!!key, 'the approved key is a done row');
-await api('POST', `${W}/active/log/${key.id}/wrong`, dm);
-check((await api('GET', `${W}/active/rules`, dm)).rules.length === 1, 'marked wrong: undone, and that cue will not fire again');
-await api('PUT', `${W}/active`, dm, { cats: { items: 'ask' } });
-await speak('dm', 'Give Tom 50 gold.');
+await api('POST', `${W}/active/log/${key.id}/wrong`, gm);
+check((await api('GET', `${W}/active/rules`, gm)).rules.length === 1, 'marked wrong: undone, and that cue will not fire again');
+await api('PUT', `${W}/active`, gm, { cats: { items: 'ask' } });
+await speak('gm', 'Give Tom 50 gold.');
 const card = (await logRows('pending')).find((r) => r.tool === 'add_coin');
 check(!!card, 'with items on ask, the gold waits on a card');
-await api('POST', `${W}/active/log/${card.id}/reject`, dm);
+await api('POST', `${W}/active/log/${card.id}/reject`, gm);
 check((await logRows('rejected')).length === 1, 'the card was rejected');
-await speak('dm', 'You find a rusty lantern near the wall.');
-check((await logRows('pending')).length >= 1, 'a new card is waiting (visible on the desktop and the DM phone)');
+await speak('gm', 'You find a rusty lantern near the wall.');
+check((await logRows('pending')).length >= 1, 'a new card is waiting (visible on the desktop and the GM phone)');
 
 // ---- 5. a macro ----------------------------------------------------------------------------
 log('5. Agent macros');
-const tpl = await api('POST', `${W}/actions/macro-templates/reveal-handout/copy`, dm, {});
+const tpl = await api('POST', `${W}/actions/macro-templates/reveal-handout/copy`, gm, {});
 check(tpl.steps[0].action === 'minerva.run', 'a template copied: Reveal handout');
-const mac = await api('POST', `${W}/actions/macros`, dm, { name: 'Cellar mood', params: [{ name: 'place', type: 'string', default: 'the cellar' }], steps: [{ action: 'minerva.run', args: { prompt: 'The party is in {{place}}. Play tense music.\nFAKE_CALL play_music {"mood":"tense"}', mode: 'do', tools: 'play_music' } }] });
-const rep = await api('POST', `${W}/actions/macros/${mac.id}/run`, dm, {});
+const mac = await api('POST', `${W}/actions/macros`, gm, { name: 'Cellar mood', params: [{ name: 'place', type: 'string', default: 'the cellar' }], steps: [{ action: 'minerva.run', args: { prompt: 'The party is in {{place}}. Play tense music.\nFAKE_CALL play_music {"mood":"tense"}', mode: 'do', tools: 'play_music' } }] });
+const rep = await api('POST', `${W}/actions/macros/${mac.id}/run`, gm, {});
 check(rep.ok, 'the macro ran: ' + JSON.stringify(rep.steps[0].result).slice(0, 80));
 
 // ---- 6. a player ---------------------------------------------------------------------------
@@ -137,9 +137,9 @@ await api('POST', `${W}/agent/chats/${pc}/messages`, tom, { text: 'Draft my jour
 let reply = '';
 for (let i = 0; i < 60 && !reply; i++) { await sleep(200); const c = await api('GET', `${W}/agent/chats/${pc}`, tom); if (!c.busy) reply = c.messages.filter((m: any) => m.role === 'assistant').at(-1)?.text ?? ''; }
 check(reply.length > 0, 'the broker answered');
-check(!/minerva|SECRETLEDGER|takeover/i.test(reply), 'the reply never mentions Minerva or DM-only text');
+check(!/minerva|SECRETLEDGER|takeover/i.test(reply), 'the reply never mentions Minerva or GM-only text');
 const draft = await api('GET', `${W}/helper/journal-draft`, tom);
 check(/silver key|Ogre|ogre|map of the docks|cold cellar/i.test(draft.markdown) && !/SECRETLEDGER/.test(draft.markdown), 'the draft is built from what the table heard');
 
-log(`\nAll ${checks} checks passed. The demo keeps running at ${base} (DM: dm / dungeon master 123).`);
-log(`Look at: ${base}/w/saltreach/dm/active and ${base}/w/saltreach/dm/phone`);
+log(`\nAll ${checks} checks passed. The demo keeps running at ${base} (GM: gm / game master 123).`);
+log(`Look at: ${base}/w/saltreach/gm/active and ${base}/w/saltreach/gm/phone`);

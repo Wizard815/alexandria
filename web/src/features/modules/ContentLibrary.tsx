@@ -31,7 +31,7 @@ export default function ContentLibrary() {
 
   return (
     <div className="stack">
-      <PageHead title="Content library" lead="Rules books this server keeps for every world: pulled once, used offline. A DM turns one on in World settings → Game module." />
+      <PageHead title="Content library" lead="Rules books this server keeps for every world: pulled once, used offline. A GM turns one on in World settings → Game module." />
       <ErrorBox error={lib.error ?? act.error} />
       <section className="card stack">
         <h3>In the library</h3>
@@ -65,7 +65,7 @@ export default function ContentLibrary() {
         {tab === 'dnd5eapi' && (
           <div className="stack tight">
             <p className="tiny muted">A fresh copy of the System Reference Document from the <a href="https://www.dnd5eapi.co" target="_blank" rel="noreferrer">5e SRD API</a>, with the fixes made since this release.</p>
-            <label className="row" style={{ gap: 8 }}>Edition <select value={edition} onChange={(e) => { setEdition(e.target.value); setPre(null); }}><option value="2024">SRD 5.2 (D&amp;D 2024)</option><option value="2014">SRD 5.1 (D&amp;D 5e 2014)</option></select></label>
+            <label className="row" style={{ gap: 8 }}>Edition <select value={edition} onChange={(e) => { setEdition(e.target.value); setPre(null); }}><option value="2024">SRD 5.2 (5e 2024)</option><option value="2014">SRD 5.1 (5e 2014)</option></select></label>
           </div>
         )}
         <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>

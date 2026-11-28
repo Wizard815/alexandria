@@ -3,7 +3,7 @@ import SculptPage from './SculptPage.tsx';
 
 const feature: WebFeature = {
   id: 'sculpt',
-  dmRoutes: [{ path: 'sculpt', element: <SculptPage /> }],
-  dmNav: [{ to: 'sculpt' }],
+  gmRoutes: [{ path: 'sculpt', element: <SculptPage /> }],
+  gmNav: [{ to: 'sculpt' }],
 };
 export default feature;

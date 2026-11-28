@@ -110,7 +110,7 @@ export function genForest(o: MapOpts = {}): MapResult {
   c.ops.push({ t: 'rect', x: PX, y: PY, w: W * CELL, h: H * CELL, stroke: '#2a2218', sw: 3 });
 
   // key: trailhead is 1
-  const key: KeyEntry[] = [{ n: '1', name: 'Trailhead', text: 'Where the path leaves the road and enters the wild. Fresh tracks lead inward.', dm: pick(r, WILD_ENCOUNTER_HINTS) }];
+  const key: KeyEntry[] = [{ n: '1', name: 'Trailhead', text: 'Where the path leaves the road and enters the wild. Fresh tracks lead inward.', gm: pick(r, WILD_ENCOUNTER_HINTS) }];
   c.ops.push({ t: 'circle', x: X(0) + 14, y: Y(trail.y), r: 11, fill: '#fffaf0', stroke: '#2a2218', sw: 1.4 });
   c.ops.push({ t: 'text', x: X(0) + 14, y: Y(trail.y) + 4, s: '1', size: 12, fill: '#1f1b18', anchor: 'middle', bold: true });
   const names = [...WILD_CLEARINGS].sort(() => r() - 0.5);
@@ -119,7 +119,7 @@ export function genForest(o: MapOpts = {}): MapResult {
     c.ops.push({ t: 'circle', x: X(p.x), y: Y(p.y), r: 11, fill: '#fffaf0', stroke: '#2a2218', sw: 1.4 });
     c.ops.push({ t: 'text', x: X(p.x), y: Y(p.y) + 4, s: String(n), size: n > 9 ? 10 : 12, fill: '#1f1b18', anchor: 'middle', bold: true });
     const nm = names[i % names.length];
-    key.push({ n: String(n), name: cap(nm.replace(/^(a|an) /, '')), text: `${cap(nm)}, a clearing about ${Math.round(p.rx * 2 * 25)} by ${Math.round(p.ry * 2 * 25)} ft.`, dm: `Here: ${pick(r, WILD_OCCUPANTS)}.${chance(r, 0.4) ? ' ' + pick(r, WILD_ENCOUNTER_HINTS) : ''}` });
+    key.push({ n: String(n), name: cap(nm.replace(/^(a|an) /, '')), text: `${cap(nm)}, a clearing about ${Math.round(p.rx * 2 * 25)} by ${Math.round(p.ry * 2 * 25)} ft.`, gm: `Here: ${pick(r, WILD_OCCUPANTS)}.${chance(r, 0.4) ? ' ' + pick(r, WILD_ENCOUNTER_HINTS) : ''}` });
   });
   // reachability: trailhead -> nearest clearing, plus the spanning tree
   const adj = pts.map(() => [] as number[]);

@@ -5,9 +5,9 @@ import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { one, all, run } from '../../core/db.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { HttpError, id as newId, now, oneOf, str } from '../../core/util.ts';
-import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, settings } from '../../routes/_shared.ts';
 import { serveFile } from '../sound/files.ts';
 import { TARGETS, toPlayers, type Target } from '../sound/send.ts';
 import { mintTicket, readTicket } from '../sound/ticket.ts';
@@ -34,18 +34,18 @@ const EFFECTS = ['none', 'echo', 'radio'] as const;
 const norm = (s: string) => s.toLowerCase().replace(/[*_`>#\[\]()|~-]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 /**
- * Is any of this text DM-only? True when a chunk of it appears in a page's
- * DM copy but not in the copy players see (a page players cannot see has no
+ * Is any of this text GM-only? True when a chunk of it appears in a page's
+ * GM copy but not in the copy players see (a page players cannot see has no
  * player copy at all). Text that came from somewhere else (the agent's
  * replies, the transcript) cannot be checked here.
  */
-export function containsDmOnly(d: Deps, worldId: string, text: string): boolean {
+export function containsGmOnly(d: Deps, worldId: string, text: string): boolean {
   const chunks = [norm(text), ...text.split(/[.!?\n]+/).map(norm)].filter((c) => c.length >= 8);
   if (!chunks.length) return false;
   for (const p of all<any>(d.db, 'SELECT body, visibility, player_body FROM pages WHERE world_id = ?', worldId)) {
-    const dm = norm(p.body ?? '');
+    const gm = norm(p.body ?? '');
     const pub = p.visibility === 'party' && p.player_body !== null ? norm(p.player_body) : '';
-    for (const c of chunks) if (dm.includes(c) && !pub.includes(c)) return true;
+    for (const c of chunks) if (gm.includes(c) && !pub.includes(c)) return true;
   }
   return false;
 }
@@ -76,31 +76,31 @@ const feature: Feature = {
     app.get('/api/media/voice/:ticket', (req, res) => {
       const t = readTicket(String(req.params.ticket));
       const m = t && t.k === 'voice' && one<{ role: string }>(d.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', t.w, t.a);
-      const f = t && m && lineFor(d, t.w, m.role === 'dm', t.f, t.a);
+      const f = t && m && lineFor(d, t.w, m.role === 'gm', t.f, t.a);
       if (!f) throw new HttpError(404, 'File not found');
       serveFile(req, res, f.abs, f.mime);
     });
   },
   mcpTools: [
-    { name: 'list_voice_presets', dmOnly: true, description: 'DM: the saved read-aloud voice presets (name, voice, speed, effect, who hears it).', props: {}, call: () => ({ method: 'GET', path: '/voice/presets' }) },
+    { name: 'list_voice_presets', gmOnly: true, description: 'GM: the saved read-aloud voice presets (name, voice, speed, effect, who hears it).', props: {}, call: () => ({ method: 'GET', path: '/voice/presets' }) },
     {
       name: 'speak', write: true,
-      description: "DM: read text aloud with a voice preset (by name or id). By default it plays at the table; the preset's target says who else hears it. Text copied from DM-only notes is refused when it would reach players.",
+      description: "GM: read text aloud with a voice preset (by name or id). By default it plays at the table; the preset's target says who else hears it. Text copied from GM-only notes is refused when it would reach players.",
       props: { text: { type: 'string', description: 'What to say, up to 2000 characters' }, preset: { type: 'string', description: 'Preset name' }, presetId: { type: 'string' }, target: { type: 'string', enum: [...TARGETS] } },
       required: ['text'],
       call: (a) => ({ method: 'POST', path: '/voice/speak', body: { text: a.text, preset: a.preset, presetId: a.presetId, target: a.target } }),
     },
-    { name: 'list_npc_voices', dmOnly: true, description: 'DM: NPC voices: whether encounter NPCs are read aloud, the default NPC voice, the quick event voice, and which NPCs have a voice preset of their own.', props: {}, call: () => ({ method: 'GET', path: '/voice/npcs' }) },
+    { name: 'list_npc_voices', gmOnly: true, description: 'GM: NPC voices: whether encounter NPCs are read aloud, the default NPC voice, the quick event voice, and which NPCs have a voice preset of their own.', props: {}, call: () => ({ method: 'GET', path: '/voice/npcs' }) },
     {
       name: 'set_npc_voice', write: true,
-      description: "DM: give an NPC their own voice preset for encounters (by the NPC's name as it shows in encounters; preset by name or id). An empty preset takes the NPC's own voice away. Turning NPC voices on is the npcVoices setting.",
+      description: "GM: give an NPC their own voice preset for encounters (by the NPC's name as it shows in encounters; preset by name or id). An empty preset takes the NPC's own voice away. Turning NPC voices on is the npcVoices setting.",
       props: { npc: { type: 'string', description: 'NPC name' }, preset: { type: 'string', description: 'Voice preset name; empty to remove' } },
       required: ['npc'],
       call: (a) => ({ method: 'PUT', path: '/voice/npcs', body: { npc: a.npc, preset: a.preset ?? '' } }),
     },
     {
       name: 'set_npc_voices', write: true,
-      description: "DM: turn NPC voices on or off (encounter NPCs read aloud on that player's device only), and set the default NPC voice preset and the voice that reads new quick events to their players (empty: quick events stay silent).",
+      description: "GM: turn NPC voices on or off (encounter NPCs read aloud on that player's device only), and set the default NPC voice preset and the voice that reads new quick events to their players (empty: quick events stay silent).",
       props: { on: { type: 'boolean', description: 'NPC voices in encounters' }, defaultPreset: { type: 'string', description: 'Preset name for NPCs without their own' }, quickEventPreset: { type: 'string', description: 'Preset name for quick events; empty for none' } },
       call: (a) => ({ method: 'PATCH', path: '/settings', body: { npcVoices: typeof a.on === 'boolean' ? a.on : undefined, npcVoicePreset: a.defaultPreset, quickEventVoicePreset: a.quickEventPreset } }),
     },
@@ -113,12 +113,12 @@ const feature: Feature = {
     startNpcVoices(d);
 
     // Voice names the voice model offers (Argos lists Kokoro's voices); empty when unknown.
-    r.get('/voices', requireDM, async (_req, res) => {
+    r.get('/voices', requireGM, async (_req, res) => {
       let names: string[] = [];
       try { names = await (await import('../models/index.ts')).listVoiceNames(d); } catch { /* no models feature or no list */ }
       res.json({ voices: names });
     });
-    r.get('/presets', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM voice_presets WHERE world_id = ? ORDER BY name', wid(res)).map(presetOut)));
+    r.get('/presets', requireGM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM voice_presets WHERE world_id = ? ORDER BY name', wid(res)).map(presetOut)));
     const fields = (b: any, cur?: any) => ({
       name: b?.name !== undefined ? str(b.name, 'name', { max: 60 }).trim() : cur?.name ?? str(undefined, 'name'),
       voice: b?.voice !== undefined ? str(b.voice, 'voice', { max: 80, optional: true }).trim() : cur?.voice ?? '',
@@ -127,25 +127,25 @@ const feature: Feature = {
       effect: oneOf(b?.effect, 'effect', EFFECTS, cur?.effect ?? 'none'),
       target: oneOf(b?.target, 'target', TARGETS, cur?.target ?? 'table'),
     });
-    r.post('/presets', requireDM, (req, res) => {
+    r.post('/presets', requireGM, (req, res) => {
       const p = fields(req.body ?? {});
       const pid = newId('vp_');
       run(db, 'INSERT INTO voice_presets (id, world_id, name, voice, speed, pitch, effect, target, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', pid, wid(res), p.name, p.voice, p.speed, p.pitch, p.effect, p.target, now());
       res.status(201).json(presetOut({ id: pid, ...p }));
     });
-    r.put('/presets/:id', requireDM, (req, res) => {
+    r.put('/presets/:id', requireGM, (req, res) => {
       const cur = one<any>(db, 'SELECT * FROM voice_presets WHERE id = ? AND world_id = ?', String(req.params.id), wid(res));
       if (!cur) throw new HttpError(404, 'Preset not found');
       const p = fields(req.body ?? {}, cur);
       run(db, 'UPDATE voice_presets SET name = ?, voice = ?, speed = ?, pitch = ?, effect = ?, target = ? WHERE id = ?', p.name, p.voice, p.speed, p.pitch, p.effect, p.target, cur.id);
       res.json(presetOut({ id: cur.id, ...p }));
     });
-    r.delete('/presets/:id', requireDM, (req, res) => {
+    r.delete('/presets/:id', requireGM, (req, res) => {
       if (!run(db, 'DELETE FROM voice_presets WHERE id = ? AND world_id = ?', String(req.params.id), wid(res))) throw new HttpError(404, 'Preset not found');
       res.json({ ok: true });
     });
 
-    r.post('/speak', requireDM, async (req, res) => {
+    r.post('/speak', requireGM, async (req, res) => {
       if (!d.dataDir) throw new HttpError(503, 'The gateway has no data folder for voice audio');
       const w = wid(res);
       const text = str(req.body?.text, 'text', { max: 2000 }).trim();
@@ -153,20 +153,20 @@ const feature: Feature = {
       const p = findPreset(d, w, String(req.body?.presetId ?? '')) ?? findPreset(d, w, String(req.body?.preset ?? ''));
       if (!p) throw new HttpError(404, 'Preset not found');
       const tg = oneOf(req.body?.target, 'target', TARGETS, p.target as Target);
-      if (toPlayers(tg) && containsDmOnly(d, w, text) && req.body?.confirm !== true) {
-        return void res.status(409).json({ error: 'This text comes from DM-only notes. Sending it to players would reveal it. Confirm to send anyway.', needsConfirm: true });
+      if (toPlayers(tg) && containsGmOnly(d, w, text) && req.body?.confirm !== true) {
+        return void res.status(409).json({ error: 'This text comes from GM-only notes. Sending it to players would reveal it. Confirm to send anyway.', needsConfirm: true });
       }
       const r2 = await speakLine(d, w, text, p, tg);
       res.json({ ok: true, ...r2 });
     });
 
     // NPC voices: the settings and which NPCs have a preset of their own.
-    r.get('/npcs', requireDM, (_req, res) => {
+    r.get('/npcs', requireGM, (_req, res) => {
       const s = settings(res) as any;
       const npcs = all<any>(db, 'SELECT n.name, n.preset_id, p.name AS preset FROM voice_npcs n LEFT JOIN voice_presets p ON p.id = n.preset_id WHERE n.world_id = ? ORDER BY n.name COLLATE NOCASE', wid(res));
       res.json({ npcVoices: s.npcVoices === true, npcVoicePreset: s.npcVoicePreset ?? '', quickEventVoicePreset: s.quickEventVoicePreset ?? '', npcs: npcs.map((n) => ({ npc: n.name, presetId: n.preset_id, preset: n.preset ?? '(deleted preset)' })) });
     });
-    r.put('/npcs', requireDM, (req, res) => {
+    r.put('/npcs', requireGM, (req, res) => {
       const w = wid(res);
       const name = str(req.body?.npc, 'npc', { max: 80 }).trim();
       if (!name) throw new HttpError(400, 'npc is required');
@@ -183,14 +183,14 @@ const feature: Feature = {
 
     // The spoken line. A player gets it only if it was sent to players recently.
     r.get('/file/:name', (req, res) => {
-      const f = lineFor(d, wid(res), isDM(res), String(req.params.name), me(res));
+      const f = lineFor(d, wid(res), isGM(res), String(req.params.name), me(res));
       if (!f) throw new HttpError(404, 'File not found');
       serveFile(req, res, f.abs, f.mime);
     });
     // A ticket for an <audio> tag to play it (same checks).
     r.get('/file/:name/ticket', (req, res) => {
       const name = String(req.params.name);
-      if (!lineFor(d, wid(res), isDM(res), name, me(res))) throw new HttpError(404, 'File not found');
+      if (!lineFor(d, wid(res), isGM(res), name, me(res))) throw new HttpError(404, 'File not found');
       res.json({ url: `/api/media/voice/${mintTicket({ w: wid(res), k: 'voice', f: name, a: me(res) })}` });
     });
 

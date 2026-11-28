@@ -1,9 +1,10 @@
 // The sculpting engine: deterministic generators first (names, stock, coins,
 // encounters, the clock), then ONE chat call for the text that is still blank
 // (for a batch, one call that returns an array). Rendering turns {{key}},
-// {{#if}}, {{#each}}, inline {{gen:...}} and {{#dm}}...{{/dm}} into Markdown
+// {{#if}}, {{#each}}, inline {{gen:...}} and {{#gm}}...{{/gm}} into Markdown
 // with secret blocks. The same values always render the same text.
 import type { Deps } from '../../app.ts';
+import { gmText, gmValue } from '../../core/gmcompat.ts';
 import { chatJson, hasJob, type ChatMessage } from '../../core/ai.ts';
 import { one } from '../../core/db.ts';
 import type { Viewer } from '../../core/policy.ts';
@@ -17,7 +18,7 @@ import type { Field, TemplateDef } from './templates.ts';
 export { bodyHash };
 export type Values = Record<string, string>;
 export interface Tpl extends Omit<TemplateDef, 'key'> { id: string }
-export interface Part { dm: boolean; md: string }
+export interface Part { gm: boolean; md: string }
 export interface SculptResult { values: Values; md: string; parts: Part[]; notes: string[]; filled: string[]; model: boolean; usedModel: boolean; leaks: { key: string; match: string }[] }
 export interface BatchResult extends SculptResult { results: SculptResult[]; count: number; batch: boolean }
 
@@ -147,27 +148,29 @@ function expandBody(tpl: Pick<Tpl, 'fields' | 'body'>, values: Values, rc?: Rend
 }
 
 export function renderParts(tpl: Pick<Tpl, 'fields' | 'body' | 'perspective'>, values: Values, rc?: RenderCtx): Part[] {
+  // Templates written before the GM rename use {{#dm}} sections.
+  tpl = { ...tpl, body: gmText(tpl.body), perspective: gmValue(tpl.perspective) as Tpl['perspective'] };
   const fields = new Map(tpl.fields.map((f) => [f.key, f]));
   const player = tpl.perspective === 'player';
   const parts: Part[] = [];
-  let inDm = false;
-  const push = (dm: boolean, line: string) => {
+  let inGm = false;
+  const push = (gm: boolean, line: string) => {
     const last = parts.at(-1);
-    if (last && last.dm === dm) last.md += `\n${line}`; else parts.push({ dm, md: line });
+    if (last && last.gm === gm) last.md += `\n${line}`; else parts.push({ gm, md: line });
   };
   for (const raw of expandBody(tpl, values, rc).split(/\r?\n/)) {
     let line = raw;
-    let lineDm = inDm;
-    if (/^\s*\{\{#dm\}\}\s*$/.test(line)) { inDm = true; continue; }
-    if (/^\s*\{\{\/dm\}\}\s*$/.test(line)) { inDm = false; continue; }
-    if (/\{\{#dm\}\}/.test(line) && /\{\{\/dm\}\}/.test(line)) { line = line.replace(/\{\{#dm\}\}|\{\{\/dm\}\}/g, ''); lineDm = true; }
+    let lineGm = inGm;
+    if (/^\s*\{\{#gm\}\}\s*$/.test(line)) { inGm = true; continue; }
+    if (/^\s*\{\{\/gm\}\}\s*$/.test(line)) { inGm = false; continue; }
+    if (/\{\{#gm\}\}/.test(line) && /\{\{\/gm\}\}/.test(line)) { line = line.replace(/\{\{#gm\}\}|\{\{\/gm\}\}/g, ''); lineGm = true; }
     let tokens = 0;
     let shown = 0;
     line = line.replace(TOKEN, (m, inner: string) => {
       const t = inner.trim();
       if (FIELD_KEY.test(t) && fields.has(t)) {
         tokens++;
-        if (fields.get(t)!.dmOnly) lineDm = true;
+        if (fields.get(t)!.gmOnly) lineGm = true;
         const v = valueMd(fields.get(t), values[t] ?? '', rc, values);
         if (v) shown++;
         return v || '…';
@@ -182,44 +185,44 @@ export function renderParts(tpl: Pick<Tpl, 'fields' | 'body' | 'perspective'>, v
       if (pg && rc) {
         tokens++;
         const p = rc.page(pg[1]);
-        // A DM template reads the AI copy, which may hold secrets: those lines stay DM-only.
-        if (!player) lineDm = true;
+        // A GM template reads the AI copy, which may hold secrets: those lines stay GM-only.
+        if (!player) lineGm = true;
         if (p) { shown++; return p.excerpt; }
         return '…';
       }
       return m;
     });
     if (tokens > 0 && shown === 0) continue;
-    if (lineDm && player) continue;
-    push(lineDm, line);
+    if (lineGm && player) continue;
+    push(lineGm, line);
   }
-  return parts.map((p) => ({ dm: p.dm, md: p.md.replace(/^\n+|\n+$/g, '') })).filter((p) => p.md.trim());
+  return parts.map((p) => ({ gm: p.gm, md: p.md.replace(/^\n+|\n+$/g, '') })).filter((p) => p.md.trim());
 }
 
 /** Secret blocks are `> [!secret]` callouts: players' copies drop them. */
-export const secretBlock = (md: string): string => ['> [!secret] DM', ...md.split('\n').map((l) => (l.trim() ? `> ${l}` : '>'))].join('\n');
+export const secretBlock = (md: string): string => ['> [!secret] GM', ...md.split('\n').map((l) => (l.trim() ? `> ${l}` : '>'))].join('\n');
 
 export function renderMd(parts: Part[]): string {
-  return `${parts.map((p) => (p.dm ? secretBlock(p.md) : p.md)).join('\n\n')}\n`;
+  return `${parts.map((p) => (p.gm ? secretBlock(p.md) : p.md)).join('\n\n')}\n`;
 }
 /** What a player may see of a rendering, as plain text. */
-export const publicText = (parts: Part[]): string => parts.filter((p) => !p.dm).map((p) => p.md).join('\n\n').trim();
+export const publicText = (parts: Part[]): string => parts.filter((p) => !p.gm).map((p) => p.md).join('\n\n').trim();
 
 // ---- the leak check ----
 export interface Leak { key: string; match: string }
 
 /**
- * Player-perspective templates: DM-only fields never appear, page fields must be pages players
- * can open, and neither the values nor the rendered text may repeat DM-only notes.
+ * Player-perspective templates: GM-only fields never appear, page fields must be pages players
+ * can open, and neither the values nor the rendered text may repeat GM-only notes.
  */
 export function cleanForPlayer(d: Deps, worldId: string, tpl: Tpl, values: Values, rc: RenderCtx = makeCtx(d, worldId, true)): { values: Values; leaks: Leak[] } {
   if (tpl.perspective !== 'player') return { values, leaks: [] };
   const out: Values = {};
   const leaks: Leak[] = [];
-  const dmKeys = new Set(tpl.fields.filter((f) => f.dmOnly).map((f) => f.key));
+  const gmKeys = new Set(tpl.fields.filter((f) => f.gmOnly).map((f) => f.key));
   const byKey = new Map(tpl.fields.map((f) => [f.key, f]));
   for (const [k, v] of Object.entries(values)) {
-    if (dmKeys.has(k)) continue;
+    if (gmKeys.has(k)) continue;
     const f = byKey.get(k);
     if ((f?.type === 'page' || f?.type === 'pageLink') && v.trim() && !rc.playerCanSee(v)) { leaks.push({ key: k, match: 'a page players cannot open' }); out[k] = ''; continue; }
     const hit = firstLeak(rc, v);
@@ -246,7 +249,7 @@ function notesFor(d: Deps, worldId: string, tpl: Tpl, values: Values, viewer: Vi
       out.push(`${pg.title}: ${excerpt(String(pg.body ?? ''), 700)}`);
     } catch { /* not visible to this viewer */ }
   }
-  const q = [tpl.name, ...Object.entries(values).filter(([k, v]) => v && k !== SEED && !tpl.fields.find((f) => f.key === k)?.dmOnly && !['statblock', 'rollTable', 'table', 'image'].includes(tpl.fields.find((f) => f.key === k)?.type ?? '')).map(([, v]) => v.slice(0, 60))].join(' ');
+  const q = [tpl.name, ...Object.entries(values).filter(([k, v]) => v && k !== SEED && !tpl.fields.find((f) => f.key === k)?.gmOnly && !['statblock', 'rollTable', 'table', 'image'].includes(tpl.fields.find((f) => f.key === k)?.type ?? '')).map(([, v]) => v.slice(0, 60))].join(' ');
   try {
     for (const h of d.library.search(worldId, q, viewer, 5) as any[]) {
       if (out.length >= 5) break;
@@ -372,13 +375,13 @@ export async function sculptMany(d: Deps, worldId: string, worldName: string, tp
   let usedModel = false;
   const needModel = items.some((it) => it.blank.length);
   if (needModel && model) {
-    const viewer: Viewer = player ? PLAYER : { accountId: 'sculpt-dm-view', role: 'dm', audience: 'ai' };
-    const contextOf = (it: Item) => Object.fromEntries(tpl.fields.filter((f) => it.values[f.key].trim() && !it.blank.includes(f) && f.type !== 'statblock' && !(player && f.dmOnly)).map((f) => [f.key, it.values[f.key].slice(0, 400)]));
+    const viewer: Viewer = player ? PLAYER : { accountId: 'sculpt-gm-view', role: 'gm', audience: 'ai' };
+    const contextOf = (it: Item) => Object.fromEntries(tpl.fields.filter((f) => it.values[f.key].trim() && !it.blank.includes(f) && f.type !== 'statblock' && !(player && f.gmOnly)).map((f) => [f.key, it.values[f.key].slice(0, 400)]));
     const snippets = notesFor(d, worldId, tpl, items[0].values, viewer, rc);
     const world = Object.fromEntries(Object.entries(rc.vars()).filter(([k, v]) => v && ['world.date', 'world.season', 'party.level', 'location'].includes(k)));
     const desc = (f: Field) => ({ key: f.key, label: f.label, type: f.type, ...(f.options ? { options: f.options } : {}), ...(f.hint ? { hint: f.hint } : {}), ...(f.type === 'rollTable' ? { rows: dieOf(f, items[0].values) } : {}), ...(f.type === 'table' && f.columns ? { columns: f.columns } : {}) });
     const sys = [
-      `You fill blank fields of the template "${tpl.name}" for a D&D game master. World: ${worldName}.`,
+      `You fill blank fields of the template "${tpl.name}" for the Game Master of a 5e tabletop role-playing game. World: ${worldName}.`,
       count > 1 ? `Reply with one JSON object {"results": [...]} holding exactly ${count} different objects, each with the blank field keys.` : 'Reply with one JSON object whose keys are exactly the blank field keys.',
       'Be short, concrete and ready to use at the table. Plain text, no Markdown headings. A "list" is an array of short strings. A "select" is one of its options. A "number" is a number. A "rollTable" is an array of exactly "rows" short strings, one per face of the die. A "table" is an array of rows, each an array of cells.',
       blankKeys.some((f) => f.type === 'statblock') ? `A "statblock" is an object like ${SHAPE}. Keep numbers consistent with the CR.` : '',
@@ -406,7 +409,7 @@ export async function sculptMany(d: Deps, worldId: string, worldName: string, tp
     const cleaned = cleanForPlayer(d, worldId, tpl, it.values, rc);
     const rn = [...(i === 0 ? notes : []), ...it.notes];
     for (const l of cleaned.leaks) {
-      rn.push(`Blocked "${tpl.fields.find((f) => f.key === l.key)?.label ?? l.key}": it repeats words from DM-only notes.`);
+      rn.push(`Blocked "${tpl.fields.find((f) => f.key === l.key)?.label ?? l.key}": it repeats words from GM-only notes.`);
       const j = it.filled.indexOf(l.key);
       if (j >= 0) it.filled.splice(j, 1);
     }

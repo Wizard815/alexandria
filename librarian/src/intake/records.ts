@@ -14,7 +14,7 @@ import type { CalendarDefinition, Capability, SyncRecord, TimelineGroup } from '
 
 /** The tables for records (the `intake` feature owns them and adds this to its schema). Safe to run again. */
 export const RECORDS_SCHEMA = `
-CREATE TABLE IF NOT EXISTS intake_calendars (world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, source_id TEXT NOT NULL, external_id TEXT NOT NULL, name TEXT NOT NULL, definition TEXT NOT NULL, visibility TEXT NOT NULL DEFAULT 'dm', current TEXT, PRIMARY KEY (world_id, source_id, external_id));
+CREATE TABLE IF NOT EXISTS intake_calendars (world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, source_id TEXT NOT NULL, external_id TEXT NOT NULL, name TEXT NOT NULL, definition TEXT NOT NULL, visibility TEXT NOT NULL DEFAULT 'gm', current TEXT, PRIMARY KEY (world_id, source_id, external_id));
 
 CREATE TABLE IF NOT EXISTS intake_relations (
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS intake_relations (
   to_ref TEXT NOT NULL,
   label TEXT NOT NULL,
   attitude INTEGER,
-  visibility TEXT NOT NULL DEFAULT 'dm',
+  visibility TEXT NOT NULL DEFAULT 'gm',
   PRIMARY KEY (world_id, source_id, external_id)
 );
 
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS intake_timelines (
   source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
   external_id TEXT NOT NULL,
   name TEXT NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'dm',
+  visibility TEXT NOT NULL DEFAULT 'gm',
   data TEXT NOT NULL DEFAULT '[]',
   PRIMARY KEY (world_id, source_id, external_id)
 );
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS intake_markers (
   shape TEXT,
   color TEXT,
   ref TEXT,
-  visibility TEXT NOT NULL DEFAULT 'dm',
+  visibility TEXT NOT NULL DEFAULT 'gm',
   PRIMARY KEY (world_id, source_id, external_id)
 );
 
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS intake_images (
   mime TEXT NOT NULL,
   size INTEGER NOT NULL,
   data BLOB NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'dm',
+  visibility TEXT NOT NULL DEFAULT 'gm',
   page_ref TEXT,
   page_external TEXT,
   at TEXT NOT NULL,
@@ -157,7 +157,7 @@ export function imageIdForPage(db: DB, worldId: string, sourceId: string | null,
   return imagesForPage(db, worldId, sourceId, externalId).find((i) => i.kind !== 'inline')?.id ?? null;
 }
 
-/** Imported map images the viewer may open, for the Map page: the DM all, anyone else only maps that pass `imageVisibleTo`. Each has the page it belongs to. */
+/** Imported map images the viewer may open, for the Map page: the GM all, anyone else only maps that pass `imageVisibleTo`. Each has the page it belongs to. */
 export function mapImagesFor(db: DB, worldId: string, role: string): { id: string; name: string; source_id: string; size: number; page: { id: string; title: string } | null }[] {
   initRecords(db);
   const out: any[] = [];
@@ -170,17 +170,17 @@ export function mapImagesFor(db: DB, worldId: string, role: string): { id: strin
 }
 
 /**
- * May this viewer fetch this picture? The DM: yes. Everyone else: only when the picture itself may follow its page AND the page it belongs
- * to has a player copy (shared and checked). A picture with no page, or whose page is DM-only, is the DM's alone. Fail closed.
+ * May this viewer fetch this picture? The GM: yes. Everyone else: only when the picture itself may follow its page AND the page it belongs
+ * to has a player copy (shared and checked). A picture with no page, or whose page is GM-only, is the GM's alone. Fail closed.
  */
 export function imageVisibleTo(db: DB, img: { world_id: string; source_id: string; visibility: string; page_external: string | null }, role: string): boolean {
-  if (role === 'dm') return true;
+  if (role === 'gm') return true;
   if (img.visibility !== 'party' || !img.page_external) return false;
   const pg = one<any>(db, 'SELECT visibility, player_body FROM pages WHERE world_id = ? AND source_id = ? AND external_id = ?', img.world_id, img.source_id, img.page_external);
   return !!pg && pg.visibility === 'party' && pg.player_body !== null;
 }
 
-const vis = (v: unknown): 'dm' | 'party' => (v === 'party' ? 'party' : 'dm');
+const vis = (v: unknown): 'gm' | 'party' => (v === 'party' ? 'party' : 'gm');
 const text = (v: unknown, max: number) => String(v ?? '').slice(0, max);
 const num = (v: unknown, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
 
@@ -354,11 +354,11 @@ export const MAX_TRIES = 5;
 
 // ---- reading, per viewer -------------------------------------------------------
 
-const isDm = (v: RecordViewer) => v.role === 'dm';
+const isGm = (v: RecordViewer) => v.role === 'gm';
 
 interface PageRef { id: string; title: string; party: boolean; classified: boolean }
-/** A model-facing read of the DM's records must not see a page that is classified, or its title. */
-const modelBlind = (v: RecordViewer, p: PageRef | null | undefined) => v.role === 'dm' && v.audience !== undefined && !!p?.classified;
+/** A model-facing read of the GM's records must not see a page that is classified, or its title. */
+const modelBlind = (v: RecordViewer, p: PageRef | null | undefined) => v.role === 'gm' && v.audience !== undefined && !!p?.classified;
 /** Looks up a source's page by its own id. A page not found counts as not shared. */
 function pageLookup(db: DB, worldId: string) {
   const cache = new Map<string, PageRef | null>();
@@ -382,36 +382,36 @@ export function importedRelations(db: DB, worldId: string, viewer: RecordViewer)
     const b = find(r.source_id, r.to_ref);
     if (!a || !b || modelBlind(viewer, a) || modelBlind(viewer, b)) continue;
     const shared = r.visibility === 'party' && a.party && b.party;
-    if (!isDm(viewer) && !shared) continue;
-    out.push({ id: `${r.source_id}:${r.external_id}`, from_title: a.title, to_title: b.title, kind: r.label, visibility: shared ? 'party' : 'dm', attitude: r.attitude, source_id: r.source_id });
+    if (!isGm(viewer) && !shared) continue;
+    out.push({ id: `${r.source_id}:${r.external_id}`, from_title: a.title, to_title: b.title, kind: r.label, visibility: shared ? 'party' : 'gm', attitude: r.attitude, source_id: r.source_id });
   }
   return out.sort((x, y) => x.from_title.localeCompare(y.from_title));
 }
 
 export function calendarsFor(db: DB, worldId: string, viewer: RecordViewer) {
-  return all<any>(db, `SELECT c.* FROM intake_calendars c JOIN sources s ON s.id = c.source_id WHERE c.world_id = ? ${isDm(viewer) ? '' : "AND c.visibility = 'party'"} ORDER BY c.name`, worldId)
+  return all<any>(db, `SELECT c.* FROM intake_calendars c JOIN sources s ON s.id = c.source_id WHERE c.world_id = ? ${isGm(viewer) ? '' : "AND c.visibility = 'party'"} ORDER BY c.name`, worldId)
     .map((c) => ({ id: c.external_id, source_id: c.source_id, name: c.name, definition: JSON.parse(c.definition), visibility: c.visibility, current: c.current ? JSON.parse(c.current) : null }));
 }
 
 export function timelinesFor(db: DB, worldId: string, viewer: RecordViewer) {
   const find = pageLookup(db, worldId);
   const out: any[] = [];
-  for (const t of all<any>(db, `SELECT t.* FROM intake_timelines t JOIN sources s ON s.id = t.source_id WHERE t.world_id = ? ${isDm(viewer) ? '' : "AND t.visibility = 'party'"} ORDER BY t.name`, worldId)) {
-    const dm = isDm(viewer);
-    const model = dm && viewer.audience !== undefined;
+  for (const t of all<any>(db, `SELECT t.* FROM intake_timelines t JOIN sources s ON s.id = t.source_id WHERE t.world_id = ? ${isGm(viewer) ? '' : "AND t.visibility = 'party'"} ORDER BY t.name`, worldId)) {
+    const gm = isGm(viewer);
+    const model = gm && viewer.audience !== undefined;
     const hidden = (m: Mention) => !m.ref || !find(t.source_id, m.ref)?.party;
-    // Descriptions for the DM's models: no link to a classified page, and a link that resolves to nothing is hidden too.
+    // Descriptions for the GM's models: no link to a classified page, and a link that resolves to nothing is hidden too.
     const blind = (m: Mention) => !m.ref || !find(t.source_id, m.ref) || find(t.source_id, m.ref)!.classified;
-    const desc = (b: Block[]): Block[] => (!dm ? playerBlocks(b, hidden) : model ? blocksFor(b, 'ai', blind) : b);
+    const desc = (b: Block[]): Block[] => (!gm ? playerBlocks(b, hidden) : model ? blocksFor(b, 'ai', blind) : b);
     const groups = (JSON.parse(t.data || '[]') as TimelineGroup[]).map((g) => ({
       name: g.name, abbreviation: g.abbreviation ?? null,
       description: g.description ? desc(g.description) : [] as Block[],
-      events: g.events.filter((e) => dm || e.visibility === 'party').map((e) => {
+      events: g.events.filter((e) => gm || e.visibility === 'party').map((e) => {
         const page = find(t.source_id, e.ref);
         return {
           id: e.id, name: e.name, date: e.date ?? null, color: e.color ?? null, visibility: e.visibility,
           description: e.description ? desc(e.description) : [] as Block[],
-          page: page && (dm || page.party) && !modelBlind(viewer, page) ? { id: page.id, title: page.title } : null,
+          page: page && (gm || page.party) && !modelBlind(viewer, page) ? { id: page.id, title: page.title } : null,
         };
       }),
     }));
@@ -430,10 +430,10 @@ export function markersFor(db: DB, worldId: string, viewer: RecordViewer) {
     const page = find(m.source_id, m.ref);
     if (modelBlind(viewer, page)) continue;
     const shared = m.visibility === 'party' && map.party && (!m.ref || !!page?.party);
-    if (!isDm(viewer) && !shared) continue;
+    if (!isGm(viewer) && !shared) continue;
     out.push({
       id: `${m.source_id}:${m.external_id}`, source_id: m.source_id, name: m.name, latitude: m.latitude, longitude: m.longitude, shape: m.shape, color: m.color,
-      visibility: shared ? 'party' : 'dm', map: { id: map.id, title: map.title }, page: page && (isDm(viewer) || page.party) ? { id: page.id, title: page.title } : null,
+      visibility: shared ? 'party' : 'gm', map: { id: map.id, title: map.title }, page: page && (isGm(viewer) || page.party) ? { id: page.id, title: page.title } : null,
     });
   }
   return out;

@@ -1,6 +1,6 @@
 // Video in the library and on the players' screen: sniffing, streamed uploads
 // with their own limit, Range responses, video items, the "ended" report
-// rules, mixed folders, DM-only files shown by the DM's choice, and sharing.
+// rules, mixed folders, GM-only files shown by the GM's choice, and sharing.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -58,13 +58,13 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
   return r.body;
 };
 const upload = async (name: string, query: Record<string, string>, bytes: Buffer, expect = 201) => {
-  const r = await call('POST', `/api/worlds/${W}/files?${new URLSearchParams({ name, ...query })}`, T.dm, bytes);
+  const r = await call('POST', `/api/worlds/${W}/files?${new URLSearchParams({ name, ...query })}`, T.gm, bytes);
   assert.equal(r.status, expect, JSON.stringify(r.body));
   return r.body;
 };
 const screen = (tok: string) => ok('GET', `${SC()}/players`, tok);
-const wipe = () => ok('POST', `${SC()}/media/clear`, T.dm, {});
-const addFile = (ref: string, extra: Record<string, unknown> = {}) => ok('POST', `${SC()}/media/items`, T.dm, { kind: 'video', ref, ...extra });
+const wipe = () => ok('POST', `${SC()}/media/clear`, T.gm, {});
+const addFile = (ref: string, extra: Record<string, unknown> = {}) => ok('POST', `${SC()}/media/items`, T.gm, { kind: 'video', ref, ...extra });
 const backdate = () => run(deps.db, 'UPDATE screen_media SET advanced_at = advanced_at - 60000');
 const incoming = () => { try { return fs.readdirSync(path.join(tmp, 'data', 'libfiles', '.incoming')); } catch { return []; } };
 
@@ -76,10 +76,10 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Videoland', dmAccountId: dm.account.id })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Videoland', gmAccountId: gm.account.id })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'jess' })).token;
 });
 after(() => { server?.close(); server?.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -98,7 +98,7 @@ test('TestVideo_SniffAcceptsMp4WebmMovAndStillRefusesRenamedPrograms', () => {
 });
 
 test('TestVideo_UploadIsStreamedWithItsOwnLimitAndImagesKeepTheirs', async () => {
-  const pg = await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'lore/Clips.md', visibility: 'party', body: 'clips' });
+  const pg = await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'lore/Clips.md', visibility: 'party', body: 'clips' });
   const q = { page: pg.id, level: 'party' };
   // 3 MB is over the 1 MB picture limit and fine for a video.
   const big = mp4(3 * MB);
@@ -114,19 +114,19 @@ test('TestVideo_UploadIsStreamedWithItsOwnLimitAndImagesKeepTheirs', async () =>
   await upload('big.png', q, Buffer.concat([PNG, Buffer.alloc(MB)]), 413);
   await upload('huge.mp4', q, mp4(9 * MB), 413);
   assert.deepEqual(incoming(), []);
-  assert.equal((await ok('GET', `/api/worlds/${W}/files?page=${pg.id}`, T.dm)).videoMax, 8 * MB);
+  assert.equal((await ok('GET', `/api/worlds/${W}/files?page=${pg.id}`, T.gm)).videoMax, 8 * MB);
   // A text file with a video name is not let in by the video path; players cannot upload.
   await upload('lie.mp4', q, Buffer.from('hello there, not a video at all'), 415);
   const pl = await call('POST', `/api/worlds/${W}/files?name=a.mp4&page=${pg.id}`, T.jess, mp4());
   assert.equal(pl.status, 403);
-  assert.equal((await call('POST', `/api/worlds/${W}/files?name=a.mp4&page=${pg.id}&kind=map`, T.dm, mp4())).status, 400, 'a map must be a picture');
-  assert.equal((await call('POST', `/api/worlds/${W}/files?name=a.mp4&page=${pg.id}&send=x`, T.dm, mp4())).status, 400, 'videos are not sent to sources');
+  assert.equal((await call('POST', `/api/worlds/${W}/files?name=a.mp4&page=${pg.id}&kind=map`, T.gm, mp4())).status, 400, 'a map must be a picture');
+  assert.equal((await call('POST', `/api/worlds/${W}/files?name=a.mp4&page=${pg.id}&send=x`, T.gm, mp4())).status, 400, 'videos are not sent to sources');
 });
 
 test('TestVideo_AnAbortedUploadLeavesNoFile', async () => {
   const before = fs.existsSync(path.join(tmp, 'data', 'libfiles', W)) ? fs.readdirSync(path.join(tmp, 'data', 'libfiles', W)).length : 0;
   await new Promise<void>((resolve) => {
-    const req = http.request(`${base}/api/worlds/${W}/files?name=cut.mp4&folder=Cut&title=Cut`, { method: 'POST', headers: { Authorization: `Bearer ${T.dm}`, 'Content-Length': String(4 * MB), 'Content-Type': 'application/octet-stream' } });
+    const req = http.request(`${base}/api/worlds/${W}/files?name=cut.mp4&folder=Cut&title=Cut`, { method: 'POST', headers: { Authorization: `Bearer ${T.gm}`, 'Content-Length': String(4 * MB), 'Content-Type': 'application/octet-stream' } });
     req.on('error', () => {});
     req.write(mp4(600 * 1024));
     setTimeout(() => { req.destroy(); resolve(); }, 200);
@@ -135,7 +135,7 @@ test('TestVideo_AnAbortedUploadLeavesNoFile', async () => {
   assert.deepEqual(incoming(), [], 'temp file cleaned up');
   const after = fs.existsSync(path.join(tmp, 'data', 'libfiles', W)) ? fs.readdirSync(path.join(tmp, 'data', 'libfiles', W)).length : 0;
   assert.equal(after, before);
-  const pages = await ok('GET', `/api/worlds/${W}/library/pages`, T.dm);
+  const pages = await ok('GET', `/api/worlds/${W}/library/pages`, T.gm);
   assert.ok(!JSON.stringify(pages).includes('Cut.md'), 'no file page was made for the aborted upload');
 });
 
@@ -175,9 +175,9 @@ test('TestVideo_RangeRequestsAnswer206WithTheRightBytes', async () => {
 test('TestVideo_VideoItemsHiddenNeverSentAndPlayersCannotAdd', async () => {
   const f = await upload('hid.mp4', { folder: 'Items', title: 'Hid', level: 'party' }, mp4());
   assert.equal((await call('POST', `${SC()}/media/items`, T.jess, { kind: 'video', ref: f.id })).status, 403);
-  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'video', ref: 'lf_nope' })).status, 400);
+  assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'video', ref: 'lf_nope' })).status, 400);
   const png = await upload('pic.png', { folder: 'Items', title: 'Pic', level: 'party' }, PNG);
-  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'video', ref: png.id })).status, 400, 'a picture is not a video');
+  assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'video', ref: png.id })).status, 400, 'a picture is not a video');
   const m = await addFile(f.id, { play: true, sound: false, playSecs: 30 });
   const item = m.items[0];
   assert.deepEqual([item.kind, item.sound, item.playSecs, item.loopVideo], ['video', false, 30, false]);
@@ -185,15 +185,15 @@ test('TestVideo_VideoItemsHiddenNeverSentAndPlayersCannotAdd', async () => {
   assert.deepEqual([cur.kind, cur.sound, cur.playSecs, cur.loop], ['video', false, 30, false]);
   assert.equal((await call('GET', cur.url)).status, 200);
   assert.equal((await call('PATCH', `${SC()}/media/items/${item.id}`, T.jess, { sound: true })).status, 403);
-  assert.equal((await call('PATCH', `${SC()}/media/items/${item.id}`, T.dm, { playSecs: 1 })).status, 400);
-  await ok('PATCH', `${SC()}/media/items/${item.id}`, T.dm, { hidden: true });
+  assert.equal((await call('PATCH', `${SC()}/media/items/${item.id}`, T.gm, { playSecs: 1 })).status, 400);
+  await ok('PATCH', `${SC()}/media/items/${item.id}`, T.gm, { hidden: true });
   const s = await screen(T.jess);
   assert.equal(s.media.current, null, 'hidden: not sent');
   assert.ok(!JSON.stringify(s).includes(f.id) && !JSON.stringify(s).includes(item.id));
   assert.equal((await call('GET', cur.url)).status, 404, 'hidden: not served');
   // Sound, play time and loop belong to videos only.
-  const img = await ok('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: png.id });
-  assert.equal((await call('PATCH', `${SC()}/media/items/${img.items[1].id}`, T.dm, { loopVideo: true })).status, 400);
+  const img = await ok('POST', `${SC()}/media/items`, T.gm, { kind: 'image', ref: png.id });
+  assert.equal((await call('PATCH', `${SC()}/media/items/${img.items[1].id}`, T.gm, { loopVideo: true })).status, 400);
   await wipe();
 });
 
@@ -201,7 +201,7 @@ test('TestVideo_EndedReportRules', async () => {
   const a = await upload('e1.webm', { folder: 'Ended', title: 'E1', level: 'party' }, webm());
   const b = await upload('e2.webm', { folder: 'Ended', title: 'E2', level: 'party' }, webm());
   const c = await upload('e3.png', { folder: 'Ended', title: 'E3', level: 'party' }, PNG);
-  const loaded = await ok('POST', `${SC()}/media/folder`, T.dm, { folder: 'Ended', intervalSec: 5 });
+  const loaded = await ok('POST', `${SC()}/media/folder`, T.gm, { folder: 'Ended', intervalSec: 5 });
   const [i1, i2, i3] = loaded.items.map((i: any) => i.id);
   assert.deepEqual(loaded.items.map((i: any) => i.ref), [a.id, b.id, c.id]);
   const cur = async () => (await screen(T.jess)).media;
@@ -222,26 +222,26 @@ test('TestVideo_EndedReportRules', async () => {
   const first = await report(T.jess, i1, m.version);
   assert.equal(first.body.accepted, true);
   assert.equal((await cur()).current.id, i2);
-  const dup = await report(T.dm, i1, m.version);
+  const dup = await report(T.gm, i1, m.version);
   assert.deepEqual([dup.body.accepted, dup.body.reason], [false, 'stale']);
   assert.equal((await cur()).current.id, i2);
-  // The DM stops the slideshow: a report changes nothing while paused.
+  // The GM stops the slideshow: a report changes nothing while paused.
   m = await cur();
   backdate();
-  await ok('PUT', `${SC()}/media`, T.dm, { playing: false });
+  await ok('PUT', `${SC()}/media`, T.gm, { playing: false });
   backdate();
   m = await cur();
   assert.equal((await report(T.jess, i2, m.version)).body.reason, 'paused');
-  await ok('PUT', `${SC()}/media`, T.dm, { playing: true });
+  await ok('PUT', `${SC()}/media`, T.gm, { playing: true });
   backdate();
   m = await cur();
-  // A video with its own play time or on loop is not moved by a report (the clock or the DM moves it).
-  await ok('PATCH', `${SC()}/media/items/${i2}`, T.dm, { loopVideo: true });
+  // A video with its own play time or on loop is not moved by a report (the clock or the GM moves it).
+  await ok('PATCH', `${SC()}/media/items/${i2}`, T.gm, { loopVideo: true });
   backdate();
   m = await cur();
   assert.equal((await report(T.jess, i2, m.version)).body.reason, 'timed');
   assert.equal(tick(deps, Date.now() + 999_000), 0, 'a looping video with no play time stays');
-  await ok('PATCH', `${SC()}/media/items/${i2}`, T.dm, { loopVideo: false, playSecs: 4 });
+  await ok('PATCH', `${SC()}/media/items/${i2}`, T.gm, { loopVideo: false, playSecs: 4 });
   run(deps.db, 'UPDATE screen_media SET advanced_at = ?', Date.now());
   assert.equal(tick(deps, Date.now() + 1000), 0);
   assert.equal(tick(deps, Date.now() + 5000), 1, 'play for N seconds moves it on');
@@ -252,8 +252,8 @@ test('TestVideo_EndedReportRules', async () => {
   assert.equal((await report(T.jess, i3, m.version)).body.reason, 'not-video');
   assert.equal(tick(deps, Date.now() + 6000), 1);
   // Queue mode: a video ending moves to the next item; at the end without loop it stays.
-  await ok('PATCH', `${SC()}/media/items/${i2}`, T.dm, { playSecs: 0 });
-  await ok('PUT', `${SC()}/media`, T.dm, { mode: 'queue', currentId: i1, loop: false });
+  await ok('PATCH', `${SC()}/media/items/${i2}`, T.gm, { playSecs: 0 });
+  await ok('PUT', `${SC()}/media`, T.gm, { mode: 'queue', currentId: i1, loop: false });
   backdate();
   m = await cur();
   assert.equal((await report(T.jess, i1, m.version)).body.accepted, true);
@@ -263,7 +263,7 @@ test('TestVideo_EndedReportRules', async () => {
   assert.equal((await report(T.jess, i2, m.version)).body.accepted, true);
   assert.equal((await cur()).current.id, i3);
   // Focus and off: a report does nothing.
-  await ok('POST', `${SC()}/media/focus`, T.dm, { id: i1 });
+  await ok('POST', `${SC()}/media/focus`, T.gm, { id: i1 });
   backdate();
   m = await cur();
   assert.equal((await report(T.jess, i1, m.version)).body.reason, 'mode');
@@ -277,61 +277,61 @@ test('TestVideo_FolderLoadsPicturesGifsAndVideosMixedInNameOrder', async () => {
   await upload('10-last.webm', { folder: 'Mixed', title: 'Last', level: 'party' }, webm());
   await upload('2-second.png', { folder: 'Mixed', title: 'Second', level: 'party' }, PNG);
   await upload('notes.txt', { folder: 'Mixed', title: 'Notes', level: 'party' }, Buffer.from('words'));
-  const r = await ok('POST', `${SC()}/media/folder`, T.dm, { folder: 'Mixed', intervalSec: 3 });
+  const r = await ok('POST', `${SC()}/media/folder`, T.gm, { folder: 'Mixed', intervalSec: 3 });
   assert.deepEqual(r.items.map((i: any) => `${i.kind}:${i.title}`), ['image:2-second', 'video:10-last', 'image:a-map', 'video:b-clip', 'image:c-fire']);
   assert.equal(r.loaded, 5);
-  const src = await ok('GET', `${SC()}/media/sources`, T.dm);
+  const src = await ok('GET', `${SC()}/media/sources`, T.gm);
   const fo = src.folders.find((x: any) => x.folder === 'Mixed');
   assert.deepEqual([fo.images, fo.videos], [3, 2]);
   assert.ok(src.files.some((x: any) => x.family === 'video'));
   assert.equal((await call('GET', `${SC()}/media/sources`, T.jess)).status, 403);
   // A GIF is a picture: it keeps the slideshow interval; a video waits for its end.
   const gif = r.items.find((i: any) => i.title === 'c-fire');
-  await ok('PUT', `${SC()}/media`, T.dm, { currentId: gif.id });
+  await ok('PUT', `${SC()}/media`, T.gm, { currentId: gif.id });
   assert.equal(tick(deps, Date.now() + 1000), 0);
   assert.equal(tick(deps, Date.now() + 4000), 1);
   assert.equal((await screen(T.jess)).media.current.kind, 'image');
   await wipe();
 });
 
-test('TestVideo_DmOnlyFilesCanBeShownOnlyWhileCurrentAndClassifiedNever', async () => {
-  const dmv = await upload('secret.mp4', { folder: 'Private', title: 'Private clip', level: 'dm' }, mp4());
-  const dmp = await upload('secret.png', { folder: 'Private', title: 'Private pic', level: 'dm' }, PNG);
+test('TestVideo_GmOnlyFilesCanBeShownOnlyWhileCurrentAndClassifiedNever', async () => {
+  const dmv = await upload('secret.mp4', { folder: 'Private', title: 'Private clip', level: 'gm' }, mp4());
+  const gmp = await upload('secret.png', { folder: 'Private', title: 'Private pic', level: 'gm' }, PNG);
   const cls = await upload('sealed.mp4', { folder: 'Private', title: 'Sealed clip', level: 'classified' }, mp4());
-  assert.equal((await call('POST', `${SC()}/media/items`, T.dm, { kind: 'video', ref: cls.id })).status, 409, 'classified is refused');
-  const folderLoad = await ok('POST', `${SC()}/media/folder`, T.dm, { folder: 'Private' });
+  assert.equal((await call('POST', `${SC()}/media/items`, T.gm, { kind: 'video', ref: cls.id })).status, 409, 'classified is refused');
+  const folderLoad = await ok('POST', `${SC()}/media/folder`, T.gm, { folder: 'Private' });
   assert.equal(folderLoad.loaded, 2);
   assert.equal(folderLoad.skipped, 1, 'the classified file is skipped');
   assert.ok(!folderLoad.items.some((i: any) => i.ref === cls.id));
   await wipe();
-  // A DM-only video: shown now (play), served while it is the current visible item.
+  // A GM-only video: shown now (play), served while it is the current visible item.
   const m = await addFile(dmv.id, { play: true });
-  assert.equal(m.items[0].dmOnly, true);
+  assert.equal(m.items[0].gmOnly, true);
   const url = (await screen(T.jess)).media.current.url;
   assert.equal((await call('GET', url)).status, 200);
   assert.equal((await call('GET', url, undefined, undefined, { Range: 'bytes=0-3' })).status, 206);
   // Queued but not current: not served (the ticket is the same, the item is not showing).
-  const other = await ok('POST', `${SC()}/media/items`, T.dm, { kind: 'image', ref: dmp.id });
+  const other = await ok('POST', `${SC()}/media/items`, T.gm, { kind: 'image', ref: gmp.id });
   const otherId = other.items[1].id;
-  await ok('PUT', `${SC()}/media`, T.dm, { mode: 'queue', currentId: otherId });
+  await ok('PUT', `${SC()}/media`, T.gm, { mode: 'queue', currentId: otherId });
   assert.equal((await call('GET', url)).status, 404, 'no longer current');
   const picUrl = (await screen(T.jess)).media.current.url;
   assert.equal((await call('GET', picUrl)).status, 200);
-  await ok('PATCH', `${SC()}/media/items/${otherId}`, T.dm, { hidden: true });
+  await ok('PATCH', `${SC()}/media/items/${otherId}`, T.gm, { hidden: true });
   assert.equal((await call('GET', picUrl)).status, 404, 'hidden');
-  await ok('PATCH', `${SC()}/media/items/${otherId}`, T.dm, { hidden: false });
+  await ok('PATCH', `${SC()}/media/items/${otherId}`, T.gm, { hidden: false });
   assert.equal((await call('GET', picUrl)).status, 200);
-  await ok('PUT', `${SC()}/media`, T.dm, { mode: 'off' });
+  await ok('PUT', `${SC()}/media`, T.gm, { mode: 'off' });
   assert.equal((await call('GET', picUrl)).status, 404, 'media off');
-  await ok('PUT', `${SC()}/media`, T.dm, { mode: 'queue', currentId: otherId });
+  await ok('PUT', `${SC()}/media`, T.gm, { mode: 'queue', currentId: otherId });
   // The file becomes classified: it is no longer sent or served.
-  await ok('PATCH', `/api/worlds/${W}/files/${dmp.id}`, T.dm, { level: 'classified' });
+  await ok('PATCH', `/api/worlds/${W}/files/${gmp.id}`, T.gm, { level: 'classified' });
   assert.equal((await call('GET', picUrl)).status, 404, 'classified now');
   assert.equal((await screen(T.jess)).media.current, null);
   // It never appears in what players can see of the library.
   for (const tok of [T.jess]) {
     const files = await ok('GET', `/api/worlds/${W}/files`, tok);
-    assert.ok(!files.files.some((f: any) => [dmv.id, dmp.id, cls.id].includes(f.id)), 'not in the file list');
+    assert.ok(!files.files.some((f: any) => [dmv.id, gmp.id, cls.id].includes(f.id)), 'not in the file list');
     const found = await ok('GET', `/api/worlds/${W}/library/search?q=${encodeURIComponent('Private')}`, tok);
     assert.ok(!JSON.stringify(found).includes('Private clip') && !JSON.stringify(found).includes('Private pic'), 'not in search');
     const pages = await ok('GET', `/api/worlds/${W}/library/pages`, tok);
@@ -341,24 +341,24 @@ test('TestVideo_DmOnlyFilesCanBeShownOnlyWhileCurrentAndClassifiedNever', async 
   await wipe();
 });
 
-test('TestVideo_ShareWithPartyIsDmOnlyAndOpensTheFilePage', async () => {
-  const f = await upload('share.mp4', { folder: 'Shareme', title: 'Share me', level: 'dm' }, mp4());
+test('TestVideo_ShareWithPartyIsGmOnlyAndOpensTheFilePage', async () => {
+  const f = await upload('share.mp4', { folder: 'Shareme', title: 'Share me', level: 'gm' }, mp4());
   assert.equal((await call('POST', `${SC()}/media/share`, T.jess, { fileId: f.id })).status, 403);
-  assert.equal((await call('POST', `${SC()}/media/share`, T.dm, { fileId: 'lf_nope' })).status, 404);
-  assert.equal((await call('POST', `${SC()}/media/share`, T.dm, {})).status, 400);
-  const before = (await ok('GET', `${SC()}/media/sources`, T.dm)).files.find((x: any) => x.id === f.id);
+  assert.equal((await call('POST', `${SC()}/media/share`, T.gm, { fileId: 'lf_nope' })).status, 404);
+  assert.equal((await call('POST', `${SC()}/media/share`, T.gm, {})).status, 400);
+  const before = (await ok('GET', `${SC()}/media/sources`, T.gm)).files.find((x: any) => x.id === f.id);
   assert.equal(before.shared, false);
   assert.equal((await ok('GET', `/api/worlds/${W}/files`, T.jess)).files.some((x: any) => x.id === f.id), false);
-  await ok('POST', `${SC()}/media/share`, T.dm, { fileId: f.id });
-  const after = (await ok('GET', `${SC()}/media/sources`, T.dm)).files.find((x: any) => x.id === f.id);
+  await ok('POST', `${SC()}/media/share`, T.gm, { fileId: f.id });
+  const after = (await ok('GET', `${SC()}/media/sources`, T.gm)).files.find((x: any) => x.id === f.id);
   assert.equal(after.shared, true);
   assert.equal((await ok('GET', `/api/worlds/${W}/files`, T.jess)).files.some((x: any) => x.id === f.id), true, 'players can open it now');
   // A page with its own text is not opened by sharing a file on it.
-  const pg = await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'secret/Plot.md', visibility: 'dm', body: 'The duke did it.' });
-  const g = await upload('plot.mp4', { page: pg.id, level: 'dm' }, mp4());
-  const r = await call('POST', `${SC()}/media/share`, T.dm, { fileId: g.id });
+  const pg = await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'secret/Plot.md', visibility: 'gm', body: 'The duke did it.' });
+  const g = await upload('plot.mp4', { page: pg.id, level: 'gm' }, mp4());
+  const r = await call('POST', `${SC()}/media/share`, T.gm, { fileId: g.id });
   assert.equal(r.status, 409);
-  const still = (await ok('GET', `${SC()}/media/sources`, T.dm)).files.find((x: any) => x.id === g.id);
+  const still = (await ok('GET', `${SC()}/media/sources`, T.gm)).files.find((x: any) => x.id === g.id);
   assert.equal(still.shared, false);
   assert.ok(!JSON.stringify(await ok('GET', `/api/worlds/${W}/library/pages`, T.jess)).includes('duke'));
 });

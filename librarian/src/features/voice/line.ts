@@ -1,6 +1,6 @@
 // One spoken line: the voice model reads text with a preset, the audio is kept under the data folder for a day,
 // and a `sound` event (channel 'voice') tells the table and players' devices to play it. A line meant for some
-// players only (an NPC talking to one player) is served to those players and the DM, and to no one else.
+// players only (an NPC talking to one player) is served to those players and the GM, and to no one else.
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
@@ -30,14 +30,14 @@ export function findPreset(d: Deps, worldId: string, idOrName: string): Preset |
 }
 
 /**
- * The spoken line, if this person may hear it: the DM always; a player only if it went to players within the last
+ * The spoken line, if this person may hear it: the GM always; a player only if it went to players within the last
  * hour and, for a line meant for some players, they are one of them.
  */
-export function lineFor(d: Deps, worldId: string, dm: boolean, name: string, accountId: string) {
+export function lineFor(d: Deps, worldId: string, gm: boolean, name: string, accountId: string) {
   if (!NAME.test(name) || !d.dataDir) return null;
   const row = one<any>(d.db, 'SELECT * FROM voice_files WHERE world_id = ? AND name = ?', worldId, name);
   if (!row) return null;
-  if (!dm) {
+  if (!gm) {
     if (!toPlayers(row.target) || Date.parse(row.created_at) < Date.now() - PLAYER_WINDOW_MS) return null;
     const who = parseJson<string[] | null>(row.accounts, null);
     if (who && !who.includes(accountId)) return null;

@@ -1,4 +1,4 @@
-// The DM's remote for the players' screen: what is playing, next/previous,
+// The GM's remote for the players' screen: what is playing, next/previous,
 // the queue (YouTube links and pictures), slideshow settings and focus.
 // PlayerScreenControls is compact so another panel (the portrait side
 // monitor) can mount it; the "Players' screen" page adds the picture sources.
@@ -7,16 +7,16 @@ import { useWorld, useLoad } from '../../lib/world.tsx';
 import { useAuth } from '../../lib/auth.tsx';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
 
-export interface MediaItem { id: string; kind: 'youtube' | 'image' | 'video'; ref: string; title: string; hidden: boolean; thumb: string | null; dmOnly?: boolean; blocked?: boolean; sound?: boolean; loopVideo?: boolean; playSecs?: number }
-export interface DmMedia { mode: 'off' | 'queue' | 'slideshow' | 'focus'; prevMode: string; playing: boolean; loop: boolean; intervalSec: number; currentId: string | null; focusId: string | null; items: MediaItem[] }
+export interface MediaItem { id: string; kind: 'youtube' | 'image' | 'video'; ref: string; title: string; hidden: boolean; thumb: string | null; gmOnly?: boolean; blocked?: boolean; sound?: boolean; loopVideo?: boolean; playSecs?: number }
+export interface GmMedia { mode: 'off' | 'queue' | 'slideshow' | 'focus'; prevMode: string; playing: boolean; loop: boolean; intervalSec: number; currentId: string | null; focusId: string | null; items: MediaItem[] }
 export interface Sources { folders: { folder: string; images: number; videos: number; shared: number; showable: number }[]; files: { id: string; name: string; folder: string; family: 'image' | 'video'; shared: boolean; blocked: boolean; thumb: string }[]; stage: { id: string; label: string; thumb: string }[] }
 
-/** The media state for the DM, live. Writes answer with the new state, which is used straight away. */
+/** The media state for the GM, live. Writes answer with the new state, which is used straight away. */
 export function useScreenMedia() {
   const { w } = useWorld();
-  const l = useLoad(() => w.call<DmMedia>('GET', '/screen/media'), [w], ['screen']);
+  const l = useLoad(() => w.call<GmMedia>('GET', '/screen/media'), [w], ['screen']);
   const act = useAction();
-  const send = (method: string, path: string, body?: unknown) => act.run(async () => { l.setData(await w.call<DmMedia>(method, `/screen/media${path}`, body ?? {})); });
+  const send = (method: string, path: string, body?: unknown) => act.run(async () => { l.setData(await w.call<GmMedia>(method, `/screen/media${path}`, body ?? {})); });
   return { media: l.data, loading: l.loading, error: l.error ?? act.error, busy: act.busy, send, reload: l.reload };
 }
 
@@ -46,7 +46,7 @@ const label = (i: MediaItem) => i.title || (i.kind === 'youtube' ? `YouTube ${i.
 /** A picture, or the first frame of a video (a muted, paused <video> on its ticket URL). */
 const Thumb = ({ url, video }: { url: string; video: boolean }) => (video ? <video src={`${url}#t=0.1`} preload="metadata" muted playsInline aria-hidden="true" /> : <img src={url} alt="" referrerPolicy="no-referrer" loading="lazy" />);
 
-function Row({ item, idx, last, m, send, busy }: { item: MediaItem; idx: number; last: boolean; m: DmMedia; send: ReturnType<typeof useScreenMedia>['send']; busy: boolean }) {
+function Row({ item, idx, last, m, send, busy }: { item: MediaItem; idx: number; last: boolean; m: GmMedia; send: ReturnType<typeof useScreenMedia>['send']; busy: boolean }) {
   const { client } = useAuth();
   const thumb = item.thumb ? (item.thumb.startsWith('/') ? client.baseUrl + item.thumb : item.thumb) : null;
   const move = (to: number) => {
@@ -58,7 +58,7 @@ function Row({ item, idx, last, m, send, busy }: { item: MediaItem; idx: number;
   return (
     <li className={`${m.currentId === item.id ? 'cur' : ''} ${item.hidden ? 'off' : ''}`}>
       {thumb ? <Thumb url={thumb} video={item.kind === 'video'} /> : <span style={{ width: 56 }} />}
-      <span className="t" title={label(item)}>{item.kind === 'video' && <i className="fa-solid fa-film" aria-hidden="true" />} {label(item)}{item.hidden && <span className="muted"> (hidden)</span>}{item.dmOnly && <span className="muted" title="Players cannot open this file in the library; it shows only while it is on the screen"> (DM-only)</span>}{item.blocked && <span className="muted"> (classified: will not show)</span>}</span>
+      <span className="t" title={label(item)}>{item.kind === 'video' && <i className="fa-solid fa-film" aria-hidden="true" />} {label(item)}{item.hidden && <span className="muted"> (hidden)</span>}{item.gmOnly && <span className="muted" title="Players cannot open this file in the library; it shows only while it is on the screen"> (GM-only)</span>}{item.blocked && <span className="muted"> (classified: will not show)</span>}</span>
       <span className="acts">
         <button type="button" className="btn small" disabled={busy || item.hidden} onClick={() => void showNow()}>Show</button>
         <button type="button" className={`btn small${m.focusId === item.id ? ' on' : ''}`} aria-pressed={m.focusId === item.id} disabled={busy || item.hidden} onClick={() => void send('POST', '/focus', { id: m.focusId === item.id ? null : item.id })}>Focus</button>
@@ -133,7 +133,7 @@ export function PlayerScreenControls({ showQueue = true }: { showQueue?: boolean
   );
 }
 
-/** Pictures the DM can put on the screen: a folder as a slideshow, one library picture, one stage picture. */
+/** Pictures the GM can put on the screen: a folder as a slideshow, one library picture, one stage picture. */
 export function PictureSources({ onDone }: { onDone?: () => void }) {
   const { w } = useWorld();
   const { client } = useAuth();
@@ -172,7 +172,7 @@ export function PictureSources({ onDone }: { onDone?: () => void }) {
           {s.files.map((f) => (
             <div className="cell" key={f.id}>
               <button type="button" disabled={act.busy || f.blocked} title={f.blocked ? 'Classified: it cannot go on the screen' : f.shared ? 'Add to the queue' : 'Only you can open this file. Add it to the queue to show it on the screen anyway'} onClick={() => void add(f.id, f.family)}>
-                <Thumb url={thumb(f.thumb)} video={f.family === 'video'} /><span>{f.family === 'video' && <i className="fa-solid fa-film" aria-hidden="true" />} {f.name}{f.blocked ? ' (classified)' : !f.shared ? ' (DM-only)' : ''}</span>
+                <Thumb url={thumb(f.thumb)} video={f.family === 'video'} /><span>{f.family === 'video' && <i className="fa-solid fa-film" aria-hidden="true" />} {f.name}{f.blocked ? ' (classified)' : !f.shared ? ' (GM-only)' : ''}</span>
               </button>
               {!f.shared && !f.blocked && <button type="button" className="btn small" disabled={act.busy} aria-label={`Share ${f.name} with the party`} onClick={() => void share(f)}>Share with party</button>}
             </div>

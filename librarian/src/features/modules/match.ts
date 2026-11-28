@@ -3,9 +3,9 @@
 //
 // - The longest phrase wins, case-insensitively, on whole words only.
 // - An index (phrase -> entry) is built per world and per kind of viewer
-//   (DM, or everyone else) and reused until a module or a page changes.
+//   (GM, or everyone else) and reused until a module or a page changes.
 // - Players only ever match pages that have a player copy (visibility
-//   'party' and a computed player_body). A DM-only page's title or aliases
+//   'party' and a computed player_body). A GM-only page's title or aliases
 //   never enter the player index, so they cannot be highlighted or learned.
 import { type DB, all, one } from '../../core/db.ts';
 import { parseJson } from '../../core/util.ts';
@@ -93,19 +93,19 @@ function librarySig(db: DB, worldId: string): string {
 }
 
 function indexFor(db: DB, worldId: string, viewer: Viewer): Index {
-  const dm = viewer.role === 'dm';
-  const model = dm && viewer.audience !== undefined;
+  const gm = viewer.role === 'gm';
+  const model = gm && viewer.audience !== undefined;
   const mods = worldModules(db, worldId);
-  const key = `${dm ? (model ? 'ai' : 'dm') : 'pl'}|${moduleVersion(db, worldId)}|${mods.version}|${librarySig(db, worldId)}`;
-  const slot = `${worldId}|${dm ? (model ? 'ai' : 'dm') : 'pl'}`;
+  const key = `${gm ? (model ? 'ai' : 'gm') : 'pl'}|${moduleVersion(db, worldId)}|${mods.version}|${librarySig(db, worldId)}`;
+  const slot = `${worldId}|${gm ? (model ? 'ai' : 'gm') : 'pl'}`;
   const cache = indexes.get(db) ?? new Map<string, Index>();
   indexes.set(db, cache);
   const hit = cache.get(slot);
   if (hit && hit.key === key) return hit;
   const idx = build(key, (put) => {
     // The world's own pages come first: a campaign page beats a generic rule of the same name.
-    const rows = dm
-      ? all<any>(db, `SELECT id, title, kind, aliases FROM pages WHERE world_id = ? AND visibility IN ('dm', 'party', 'broker'${model ? '' : ", 'classified'"})`, worldId)
+    const rows = gm
+      ? all<any>(db, `SELECT id, title, kind, aliases FROM pages WHERE world_id = ? AND visibility IN ('gm', 'party', 'broker'${model ? '' : ", 'classified'"})`, worldId)
       : all<any>(db, "SELECT id, title, kind, aliases FROM pages WHERE world_id = ? AND visibility = 'party' AND player_body IS NOT NULL", worldId);
     for (const p of rows) {
       const e: Entry = { term: p.title, kind: p.kind || 'page', source: 'library', id: p.id };

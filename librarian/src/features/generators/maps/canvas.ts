@@ -1,15 +1,15 @@
 // A tiny drawing surface for the map generators. A map is a list of shapes in
 // pixels; the same list is written as an SVG and rasterised to a PNG (pure JS,
 // no dependency) so a map can be a library file the Map page and the stage can
-// show. Shapes marked `dm` (secret doors, traps) are left out of the player view.
+// show. Shapes marked `gm` (secret doors, traps) are left out of the player view.
 import zlib from 'node:zlib';
 
 export type Op =
-  | { t: 'rect'; x: number; y: number; w: number; h: number; fill?: string; stroke?: string; sw?: number; a?: number; dm?: boolean }
-  | { t: 'poly'; pts: number[]; fill?: string; stroke?: string; sw?: number; close?: boolean; a?: number; dm?: boolean }
-  | { t: 'lines'; segs: number[]; stroke: string; sw: number; a?: number; dm?: boolean }
-  | { t: 'circle'; x: number; y: number; r: number; fill?: string; stroke?: string; sw?: number; a?: number; dm?: boolean }
-  | { t: 'text'; x: number; y: number; s: string; size: number; fill: string; anchor?: 'start' | 'middle' | 'end'; bold?: boolean; dm?: boolean };
+  | { t: 'rect'; x: number; y: number; w: number; h: number; fill?: string; stroke?: string; sw?: number; a?: number; gm?: boolean }
+  | { t: 'poly'; pts: number[]; fill?: string; stroke?: string; sw?: number; close?: boolean; a?: number; gm?: boolean }
+  | { t: 'lines'; segs: number[]; stroke: string; sw: number; a?: number; gm?: boolean }
+  | { t: 'circle'; x: number; y: number; r: number; fill?: string; stroke?: string; sw?: number; a?: number; gm?: boolean }
+  | { t: 'text'; x: number; y: number; s: string; size: number; fill: string; anchor?: 'start' | 'middle' | 'end'; bold?: boolean; gm?: boolean };
 
 export interface Canvas { w: number; h: number; bg: string; ops: Op[] }
 
@@ -19,14 +19,14 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 /** The SVG text. Only the shapes this view may show are written. */
-export function toSvg(c: Canvas, o: { dm?: boolean; title?: string } = {}): string {
+export function toSvg(c: Canvas, o: { gm?: boolean; title?: string } = {}): string {
   const out: string[] = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${c.w} ${c.h}" width="${c.w}" height="${c.h}" font-family="Georgia, 'Times New Roman', serif">`];
   if (o.title) out.push(`<title>${esc(o.title)}</title>`);
   out.push(`<rect width="${c.w}" height="${c.h}" fill="${c.bg}"/>`);
   const paint = (op: { fill?: string; stroke?: string; sw?: number; a?: number }) =>
     `${op.fill ? ` fill="${op.fill}"` : ' fill="none"'}${op.a !== undefined && op.a < 1 ? ` fill-opacity="${op.a}"` : ''}${op.stroke ? ` stroke="${op.stroke}" stroke-width="${r1(op.sw ?? 1)}" stroke-linejoin="round" stroke-linecap="round"` : ''}`;
   for (const op of c.ops) {
-    if (op.dm && !o.dm) continue;
+    if (op.gm && !o.gm) continue;
     switch (op.t) {
       case 'rect': out.push(`<rect x="${r1(op.x)}" y="${r1(op.y)}" width="${r1(op.w)}" height="${r1(op.h)}"${paint(op)}/>`); break;
       case 'circle': out.push(`<circle cx="${r1(op.x)}" cy="${r1(op.y)}" r="${r1(op.r)}"${paint(op)}/>`); break;
@@ -155,13 +155,13 @@ function chunk(type: string, data: Uint8Array): Buffer {
 }
 
 /** The map as a PNG, at most `max` pixels on its long side. Pure JS: shapes are drawn 2x then averaged down. */
-export function toPng(c: Canvas, o: { dm?: boolean; max?: number } = {}): Buffer {
+export function toPng(c: Canvas, o: { gm?: boolean; max?: number } = {}): Buffer {
   const f = Math.min(1.5, (o.max ?? 1400) / Math.max(c.w, c.h));
   const ow = Math.max(1, Math.round(c.w * f)), oh = Math.max(1, Math.round(c.h * f));
   const SS = 2, k = f * SS;
   const R = new Raster(ow * SS, oh * SS, c.bg);
   for (const op of c.ops) {
-    if (op.dm && !o.dm) continue;
+    if (op.gm && !o.gm) continue;
     const a = 'a' in op && op.a !== undefined ? op.a : 1;
     switch (op.t) {
       case 'rect': {

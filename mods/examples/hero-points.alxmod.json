@@ -12,12 +12,12 @@
     { "id": "hero", "label": "Hero point", "icon": "fa-star", "max": "$max", "start": 1 }
   ],
   "actions": [
-    { "id": "give", "label": "Give", "by": "dm", "resource": "hero", "add": 1, "askReason": true },
+    { "id": "give", "label": "Give", "by": "gm", "resource": "hero", "add": 1, "askReason": true },
     { "id": "spend", "label": "Spend", "by": "owner", "resource": "hero", "add": -1, "effect": { "chat": "{name} spends a hero point: +1d6 ({note})" } }
   ],
   "triggers": [{ "on": "sessionStart", "resource": "hero", "add": 1 }],
   "commands": [{ "word": "hero", "action": "spend" }],
   "sheet": { "title": "Hero points", "resources": ["hero"] },
-  "dmBand": { "chips": ["hero"], "actions": ["give"] },
+  "gmBand": { "chips": ["hero"], "actions": ["give"] },
   "rules": [{ "term": "Hero points", "text": "Spend one to add 1d6 to any roll." }]
 }

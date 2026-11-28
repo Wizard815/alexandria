@@ -118,11 +118,11 @@ Open http://localhost:8090/admin in your browser.
 - Port number (8090)
 
 ### Scribes Management
-- **Add Scribe**: Username, Role (DM/Player/Guest), MCP Access (Full/Read/Custom), Linked World
+- **Add Scribe**: Username, Role (GM/Player/Guest), MCP Access (Full/Read/Custom), Linked World
 - **Edit Scribe**: Update role, MCP access, linked world
 - **Delete Scribe**: Remove users
 - **Scribe Types**:
-  - DM: Full MCP access, read/write permissions
+  - GM: Full MCP access, read/write permissions
   - Player: Read-only MCP access
   - Guest: Limited MCP permissions
 
@@ -177,7 +177,7 @@ The system:
 
 ## Scribe Authentication Flow
 
-### DM Scribes
+### GM Scribes
 - Full MCP access (all tools)
 - Can read/write all data
 - Can access all MCP endpoints
@@ -198,7 +198,7 @@ The system supports multiple concurrent scribes:
 
 ```
 Example Setup:
-- Desktop DM Scribe (full MCP access)
+- Desktop GM Scribe (full MCP access)
 - Mobile Player Scribe 1 (read-only MCP)
 - Desktop Player Scribe 2 (read-only MCP)
 ```

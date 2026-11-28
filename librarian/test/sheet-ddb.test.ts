@@ -1,6 +1,6 @@
 // Importing a character from D&D Beyond onto the player sheet: reading the
 // character link, mapping D&D Beyond's (undocumented) character JSON to the
-// sheet, what a player and the DM may apply, the warning that it is not an
+// sheet, what a player and the GM may apply, the warning that it is not an
 // official API, and the errors when D&D Beyond says no.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -113,24 +113,24 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Beyondholm', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Beyondholm', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : 'Tomas' });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
 });
 
-test('SheetDdb_IsAHouseRule: off until the DM turns on the D&D Beyond import house rule, which switches sheetDdbImport', async () => {
+test('SheetDdb_IsAHouseRule: off until the GM turns on the D&D Beyond import house rule, which switches sheetDdbImport', async () => {
   const off = await call('POST', `${SH()}/me/import/ddb`, T.jess, { json: JSON.stringify(ddbJson()), dryRun: true });
   assert.equal(off.status, 403);
-  assert.match(off.body.error, /DM has not turned on/);
-  assert.match((await call('POST', `${SH()}/me/import/ddb`, T.dm, { json: '{}', dryRun: true })).body.error, /House rules/);
-  await ok('PUT', `/api/worlds/${W}/mods/dndbeyond-import/enabled`, T.dm, { on: true });
-  const s = await ok('GET', `/api/worlds/${W}/settings`, T.dm);
+  assert.match(off.body.error, /GM has not turned on/);
+  assert.match((await call('POST', `${SH()}/me/import/ddb`, T.gm, { json: '{}', dryRun: true })).body.error, /House rules/);
+  await ok('PUT', `/api/worlds/${W}/mods/dndbeyond-import/enabled`, T.gm, { on: true });
+  const s = await ok('GET', `/api/worlds/${W}/settings`, T.gm);
   assert.equal(s.sheetDdbImport, true);
   assert.equal((await ok('POST', `${SH()}/me/import/ddb`, T.jess, { json: JSON.stringify(ddbJson()), dryRun: true })).character.name, 'Brindle Ashvale');
 });
@@ -261,7 +261,7 @@ test('SheetDdb_Preview: dryRun reads the character and the warning without chang
   } finally { deps.fetch = realFetch; }
 });
 
-test('SheetDdb_PlayerImport: Character module first, HP and conditions logged as an import, name and ability scores; spells stay the DM’s', async () => {
+test('SheetDdb_PlayerImport: Character module first, HP and conditions logged as an import, name and ability scores; spells stay the GM’s', async () => {
   fakeDdb(() => ({ status: 200, body: ddbJson() }));
   try {
     const out = await ok('POST', `${SH()}/me/import/ddb`, T.jess, { url: '87654321', apply: { spells: true } });
@@ -301,19 +301,19 @@ test('SheetDdb_PlayerImport: Character module first, HP and conditions logged as
   } finally { deps.fetch = realFetch; }
 });
 
-test('SheetDdb_Permissions: a player imports only onto their own sheet; the DM onto anyone’s and may add known spells', async () => {
+test('SheetDdb_Permissions: a player imports only onto their own sheet; the GM onto anyone’s and may add known spells', async () => {
   fakeDdb(() => ({ status: 200, body: ddbJson({ name: 'Tomas of Beyond' }) }));
   try {
     assert.equal((await call('POST', `${SH()}/${ID.tom}/import/ddb`, T.jess, { url: '87654321' })).status, 404);
-    const out = await ok('POST', `${SH()}/${ID.tom}/import/ddb`, T.dm, { url: '87654321', apply: { spells: true, name: false } });
+    const out = await ok('POST', `${SH()}/${ID.tom}/import/ddb`, T.gm, { url: '87654321', apply: { spells: true, name: false } });
     assert.ok(out.applied.includes('spells'));
     assert.ok(out.learned >= 2, `learned ${out.learned}`);
     assert.ok(out.notes.some((n: string) => /Blorbo/.test(n)), 'homebrew not in the list is named');
-    const sp = await ok('GET', `/api/worlds/${W}/spells/characters/${ID.tom}`, T.dm);
+    const sp = await ok('GET', `/api/worlds/${W}/spells/characters/${ID.tom}`, T.gm);
     assert.ok(sp.known.some((s: any) => s.name === 'Magic Missile' && s.how === 'import'));
-    const sheet = await ok('GET', `${SH()}/${ID.tom}`, T.dm);
+    const sheet = await ok('GET', `${SH()}/${ID.tom}`, T.gm);
     assert.equal(sheet.name, 'Tomas');
-    assert.ok((await ok('GET', `${SH()}/log?account=${ID.tom}`, T.dm)).log.some((x: any) => x.source === 'import' && x.by === ID.dm));
+    assert.ok((await ok('GET', `${SH()}/log?account=${ID.tom}`, T.gm)).log.some((x: any) => x.source === 'import' && x.by === ID.gm));
   } finally { deps.fetch = realFetch; }
 });
 
@@ -337,16 +337,16 @@ test('SheetDdb_Errors: private, missing, changed format, a bad link, pasted JSON
   } finally { deps.fetch = realFetch; }
 });
 
-test('SheetDdb_DmKeepsStats: with spellPlayerStats off a player import leaves class, level and scores alone and says so', async () => {
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellPlayerStats: false });
+test('SheetDdb_GmKeepsStats: with spellPlayerStats off a player import leaves class, level and scores alone and says so', async () => {
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { spellPlayerStats: false });
   fakeDdb(() => ({ status: 200, body: ddbJson({ classes: [{ level: 9, definition: { name: 'Cleric', spellCastingAbilityId: 5 } }] }) }));
   try {
     const out = await ok('POST', `${SH()}/me/import/ddb`, T.tom, { url: '87654321', apply: { name: false } });
     assert.ok(!out.applied.includes('stats'));
-    assert.ok(out.notes.some((n: string) => /DM keeps ability scores/.test(n)));
+    assert.ok(out.notes.some((n: string) => /GM keeps ability scores/.test(n)));
     assert.notEqual((await ok('GET', `/api/worlds/${W}/spells/characters/me`, T.tom)).level, 9);
   } finally {
     deps.fetch = realFetch;
-    await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { spellPlayerStats: true });
+    await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { spellPlayerStats: true });
   }
 });

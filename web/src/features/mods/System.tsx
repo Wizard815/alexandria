@@ -1,6 +1,6 @@
 // House rules data systems on the web (kit 2): a rule's views (its own lists as
-// tables with their actions), the forms its record actions ask for, the DM's
-// prompt buttons and the popup each player gets when the DM opens a prompt.
+// tables with their actions), the forms its record actions ask for, the GM's
+// prompt buttons and the popup each player gets when the GM opens a prompt.
 // All of it is drawn from the rule file, so a new rule needs no new screen.
 import { useMemo, useState } from 'react';
 import { timeShort } from '../../lib/format.ts';
@@ -18,12 +18,12 @@ function useRecords(rule: HouseRule) {
 const fits = (r: Rec, where: Record<string, unknown>) => Object.entries(where).every(([k, v]) => r[k] === v || (typeof v === 'string' && v.startsWith('$')));
 
 /** Can I run this action (on this record, or create one)? The server checks again. */
-function mayRun(a: RecordActionView, isDM: boolean, me: string, rec?: Rec) {
-  if (a.by === 'dm') return isDM;
-  if (a.by === 'player') return !isDM;
+function mayRun(a: RecordActionView, isGM: boolean, me: string, rec?: Rec) {
+  if (a.by === 'gm') return isGM;
+  if (a.by === 'player') return !isGM;
   const mine = !rec || rec.player === null || rec.player === me;
-  if (a.by === 'owner') return !isDM && mine;
-  return isDM || mine;
+  if (a.by === 'owner') return !isGM && mine;
+  return isGM || mine;
 }
 
 /** A field's value as words: a ref shows the title of the record it points at. */
@@ -42,15 +42,15 @@ function show(rule: HouseRule, recs: Records, f: FieldSpec | undefined, v: unkno
 
 /** One view of a rule: its records as a table, its actions per row, and its create buttons. */
 export function RecordsView({ rule, view }: { rule: HouseRule; view: ViewSpec }) {
-  const { isDM, me, nameOf } = useWorld();
+  const { isGM, me, nameOf } = useWorld();
   const recs = useRecords(rule);
   const [form, setForm] = useState<{ a: RecordActionView; rec?: Rec } | null>(null);
   const sys = rule.system!;
   const kind = sys.records.find((k) => k.id === view.record)!;
   const all = recs.data?.records ?? {};
-  const rows = (all[view.record] ?? []).filter((r) => fits(r, view.where) && (isDM || view.place === 'dm' || r.player === null || r.player === me));
+  const rows = (all[view.record] ?? []).filter((r) => fits(r, view.where) && (isGM || view.place === 'gm' || r.player === null || r.player === me));
   const rowActions = view.actions.map((id) => sys.recordActions.find((a) => a.id === id)!).filter(Boolean);
-  const creates = sys.recordActions.filter((a) => a.record === view.record && a.do === 'create' && mayRun(a, isDM, me));
+  const creates = sys.recordActions.filter((a) => a.record === view.record && a.do === 'create' && mayRun(a, isGM, me));
   const label = (c: string) => (c === 'player' ? 'Player' : c === 'createdAt' ? 'Started' : c === 'updatedAt' ? 'Changed' : kind.fields[c]?.label || c[0].toUpperCase() + c.slice(1));
   const groups = view.groupByPlayer ? [...new Set(rows.map((r) => r.player ?? ''))] : [''];
   return (
@@ -74,7 +74,7 @@ export function RecordsView({ rule, view }: { rule: HouseRule; view: ViewSpec })
                     {view.columns.filter((c) => !(view.groupByPlayer && c === 'player')).map((c) => <td key={c}>{show(rule, all, kind.fields[c], c === 'player' ? r.player : r[c], nameOf, c)}</td>)}
                     {rowActions.length > 0 && (
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {rowActions.filter((a) => mayRun(a, isDM, me, r) && fits(r, a.where)).map((a) => (
+                        {rowActions.filter((a) => mayRun(a, isGM, me, r) && fits(r, a.where)).map((a) => (
                           <button key={a.id} type="button" className="btn small" aria-label={`${a.label}: ${String(r[kind.title] ?? '')}`} onClick={() => setForm({ a, rec: r })}>{a.label}</button>
                         ))}
                       </td>
@@ -91,9 +91,9 @@ export function RecordsView({ rule, view }: { rule: HouseRule; view: ViewSpec })
   );
 }
 
-/** The form a record action asks for: its fields, how much, whose (the DM making a player's record) and a note. */
+/** The form a record action asks for: its fields, how much, whose (the GM making a player's record) and a note. */
 export function ActionForm({ rule, a, rec, records, onClose, submit }: { rule: HouseRule; a: RecordActionView; rec?: Rec; records: Records; onClose: () => void; submit?: (body: Record<string, unknown>) => Promise<void> }) {
-  const { w, isDM, members } = useWorld();
+  const { w, isGM, members } = useWorld();
   const act = useAction();
   const { toast, toastNode } = useToast();
   const kind = rule.system!.records.find((k) => k.id === a.record)!;
@@ -102,7 +102,7 @@ export function ActionForm({ rule, a, rec, records, onClose, submit }: { rule: H
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const players = members.filter((m) => m.role === 'player');
-  const needsPlayer = isDM && a.do === 'create' && kind.owned;
+  const needsPlayer = isGM && a.do === 'create' && kind.owned;
   const run = () => act.run(async () => {
     const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== '').map(([k, v]) => [k, kind.fields[k].type === 'int' ? Math.trunc(Number(v)) : v]));
     const body: Record<string, unknown> = { values: clean, ...(rec ? { recordId: rec.id } : {}), ...(needsPlayer ? { player } : {}), ...(a.amount === 'ask' ? { amount: Math.trunc(Number(amount)) } : {}), ...(note.trim() ? { note: note.trim() } : {}) };
@@ -156,7 +156,7 @@ function FieldInput({ name, spec, value, onChange, records, rule }: { name: stri
   return <label className="stack tight" htmlFor={id}><span className="small">{label}{spec.optional ? ' (optional)' : ''}</span>{input}</label>;
 }
 
-/** The DM's buttons for a rule's prompts (Downtime), with how many players answered the open one. */
+/** The GM's buttons for a rule's prompts (Downtime), with how many players answered the open one. */
 export function PromptButtons({ rule }: { rule: HouseRule }) {
   const { w, members } = useWorld();
   const act = useAction();
@@ -185,13 +185,13 @@ export function PromptButtons({ rule }: { rule: HouseRule }) {
 
 interface Round { id: string; modId: string; prompt: string; openedAt: string; closedAt: string | null; answers: Record<string, { choice: number; recordId?: string }> }
 
-/** For a player: the DM's open prompts I have not answered, as a popup. */
+/** For a player: the GM's open prompts I have not answered, as a popup. */
 export function PromptOverlay() {
-  const { w, isDM, me } = useWorld();
+  const { w, isGM, me } = useWorld();
   const { list } = useHouseRules();
   const open = useLoad(() => w.call<{ rounds: Round[] }>('GET', '/mods/prompts/open'), [w], ['mods-prompt']);
   const [later, setLater] = useState<string[]>([]);
-  if (isDM) return null;
+  if (isGM) return null;
   const round = (open.data?.rounds ?? []).find((r) => !r.answers[me] && !later.includes(r.id));
   const rule = round && list.find((r) => r.id === round.modId);
   const prompt = rule?.system?.prompts.find((p) => p.id === round!.prompt);
@@ -249,9 +249,9 @@ export function ViewsFor({ place }: { place: ViewSpec['place'] }) {
   return <>{shown.map(({ r, v }) => <RecordsView key={`${r.id}-${v.id}`} rule={r} view={v} />)}</>;
 }
 
-/** The DM's tab for a rule's dm views: its prompt buttons, then each view. */
-export function DMSystemTab({ rule }: { rule: HouseRule }) {
-  const views = rule.system?.views.filter((v) => v.place === 'dm') ?? [];
+/** The GM's tab for a rule's gm views: its prompt buttons, then each view. */
+export function GMSystemTab({ rule }: { rule: HouseRule }) {
+  const views = rule.system?.views.filter((v) => v.place === 'gm') ?? [];
   return (
     <div className="stack">
       <PromptButtons rule={rule} />

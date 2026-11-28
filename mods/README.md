@@ -1,18 +1,18 @@
 # Mods (house rules)
 
 Every house rule that comes with Alexandria is a rule file in this folder.
-The server reads each `*.alxmod.json` here when it starts, and the DM turns
+The server reads each `*.alxmod.json` here when it starts, and the GM turns
 them on under **World → House rules**. See [docs/MODS.md](../docs/MODS.md)
 for the format.
 
 | File | Rule | Switches on |
 | --- | --- | --- |
-| `inspiration-rerolls.alxmod.json` | Inspiration as rerolls | Personal, everyone and DM rerolls, the sheet's Re-rolls module and `/reroll` |
+| `inspiration-rerolls.alxmod.json` | Inspiration as rerolls | Personal, everyone and GM rerolls, the sheet's Re-rolls module and `/reroll` |
 | `spell-points.alxmod.json` | Spell points | The standard spell points variant for every character (spells feature) |
 | `mana-pool.alxmod.json` | Simple mana pool | Alexandria's own mana numbers (spells feature) |
 | `mana-system.alxmod.json` | MANA spell system | Wizard's MANA rules; needs the MANA engine |
 | `spell-crafting.alxmod.json` | Spell crafting (Codex) | Learning spells by combining known ones (spells feature) |
-| `downtime.alxmod.json` | DownTime | Downtime activities from common to legendary, the DM's Downtime button and the players' popup (downtime feature); the ready-made activities are data in its `presets.downtimePremade` |
+| `downtime.alxmod.json` | DownTime | Downtime activities from common to legendary, the GM's Downtime button and the players' popup (downtime feature); the ready-made activities are data in its `presets.downtimePremade` |
 | `potion-bonus-action.alxmod.json` | Potions as a bonus action | Rule text and assistant guidance |
 | `flanking-bonus.alxmod.json` | Flanking: +2, not advantage | Rule text, an option for the bonus |
 | `skill-check-crits.alxmod.json` | Criticals on ability checks | Rule text and assistant guidance |
@@ -30,12 +30,12 @@ for the format.
 | `cleave.alxmod.json` | Cleaving through creatures | Leftover melee damage carries to another creature in reach. (rule text) |
 | `side-initiative.alxmod.json` | Side initiative | Each side rolls one initiative and acts together. (rule text) |
 | `slot-encumbrance.alxmod.json` | Slot inventory | Carry items equal to your Strength score; bulky ones take 2 slots. (rule text) |
-| `bloodied.alxmod.json` | Bloodied | The DM says when a creature is at half HP or less. (rule text) |
+| `bloodied.alxmod.json` | Bloodied | The GM says when a creature is at half HP or less. (rule text) |
 | `potion-max-heal.alxmod.json` | Potions heal fully as an action | Drinking a healing potion with your action heals its maximum. (rule text) |
 | `climb-big-creatures.alxmod.json` | Climbing onto big creatures | Climb a creature two sizes larger and attack it with advantage. (rule text) |
 | `luck-points.alxmod.json` | Luck points | Reroll a d20 after seeing it; refills each session. Chat word /luck. (counters) |
 | `stress.alxmod.json` | Stress | Horror adds stress; at the limit the character breaks for the session. A long rest takes 2 off. (counters) |
-| `honor.alxmod.json` | Honor | An Honor score (0 to 20) the DM raises or lowers. (counters) |
+| `honor.alxmod.json` | Honor | An Honor score (0 to 20) the GM raises or lowers. (counters) |
 | `exhaustion-2024.alxmod.json` | Simple exhaustion | Each level is -2 to d20 rolls and -5 feet of speed; a long rest takes one off. (counters) |
 | `crafting-projects.alxmod.json` | Crafting projects | Players start projects; each long rest adds a day of work until the item is done. (data system) |
 | `faction-renown.alxmod.json` | Faction renown | The party's renown and rank with each faction. (data system) |
@@ -50,7 +50,7 @@ one under **House rules → Make or add one** to try it:
 | File | Shows |
 | --- | --- |
 | `examples/hero-points.alxmod.json` | A small counters rule: give, spend, a session-start trigger, a chat word |
-| `examples/downtime-lite.alxmod.json` | A whole data system: activities by tier (common 1 day to legendary 90), each player's tasks, a Downtime day popup, a timer to the goal, DM and sheet views |
+| `examples/downtime-lite.alxmod.json` | A whole data system: activities by tier (common 1 day to legendary 90), each player's tasks, a Downtime day popup, a timer to the goal, GM and sheet views |
 
 ## A file is a rule or a package
 

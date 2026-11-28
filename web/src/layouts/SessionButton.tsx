@@ -1,4 +1,4 @@
-// Start, see and end a session from any DM page: one button, one panel. Starting opens the table chat and, if wanted, the recording, and checks the DM in.
+// Start, see and end a session from any GM page: one button, one panel. Starting opens the table chat and, if wanted, the recording, and checks the GM in.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ErrorBox, Field, Switch, useAction } from '../ui/index.tsx';
@@ -86,7 +86,7 @@ function Start({ reload, onDone }: { reload: () => Promise<void>; onDone: () => 
           {inputs.map((i) => <label key={i.deviceId} className="row between small"><span>{i.label}</span><Switch checked={!!mics.find((m) => m.deviceId === i.deviceId)?.enabled} onChange={(v) => useMic(i.deviceId, i.label, v)} label={`Use ${i.label}`} /></label>)}
           {(!inputs.length || !labelled) && <button type="button" className="btn small" onClick={() => void reloadInputs(true)}>Allow microphones</button>}
           {devError && <span className="tiny faint">{devError}</span>}
-          <Link to={`/w/${info.slug}/dm/audio`} className="tiny" onClick={onDone}>Modes, hold keys and consent →</Link>
+          <Link to={`/w/${info.slug}/gm/audio`} className="tiny" onClick={onDone}>Modes, hold keys and consent →</Link>
         </div>)}
       <button type="submit" className="btn primary" disabled={act.busy}>Start</button>
     </form>
@@ -96,7 +96,7 @@ function Start({ reload, onDone }: { reload: () => Promise<void>; onDone: () => 
 function Running({ session, rec, reload, onDone }: { session: any; rec: any; reload: () => Promise<void>; onDone: () => void }) {
   const { w, info } = useWorld();
   const act = useAction();
-  const base = `/w/${info.slug}/dm`;
+  const base = `/w/${info.slug}/gm`;
   const stopRec = async () => { await engine.stopAll(); await w.call('POST', `/audio/sessions/${rec.id}/stop`); };
   return (
     <div className="stack">

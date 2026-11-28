@@ -3,12 +3,12 @@ import ActivePage from './ActivePage.tsx';
 import ActiveOverlay from './Cards.tsx';
 import ModeBadge from './ModeBadge.tsx';
 
-// The DM's Active mode. Nothing here is for players: every component checks the role,
+// The GM's Active mode. Nothing here is for players: every component checks the role,
 // and the API refuses players too.
 const feature: WebFeature = {
   id: 'active',
-  dmRoutes: [{ path: 'active', element: <ActivePage /> }],
-  dmNav: [{ to: 'active' }],
+  gmRoutes: [{ path: 'active', element: <ActivePage /> }],
+  gmNav: [{ to: 'active' }],
   overlay: ActiveOverlay,
   topbar: ModeBadge,
 };

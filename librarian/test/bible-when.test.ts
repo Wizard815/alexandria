@@ -39,7 +39,7 @@ test('TestBible_StoppedMidPageStoresNothing', async () => {
   const { deps } = createApp({ dbFile: path.join(tmp, 'a.db'), dataDir: tmp, noScheduler: true, fetch: fakeFetch, env: { ALX_MODEL_CHAT_URL: 'http://127.0.0.1:1/v1', ALX_MODEL_CHAT_MODEL: 'fake' } }) as any;
   const at = new Date().toISOString();
   run(deps.db, 'INSERT INTO worlds (id, slug, name, settings, created_at) VALUES (?, ?, ?, ?, ?)', 'w1', 'w1', 'One', '{}', at);
-  for (const p of ['a', 'b']) deps.library.save ? deps.library.save('w1', { path: p, title: p, body: 'Some words about ' + p, visibility: 'dm', frontmatter: {} }, null) : null;
+  for (const p of ['a', 'b']) deps.library.save ? deps.library.save('w1', { path: p, title: p, body: 'Some words about ' + p, visibility: 'gm', frontmatter: {} }, null) : null;
   const r = await syncBible(deps, { worldId: 'w1', signal: ctl.signal });
   assert.equal(r.facts, 0);
   assert.equal(calls, 1, 'one page was asked for, then it stopped');

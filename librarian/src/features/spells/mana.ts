@@ -1,7 +1,7 @@
 // Mana (spell points): an optional per-world rule that replaces spell slots.
-// Each character has a pool; its maximum comes from the DM's formula or table
-// by character level (or the DM sets it by hand); casting a spell costs mana
-// from the DM's cost table (per spell level) unless the spell has its own
+// Each character has a pool; its maximum comes from the GM's formula or table
+// by character level (or the GM sets it by hand); casting a spell costs mana
+// from the GM's cost table (per spell level) unless the spell has its own
 // cost. Rests give mana back as the world's settings say. The default cost
 // table and pool formula are this app's own simple numbers, editable.
 import { ABILITIES, type Ability } from './format.ts';
@@ -103,7 +103,7 @@ export interface ManaRules {
   overdraw: boolean;
 }
 
-/** The pool's maximum: the DM's number for this character, else the formula or table at the character's level. Null without a level. */
+/** The pool's maximum: the GM's number for this character, else the formula or table at the character's level. Null without a level. */
 export function poolMax(c: Character, r: ManaRules): number | null {
   if (c.manaMax !== null && c.manaMax !== undefined) return c.manaMax;
   if (!c.level) return null;
@@ -117,7 +117,7 @@ export function poolMax(c: Character, r: ManaRules): number | null {
 /** Current mana: what is stored, or a full pool when nothing has been spent yet. */
 export const poolNow = (c: Character, max: number | null): number | null => (c.mana !== null && c.mana !== undefined ? c.mana : max);
 
-/** What casting this spell at this level costs: the DM's per-spell cost (plus the table's step for casting higher), else the table. */
+/** What casting this spell at this level costs: the GM's per-spell cost (plus the table's step for casting higher), else the table. */
 export function castCost(spell: { level: number; manaOverride?: number | null; manaCost?: number | null }, castLevel: number, r: Pick<ManaRules, 'costs'>): number {
   const at = Math.max(spell.level, Math.min(9, castLevel));
   const own = spell.manaOverride ?? spell.manaCost ?? null;

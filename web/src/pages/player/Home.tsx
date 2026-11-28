@@ -7,7 +7,7 @@ import { coins, dateLong, timeShort, when } from '../../lib/format.ts';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
 import { CombatPanel, type LiveView } from './Live.tsx';
 import { AlertsCard, BrokerTeaser, useMine } from '../broker/shared.tsx';
-import { FromDM } from '../../features/libshare/Share.tsx';
+import { FromGM } from '../../features/libshare/Share.tsx';
 
 interface CalSession { id: string; title: string; starts_at: string; ends_at: string; location: string; status: string; rsvps: { account_id: string; answer: string }[]; chatCount: number }
 const RSVP: [string, string][] = [['yes', 'Going'], ['maybe', 'Maybe'], ['no', "Can't"]];
@@ -64,11 +64,11 @@ export default function PlayerHome() {
 
           {d && d.combat.active && <CombatPanel c={d.combat} compact />}
           <AlertsCard mine={mine.data} reload={mine.reload} />
-          <FromDM compact />
+          <FromGM compact />
 
           <section className="card" aria-labelledby="upd-h">
             <h2 id="upd-h">Updates</h2>
-            {!myReqs.length && !recentThreads.length && <p className="muted small">Nothing new. Ask the DM something or start a chat.</p>}
+            {!myReqs.length && !recentThreads.length && <p className="muted small">Nothing new. Ask the GM something or start a chat.</p>}
             {recentThreads.length > 0 && (
               <div className="stack tight">
                 <span className="tiny faint" style={{ textTransform: 'uppercase', letterSpacing: '0.1em' }}>Messages</span>
@@ -108,7 +108,7 @@ export default function PlayerHome() {
           <BrokerTeaser />
           <nav className="card" aria-label="Quick links">
             <div className="grid small">
-              {[['lore', 'Read the lore'], ['people', 'People we met'], ['me', 'My character'], ['map', 'The map'], ['ask', 'Ask the DM'], ['whiteboard', 'Whiteboard']].map(([to, label]) => (
+              {[['lore', 'Read the lore'], ['people', 'People we met'], ['me', 'My character'], ['map', 'The map'], ['ask', 'Ask the GM'], ['whiteboard', 'Whiteboard']].map(([to, label]) => (
                 <Link key={to} to={`${base}/${to}`} className="btn small">{label}</Link>
               ))}
             </div>

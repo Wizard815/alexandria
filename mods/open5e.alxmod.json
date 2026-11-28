@@ -22,7 +22,7 @@
   "rules": [
     {
       "term": "Open5e (house rule)",
-      "text": "This world can pull free books from Open5e and the 5e SRD API in World settings → Game module, and the DM's assistant can import them."
+      "text": "This world can pull free books from Open5e and the 5e SRD API in World settings → Game module, and the GM's assistant can import them."
     }
   ],
   "assistant": {
@@ -40,6 +40,6 @@
       "list_content_books",
       "import_content"
     ],
-    "dm": "To add a book: list_content_books gives the keys, import_content pulls it (the DM approves). Books the server admin already keeps are under Available in World settings → Game module and need no download."
+    "gm": "To add a book: list_content_books gives the keys, import_content pulls it (the GM approves). Books the server admin already keeps are under Available in World settings → Game module and need no download."
   }
 }

@@ -1,4 +1,4 @@
-// Select text anywhere in the DM's pages, right-click, and pick a voice. With
+// Select text anywhere in the GM's pages, right-click, and pick a voice. With
 // nothing selected the browser's own menu stays. The line is read by the
 // "voice" model and played through the sound board's live event.
 import { useEffect, useRef, useState } from 'react';
@@ -8,8 +8,8 @@ export interface Preset { id: string; name: string; voice: string; speed: number
 const WHERE = { table: 'table', players: 'players', both: 'table + players' };
 
 export default function SpeakOverlay() {
-  const { isDM } = useWorld();
-  return isDM ? <SpeakMenu /> : null;
+  const { isGM } = useWorld();
+  return isGM ? <SpeakMenu /> : null;
 }
 
 function SpeakMenu() {
@@ -45,9 +45,9 @@ function SpeakMenu() {
       try {
         await w.call('POST', '/voice/speak', { text, presetId: p.id });
       } catch (e: any) {
-        // 409: the words come from DM-only notes and are going to players.
+        // 409: the words come from GM-only notes and are going to players.
         if (e?.status !== 409) throw e;
-        if (!window.confirm('This text comes from your DM-only notes, and this voice plays on players’ devices. Send it to players anyway?')) { setNote(null); return; }
+        if (!window.confirm('This text comes from your GM-only notes, and this voice plays on players’ devices. Send it to players anyway?')) { setNote(null); return; }
         await w.call('POST', '/voice/speak', { text, presetId: p.id, confirm: true });
       }
       setNote({ text: 'Playing' });

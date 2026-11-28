@@ -2,7 +2,7 @@
 // app is for (its role), and which fields of its records hold the id, title,
 // body, summary, parent, tags, updated time and visibility.
 //
-// An endpoint the DM has not given a role (or has marked unused) is never
+// An endpoint the GM has not given a role (or has marked unused) is never
 // called. The list is kept as JSON in the connection's `endpoints` setting,
 // so a preset carries it to other worlds.
 import { ConfigError } from '../connector.ts';
@@ -115,7 +115,7 @@ export function endpointsOf(cfg: Record<string, any>): ApiEndpoint[] {
   try { return cleanEndpoints(cfg.endpoints); } catch { return []; }
 }
 
-/** The ones that will be called: marked used (the DM accepted them), with a role that gives pages, tag names, calendars or pictures. Anything else is never called. */
+/** The ones that will be called: marked used (the GM accepted them), with a role that gives pages, tag names, calendars or pictures. Anything else is never called. */
 export const usedEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && (PAGE_ROLES.includes(e.role) || e.role === 'tags' || e.role === 'calendars' || e.role === 'images' || e.role === 'map'));
 export const pageEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && PAGE_ROLES.includes(e.role));
 export const calendarEndpoints = (eps: ApiEndpoint[]) => eps.filter((e) => e.use && e.role === 'calendars');

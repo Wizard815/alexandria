@@ -4,8 +4,8 @@ import TableScenes from './TableBlock.tsx';
 
 const feature: WebFeature = {
   id: 'scenes',
-  dmRoutes: [{ path: 'scenes', element: <ScenesPage /> }],
-  dmNav: [{ to: 'scenes' }],
-  dmTable: [{ id: 'scenes', label: 'Scenes', zone: 'main', order: 30, component: TableScenes }],
+  gmRoutes: [{ path: 'scenes', element: <ScenesPage /> }],
+  gmNav: [{ to: 'scenes' }],
+  gmTable: [{ id: 'scenes', label: 'Scenes', zone: 'main', order: 30, component: TableScenes }],
 };
 export default feature;

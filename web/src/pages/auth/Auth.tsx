@@ -107,7 +107,7 @@ export function Join() {
     );
   }
   return (
-    <Frame title="Join a world" lead="Use the invite code your DM gave you.">
+    <Frame title="Join a world" lead="Use the invite code your GM gave you.">
       <form className="stack" onSubmit={submit}>
         <Field label="Invite code"><input value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" required /></Field>
         {me ? (

@@ -1,7 +1,7 @@
 // Tool calls from local models are often nearly right: arguments wrapped in a code fence or with a trailing comma,
 // a number sent as "5", "True" for true, an enum in the wrong case, a list sent as a JSON string, or a tool name
 // that is close to a real one ("search" for search_library). Each is put right here when it can be done safely;
-// otherwise the model is told exactly what is wrong, before a write ever becomes a card the DM approves and that
+// otherwise the model is told exactly what is wrong, before a write ever becomes a card the GM approves and that
 // then fails.
 import type { McpTool } from '../types.ts';
 

@@ -12,7 +12,7 @@ export default function MyColour() {
   const color = pick ?? mine.data.color ?? '#ffffff';
   return (
     <div className="stack loose">
-      <PageHead title="My light colour" lead="If your DM uses table lights, they show this colour on your turn." />
+      <PageHead title="My light colour" lead="If your GM uses table lights, they show this colour on your turn." />
       <ErrorBox error={mine.error || act.error} />
       <div className="card row" style={{ alignItems: 'flex-end' }}>
         <input type="color" aria-label="Colour" value={color} onChange={(e) => setPick(e.target.value)} />

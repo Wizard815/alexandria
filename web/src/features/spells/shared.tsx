@@ -9,8 +9,8 @@ export interface Spell {
   components: { v: boolean; s: boolean; m: boolean }; componentsText: string; material: string; materialCost: boolean; materialConsumed: boolean;
   duration: string; concentration: boolean; damageTypes: string[]; saves: string[]; attack: string; text?: string; source: string; builtin: boolean;
   attribution: string; line: string; manaCost: number; known: boolean; how?: string;
-  // DM only
-  kind?: string; public?: boolean; manaOverride?: number | null; dmNotes?: string;
+  // GM only
+  kind?: string; public?: boolean; manaOverride?: number | null; gmNotes?: string;
 }
 export interface Stub { id: string; name: string; level: number; school: string; line: string }
 export type Missing =
@@ -23,7 +23,7 @@ export interface RecipeView {
   id: string; tier: number; result: Stub; prereqs: Stub[]; items: { name: string; qty: number; consumed: boolean; have?: number; itemId?: string }[];
   stats: Record<string, number>; minLevel: number | null; manaCost: number | null;
   status?: 'learned' | 'ready' | 'locked'; missing?: Missing[]; met?: number; total?: number; pending?: string | null;
-  visibility?: 'visible' | 'hidden'; dmNotes?: string; draft?: boolean; createdBy?: string;
+  visibility?: 'visible' | 'hidden'; gmNotes?: string; draft?: boolean; createdBy?: string;
 }
 export interface Mana { on: boolean; now?: number | null; max?: number | null; manual?: boolean; maxCastLevel?: number | null }
 export interface Character {
@@ -93,7 +93,7 @@ export function SpellCard({ s, mana, actions }: { s: Spell; mana?: Mana; actions
       </div>
       <SpellFacts s={s} />
       {s.text !== undefined ? <Markdown text={s.text} /> : null}
-      {s.dmNotes ? <div className="note"><strong>DM notes.</strong> {s.dmNotes}</div> : null}
+      {s.gmNotes ? <div className="note"><strong>GM notes.</strong> {s.gmNotes}</div> : null}
       {actions}
       <p className="tiny faint">{s.source}{s.attribution ? ` · ${s.attribution}` : ''}</p>
     </article>

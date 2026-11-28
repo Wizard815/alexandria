@@ -8,7 +8,7 @@ import { levelText } from './shared.tsx';
 const REST: [string, string][] = [['none', 'Nothing'], ['quarter', 'A quarter'], ['half', 'Half'], ['full', 'All of it']];
 
 export default function SpellSettings() {
-  const { w, info, isDM, reloadInfo } = useWorld();
+  const { w, info, isGM, reloadInfo } = useWorld();
   const s: any = info.settings;
   const act = useAction();
   const { toast, toastNode } = useToast();
@@ -19,7 +19,7 @@ export default function SpellSettings() {
   const [maxTable, setMaxTable] = useState<string>(() => (max0.table ?? []).join(', '));
   const save = (patch: Record<string, unknown>) => act.run(async () => { await w.updateSettings(patch); await reloadInfo(); toast('Saved'); });
   const nums = (t: string) => t.split(/[\s,;]+/).filter(Boolean).map(Number);
-  if (!isDM) return null;
+  if (!isGM) return null;
   const sw = (key: string, label: string, help: string, def = false) => (
     <div className="row between" style={{ gap: 10 }}>
       <span className="stack tight"><span>{label}</span><span className="tiny muted">{help}</span></span>
@@ -80,7 +80,7 @@ export default function SpellSettings() {
         {sw('spellCrafting', 'Learn spells by combining known ones', 'Players see the recipes you make visible, what they can learn now and what each still needs.')}
         {s.spellCrafting && (
           <div className="row" style={{ gap: 10 }}>
-            <Field label="Learning a spell"><select value={s.spellCraftApproval ?? 'dm'} onChange={(e) => void save({ spellCraftApproval: e.target.value })}><option value="dm">Waits for my approval</option><option value="auto">Happens at once</option></select></Field>
+            <Field label="Learning a spell"><select value={s.spellCraftApproval ?? 'gm'} onChange={(e) => void save({ spellCraftApproval: e.target.value })}><option value="gm">Waits for my approval</option><option value="auto">Happens at once</option></select></Field>
             <Field label="Recipes I hide"><select value={s.spellCraftHidden ?? 'mystery'} onChange={(e) => void save({ spellCraftHidden: e.target.value })}><option value="mystery">Show as ???</option><option value="hide">Do not show at all</option></select></Field>
           </div>
         )}

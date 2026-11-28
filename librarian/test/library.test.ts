@@ -20,7 +20,7 @@ test('TestLibrary_DownloadAndBulkGivePlayersOnlyTheirCopy', async () => {
   };
   try {
     const a = (await call('POST', '/api/setup', null, { username: 'wizard', password: 'correct horse battery' })).body;
-    const w = (await call('POST', '/api/admin/worlds', a.token, { name: 'W', dmAccountId: a.account.id })).body;
+    const w = (await call('POST', '/api/admin/worlds', a.token, { name: 'W', gmAccountId: a.account.id })).body;
     const inv = (await call('POST', `/api/worlds/${w.id}/invites`, a.token, { role: 'player' })).body;
     const p = (await call('POST', '/api/join', null, { code: inv.code, username: 'jess', password: 'player pass 123' })).body;
 
@@ -41,8 +41,8 @@ test('TestLibrary_DownloadAndBulkGivePlayersOnlyTheirCopy', async () => {
     assert.ok(md.disp.includes('Port.md'));
     assert.ok(md.text.includes('title: Port') && md.text.includes('Fish.'));
     assert.ok(!md.text.includes('Smugglers') && !md.text.includes('visibility'));
-    const dmMd = await call('GET', `/api/worlds/${w.id}/library/pages/${shared.id}/markdown`, a.token);
-    assert.ok(dmMd.text.includes('Smugglers') && dmMd.text.includes('visibility: party'));
+    const gmMd = await call('GET', `/api/worlds/${w.id}/library/pages/${shared.id}/markdown`, a.token);
+    assert.ok(gmMd.text.includes('Smugglers') && gmMd.text.includes('visibility: party'));
     assert.equal((await call('GET', `/api/worlds/${w.id}/library/pages/${hidden.id}/markdown`, p.token)).status, 404);
 
     const bulk = await call('POST', `/api/worlds/${w.id}/library/pages/bulk`, p.token, { ids: [shared.id, hidden.id, ent.id, 'nope'] });
@@ -50,8 +50,8 @@ test('TestLibrary_DownloadAndBulkGivePlayersOnlyTheirCopy', async () => {
     assert.deepEqual(bulk.body.map((x: any) => x.title).sort(), ['Imported', 'Port']);
     const s = JSON.stringify(bulk.body);
     for (const leak of ['Smugglers', 'Buried truth', 'widget', '"secret"', 'unsupported', 'twist']) assert.ok(!s.includes(leak), leak);
-    const dmBulk = (await call('POST', `/api/worlds/${w.id}/library/pages/bulk`, a.token, { ids: [ent.id] })).body;
-    assert.ok(JSON.stringify(dmBulk).includes('Buried truth') && JSON.stringify(dmBulk).includes('unsupported'));
+    const gmBulk = (await call('POST', `/api/worlds/${w.id}/library/pages/bulk`, a.token, { ids: [ent.id] })).body;
+    assert.ok(JSON.stringify(gmBulk).includes('Buried truth') && JSON.stringify(gmBulk).includes('unsupported'));
     assert.equal((await call('POST', `/api/worlds/${w.id}/library/pages/bulk`, p.token, { ids: 'x' })).status, 400);
 
     const list = (await call('GET', `/api/worlds/${w.id}/library/pages`, p.token)).body;

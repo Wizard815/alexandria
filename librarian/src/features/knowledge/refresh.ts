@@ -13,7 +13,7 @@
 import type { Deps } from '../../app.ts';
 import { hasJob } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { HttpError, id, now } from '../../core/util.ts';
 import { drainPictures, retryFailedPictures, waitingPictures } from '../../intake/imagequeue.ts';
 import { crawlRunning, latestCrawl, startCrawl, stopCrawl } from '../connections/crawl.ts';
@@ -98,7 +98,7 @@ async function work(d: Deps, slot: { state: RefreshState; ctl: AbortController; 
     const n = state.steps.filter((s) => s.state !== 'waiting' && s.state !== 'running').length;
     const cur = state.steps.find((s) => s.state === 'running');
     progress(n, state.steps.length, cur ? `${cur.label}: ${cur.detail}` : 'Refresh world');
-    try { d.hub.emit(w, 'knowledge', state, dmOnly); } catch { /* no listeners */ }
+    try { d.hub.emit(w, 'knowledge', state, gmOnly); } catch { /* no listeners */ }
   };
   const set = (sid: StepId, st: StepState, detail?: string) => { const s = step(sid); s.state = st; if (detail !== undefined) s.detail = detail; publish(true); };
   const stopped = () => ctl.signal.aborted;

@@ -1,19 +1,19 @@
-// Session prep: before a game night the DM's assistant drafts a short note for each player (where their
-// character stands, what happened last time, their open goals, something to think about), the DM reads and edits
-// each one, and sends it. A sent prep arrives as a private chat between the DM and that player (Messages), kept so
+// Session prep: before a game night the GM's assistant drafts a short note for each player (where their
+// character stands, what happened last time, their open goals, something to think about), the GM reads and edits
+// each one, and sends it. A sent prep arrives as a private chat between the GM and that player (Messages), kept so
 // it does not expire.
 //
 // Spoilers: each draft is written by the Players model from that player's own brief (features/playerhelp/quick.ts:
 // their sheet, items, goals, journal, the published session log and what the party heard) and nothing else. The
-// DM's own line (`note`) is added as written. A draft is the DM's alone until it is sent.
+// GM's own line (`note`) is added as written. A draft is the GM's alone until it is sent.
 import { Router, type Response } from 'express';
 import type { Deps } from '../../app.ts';
 import { chat, hasJob, ModelUnavailable, wouldBeRefused } from '../../core/ai.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { all, one, run, tx } from '../../core/db.ts';
-import { dmOnly, only } from '../../core/events.ts';
+import { gmOnly, only } from '../../core/events.ts';
 import { HttpError, id, now, str } from '../../core/util.ts';
-import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, settings } from '../../routes/_shared.ts';
 import { kitPart, quickBrief, stripThinking } from '../playerhelp/quick.ts';
 import type { Feature } from '../types.ts';
 
@@ -37,7 +37,7 @@ CREATE INDEX IF NOT EXISTS prep_notes_world ON prep_notes (world_id, status, cre
 const MAX_TEXT = 4000;
 
 const SYSTEM = [
-  'You write a short session prep note for one player of a tabletop RPG, sent by their DM before the next game night.',
+  'You write a short session prep note for one player of a tabletop RPG, sent by their GM before the next game night.',
   'Write to the player as "you", warm and brief, in Markdown, under 170 words, with these parts when the brief has them:',
   '**Last time** (2 or 3 bullets), **Where you stand** (health, conditions, what matters in their pack, spells they could learn), **Your threads** (their open goals and quests), and one line **To think about** before the session (a choice or a question for their character).',
   'Use only the brief. Never invent people, places, events, items or numbers. Leave a part out when the brief has nothing for it. Do not mention the brief, notes or context.',
@@ -63,7 +63,7 @@ async function draftFor(d: Deps, res: Response, aid: string, name: string): Prom
       if (t) return { text: t.slice(0, MAX_TEXT), byModel: true };
     } catch (e) { if (!(e instanceof ModelUnavailable)) throw e; }
   }
-  // No model: the brief's own parts, so the DM still has something to edit.
+  // No model: the brief's own parts, so the GM still has something to edit.
   return { text: brief.sections.filter((x) => x.label !== 'Library (shared with the party)').map((x) => `**${x.label}**\n${x.text}`).join('\n\n').slice(0, MAX_TEXT), byModel: false };
 }
 
@@ -72,19 +72,19 @@ function routes(d: Deps) {
   const { db } = d;
   const W = (res: Response) => ctx(res).world.id;
   const names = (w: string) => new Map(playersOf(d, w).map((p) => [p.id, p.name]));
-  const changed = (w: string) => d.hub.emit(w, 'prep', {}, dmOnly);
+  const changed = (w: string) => d.hub.emit(w, 'prep', {}, gmOnly);
 
-  // The DM: every draft and the last sent ones. A player: the preps sent to them.
+  // The GM: every draft and the last sent ones. A player: the preps sent to them.
   r.get('/', (_req, res) => {
     const w = W(res);
-    const rows = isDM(res)
+    const rows = isGM(res)
       ? all<Row>(db, "SELECT * FROM prep_notes WHERE world_id = ? AND (status = 'draft' OR sent_at > ?) ORDER BY status, created_at DESC LIMIT 200", w, new Date(Date.now() - 14 * 864e5).toISOString())
       : all<Row>(db, "SELECT * FROM prep_notes WHERE world_id = ? AND account_id = ? AND status = 'sent' ORDER BY sent_at DESC LIMIT 20", w, me(res));
     res.json({ preps: rows.map((x) => out(x, names(w))), model: hasJob(d, 'player') });
   });
 
   // Draft a prep for each player (or the ones named). An older draft for the same player is replaced.
-  r.post('/', requireDM, async (req, res) => {
+  r.post('/', requireGM, async (req, res) => {
     const w = W(res);
     const all_ = playersOf(d, w);
     const wanted: unknown = req.body?.accountIds;
@@ -97,7 +97,7 @@ function routes(d: Deps) {
     const made: Row[] = [];
     for (const p of pick) {
       const dft = await draftFor(d, res, p.id, p.name);
-      const text = `${dft.text}${note ? `\n\n**From the DM:** ${note}` : ''}`.slice(0, MAX_TEXT);
+      const text = `${dft.text}${note ? `\n\n**From the GM:** ${note}` : ''}`.slice(0, MAX_TEXT);
       const row: Row = { id: id('prep_'), world_id: w, account_id: p.id, title, text, status: 'draft', by_model: dft.byModel ? 1 : 0, thread_id: null, created_at: now(), updated_at: now(), sent_at: null };
       tx(db, () => {
         run(db, "DELETE FROM prep_notes WHERE world_id = ? AND account_id = ? AND status = 'draft'", w, p.id);
@@ -115,7 +115,7 @@ function routes(d: Deps) {
     return x;
   };
 
-  r.patch('/:pid', requireDM, (req, res) => {
+  r.patch('/:pid', requireGM, (req, res) => {
     const x = draftOf(res, String(req.params.pid));
     if (x.status !== 'draft') throw new HttpError(409, 'This prep was already sent');
     const text = req.body?.text !== undefined ? str(req.body.text, 'text', { max: MAX_TEXT }).trim() : x.text;
@@ -126,37 +126,37 @@ function routes(d: Deps) {
     res.json(out(one<Row>(db, 'SELECT * FROM prep_notes WHERE id = ?', x.id)!, names(W(res))));
   });
 
-  r.delete('/:pid', requireDM, (req, res) => {
+  r.delete('/:pid', requireGM, (req, res) => {
     const x = draftOf(res, String(req.params.pid));
     run(db, 'DELETE FROM prep_notes WHERE id = ?', x.id);
     changed(W(res));
     res.json({ ok: true });
   });
 
-  // Send drafts (the ones named, or every draft): each becomes a kept private chat between the DM and that player.
-  r.post('/send', requireDM, (req, res) => {
+  // Send drafts (the ones named, or every draft): each becomes a kept private chat between the GM and that player.
+  r.post('/send', requireGM, (req, res) => {
     const w = W(res);
     const ids: unknown = req.body?.ids;
     const rows = Array.isArray(ids) && ids.length
       ? ids.map((x) => one<Row>(db, "SELECT * FROM prep_notes WHERE id = ? AND world_id = ? AND status = 'draft'", String(x), w)).filter((x): x is Row => !!x)
       : all<Row>(db, "SELECT * FROM prep_notes WHERE world_id = ? AND status = 'draft' ORDER BY created_at", w);
     if (!rows.length) throw new HttpError(409, 'No drafts to send. Draft the session prep first.');
-    const dmId = me(res);
+    const gmId = me(res);
     const sent: Row[] = [];
     for (const x of rows) {
       const at = now();
       const tid = id('thr_');
       const mid = id('msg_');
       tx(db, () => {
-        run(db, 'INSERT INTO threads (id, world_id, starter_id, title, kept, created_at, last_at) VALUES (?, ?, ?, ?, 1, ?, ?)', tid, w, dmId, x.title.slice(0, 100), at, at);
-        for (const p of new Set([dmId, x.account_id])) run(db, 'INSERT INTO thread_members (thread_id, account_id) VALUES (?, ?)', tid, p);
-        run(db, 'INSERT INTO messages (id, thread_id, author_id, body, at) VALUES (?, ?, ?, ?, ?)', mid, tid, dmId, x.text.slice(0, 4000), at);
+        run(db, 'INSERT INTO threads (id, world_id, starter_id, title, kept, created_at, last_at) VALUES (?, ?, ?, ?, 1, ?, ?)', tid, w, gmId, x.title.slice(0, 100), at, at);
+        for (const p of new Set([gmId, x.account_id])) run(db, 'INSERT INTO thread_members (thread_id, account_id) VALUES (?, ?)', tid, p);
+        run(db, 'INSERT INTO messages (id, thread_id, author_id, body, at) VALUES (?, ?, ?, ?, ?)', mid, tid, gmId, x.text.slice(0, 4000), at);
         run(db, "UPDATE prep_notes SET status = 'sent', thread_id = ?, sent_at = ?, updated_at = ? WHERE id = ?", tid, at, at, x.id);
       });
-      const members = [dmId, x.account_id];
-      d.hub.emit(w, 'thread', { id: tid, world_id: w, starter_id: dmId, title: x.title, kept: true, members, created_at: at, last_at: at }, only(...members));
-      d.hub.emit(w, 'message', { id: mid, thread_id: tid, author_id: dmId, body: x.text, at }, only(...members));
-      d.hub.emit(w, 'prep', { id: x.id, accountId: x.account_id, sent: true }, only(dmId, x.account_id));
+      const members = [gmId, x.account_id];
+      d.hub.emit(w, 'thread', { id: tid, world_id: w, starter_id: gmId, title: x.title, kept: true, members, created_at: at, last_at: at }, only(...members));
+      d.hub.emit(w, 'message', { id: mid, thread_id: tid, author_id: gmId, body: x.text, at }, only(...members));
+      d.hub.emit(w, 'prep', { id: x.id, accountId: x.account_id, sent: true }, only(gmId, x.account_id));
       sent.push({ ...x, status: 'sent', thread_id: tid, sent_at: at });
     }
     res.json({ sent: sent.map((x) => out(x, names(w))) });
@@ -172,22 +172,22 @@ const feature: Feature = {
   worldRoutes: routes,
   mcpTools: [
     {
-      name: 'draft_session_prep', dmOnly: true,
-      description: "DM: draft a short session prep note for each player (or the ones named), each written only from what that player knows: last time, where their character stands, their open goals, one thing to think about. The DM's own line (note) is added as written. Drafts wait for the DM; send them with send_session_prep.",
-      props: { accountIds: { type: 'array', items: { type: 'string' }, description: 'Players (account ids or character names); leave out for everyone' }, note: { type: 'string', description: 'A line from the DM for every player, e.g. "We start in the crypt; bring your sheets."' }, title: { type: 'string' } },
+      name: 'draft_session_prep', gmOnly: true,
+      description: "GM: draft a short session prep note for each player (or the ones named), each written only from what that player knows: last time, where their character stands, their open goals, one thing to think about. The GM's own line (note) is added as written. Drafts wait for the GM; send them with send_session_prep.",
+      props: { accountIds: { type: 'array', items: { type: 'string' }, description: 'Players (account ids or character names); leave out for everyone' }, note: { type: 'string', description: 'A line from the GM for every player, e.g. "We start in the crypt; bring your sheets."' }, title: { type: 'string' } },
       call: (a) => ({ method: 'POST', path: '/prep', body: { accountIds: a.accountIds, note: a.note, title: a.title } }),
     },
-    { name: 'list_session_prep', dmOnly: true, description: 'DM: the session prep drafts waiting to be sent, and the ones sent in the last two weeks.', props: {}, call: () => ({ method: 'GET', path: '/prep' }) },
+    { name: 'list_session_prep', gmOnly: true, description: 'GM: the session prep drafts waiting to be sent, and the ones sent in the last two weeks.', props: {}, call: () => ({ method: 'GET', path: '/prep' }) },
     {
       name: 'edit_session_prep', write: true,
-      description: "DM: change one session prep draft's text or title before it is sent (its id from list_session_prep).",
+      description: "GM: change one session prep draft's text or title before it is sent (its id from list_session_prep).",
       props: { id: { type: 'string' }, text: { type: 'string' }, title: { type: 'string' } },
       required: ['id'],
       call: (a) => ({ method: 'PATCH', path: `/prep/${encodeURIComponent(String(a.id))}`, body: { text: a.text, title: a.title } }),
     },
     {
       name: 'send_session_prep', write: true,
-      description: 'DM: send session prep drafts to their players (the ids named, or every draft). Each player gets theirs as a private message from the DM.',
+      description: 'GM: send session prep drafts to their players (the ids named, or every draft). Each player gets theirs as a private message from the GM.',
       props: { ids: { type: 'array', items: { type: 'string' }, description: 'Draft ids; leave out to send every draft' } },
       call: (a) => ({ method: 'POST', path: '/prep/send', body: { ids: a.ids } }),
     },

@@ -11,14 +11,14 @@ a feature.
 
 | Job | Used for | Endpoint on the server |
 |---|---|---|
-| **chat** | DM agent, player Ask, broker answers, session summaries. Also the `/v1/models` and `/v1/chat/completions` passthrough. | `POST {base}/chat/completions` |
+| **chat** | GM agent, player Ask, broker answers, session summaries. Also the `/v1/models` and `/v1/chat/completions` passthrough. | `POST {base}/chat/completions` |
 | **audit** | The small model: question routing, spoiler checks, second opinions | `POST {base}/chat/completions` |
 | **audio** | Speech to text | `POST {base}/audio/transcriptions` |
 | **voice** | Text to speech (Speak menu, narration) | `POST {base}/audio/speech` |
 | **extra** | Embeddings for library search and broker matching. Also the `/v1/embeddings` passthrough. | `POST {base}/embeddings` |
 | **rerank** | Optional. Reorders the top 20 library search results and the agent's library matches. | `POST {base}/rerank` |
 | **helper** | Optional. The players' quick helper: a small second model (4B or less, under about 6 GB) for rules lookups, turn options and sheet summaries. Unset: the Players model, then Chat. See [The players' quick helper](#the-players-quick-helper-a-small-second-model). | `POST {base}/chat/completions` |
-| **vision** (part of chat) | Map vision: reads a map picture and says where its rooms are, so the assistant uncovers fog in the right place (`look_at_map`, then `reveal_fog`). Not set: the DM assistant's model. Before a picture is sent, the provider's `/models` list is checked: Argos `capabilities.vision`, or an `image` input modality (OpenRouter). A model listed without image input is never sent a map, and the DM is told to attach one that can see (Hy4 Flash, Gemma 3, Qwen VL). | `POST {base}/chat/completions` with an `image_url` part |
+| **vision** (part of chat) | Map vision: reads a map picture and says where its rooms are, so the assistant uncovers fog in the right place (`look_at_map`, then `reveal_fog`). Not set: the GM assistant's model. Before a picture is sent, the provider's `/models` list is checked: Argos `capabilities.vision`, or an `image` input modality (OpenRouter). A model listed without image input is never sent a map, and the GM is told to attach one that can see (Hy4 Flash, Gemma 3, Qwen VL). | `POST {base}/chat/completions` with an `image_url` part |
 
 ### Providers
 
@@ -52,7 +52,7 @@ Each job is `{ providerId, model, options, fallback? }`:
 A job with nothing saved falls back to the environment:
 `ALX_MODEL_<JOB>_URL`, `ALX_MODEL_<JOB>_MODEL`, `ALX_MODEL_<JOB>_KEY`
 (`<JOB>` is `CHAT`, `AUDIT`, `AUDIO`, `VOICE`, `EXTRA`, `RERANK`, or a part
-of chat with a model of its own: `DM`, `PLAYER`, `BIBLE`, `HELPER`), then
+of chat with a model of its own: `GM`, `PLAYER`, `BIBLE`, `HELPER`), then
 `MODEL_BASE_URL` / `LOCAL_LLM_URL` and `MODEL_API_KEY`. With neither, the job
 has no model, and features that need it fall back or stay off. Rerank is only
 switched on by `ALX_MODEL_RERANK_URL` (not by `MODEL_BASE_URL`), because not
@@ -119,7 +119,7 @@ the cloud** is ticked.
 
 Admin → Models → **Game night** is one setting for the whole server (not
 per world: the GPUs are shared by every world). A session is live while a
-DM records audio, has the session chat open, or has pressed **Start game
+GM records audio, has the session chat open, or has pressed **Start game
 night** (rows older than a day are ignored, so a crashed recording cannot
 hold models forever).
 
@@ -150,7 +150,7 @@ If a server keeps unloading a held model (more than three times in ten
 minutes, usually one model at a time on that server), Alexandria stops
 reloading it for ten minutes and says so instead of thrashing.
 
-The DM's table page shows a **Models ready** card while a session is live:
+The GM's table page shows a **Models ready** card while a session is live:
 `chat ✓ audit ✓ whisper … loading`. **Unload all job models now** unloads
 every job model on a server that can, whether or not it was held.
 
@@ -180,7 +180,7 @@ If the pool router is off, it says so and lists what `/running` reports.
 models stay resident. Which one to use depends on Argos's router:
 
 - **Group router** (the default): `ttl: 0` on each model (never unload on
-  idle) and a `dnd` group with `persistent: true`, `swap: false`,
+  idle) and an `alexandria` group with `persistent: true`, `swap: false`,
   `exclusive: false` and the models as members, so they all stay loaded and
   no other group can evict them.
 - **Pool router:** `ttl: 0` and a `vram:` per model, and the models under
@@ -192,7 +192,7 @@ repeat a model key.
 
 ### Rerank
 
-If the rerank job is set, library search and the DM agent's library matches
+If the rerank job is set, library search and the GM agent's library matches
 take the top 20 hits, send the query and each hit's title and snippet to
 `POST {base}/rerank` with `{ model, query, documents, top_n }`, and order by
 the returned `results[{ index, relevance_score }]`. It has a 300 ms budget:
@@ -229,7 +229,7 @@ All admin only (others get 403).
 - `POST /api/admin/models/unload-all` (returns `results` per model).
 - `GET /api/admin/models/vram`: per Argos provider, `pool`, `running`,
   `budget`, `jobModels` and the `config` snippets for both routers.
-- `GET /api/worlds/:world/models/ready` (DM only): the warm state for the
+- `GET /api/worlds/:world/models/ready` (GM only): the warm state for the
   table page card.
 - Each job in `GET /api/admin/models` has `location` and `lastChoice`
   (`{ local, cloud }`, each `{ providerId, model }` or `null`).
@@ -296,7 +296,7 @@ Providers are independent, so a job can use any of them. Typical mixes:
 - **Everything on Argos.** One provider, six jobs.
 - **Local audio, frontier chat.** Whisper and Kokoro on Argos (the table's
   audio never leaves home), chat on OpenAI or another frontier provider
-  (`cloud`). Chat sends the DM's questions and the library text it needs to a
+  (`cloud`). Chat sends the GM's questions and the library text it needs to a
   third party, so check what that provider keeps.
 - **Local with a cloud safety net.** Chat on Argos, fallback to a cloud
   model. Tick **Allow falling back to the cloud** only if you are happy for
@@ -323,7 +323,7 @@ How it works (`librarian/src/features/playerhelp/quick.ts`):
   their items, the combat as they see it, tonight's party summary and the
   last six lines the table heard, their goals and journal, two rules passages
   from the world's module and three library chunks shared with the party.
-  DM-only text never goes in, and every section passes the classified guard
+  GM-only text never goes in, and every section passes the classified guard
   first. The brief is about 1,000 to 2,000 characters, so a 4K context per
   slot is plenty and the slots are reused call after call.
 - **What they can do.** For My turn, What next? and a sheet summary the brief
@@ -334,8 +334,8 @@ How it works (`librarian/src/features/playerhelp/quick.ts`):
   list.
 - **Story so far** (`recap`) sums up the last four published session logs,
   the chronicle arcs players can see, the player's goals and journal, goals
-  the DM gave them and broker answers they bought. Nothing unpublished or
-  DM-only goes in, and the model is told to say "not known yet" instead of
+  the GM gave them and broker answers they bought. Nothing unpublished or
+  GM-only goes in, and the model is told to say "not known yet" instead of
   filling a gap.
 - **Narrow jobs.** `rules`, `turn`, `sheet`, `suggest`, `recap` and short
   `ask` questions. It changes nothing and has no tools.
@@ -363,7 +363,7 @@ Real-model tests (`web/e2e/quickhelp.mjs` with `QUICK_HELPER_URL`, and
 (`prism-ml/ternary-bonsai-2-9b`) for this job; the agentic jobs there use
 `tencent/hy4-flash`.
 
-Turn it off for a world with the setting `quickHelper: false`. The DM can see
+Turn it off for a world with the setting `quickHelper: false`. The GM can see
 exactly what a player's helper is given at
 `GET /api/worlds/:w/helper/quick/brief?task=sheet&account=<player id>`.
 
@@ -517,8 +517,8 @@ config**, and Argos keeps all of this resident for the whole session.
   `deploy/examples/ollama.override.yml`.
 - **A cloud endpoint.** Its `/v1` URL, the model name and the API key.
   Remember that anything sent to chat leaves your server. Players' questions
-  never include DM-only text, but check what a provider keeps before you
-  point the DM agent at one.
+  never include GM-only text, but check what a provider keeps before you
+  point the GM agent at one.
 
 Inside Docker, use the service name (`http://whisper:8000/v1`) when the
 server is in the same Compose project, and `host.docker.internal` (see
@@ -567,7 +567,7 @@ Example, for an OpenAI reasoning model:
 
 ### Reading the timings
 
-Each assistant reply carries `timings` (shown under the message in the DM's
+Each assistant reply carries `timings` (shown under the message in the GM's
 assistant, and written to the audit log as `agent.timing`), in milliseconds:
 
 - `totalMs`: from the message arriving to the reply being finished.
@@ -636,13 +636,13 @@ to `transcribe()` from `core/ai.ts`.
 
 ## Audio: transcription tuning
 
-- **Hint.** Each chunk is sent a prompt of at most 150 characters: player and character names, proper nouns from pages players can read (ranked by recency and how often the table said them), and dice words (`d4 d6 d8 d10 d12 d20 nat 20 advantage disadvantage`). DM-only, broker and classified titles never go in it, and a quiet chunk gets none. World setting `transcriptHint: on|off` (default on). `transcriptContext: on|off` (default off) also sends the mic's previous words.
-- **Dropped:** segments with compression ratio above 2.4, log probability below -1.0, no-speech probability above 0.6 (unless the words are confident), known junk phrases, repeats of the prompt, and word loops. The DM sees counters in `GET /audio/status` (`dropped`). A chunk with any of these made-up segments is asked again without the hint (names the speech does not contain can pull a small model off course), and the answer with more confident words is kept; on a 10-minute real recording with base.en this cut empty chunks from several to 2 of 121 and brought word error down to that of no hint at all, for about 30% more calls on that noisy table. A chunk that still loops is asked once more with `temperature` 0.4; otherwise temperature is left to the server.
+- **Hint.** Each chunk is sent a prompt of at most 150 characters: player and character names, proper nouns from pages players can read (ranked by recency and how often the table said them), and dice words (`d4 d6 d8 d10 d12 d20 nat 20 advantage disadvantage`). GM-only, broker and classified titles never go in it, and a quiet chunk gets none. World setting `transcriptHint: on|off` (default on). `transcriptContext: on|off` (default off) also sends the mic's previous words.
+- **Dropped:** segments with compression ratio above 2.4, log probability below -1.0, no-speech probability above 0.6 (unless the words are confident), known junk phrases, repeats of the prompt, and word loops. The GM sees counters in `GET /audio/status` (`dropped`). A chunk with any of these made-up segments is asked again without the hint (names the speech does not contain can pull a small model off course), and the answer with more confident words is kept; on a 10-minute real recording with base.en this cut empty chunks from several to 2 of 121 and brought word error down to that of no hint at all, for about 30% more calls on that noisy table. A chunk that still loops is asked once more with `temperature` 0.4; otherwise temperature is left to the server.
 - **Chunks.** The browser sends a chunk every 5 s that also carries the 3 s before it; the server keeps each stretch from the chunk it is most central in.
-- **Lines.** At most 20 s long and updated in place. A DM-only title that shows up in a line heard by one mic only makes the line DM-only. A personal mic is credited only when clearly louder than the others; otherwise the speaker is "Table".
-- **Refine pass (off).** World setting `transcriptRefine: on` plus the audio job option `refineModel` (env `ALX_MODEL_AUDIO_OPTIONS='{"refineModel":"large-v3"}'`) re-transcribes kept audio in 60 s windows after a recording stops (needs `ffmpeg` on the server). Lines keep ids; DM-only lines stay DM-only. Job options `temperatureFallback: true` lets a list of temperatures be sent.
+- **Lines.** At most 20 s long and updated in place. A GM-only title that shows up in a line heard by one mic only makes the line GM-only. A personal mic is credited only when clearly louder than the others; otherwise the speaker is "Table".
+- **Refine pass (off).** World setting `transcriptRefine: on` plus the audio job option `refineModel` (env `ALX_MODEL_AUDIO_OPTIONS='{"refineModel":"large-v3"}'`) re-transcribes kept audio in 60 s windows after a recording stops (needs `ffmpeg` on the server). Lines keep ids; GM-only lines stay GM-only. Job options `temperatureFallback: true` lets a list of temperatures be sent.
 
-## What helps the DM agent (real-model ablations)
+## What helps the GM agent (real-model ablations)
 
 Measured with deepseek-v4.1-flash through OpenRouter on a made-up demo world
 (83 fresh natural requests, 32 world-knowledge questions, 57 broker questions).

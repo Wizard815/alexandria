@@ -9,7 +9,7 @@ export interface Mark {
     /** A token from a linked Foundry scene (features/foundry): size is its width as a fraction of the map's; disposition 1 friendly, 0 neutral, -1 hostile. */
     token?: { scene: string; id: string; actor: string | null; account: string | null; size: number; disposition: number; player: boolean };
   };
-  visibility: 'party' | 'me' | 'dm'; hidden_by_dm: boolean; created_at: string;
+  visibility: 'party' | 'me' | 'gm'; hidden_by_gm: boolean; created_at: string;
 }
 
 export const ICONS: [string, string, string][] = [
@@ -17,7 +17,7 @@ export const ICONS: [string, string, string][] = [
   ['question', '?', 'Question'], ['rest', '♨', 'Rest'], ['treasure', '◆', 'Treasure'], ['door', '⌂', 'Door'], ['eye', '◉', 'Eye'],
 ];
 
-const colorFor = (m: Mark) => (m.visibility === 'me' ? '#E3A0D0' : m.visibility === 'dm' ? '#F0A096' : '#86CFC4');
+const colorFor = (m: Mark) => (m.visibility === 'me' ? '#E3A0D0' : m.visibility === 'gm' ? '#F0A096' : '#86CFC4');
 
 export function RouteLayer({ marks, draft, selected, onPick }: { marks: Mark[]; draft: Pt[]; selected: string | null; onPick: (m: Mark) => void }) {
   const routes = marks.filter((m) => m.kind === 'route' && m.data.points && m.data.points.length > 1);
@@ -34,7 +34,7 @@ export function RouteLayer({ marks, draft, selected, onPick }: { marks: Mark[]; 
       {routes.map((m) => {
         const c = m.data.color || colorFor(m);
         return (
-          <g key={m.id} data-mark={m.id} onClick={(e) => { e.stopPropagation(); onPick(m); }} style={{ cursor: 'pointer', opacity: m.hidden_by_dm ? 0.4 : 1 }}>
+          <g key={m.id} data-mark={m.id} onClick={(e) => { e.stopPropagation(); onPick(m); }} style={{ cursor: 'pointer', opacity: m.hidden_by_gm ? 0.4 : 1 }}>
             <polyline points={pts(m.data.points!)} fill="none" stroke="transparent" strokeWidth={4} vectorEffect="non-scaling-stroke" style={{ strokeWidth: 14 }} />
             <polyline points={pts(m.data.points!)} fill="none" stroke={c} strokeWidth={selected === m.id ? 4 : 3} strokeLinecap="round" strokeLinejoin="round"
               strokeDasharray={m.visibility === 'me' ? '6 5' : undefined} vectorEffect="non-scaling-stroke"
@@ -94,7 +94,7 @@ export function MarkLayer({ marks, selected, onPick, canMove, onMove }: { marks:
         const on = selected === m.id;
         const c = colorFor(m);
         const here = drag?.id === m.id ? drag : null;
-        const pos: CSSProperties = { position: 'absolute', left: `${here?.x ?? m.data.x}%`, top: `${here?.y ?? m.data.y}%`, opacity: m.hidden_by_dm ? 0.45 : 1 };
+        const pos: CSSProperties = { position: 'absolute', left: `${here?.x ?? m.data.x}%`, top: `${here?.y ?? m.data.y}%`, opacity: m.hidden_by_gm ? 0.45 : 1 };
         if (m.data.token) {
           const t = m.data.token;
           const tc = TOKEN_COLOR[t.disposition] ?? TOKEN_COLOR[0];

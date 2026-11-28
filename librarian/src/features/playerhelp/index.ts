@@ -1,20 +1,20 @@
 // Helpers for a player's assistant (the broker's voice), built only from what
 // that player may see: the players' transcript (lines the whole table heard,
-// never a DM aside) and the published session log. No model is needed.
+// never a GM aside) and the published session log. No model is needed.
 //
 //   GET /helper/journal-draft   a draft of this player's journal for a session, from the table transcript
 //   GET /helper/recap           what happened last session: the published log entries, newest first
 //
 // The quick helper (quick.ts) is the one part that uses a model: a small second one, the 'helper' job.
 //   GET  /helper/quick          is it on, and which model answers
-//   GET  /helper/quick/brief    what the small model is given for a task (?task=&q=; the DM: &account=)
+//   GET  /helper/quick/brief    what the small model is given for a task (?task=&q=; the GM: &account=)
 //   POST /helper/quick          { task: ask|rules|turn|sheet|suggest, question? } -> an answer or a handoff
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { all } from '../../core/db.ts';
-import { requirePlayerOrDM } from '../../core/auth.ts';
+import { requirePlayerOrGM } from '../../core/auth.ts';
 import { HttpError } from '../../core/util.ts';
-import { ctx, isDM, me, memberIds, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { QUICK_TASKS, askQuick, quickBrief, quickStatus, type QuickTask } from './quick.ts';
@@ -41,16 +41,16 @@ const feature: Feature = {
   worldMount: 'helper',
   worldRoutes: (d) => {
     const r = Router({ mergeParams: true });
-    r.use(requirePlayerOrDM);
+    r.use(requirePlayerOrGM);
 
     r.get('/journal-draft', (req, res) => {
-      if (isDM(res)) throw new HttpError(403, 'This helper is for players');
+      if (isGM(res)) throw new HttpError(403, 'This helper is for players');
       const w = ctx(res).world.id;
       const sessions = listSessions(d.db, w);
       const s = (typeof req.query.session === 'string' && sessions.find((x) => x.id === req.query.session)) || sessions[0];
       if (!s) return res.json({ session: null, markdown: '', note: 'No session has been recorded yet.' });
       // Only lines the whole table heard.
-      const lines = sessionLines(d.db, w, s.id, { includeDm: false });
+      const lines = sessionLines(d.db, w, s.id, { includeGm: false });
       const mine = lines.filter((l) => l.speakerId === me(res)).map((l) => clip(l.text.replace(/\s+/g, ' ').trim(), 200)).filter((t) => t.split(' ').length >= 4);
       const others = lines.filter((l) => l.speakerId !== me(res)).map((l) => ({ who: l.speaker, text: clip(l.text.replace(/\s+/g, ' ').trim(), 200) })).filter((x) => x.text.split(' ').length >= 8).sort((a, b) => b.text.length - a.text.length).slice(0, 8);
       const md = [
@@ -77,7 +77,7 @@ const feature: Feature = {
     r.get('/quick/brief', async (req, res) => {
       const c = ctx(res);
       let aid = me(res);
-      if (isDM(res)) {
+      if (isGM(res)) {
         aid = typeof req.query.account === 'string' ? req.query.account : '';
         if (!memberIds(d.db, c.world.id, ['player']).includes(aid)) throw new HttpError(400, 'Pick a player (account)');
       }
@@ -87,8 +87,8 @@ const feature: Feature = {
     });
 
     r.post('/quick', async (req, res) => {
-      if (isDM(res)) throw new HttpError(403, 'The quick helper is for players');
-      if (!quickOn(res)) throw new HttpError(403, 'The DM has turned the quick helper off');
+      if (isGM(res)) throw new HttpError(403, 'The quick helper is for players');
+      if (!quickOn(res)) throw new HttpError(403, 'The GM has turned the quick helper off');
       const c = ctx(res);
       try {
         res.json(await askQuick(d, { worldId: c.world.id, worldName: c.world.name, accountId: me(res), settings: settings(res), task: taskOf(req.body?.task), question: questionOf(req.body?.question) }));

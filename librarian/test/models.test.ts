@@ -16,7 +16,7 @@ let tmp = '';
 let deps: any;
 let fake: FakeModels;
 let adminT = '';
-let dmT = '';
+let gmT = '';
 
 async function call(method: string, url: string, token?: string, body?: unknown) {
   const r = await fetch(base + url, {
@@ -45,8 +45,8 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   adminT = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  await ok('POST', '/api/admin/accounts', adminT, { username: 'dungeon', password: 'dm password 123' });
-  dmT = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
+  await ok('POST', '/api/admin/accounts', adminT, { username: 'dungeon', password: 'gm password 123' });
+  gmT = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
 });
 
 after(async () => {
@@ -56,17 +56,17 @@ after(async () => {
 });
 
 test('Models_NonAdminsGet403', async () => {
-  assert.equal((await call('GET', '/api/admin/models', dmT)).status, 403);
-  assert.equal((await call('PUT', '/api/admin/models', dmT, { jobs: { chat: { baseUrl: 'http://x/v1' } } })).status, 403);
-  assert.equal((await call('POST', '/api/admin/models/chat/test', dmT)).status, 403);
+  assert.equal((await call('GET', '/api/admin/models', gmT)).status, 403);
+  assert.equal((await call('PUT', '/api/admin/models', gmT, { jobs: { chat: { baseUrl: 'http://x/v1' } } })).status, 403);
+  assert.equal((await call('POST', '/api/admin/models/chat/test', gmT)).status, 403);
   assert.equal((await call('GET', '/api/admin/models')).status, 401);
 });
 
 test('Models_ListsSixJobsEmpty', async () => {
   const l = await ok('GET', '/api/admin/models', adminT);
-  assert.deepEqual(l.jobs.map((j: any) => j.job), ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank', 'dm', 'player', 'bible', 'helper', 'vision']);
-  // The last five are parts of chat: with nothing set they follow it (map vision: the DM assistant's model first).
-  for (const j of l.jobs) { assert.equal(j.source, ['dm', 'player', 'bible', 'helper', 'vision'].includes(j.job) ? 'chat' : 'none'); assert.equal(j.enabled, true); }
+  assert.deepEqual(l.jobs.map((j: any) => j.job), ['chat', 'audit', 'audio', 'voice', 'extra', 'rerank', 'gm', 'player', 'bible', 'helper', 'vision']);
+  // The last five are parts of chat: with nothing set they follow it (map vision: the GM assistant's model first).
+  for (const j of l.jobs) { assert.equal(j.source, ['gm', 'player', 'bible', 'helper', 'vision'].includes(j.job) ? 'chat' : 'none'); assert.equal(j.enabled, true); }
   assert.equal(hasJob(deps, 'chat'), false);
   await assert.rejects(chat(deps, 'chat', { messages: [{ role: 'user', content: 'hi' }] }), ModelUnavailable);
   const t = await ok('POST', '/api/admin/models/chat/test', adminT);
@@ -280,8 +280,8 @@ test('Models_PartsOfChatFollowItUntilGivenTheirOwn', async () => {
   const { activeJobs, jobConfig, ownJobConfig } = await import('../src/core/ai.ts');
   await ok('PUT', '/api/admin/models', adminT, { jobs: { chat: { baseUrl: 'http://127.0.0.1:9/v1', model: 'big', enabled: true }, bible: { baseUrl: '', model: '', enabled: true } } });
   assert.equal(jobConfig(deps, 'bible')?.model, 'big');
-  assert.equal(ownJobConfig(deps, 'dm'), null);
-  assert.ok(!activeJobs(deps).includes('dm'), 'a part that follows chat is not warmed or unloaded twice');
+  assert.equal(ownJobConfig(deps, 'gm'), null);
+  assert.ok(!activeJobs(deps).includes('gm'), 'a part that follows chat is not warmed or unloaded twice');
   await ok('PUT', '/api/admin/models', adminT, { jobs: { bible: { baseUrl: 'http://127.0.0.1:9/v1', model: 'small', enabled: true } } });
   assert.equal(jobConfig(deps, 'bible')?.model, 'small');
   assert.equal(jobConfig(deps, 'player')?.model, 'big');

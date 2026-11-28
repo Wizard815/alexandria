@@ -1,9 +1,9 @@
 // My pack and the party's shared stash, plus coin. Weight only shows when
-// the world tracks it (a DM setting). Adding, editing or removing items and
-// coin waits for the DM when the world asks for approval; the DM's changes
+// the world tracks it (a GM setting). Adding, editing or removing items and
+// coin waits for the GM when the world asks for approval; the GM's changes
 // to my things show as alerts, and so do trades: offers waiting for me with
 // Accept / Decline, my own open offers, and how recent ones ended. Giving is free: coin and items move between
-// players and the party stash at once (the DM sees a log). Items can have a
+// players and the party stash at once (the GM sees a log). Items can have a
 // picture.
 import { useState } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -32,7 +32,7 @@ export default function PlayerInventory() {
   const { toast, toastNode } = useToast();
   const weight = !!inv.data?.trackWeight;
 
-  // Quick move to/from the party stash. Free when giving is on; otherwise a request to the DM.
+  // Quick move to/from the party stash. Free when giving is on; otherwise a request to the GM.
   const quickMove = (it: Item) => act.run(async () => {
     if (giving && it.status !== 'pending' && !it.pendingChange) {
       await w.call('POST', `/inventory/${it.id}/move`, { to: it.owner === 'party' ? 'me' : 'party' });
@@ -42,18 +42,18 @@ export default function PlayerInventory() {
     }
     const r = await w.updateItem(it.id, { owner: it.owner === 'party' ? 'me' : 'party' });
     await Promise.all([inv.reload(), mine.reload()]);
-    toast(sent(r) ? 'Sent to the DM to approve' : it.owner === 'party' ? `Took ${it.name}` : `Put ${it.name} in the party stash`);
+    toast(sent(r) ? 'Sent to the GM to approve' : it.owner === 'party' ? `Took ${it.name}` : `Put ${it.name} in the party stash`);
   });
   const remove = (it: Item) => act.run(async () => {
     if (!window.confirm(`Remove ${it.name}?`)) return;
     const r = await w.removeItem(it.id);
     await Promise.all([inv.reload(), mine.reload()]);
-    if (sent(r)) toast('Sent to the DM to approve');
+    if (sent(r)) toast('Sent to the GM to approve');
   });
 
   return (
     <div className="page">
-      <PageHead title="Inventory and coin" lead="Mine is your own pack and gold; Party is the shared stash and pouch. The DM can see both." />
+      <PageHead title="Inventory and coin" lead="Mine is your own pack and gold; Party is the shared stash and pouch. The GM can see both." />
       <div className="row between">
         <span />
         <span className="row"><TradeButton /><button type="button" className="btn primary small" onClick={() => setEdit({ name: '', qty: 1, note: '' })}>＋ Add item</button></span>
@@ -89,7 +89,7 @@ export default function PlayerInventory() {
                         <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>× {it.qty}{weight && it.weight != null ? <span className="tiny faint"> · {it.weight} each</span> : null}</span>
                       </div>
                       {it.note && <span className="small muted">{it.note}</span>}
-                      {locked && <div><span className="chip teal" title="Your DM has not approved this yet">⏳ Waiting for the DM{it.pendingChange?.kind === 'remove' ? ': remove' : it.pendingChange?.kind === 'edit' ? ': change' : ''}</span></div>}
+                      {locked && <div><span className="chip teal" title="Your GM has not approved this yet">⏳ Waiting for the GM{it.pendingChange?.kind === 'remove' ? ': remove' : it.pendingChange?.kind === 'edit' ? ': change' : ''}</span></div>}
                       {it.pendingChange?.kind === 'edit' && it.pendingChange.to && <div className="tiny faint">→ {Object.entries(it.pendingChange.to).filter(([k, v]) => (it as any)[k] !== v && k !== 'owner' && k !== 'image').map(([k, v]) => `${k} ${v}`).join(', ')}{it.pendingChange.to.owner && it.pendingChange.to.owner !== it.owner ? (it.pendingChange.to.owner === 'party' ? ' to party stash' : ' to my pack') : ''}</div>}
                       {it.updated_by && it.updated_by !== me && <div className="tiny faint">changed by {nameOf(it.updated_by)} · {when(it.updated_at)}</div>}
                       <div className="row" style={{ gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
@@ -112,10 +112,10 @@ export default function PlayerInventory() {
           {giving && <TransfersList limit={10} />}
         </aside>
       </div>
-      {!weight && <p className="tiny faint">Weight tracking is off for this world. Your DM can turn it on in World settings.</p>}
+      {!weight && <p className="tiny faint">Weight tracking is off for this world. Your GM can turn it on in World settings.</p>}
       {moving && <MoveItemModal item={moving} onClose={() => setMoving(null)} onDone={(m) => { setMoving(null); toast(m); void inv.reload(); }} />}
       {viewing && <ImageViewer item={viewing} onClose={() => setViewing(null)} />}
-      {edit && <ItemModal item={edit} owner={tab} weight={weight} onClose={() => setEdit(null)} onSaved={async (pending) => { setEdit(null); await Promise.all([inv.reload(), mine.reload()]); toast(pending ? 'Sent to the DM to approve' : 'Saved'); }} />}
+      {edit && <ItemModal item={edit} owner={tab} weight={weight} onClose={() => setEdit(null)} onSaved={async (pending) => { setEdit(null); await Promise.all([inv.reload(), mine.reload()]); toast(pending ? 'Sent to the GM to approve' : 'Saved'); }} />}
       {toastNode}
     </div>
   );
@@ -134,17 +134,17 @@ function CoinCard({ owner, data, giving, reload, error }: { owner: 'me' | 'party
     if (!cp) return;
     const r: any = await w.addCoin(owner, sign * Math.abs(cp), note.trim() || undefined);
     setAmount(''); setNote('');
-    setNotice(r?.pending ? 'Sent to the DM. It counts once they approve.' : null);
+    setNotice(r?.pending ? 'Sent to the GM. It counts once they approve.' : null);
     await reload();
   });
   return (
     <section className="card gold" aria-labelledby="coin-h">
       <h2 id="coin-h">{owner === 'party' ? 'Party pouch' : 'My coin'}</h2>
       <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-strong)' }}>{data ? coins(data.cp, info.settings.coins) : '…'}</span>
-      {!!data?.pending && <span className="small" style={{ color: 'var(--teal)' }}>⏳ {data.pending > 0 ? '+' : ''}{coins(data.pending, info.settings.coins)} waiting for the DM</span>}
+      {!!data?.pending && <span className="small" style={{ color: 'var(--teal)' }}>⏳ {data.pending > 0 ? '+' : ''}{coins(data.pending, info.settings.coins)} waiting for the GM</span>}
       {notice && <span className="small muted" role="status">{notice}</span>}
       <ErrorBox error={error ?? act.error} />
-      {giving && (info.settings as { playerChangesNeedApproval?: boolean }).playerChangesNeedApproval !== false && <span className="tiny faint">Adding or spending below needs the DM's OK; giving to another player doesn't.</span>}
+      {giving && (info.settings as { playerChangesNeedApproval?: boolean }).playerChangesNeedApproval !== false && <span className="tiny faint">Adding or spending below needs the GM's OK; giving to another player doesn't.</span>}
       <Field label="Amount" help="e.g. 12 gp 5 sp, or 3 for 3 gp"><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="12 gp" /></Field>
       <Field label="What for"><input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Room at the inn" /></Field>
       <div className="row">
@@ -163,7 +163,7 @@ function CoinCard({ owner, data, giving, reload, error }: { owner: 'me' | 'party
         <ul className="stack tight small" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {data.entries.slice(0, 8).map((e: any) => (
             <li key={e.id} className="row between" style={{ gap: 6, opacity: e.status === 'pending' ? 0.7 : 1 }}>
-              <span className="grow">{e.note || (e.amount_cp > 0 ? 'Added' : 'Spent')} <span className="tiny faint">{e.note && String(e.note).includes(nameOf(e.by_id)) ? '' : `· ${nameOf(e.by_id)}`}{e.status === 'pending' ? ' · waiting for the DM' : ''}</span></span>
+              <span className="grow">{e.note || (e.amount_cp > 0 ? 'Added' : 'Spent')} <span className="tiny faint">{e.note && String(e.note).includes(nameOf(e.by_id)) ? '' : `· ${nameOf(e.by_id)}`}{e.status === 'pending' ? ' · waiting for the GM' : ''}</span></span>
               <span style={{ color: e.amount_cp >= 0 ? 'var(--ok-text)' : 'var(--danger-text)' }}>{e.amount_cp >= 0 ? '+' : ''}{coins(e.amount_cp, info.settings.coins)}</span>
             </li>
           ))}

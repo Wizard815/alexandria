@@ -18,9 +18,9 @@ const ENTITIES: FakeEntity[] = [
   { id: 2, name: 'Jessamine Backstory', entry: 'Jessamine grew up in the salt flats ZJ1PUBLIC.', priv: true, posts: [{ name: 'Dark truth', entry: 'ZJ1SECRETPOST she betrayed her order', visibility_id: 2 }] },
   { id: 3, name: 'Tomas Backstory', entry: 'Tomas once served the red fleet ZT1PUBLIC.', priv: true },
   { id: 4, name: 'Blanket Only', entry: 'The vault code is ZB1BLANKET and the duke is a puppet of the queen.', priv: true },
-  { id: 5, name: 'DM Plot', entry: 'The queen plans the flood ZD1DMPLOT.', priv: true },
+  { id: 5, name: 'GM Plot', entry: 'The queen plans the flood ZD1GMPLOT.', priv: true },
 ];
-const SEES = { [TOKENS.dm]: 'all' as const, [TOKENS.jess]: [1, 2], [TOKENS.tom]: [1, 3], [TOKENS.blanket]: 'all' as const, [TOKENS.other]: [1] };
+const SEES = { [TOKENS.gm]: 'all' as const, [TOKENS.jess]: [1, 2], [TOKENS.tom]: [1, 3], [TOKENS.blanket]: 'all' as const, [TOKENS.other]: [1] };
 
 const cleanups: (() => void)[] = [];
 after(() => { for (const c of cleanups) c(); });
@@ -85,15 +85,15 @@ const tokenCalls = (since: number) => kanka.calls.slice(since);
 
 before(async () => {
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Keyland', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Keyland', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom', 'ana']) {
-    const inv = await ok('POST', w('/invites'), T.dm, { role: 'player' });
+    const inv = await ok('POST', w('/invites'), T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
     T[name] = j.token; ID[name] = j.account.id;
   }
-  SRC = (await ok('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'kanka-api', name: 'Kanka', config: { campaignId: CAMPAIGN, token: TOKENS.dm, apiUrl: KANKA_API }, defaultVisibility: 'party' })).id;
+  SRC = (await ok('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'kanka-api', name: 'Kanka', config: { campaignId: CAMPAIGN, token: TOKENS.gm, apiUrl: KANKA_API }, defaultVisibility: 'party' })).id;
   await ok('POST', `/api/admin/sources/${SRC}/sync?wait=1`, T.admin);
   for (const n of [1, 2, 3, 4, 5]) PG[n] = pageByExternal(n);
 });
@@ -101,13 +101,13 @@ before(async () => {
 // ---- the model of levels ----------------------------------------------------------------------------------
 
 test('SourceKeys: a key lifts only the source\'s own marking, never a marker, an audience or a classified level', () => {
-  const p = { visibility: 'dm', sourceLevel: 'dm', markerLevel: 'party', audience: 'auto' };
+  const p = { visibility: 'gm', sourceLevel: 'gm', markerLevel: 'party', audience: 'auto' };
   assert.equal(levelForAccountKey(p, true), 'party');
-  assert.equal(levelForAccountKey(p, false), 'dm', 'no key, no lift');
+  assert.equal(levelForAccountKey(p, false), 'gm', 'no key, no lift');
   assert.notEqual(levelForAccountKey({ ...p, markerLevel: 'broker' }, true), 'party', 'a broker marker is never lowered to party');
   assert.notEqual(levelForAccountKey({ ...p, markerLevel: 'classified' }, true), 'party');
-  assert.equal(levelForAccountKey({ ...p, audience: 'dm' }, true), 'dm', 'a source set to DM only stays so');
-  assert.equal(levelForAccountKey({ ...p, markerLevel: null }, true), 'dm', 'an unknown marker fails closed');
+  assert.equal(levelForAccountKey({ ...p, audience: 'gm' }, true), 'gm', 'a source set to GM only stays so');
+  assert.equal(levelForAccountKey({ ...p, markerLevel: null }, true), 'gm', 'an unknown marker fails closed');
   assert.equal(levelForAccountKey({ ...p, visibility: 'broker', sourceLevel: 'broker' }, true), 'broker');
   assert.equal(levelForAccountKey({ ...p, visibility: 'classified', sourceLevel: 'classified', markerLevel: 'classified' }, true), 'classified');
 });
@@ -128,17 +128,17 @@ test('SourceKeys: a key is verified against this world before it is saved (Kanka
   const k = good.body;
   assert.equal(k.verified.matchedWorld, true);
   assert.equal(k.secret, '••••', 'the secret is a mask');
-  assert.equal(k.trust, 'unsure', 'a player\'s own key is unsure until the DM confirms');
+  assert.equal(k.trust, 'unsure', 'a player\'s own key is unsure until the GM confirms');
   assert.equal(k.claimed, 'per-user');
   assert.equal(k.treatedAs, 'blanket');
   assert.deepEqual(k.users, [ID.jess]);
-  assert.equal(k.probe.verdict, 'sees-less', 'the key lists fewer entities than the DM connection');
+  assert.equal(k.probe.verdict, 'sees-less', 'the key lists fewer entities than the GM connection');
   PG.jessKey = k.id;
 });
 
 test('SourceKeys: a LegendKeeper project and a generic API are verified too', async () => {
-  const lk = (await ok('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'legendkeeper-api', name: 'LK', config: { apiUrl: LK, apiKey: 'LKGOODKEY-1234567890' }, defaultVisibility: 'dm' })).id;
-  const api = (await ok('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'api', name: 'API', config: { transport: 'http', url: 'https://api.test/worlds/{world}/articles', token: 'GOODAPIKEY-123456', idField: 'id', titleField: 'name', itemsPath: 'data', world: '42' }, defaultVisibility: 'dm' })).id;
+  const lk = (await ok('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'legendkeeper-api', name: 'LK', config: { apiUrl: LK, apiKey: 'LKGOODKEY-1234567890' }, defaultVisibility: 'gm' })).id;
+  const api = (await ok('POST', `/api/admin/worlds/${W}/sources`, T.admin, { kind: 'api', name: 'API', config: { transport: 'http', url: 'https://api.test/worlds/{world}/articles', token: 'GOODAPIKEY-123456', idField: 'id', titleField: 'name', itemsPath: 'data', world: '42' }, defaultVisibility: 'gm' })).id;
   const add = (sourceId: string, secret: string) => call('POST', SK(), T.tom, { sourceId, secret });
   const bad = await add(lk, 'LKOTHERPROJECT-123456');
   assert.equal(bad.status, 400);
@@ -155,15 +155,15 @@ test('SourceKeys: a LegendKeeper project and a generic API are verified too', as
   for (const k of all<any>(deps.db, 'SELECT id FROM sourcekeys_keys WHERE owner_id = ?', ID.tom)) await ok('DELETE', `${SK()}/${k.id}`, T.tom);
 });
 
-test('SourceKeys: players see and revoke only their own keys; the DM sees all; secrets never come back', async () => {
+test('SourceKeys: players see and revoke only their own keys; the GM sees all; secrets never come back', async () => {
   const mine = keep(await call('GET', SK(), T.jess));
   assert.equal(mine.body.keys.length, 1);
   assert.equal((await call('GET', SK(), T.tom)).body.keys.length, 0, 'another player has no keys here');
   assert.equal((await call('DELETE', `${SK()}/${PG.jessKey}`, T.tom)).status, 404, 'not found, not forbidden');
   assert.equal((await call('PATCH', `${SK()}/${PG.jessKey}`, T.jess, { trust: 'per-user' })).status, 403, 'a player cannot confirm their own key');
   assert.equal((await call('POST', `${SK()}/${PG.jessKey}/probe`, T.jess)).status, 403);
-  const dm = keep(await call('GET', SK(), T.dm));
-  assert.ok(dm.body.keys.some((k: any) => k.id === PG.jessKey && k.ownerName));
+  const gm = keep(await call('GET', SK(), T.gm));
+  assert.ok(gm.body.keys.some((k: any) => k.id === PG.jessKey && k.ownerName));
   assert.equal((await call('GET', SK(), T.admin)).status === 200 || true, true);
 });
 
@@ -177,7 +177,7 @@ test('SourceKeys: an unsure key is treated as a blanket key: it feeds no library
 // ---- the per-account view ------------------------------------------------------------------------------------
 
 test('SourceKeys: a confirmed per-user key lifts its own pages for that account only, and never a secret block', async () => {
-  await ok('PATCH', `${SK()}/${PG.jessKey}`, T.dm, { trust: 'per-user' });
+  await ok('PATCH', `${SK()}/${PG.jessKey}`, T.gm, { trust: 'per-user' });
   const r = await ok('POST', `${SK()}/${PG.jessKey}/refresh`, T.jess);
   assert.equal(r.pages, 2, 'the guild and her own backstory');
   const page = keep(await call('GET', w(`/library/pages/${PG[2]}`), T.jess));
@@ -198,33 +198,33 @@ test('SourceKeys: a confirmed per-user key lifts its own pages for that account 
   const bulk = await ok('POST', w('/library/pages/bulk'), T.jess, { ids: [PG[2], PG[3]] });
   assert.deepEqual(bulk.map((p: any) => p.id), [PG[2]]);
   assert.ok(!JSON.stringify(bulk).includes('ZJ1SECRETPOST'));
-  // The DM still sees the whole page.
-  assert.match((await call('GET', w(`/library/pages/${PG[2]}`), T.dm)).text, /ZJ1SECRETPOST/);
+  // The GM still sees the whole page.
+  assert.match((await call('GET', w(`/library/pages/${PG[2]}`), T.gm)).text, /ZJ1SECRETPOST/);
 });
 
-test('SourceKeys: a broker or classified marker, or a source set to DM only, is never lifted', async () => {
+test('SourceKeys: a broker or classified marker, or a source set to GM only, is never lifted', async () => {
   const set = (col: string, v: string) => run(deps.db, `UPDATE pages SET ${col} = ? WHERE id = ?`, v, PG[2]);
   const read = async () => (await call('GET', w(`/library/pages/${PG[2]}`), T.jess)).status;
   for (const lvl of ['broker', 'classified']) { set('marker_level', lvl); assert.equal(await read(), 404, lvl); }
   set('marker_level', 'party');
   assert.equal(await read(), 200);
-  await ok('PATCH', `/api/admin/sources/${SRC}`, T.admin, { audience: 'dm' });
-  assert.equal(await read(), 404, 'a source set to DM only stays DM only, keys included');
+  await ok('PATCH', `/api/admin/sources/${SRC}`, T.admin, { audience: 'gm' });
+  assert.equal(await read(), 404, 'a source set to GM only stays GM only, keys included');
   await ok('PATCH', `/api/admin/sources/${SRC}`, T.admin, { audience: 'auto' });
   assert.equal(await read(), 200);
 });
 
-// ---- DM keys, blanket keys, and the agent ----------------------------------------------------------------------
+// ---- GM keys, blanket keys, and the agent ----------------------------------------------------------------------
 
-test('SourceKeys: the DM adds a key, assigns its users and uses; a blanket key never feeds a player\'s view or answer', async () => {
-  const k = (await ok('POST', SK(), T.dm, { sourceId: SRC, secret: TOKENS.blanket, label: 'Shared API key', trust: 'blanket', users: [ID.tom], uses: ['agent'] }));
+test('SourceKeys: the GM adds a key, assigns its users and uses; a blanket key never feeds a player\'s view or answer', async () => {
+  const k = (await ok('POST', SK(), T.gm, { sourceId: SRC, secret: TOKENS.blanket, label: 'Shared API key', trust: 'blanket', users: [ID.tom], uses: ['agent'] }));
   assert.equal(k.trust, 'blanket');
   assert.deepEqual(k.users, [ID.tom]);
   PG.blanketKey = k.id;
   assert.equal(k.probe.verdict, 'sees-everything');
   // It is tom's, for lookups only: jess has no such key to use, and a blanket key has no library view.
   assert.equal((await call('POST', `${SK()}/${k.id}/refresh`, T.tom)).status, 404, 'tom does not own it');
-  assert.equal((await call('POST', `${SK()}/${k.id}/refresh`, T.dm)).status, 409);
+  assert.equal((await call('POST', `${SK()}/${k.id}/refresh`, T.gm)).status, 409);
   assert.equal((await call('GET', w(`/library/pages/${PG[4]}`), T.tom)).status, 404);
   const since = kanka.calls.length;
   const tom = keep(await call('GET', `${SK()}/lookup?q=Blanket%20Only&question=${encodeURIComponent('What is the vault code?')}`, T.tom));
@@ -236,8 +236,8 @@ test('SourceKeys: the DM adds a key, assigns its users and uses; a blanket key n
   const jess = await ok('GET', `${SK()}/lookup?q=Blanket%20Only`, T.jess);
   assert.equal(jess.escalated, false);
   assert.match(jess.message, /Nothing found|No source key/);
-  // The DM's queue holds the hidden context; the player's list does not.
-  const q = await ok('GET', `${SK()}/escalations`, T.dm);
+  // The GM's queue holds the hidden context; the player's list does not.
+  const q = await ok('GET', `${SK()}/escalations`, T.gm);
   const esc = q.escalations.find((e: any) => e.askerId === ID.tom);
   assert.ok(esc && JSON.stringify(esc.hidden).includes('ZB1BLANKET'));
   assert.ok(!JSON.stringify(await ok('GET', `${SK()}/escalations`, T.tom)).includes('ZB1BLANKET'));
@@ -265,14 +265,14 @@ test('SourceKeys: the agent uses only the asking player\'s own keys, per player'
   const reply1 = done.messages.filter((m: any) => m.role === 'assistant').at(-1);
   assert.match(reply1.text, /The broker will look into it\./);
   assert.ok(!/ZB1BLANKET|puppet/.test(JSON.stringify(done)));
-  assert.ok(tokenCalls(tomSince).filter((c) => c.path.includes('/search/')).every((c) => c.token === TOKENS.blanket), 'never jess\'s key, never the DM\'s');
-  assert.ok(!tokenCalls(jessSince).some((c) => c.token === TOKENS.dm), 'the DM\'s key is never used for a player');
+  assert.ok(tokenCalls(tomSince).filter((c) => c.path.includes('/search/')).every((c) => c.token === TOKENS.blanket), 'never jess\'s key, never the GM\'s');
+  assert.ok(!tokenCalls(jessSince).some((c) => c.token === TOKENS.gm), 'the GM\'s key is never used for a player');
 });
 
 // ---- escalation ------------------------------------------------------------------------------------------------------
 
-test('SourceKeys: escalation as a DM question: nothing is answered until the DM answers', async () => {
-  await ok('PATCH', w('/settings'), T.dm, { escalation: 'dm-question' });
+test('SourceKeys: escalation as a GM question: nothing is answered until the GM answers', async () => {
+  await ok('PATCH', w('/settings'), T.gm, { escalation: 'gm-question' });
   const asked = await ok('POST', `${SK()}/escalations`, T.ana, { question: 'Who truly leads the harbour council?' });
   assert.equal(asked.escalated, true);
   assert.equal(asked.message, 'The broker will look into it.');
@@ -284,26 +284,26 @@ test('SourceKeys: escalation as a DM question: nothing is answered until the DM 
   const id = mine[0].id;
   assert.equal((await call('POST', `${SK()}/escalations/${id}/answer`, T.ana, { answer: 'I answer myself' })).status, 403);
   assert.equal((await call('GET', `${SK()}/escalations`, T.tom)).body.escalations.some((e: any) => e.id === id), false, 'only the asker sees it');
-  await ok('POST', `${SK()}/escalations/${id}/answer`, T.dm, { answer: 'Nobody you have met.' });
+  await ok('POST', `${SK()}/escalations/${id}/answer`, T.gm, { answer: 'Nobody you have met.' });
   const after = (await ok('GET', `${SK()}/escalations`, T.ana)).escalations[0];
   assert.equal(after.status, 'answered');
   assert.equal(after.answer, 'Nobody you have met.');
-  assert.equal((await call('POST', `${SK()}/escalations/${id}/answer`, T.dm, { answer: 'again' })).status, 409);
+  assert.equal((await call('POST', `${SK()}/escalations/${id}/answer`, T.gm, { answer: 'again' })).status, 409);
   // Off topic is turned away, not escalated.
   const poem = await ok('POST', `${SK()}/escalations`, T.ana, { question: 'Write me a poem about bitcoin' });
   assert.equal(poem.escalated, false);
   assert.equal(poem.refused, true);
 });
 
-test('SourceKeys: escalation as a broker deal: priced by the DM, delivered only after approval', async () => {
-  await ok('PATCH', w('/settings'), T.dm, { escalation: 'broker-deal', escalationSessions: 2, brokerEnabled: true });
-  await ok('POST', w('/live/ledger'), T.dm, { owner: ID.ana, amountCp: 5000, note: 'coin' });
+test('SourceKeys: escalation as a broker deal: priced by the GM, delivered only after approval', async () => {
+  await ok('PATCH', w('/settings'), T.gm, { escalation: 'broker-deal', escalationSessions: 2, brokerEnabled: true });
+  await ok('POST', w('/live/ledger'), T.gm, { owner: ID.ana, amountCp: 5000, note: 'coin' });
   const asked = await ok('POST', `${SK()}/escalations`, T.ana, { question: 'What is behind the duke\'s locked door?' });
   const e = asked.escalation;
   assert.ok(e.brokerRequestId, 'a broker request was made');
   const brokerList = JSON.stringify(await ok('GET', w('/broker'), T.ana));
   assert.ok(brokerList.includes(e.brokerRequestId) && brokerList.includes('pricing'));
-  const priced = await ok('POST', `${SK()}/escalations/${e.id}/price`, T.dm, { costCp: 300, answer: 'ZESCAL-DEAL-TEXT the door hides the duke\'s ledgers', note: 'worth it' });
+  const priced = await ok('POST', `${SK()}/escalations/${e.id}/price`, T.gm, { costCp: 300, answer: 'ZESCAL-DEAL-TEXT the door hides the duke\'s ledgers', note: 'worth it' });
   assert.equal(priced.sessions, 2, 'the default wait is two sessions');
   const offer = (await ok('GET', `${SK()}/escalations`, T.ana)).escalations.find((x: any) => x.id === e.id);
   assert.equal(offer.status, 'offered');
@@ -314,18 +314,18 @@ test('SourceKeys: escalation as a broker deal: priced by the DM, delivered only 
   const waiting = (await ok('GET', `${SK()}/escalations`, T.ana)).escalations.find((x: any) => x.id === e.id);
   assert.equal(waiting.status, 'waiting');
   assert.ok(!JSON.stringify(waiting).includes('ZESCAL-DEAL-TEXT'), 'paid, but not delivered: still no text');
-  await ok('POST', w(`/broker/${e.brokerRequestId}/approve`), T.dm);
+  await ok('POST', w(`/broker/${e.brokerRequestId}/approve`), T.gm);
   const done = (await ok('GET', `${SK()}/escalations`, T.ana)).escalations.find((x: any) => x.id === e.id);
   assert.equal(done.status, 'answered');
   assert.match(done.answer, /ZESCAL-DEAL-TEXT/);
 });
 
-test('SourceKeys: a broker question that goes to the DM is in the escalation queue with its hidden context', async () => {
-  await ok('PUT', w('/library/pages'), T.dm, { path: 'dm/Queen', visibility: 'dm', markdown: '# Queen\nThe smuggler queen Velmira keeps her treasury beneath the lighthouse.\n' });
+test('SourceKeys: a broker question that goes to the GM is in the escalation queue with its hidden context', async () => {
+  await ok('PUT', w('/library/pages'), T.gm, { path: 'gm/Queen', visibility: 'gm', markdown: '# Queen\nThe smuggler queen Velmira keeps her treasury beneath the lighthouse.\n' });
   const q = await ok('POST', w('/broker/quote'), T.tom, { question: 'Who is the smuggler queen and where is her treasury?', length: 'short' });
   const asked = await ok('POST', w('/broker/ask'), T.tom, { quoteId: q.quoteId });
   assert.equal(asked.status, 'pricing');
-  const queue = (await ok('GET', `${SK()}/escalations`, T.dm)).escalations;
+  const queue = (await ok('GET', `${SK()}/escalations`, T.gm)).escalations;
   const mine = queue.find((e: any) => e.brokerRequestId === asked.id);
   assert.ok(mine && mine.origin === 'broker');
   assert.ok(!JSON.stringify(await ok('GET', `${SK()}/escalations`, T.tom)).includes('Velmira'));
@@ -340,7 +340,7 @@ test('SourceKeys: a player shares a page their own key sees; the recipient gets 
   assert.equal((await S(PG[2], 'jess')).status, 400, 'a body is needed');
   assert.equal((await S(PG[2], 'tom', { to: [ID.ana] })).status, 404, 'tom cannot see it, so cannot share it');
   assert.equal((await S(PG[5], 'jess', { to: [ID.ana] })).status, 404);
-  assert.equal((await S(PG[2], 'jess', { to: [ID.dm] })).status, 400, 'recipients are players');
+  assert.equal((await S(PG[2], 'jess', { to: [ID.gm] })).status, 400, 'recipients are players');
   assert.equal((await S(PG[2], 'jess', { to: [ID.ana] })).status, 201);
   const ana = await call('GET', w(`/library/pages/${PG[2]}`), T.ana);
   assert.equal(ana.status, 200);
@@ -362,26 +362,26 @@ test('SourceKeys: a player shares a page their own key sees; the recipient gets 
   assert.deepEqual((await ok('POST', w('/library/pages/bulk'), T.ana, { ids: [PG[2]] })), []);
 });
 
-test('SourceKeys: the DM shares any page except broker and classified, with the party or chosen players', async () => {
-  const S = (id: string, body: unknown, who = 'dm', m = 'POST') => call(m, w(`/library/pages/${id}/share`), T[who], body);
+test('SourceKeys: the GM shares any page except broker and classified, with the party or chosen players', async () => {
+  const S = (id: string, body: unknown, who = 'gm', m = 'POST') => call(m, w(`/library/pages/${id}/share`), T[who], body);
   assert.equal((await call('GET', w(`/library/pages/${PG[5]}`), T.tom)).status, 404);
   assert.equal((await S(PG[5], { to: [ID.tom] })).status, 201);
   const tom = await call('GET', w(`/library/pages/${PG[5]}`), T.tom);
   assert.equal(tom.status, 200);
-  assert.equal(tom.body.via, 'dm');
+  assert.equal(tom.body.via, 'gm');
   assert.equal((await call('GET', w(`/library/pages/${PG[5]}`), T.ana)).status, 404);
   await S(PG[5], { to: 'party' });
   assert.equal((await call('GET', w(`/library/pages/${PG[5]}`), T.ana)).status, 200);
-  await ok('DELETE', w(`/library/pages/${PG[5]}/share`), T.dm);
+  await ok('DELETE', w(`/library/pages/${PG[5]}/share`), T.gm);
   assert.equal((await call('GET', w(`/library/pages/${PG[5]}`), T.tom)).status, 404);
   // Never broker or classified, and the page's own level is unchanged.
-  const cls = (await ok('PUT', w('/library/pages'), T.dm, { path: 'c/Vault', visibility: 'classified', markdown: '# Vault\nsecret\n' })).id;
-  const brk = (await ok('PUT', w('/library/pages'), T.dm, { path: 'c/Rumour', visibility: 'broker', markdown: '# Rumour\nsecret\n' })).id;
+  const cls = (await ok('PUT', w('/library/pages'), T.gm, { path: 'c/Vault', visibility: 'classified', markdown: '# Vault\nsecret\n' })).id;
+  const brk = (await ok('PUT', w('/library/pages'), T.gm, { path: 'c/Rumour', visibility: 'broker', markdown: '# Rumour\nsecret\n' })).id;
   assert.equal((await S(cls, { to: 'party' })).status, 409);
   assert.equal((await S(brk, { to: 'party' })).status, 409);
-  assert.equal(one<any>(deps.db, 'SELECT visibility FROM pages WHERE id = ?', PG[5]).visibility, 'dm');
-  // A DM page of the DM's own, with a secret block: the player copy has no secret.
-  const own = (await ok('PUT', w('/library/pages'), T.dm, { path: 'c/Plan', visibility: 'dm', markdown: '# Plan\nPublic line ZPLANPUBLIC.\n\n> [!secret] DM\n> ZPLANSECRET\n' })).id;
+  assert.equal(one<any>(deps.db, 'SELECT visibility FROM pages WHERE id = ?', PG[5]).visibility, 'gm');
+  // A GM page of the GM's own, with a secret block: the player copy has no secret.
+  const own = (await ok('PUT', w('/library/pages'), T.gm, { path: 'c/Plan', visibility: 'gm', markdown: '# Plan\nPublic line ZPLANPUBLIC.\n\n> [!secret] GM\n> ZPLANSECRET\n' })).id;
   await S(own, { to: 'party' });
   const t = await call('GET', w(`/library/pages/${own}`), T.tom);
   assert.match(t.text, /ZPLANPUBLIC/);
@@ -406,22 +406,22 @@ test('SourceKeys: revoking a key stops its use at once, wipes the secret and end
   assert.equal((await call('POST', `${SK()}/${PG.jessKey}/refresh`, T.jess)).status, 409);
   assert.equal(all(deps.db, 'SELECT 1 FROM sourcekeys_access WHERE key_id = ?', PG.jessKey).length, 0);
   assert.equal((await ok('GET', SK(), T.jess)).keys.length, 0, 'a revoked key leaves the player\'s list');
-  assert.ok((await ok('GET', SK(), T.dm)).keys.find((k: any) => k.id === PG.jessKey).revoked);
+  assert.ok((await ok('GET', SK(), T.gm)).keys.find((k: any) => k.id === PG.jessKey).revoked);
 });
 
-test('SourceKeys: the DM can revoke any key, and changing trust stops a library view at once', async () => {
+test('SourceKeys: the GM can revoke any key, and changing trust stops a library view at once', async () => {
   const a = await ok('POST', SK(), T.tom, { sourceId: SRC, secret: TOKENS.tom, label: 'Tom Kanka' });
-  await ok('PATCH', `${SK()}/${a.id}`, T.dm, { trust: 'per-user' });
+  await ok('PATCH', `${SK()}/${a.id}`, T.gm, { trust: 'per-user' });
   await ok('POST', `${SK()}/${a.id}/refresh`, T.tom);
   assert.equal((await call('GET', w(`/library/pages/${PG[3]}`), T.tom)).status, 200);
-  await ok('PATCH', `${SK()}/${a.id}`, T.dm, { trust: 'blanket' });
+  await ok('PATCH', `${SK()}/${a.id}`, T.gm, { trust: 'blanket' });
   assert.equal((await call('GET', w(`/library/pages/${PG[3]}`), T.tom)).status, 404, 'a blanket key feeds nobody');
-  await ok('PATCH', `${SK()}/${a.id}`, T.dm, { trust: 'per-user' });
-  await ok('POST', `${SK()}/${a.id}/refresh`, T.dm);
+  await ok('PATCH', `${SK()}/${a.id}`, T.gm, { trust: 'per-user' });
+  await ok('POST', `${SK()}/${a.id}/refresh`, T.gm);
   assert.equal((await call('GET', w(`/library/pages/${PG[3]}`), T.tom)).status, 200);
-  await ok('PATCH', `${SK()}/${a.id}`, T.dm, { users: [ID.ana] });
+  await ok('PATCH', `${SK()}/${a.id}`, T.gm, { users: [ID.ana] });
   assert.equal((await call('GET', w(`/library/pages/${PG[3]}`), T.tom)).status, 404, 'no longer a named user');
-  await ok('DELETE', `${SK()}/${a.id}`, T.dm);
+  await ok('DELETE', `${SK()}/${a.id}`, T.gm);
   assert.equal(one<any>(deps.db, 'SELECT revoked FROM sourcekeys_keys WHERE id = ?', a.id).revoked, 1);
 });
 

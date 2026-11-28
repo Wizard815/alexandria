@@ -28,7 +28,7 @@ export function wants(d: Deps, worldId: string, accountId: string, channel: Soun
 }
 
 /**
- * The DM's screen gets every event (it decides by `target` whether to play
+ * The GM's screen gets every event (it decides by `target` whether to play
  * it at the table). A player gets it only when the target includes players
  * and one of their devices has that channel's switch on, and, when
  * `accounts` is given, only if they are one of those players.
@@ -36,7 +36,7 @@ export function wants(d: Deps, worldId: string, accountId: string, channel: Soun
 export function sendSound(d: Deps, worldId: string, ev: Omit<SoundEvent, 'at'> & { at?: string }, accounts?: string[]): SoundEvent {
   const full = { ...ev, at: ev.at ?? now() } as SoundEvent;
   d.hub.emitPer(worldId, 'sound', (v) => {
-    if (v.role === 'dm') return full;
+    if (v.role === 'gm') return full;
     if (!toPlayers(full.target)) return null;
     // A line meant for some players only (an NPC talking to one of them) reaches no one else.
     if (accounts && !accounts.includes(v.accountId)) return null;

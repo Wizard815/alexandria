@@ -8,7 +8,7 @@ import { netHooks } from './net.ts';
 export interface Me {
   account: { id: string; username: string; display_name: string; is_admin: boolean };
   theme: { race?: string; mode?: 'dark' | 'light'; effects?: boolean } | null;
-  worlds: { id: string; slug: string; name: string; role: 'dm' | 'player' | 'guest'; character_name: string | null }[];
+  worlds: { id: string; slug: string; name: string; role: 'gm' | 'player' | 'guest'; character_name: string | null }[];
 }
 
 interface AuthState {

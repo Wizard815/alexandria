@@ -107,7 +107,7 @@ export function opBlocks(html: unknown, lk: OpLookups): Block[] {
   return blocks;
 }
 
-/** The players may read it: Obsidian Portal says it is not GM-only (and a character is public or for friends). Anything unsure is the DM's. */
+/** The players may read it: Obsidian Portal says it is not GM-only (and a character is public or for friends). Anything unsure is the GM's. */
 export function opShared(x: any, character: boolean): boolean {
   if (x?.is_game_master_only !== false) return false;
   if (character) return x.visibility === 'public' || x.visibility === 'friends';
@@ -131,7 +131,7 @@ export function opWikiEntry(x: any, lk: OpLookups, shareVisible: boolean): Entry
   return {
     externalId: `op:${x.id}`, folder: [post ? 'Adventure Log' : 'Wiki'], title: String(x.name ?? x.post_title ?? 'Untitled'), tags: tagList(x.tags), type: post ? 'post' : 'page',
     properties: facts.length ? [{ title: 'Post', rows: facts }] : [], blocks,
-    visibility: shared && shareVisible ? 'party' : 'dm', sourceShared: shared, url: abs(x.wiki_page_url),
+    visibility: shared && shareVisible ? 'party' : 'gm', sourceShared: shared, url: abs(x.wiki_page_url),
     updatedAt: x.updated_at ?? null, sourceUpdatedAt: x.updated_at ?? null, depth: 'full',
   };
 }
@@ -153,7 +153,7 @@ export function opCharacterEntry(x: any, lk: OpLookups, shareVisible: boolean): 
   return {
     externalId: `op:${x.id}`, folder: ['Characters'], title: String(x.name ?? 'Unnamed'), tags: tagList(x.tags), type: 'character',
     banner: abs(x.avatar_url), properties: facts.length ? [{ title: 'Character', rows: facts }] : [], blocks,
-    visibility: shared && shareVisible ? 'party' : 'dm', sourceShared: shared, url: abs(x.character_url),
+    visibility: shared && shareVisible ? 'party' : 'gm', sourceShared: shared, url: abs(x.character_url),
     updatedAt: x.updated_at ?? null, sourceUpdatedAt: x.updated_at ?? null, depth: 'full',
   };
 }
@@ -193,7 +193,7 @@ async function* opIndex(cfg: Record<string, any>, ctx: ConnectorContext, state: 
       externalId: `op:${x.id}`, folder: [k === 'c' ? 'Characters' : post ? 'Adventure Log' : 'Wiki'], title, tags, type, blocks: indexBlocks({ title, type, tags }),
       url: abs(k === 'c' ? x.character_url : x.wiki_page_url),
       // The list may leave is_game_master_only out; only an explicit GM-only (or private character) is restricted at once.
-      visibility: 'dm', restricted: x.is_game_master_only === true || (k === 'c' && x.visibility === 'private'), updatedAt: x.updated_at ?? null, sourceUpdatedAt: x.updated_at ?? null, depth: 'index',
+      visibility: 'gm', restricted: x.is_game_master_only === true || (k === 'c' && x.visibility === 'private'), updatedAt: x.updated_at ?? null, sourceUpdatedAt: x.updated_at ?? null, depth: 'index',
     } satisfies Entry;
   }
 }
@@ -214,7 +214,7 @@ async function* opDetail(cfg: Record<string, any>, ctx: ConnectorContext, ids: s
 export const obsidianPortal: Connector = {
   id: 'obsidian-portal',
   label: 'Obsidian Portal',
-  description: 'Reads an Obsidian Portal campaign: wiki pages, the adventure log and characters. GM-only pages and GM info stay DM-only.',
+  description: 'Reads an Obsidian Portal campaign: wiki pages, the adventure log and characters. GM-only pages and GM info stay GM-only.',
   capabilities: ['pages', 'properties', 'tags', 'images', 'characters', 'relations'],
   fields: [
     { key: 'campaign', label: 'Campaign', type: 'text', required: true, help: 'Its name, slug or address (https://<campaign>.obsidianportal.com or …/campaigns/<slug>).' },

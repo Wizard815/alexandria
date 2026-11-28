@@ -1,4 +1,4 @@
-// Encounters and story events on the DM's Table: who is talking to whom right now, the last thing said, and when the next
+// Encounters and story events on the GM's Table: who is talking to whom right now, the last thing said, and when the next
 // wandering NPC is due. A story event (an encounter of kind 'event', tied to a place) is marked as one.
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { when } from '../../lib/format.ts';

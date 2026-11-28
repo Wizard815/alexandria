@@ -13,10 +13,10 @@
   "options": {
     "approval": {
       "type": "enum",
-      "values": ["dm", "auto"],
-      "default": "dm",
+      "values": ["gm", "auto"],
+      "default": "gm",
       "label": "Who approves a crafted spell",
-      "help": "dm: the DM approves each one; auto: learned at once when the recipe fits."
+      "help": "gm: the GM approves each one; auto: learned at once when the recipe fits."
     }
   },
   "presets": {
@@ -46,7 +46,7 @@
       "draft_spell_recipe",
       "list_spells"
     ],
-    "player": "To help a player craft: read their codex with my_spell_codex (the spells they know), then list_spell_recipes for recipes; say which recipes they can make now and what each one still needs. Read a spell with read_spell before describing it. A crafted spell waits for the DM unless the DM set approval to auto.",
-    "dm": "To help the DM with spell crafting: list_spell_recipes shows the recipes and draft_spell_recipe proposes a new one (the DM approves it). When a player asks to craft, check they know every spell the recipe needs."
+    "player": "To help a player craft: read their codex with my_spell_codex (the spells they know), then list_spell_recipes for recipes; say which recipes they can make now and what each one still needs. Read a spell with read_spell before describing it. A crafted spell waits for the GM unless the GM set approval to auto.",
+    "gm": "To help the GM with spell crafting: list_spell_recipes shows the recipes and draft_spell_recipe proposes a new one (the GM approves it). When a player asks to craft, check they know every spell the recipe needs."
   }
 }

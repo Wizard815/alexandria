@@ -42,7 +42,7 @@
     {
       "id": "add-faction",
       "label": "Add a faction",
-      "by": "dm",
+      "by": "gm",
       "record": "faction",
       "do": "create",
       "ask": [
@@ -54,7 +54,7 @@
     {
       "id": "renown",
       "label": "Change renown",
-      "by": "dm",
+      "by": "gm",
       "record": "faction",
       "do": "add",
       "field": "renown",
@@ -66,7 +66,7 @@
     {
       "id": "set-rank",
       "label": "Set rank",
-      "by": "dm",
+      "by": "gm",
       "record": "faction",
       "do": "set",
       "ask": [
@@ -90,10 +90,10 @@
       ]
     },
     {
-      "id": "dm",
+      "id": "gm",
       "title": "Factions",
       "record": "faction",
-      "place": "dm",
+      "place": "gm",
       "columns": [
         "name",
         "renown",
@@ -120,7 +120,7 @@
       "standing",
       "reputation with"
     ],
-    "dm": "Faction renown is on: after the party serves or crosses a faction, propose a renown change (+1 a task, +2 or more for a big one, minus for working against it). At 3, 10, 25 and 50 renown offer a new rank with favours.",
+    "gm": "Faction renown is on: after the party serves or crosses a faction, propose a renown change (+1 a task, +2 or more for a big one, minus for working against it). At 3, 10, 25 and 50 renown offer a new rank with favours.",
     "player": "The party has renown with factions, shown on the House rules page. Serving a faction's goals raises it and new ranks bring favours."
   }
 }

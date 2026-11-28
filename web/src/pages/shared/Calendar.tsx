@@ -1,4 +1,4 @@
-// Real-life game nights for this world. The DM sets days and times; everyone
+// Real-life game nights for this world. The GM sets days and times; everyone
 // RSVPs, talks about a day, or asks to move it. Calendar apps can subscribe.
 import { useMemo, useState, type FormEvent } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';
@@ -10,7 +10,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const localInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 export default function Calendar() {
-  const { w, isDM, info, members } = useWorld();
+  const { w, isGM, info, members } = useWorld();
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const from = new Date(month.getFullYear(), month.getMonth() - 1, 20).toISOString();
   const to = new Date(month.getFullYear(), month.getMonth() + 2, 10).toISOString();
@@ -28,7 +28,7 @@ export default function Calendar() {
   const upcoming = sessions.filter((s: any) => s.status === 'scheduled' && new Date(s.ends_at) > new Date());
   const cur = sessions.find((s: any) => s.id === sel) ?? upcoming[0] ?? null;
 
-  if (info.settings.calendar === 'off') return <div className="page"><PageHead title={isDM ? 'Game nights' : 'Session calendar'} lead="The calendar is off for this world." /></div>;
+  if (info.settings.calendar === 'off') return <div className="page"><PageHead title={isGM ? 'Game nights' : 'Session calendar'} lead="The calendar is off for this world." /></div>;
 
   const first = new Date(month);
   first.setDate(1 - first.getDay());
@@ -37,9 +37,9 @@ export default function Calendar() {
 
   return (
     <div className="page">
-      <PageHead title={isDM ? 'Game nights' : 'Session calendar'} lead="Real-life sessions: RSVP, chat about a day, or ask to move it.">
+      <PageHead title={isGM ? 'Game nights' : 'Session calendar'} lead="Real-life sessions: RSVP, chat about a day, or ask to move it.">
         <button type="button" className="btn" onClick={() => setShowFeed(true)}>Add to my calendar app</button>
-        {isDM && <button type="button" className="btn primary" onClick={() => setAdding(new Date())}>Set a session day</button>}
+        {isGM && <button type="button" className="btn primary" onClick={() => setAdding(new Date())}>Set a session day</button>}
       </PageHead>
       <ErrorBox error={cal.error} />
       <div className="cols">
@@ -57,10 +57,10 @@ export default function Calendar() {
               const today = d.toDateString() === new Date().toDateString();
               const s = list[0];
               return (
-                <button key={d.toISOString()} type="button" role="gridcell" disabled={!s && !isDM}
-                  onClick={() => (s ? setSel(s.id) : isDM ? setAdding(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 19)) : undefined)}
+                <button key={d.toISOString()} type="button" role="gridcell" disabled={!s && !isGM}
+                  onClick={() => (s ? setSel(s.id) : isGM ? setAdding(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 19)) : undefined)}
                   aria-label={`${d.toDateString()}${s ? `: ${s.title} at ${timeShort(s.starts_at)}` : ''}`}
-                  style={{ minHeight: 64, padding: 4, borderRadius: 6, textAlign: 'left', font: 'inherit', cursor: s || isDM ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', gap: 3, color: inMonth ? 'var(--text)' : 'var(--faint)', background: 'var(--side)', border: `1px solid ${s && s.id === cur?.id ? 'var(--accent)' : today ? 'var(--teal)' : 'var(--line)'}` }}>
+                  style={{ minHeight: 64, padding: 4, borderRadius: 6, textAlign: 'left', font: 'inherit', cursor: s || isGM ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', gap: 3, color: inMonth ? 'var(--text)' : 'var(--faint)', background: 'var(--side)', border: `1px solid ${s && s.id === cur?.id ? 'var(--accent)' : today ? 'var(--teal)' : 'var(--line)'}` }}>
                   <span className="tiny">{d.getDate()}</span>
                   {list.map((x) => (
                     <span key={x.id} className="tiny" style={{ padding: '0 4px', borderRadius: 4, fontWeight: 700, color: 'var(--on-accent)', background: x.status === 'cancelled' ? 'var(--faint)' : x.reschedules.length ? 'var(--danger)' : 'var(--accent)', overflow: 'hidden', whiteSpace: 'nowrap' }}>{timeShort(x.starts_at)}</span>
@@ -71,7 +71,7 @@ export default function Calendar() {
           </div>
         </div>
         <div className="col-2">
-          {cal.loading && !cal.data ? <Loading /> : cur ? <SessionDay s={cur} players={players} onChange={() => void cal.reload()} /> : <div className="card"><Empty>No sessions set yet.{isDM ? ' Pick a day to set one.' : ''}</Empty></div>}
+          {cal.loading && !cal.data ? <Loading /> : cur ? <SessionDay s={cur} players={players} onChange={() => void cal.reload()} /> : <div className="card"><Empty>No sessions set yet.{isGM ? ' Pick a day to set one.' : ''}</Empty></div>}
         </div>
       </div>
       {adding && <SessionForm start={adding} onClose={() => setAdding(null)} onDone={(id) => { setAdding(null); setSel(id); void cal.reload(); }} />}
@@ -87,7 +87,7 @@ export default function Calendar() {
 }
 
 function SessionDay({ s, players, onChange }: { s: any; players: { id: string }[]; onChange: () => void }) {
-  const { w, me, isDM, nameOf } = useWorld();
+  const { w, me, isGM, nameOf } = useWorld();
   const chat = useLoad(() => w.dayChat(s.id), [w, s.id], ['calendar-chat']);
   const [text, setText] = useState('');
   const [asking, setAsking] = useState(false);
@@ -104,7 +104,7 @@ function SessionDay({ s, players, onChange }: { s: any; players: { id: string }[
         <div className="row between"><h2>{s.title}</h2>{s.status === 'cancelled' && <span className="chip red">Cancelled</span>}</div>
         <span className="muted">{dateLong(s.starts_at)} · {timeShort(s.starts_at)}–{timeShort(s.ends_at)}{s.location ? ` · ${s.location}` : ''}</span>
       </div>
-      {isDM && <div className="row"><button type="button" className="btn small" onClick={() => setEditing(true)}>Change time or place</button><button type="button" className="btn small danger" onClick={cancel}>{s.status === 'cancelled' ? 'Restore' : 'Cancel session'}</button></div>}
+      {isGM && <div className="row"><button type="button" className="btn small" onClick={() => setEditing(true)}>Change time or place</button><button type="button" className="btn small danger" onClick={cancel}>{s.status === 'cancelled' ? 'Restore' : 'Cancel session'}</button></div>}
       <div className="stack tight">
         <span className="tiny faint" style={{ textTransform: 'uppercase', letterSpacing: '0.1em' }}>RSVP · {s.rsvps.filter((r: any) => r.answer === 'yes').length} going</span>
         <div className="tabs" role="radiogroup" aria-label="Your answer">{ANSWERS.map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={mine === k} className={`btn small${mine === k ? ' on' : ''}`} onClick={() => rsvp(k)}>{l}</button>)}</div>
@@ -114,10 +114,10 @@ function SessionDay({ s, players, onChange }: { s: any; players: { id: string }[
         <div key={x.id} className="error-box stack tight">
           <span><strong>{nameOf(x.author_id)}</strong> asked to move it: {x.reason}</span>
           {x.proposed.length > 0 && <span className="small">Works for them: {x.proposed.map((p: string) => when(p)).join(', ')}</span>}
-          {isDM && <div className="row">{x.proposed.map((p: string) => <button key={p} type="button" className="btn small primary" onClick={() => decide(x.id, 'accepted', p)}>Move to {when(p)}</button>)}<button type="button" className="btn small" onClick={() => decide(x.id, 'declined')}>Keep the day</button></div>}
+          {isGM && <div className="row">{x.proposed.map((p: string) => <button key={p} type="button" className="btn small primary" onClick={() => decide(x.id, 'accepted', p)}>Move to {when(p)}</button>)}<button type="button" className="btn small" onClick={() => decide(x.id, 'declined')}>Keep the day</button></div>}
         </div>
       ))}
-      {!isDM && <button type="button" className="btn small" onClick={() => setAsking(true)}>Ask to reschedule</button>}
+      {!isGM && <button type="button" className="btn small" onClick={() => setAsking(true)}>Ask to reschedule</button>}
       <div className="stack tight">
         <span className="tiny faint" style={{ textTransform: 'uppercase', letterSpacing: '0.1em' }}>Talk about this day</span>
         {(chat.data ?? []).map((m: any) => <div key={m.id} className="small" style={{ padding: '4px 8px', borderRadius: 6, background: 'var(--side)' }}><strong style={{ color: 'var(--accent-strong)' }}>{nameOf(m.author_id)}</strong> <span className="tiny faint">{when(m.at)}</span><br />{m.body}</div>)}

@@ -5,7 +5,7 @@ export { PlayerScreenControls } from './Controls.tsx';
 
 const feature: WebFeature = {
   id: 'playerscreen',
-  dmRoutes: [{ path: 'screen-players', element: <PlayerScreenPage /> }],
-  dmNav: [{ to: 'screen-players' }],
+  gmRoutes: [{ path: 'screen-players', element: <PlayerScreenPage /> }],
+  gmNav: [{ to: 'screen-players' }],
 };
 export default feature;

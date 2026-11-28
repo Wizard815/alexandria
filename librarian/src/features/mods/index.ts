@@ -1,21 +1,23 @@
 // House rules: Alexandria's mods. A house rule is a mod file (format.ts) that
 // adds counters, actions, chat words and rule text, or switches a whole
-// system on through presets (spell points, MANA, spell crafting). The DM turns
+// system on through presets (spell points, MANA, spell crafting). The GM turns
 // rules on under World settings → House rules; players use them from their
 // sheet and session chat; the assistant can explain, grant, spend and draft
 // them. See docs/MODS.md.
 import { Router, type Response } from 'express';
+import { gmValue } from '../../core/gmcompat.ts';
 import type { Deps } from '../../app.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
 import { all, one, run, tx, type DB } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, settingsFor, type Role } from '../../core/policy.ts';
 import { HttpError, now, parseJson } from '../../core/util.ts';
-import { ctx, isDM, me, names } from '../../routes/_shared.ts';
+import { ctx, isGM, me, names } from '../../routes/_shared.ts';
 import { addTermSource, enabledIds as gameModuleIds } from '../modules/store.ts';
 import { shippedMods, targetInfo } from './catalog.ts';
 import { exampleFiles, guideText, previewMod } from './guide.ts';
 import { keepDraft, takeDraft } from './drafts.ts';
+import { ruleText } from './assist.ts';
 import { satisfies } from './semver.ts';
 import { canRead, type Channel } from '../sessionchat/chat.ts';
 import { SCHEMA as RECORDS_SCHEMA, answerPrompt, closePrompt, listRecords, openPrompt, openRounds, readRecordLog, recordAct, runTimers, type Rec, type Said } from './recstore.ts';
@@ -32,7 +34,7 @@ const audit = (db: DB, worldId: string, accountId: string, action: string, detai
 const worldSettings = (db: DB, worldId: string) => ({ ...DEFAULT_SETTINGS, ...parseJson(one<any>(db, 'SELECT settings FROM worlds WHERE id = ?', worldId)?.settings, {}) });
 
 /** A rule as the app shows it. Players see only rules that are on, without the settings they switch. */
-function view(m: Installed, dm: boolean) {
+function view(m: Installed, gm: boolean) {
   const mod = m.mod;
   return {
     id: mod.id, name: mod.name, summary: mod.summary, version: mod.version, author: mod.author, group: mod.group || null,
@@ -40,14 +42,39 @@ function view(m: Installed, dm: boolean) {
     resources: mod.resources.map((r) => ({ id: r.id, label: r.label, icon: r.icon, private: r.private })),
     actions: mod.actions.map((a) => ({ id: a.id, label: a.label, by: a.by, resource: a.resource, askReason: a.askReason, reroll: a.effect?.reroll?.whose ?? null })),
     commands: commandActions(mod).map((c) => `/${c.word}${c.arg ? ` ${c.arg}` : ''}`),
-    sheet: mod.sheet, dmBand: mod.dmBand, table: mod.table, rules: mod.rules,
+    sheet: mod.sheet, gmBand: mod.gmBand, table: mod.table, rules: mod.rules,
     kit: mod.kit, targets: m.targets, requires: mod.requires.mods, conflicts: mod.conflicts,
     system: mod.system.records.length ? {
       records: mod.system.records.map((k) => ({ id: k.id, label: k.label, plural: k.plural, owned: k.owned, title: k.title, fields: k.fields })),
       recordActions: mod.system.recordActions.map((a) => ({ id: a.id, label: a.label, by: a.by, record: a.record, do: a.do, ask: a.ask, field: a.field ?? null, amount: a.amount ?? null, where: a.where })),
       prompts: mod.system.prompts, views: mod.system.views,
     } : null,
-    ...(dm ? { presets: presetValues(mod, m.options), missing: m.missing, waiting: m.waiting, needs: m.needs, alexandria: mod.alexandria || null, api: mod.api, permissions: impliedPermissions(mod).map((k) => PERMISSIONS[k]) } : {}),
+    ...(gm ? { presets: presetValues(mod, m.options), missing: m.missing, waiting: m.waiting, needs: m.needs, alexandria: mod.alexandria || null, api: mod.api, permissions: impliedPermissions(mod).map((k) => PERMISSIONS[k]) } : {}),
+  };
+}
+
+/** The house rules for the assistant: the ones that are on in a few lines each (the GM's own and imported ones
+ * first, so a long list never cuts off the new one), and only the names of the rest. The full view runs to tens of
+ * kilobytes once thirty rules ship, and a model's tool result is cut long before that. */
+function brief(list: Installed[], gm: boolean) {
+  const on = list.filter((m) => m.enabled).sort((a, b) => Number(b.source === 'imported') - Number(a.source === 'imported'));
+  const line = (m: Installed) => {
+    const mod = m.mod;
+    const acts = mod.actions.map((a) => `${a.id} (${a.label}, by ${a.by})`);
+    return {
+      id: mod.id, name: mod.name, source: m.source === 'imported' ? 'added by the GM' : 'ships with Alexandria', summary: mod.summary,
+      rule: ruleText(mod.rules, 500) || undefined,
+      counters: mod.resources.length ? mod.resources.map((r) => `${r.id} (${r.label}${r.max !== null && r.max !== undefined ? `, max ${r.max}` : ''})`) : undefined,
+      actions: acts.length ? acts : undefined,
+      commands: mod.commands.length ? commandActions(mod).map((c) => `/${c.word}`) : undefined,
+      records: mod.system.records.length ? mod.system.records.map((k) => k.plural) : undefined,
+      prompts: mod.system.prompts.length ? mod.system.prompts.map((p) => p.button) : undefined,
+    };
+  };
+  return {
+    on: on.map(line),
+    ...(gm ? { off: list.filter((m) => !m.enabled).map((m) => `${m.mod.name} (${m.mod.id}${m.source === 'imported' ? ', added by the GM' : ''})`) } : {}),
+    note: 'Ask with a rule id (house_rule_records, house_rule_counters) for its details.',
   };
 }
 
@@ -66,8 +93,8 @@ const label = (m: Installed, rid: string) => m.mod.resources.find((r) => r.id ==
 /** The roll a reroll effect applies to: the one named, or the latest that fits in the channel. */
 function rerollTarget(db: DB, worldId: string, a: Action, actor: Actor, owner: string, rollId: string | null, channel: Channel) {
   const whose = a.effect!.reroll!.whose;
-  const fits = (author: string, role: Role) => (whose === 'own' ? author === owner : whose === 'anyPlayer' ? role === 'player' : role === 'dm');
-  const want = whose === 'own' ? 'one of your own rolls' : whose === 'anyPlayer' ? 'a player\'s roll' : 'one of the DM\'s rolls';
+  const fits = (author: string, role: Role) => (whose === 'own' ? author === owner : whose === 'anyPlayer' ? role === 'player' : role === 'gm');
+  const want = whose === 'own' ? 'one of your own rolls' : whose === 'anyPlayer' ? 'a player\'s roll' : 'one of the GM\'s rolls';
   if (rollId) {
     const r = rollMessage(db, worldId, rollId);
     if (!r || !canRead(actor, r.row.channel)) throw new HttpError(404, 'That roll is not in this chat');
@@ -95,7 +122,7 @@ function routes(d: Deps) {
 
   const changedList = (w: string) => d.hub.emit(w, 'mods', {}, () => true);
   const changedSettings = (w: string) => { const s = worldSettings(db, w); d.hub.emitPer(w, 'settings', (v) => settingsFor(s, v.role)); };
-  const changedCounts = (w: string, aid: string) => d.hub.emit(w, 'mods-counts', { accountId: aid }, (v) => v.role === 'dm' || v.accountId === aid);
+  const changedCounts = (w: string, aid: string) => d.hub.emit(w, 'mods-counts', { accountId: aid }, (v) => v.role === 'gm' || v.accountId === aid);
 
   // Rests on the world clock and session start/end run the rules' triggers (server-only events).
   d.hub.tap((worldId, type, data: any) => {
@@ -114,21 +141,21 @@ function routes(d: Deps) {
 
   const nameFn = (w: string) => { const nm = names(db, w); return (aid: string | null) => (aid ? nm[aid] ?? 'someone' : 'everyone'); };
   const changedRecords = (w: string, modId: string) => d.hub.emit(w, 'mods-records', { mod: modId }, () => true);
-  /** Post what a change says: chat lines to the table (as the actor, or the DM), DM notes to the DM. */
+  /** Post what a change says: chat lines to the table (as the actor, or the GM), GM notes to the GM. */
   const say = (w: string, who: Actor | null, said: Said, modId: string) => {
-    const author = who ?? (() => { const dm = one<any>(db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'dm' ORDER BY rowid LIMIT 1", w); return dm ? { accountId: dm.account_id as string, role: 'dm' as Role } : null; })();
+    const author = who ?? (() => { const gm = one<any>(db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'gm' ORDER BY rowid LIMIT 1", w); return gm ? { accountId: gm.account_id as string, role: 'gm' as Role } : null; })();
     for (const line of said.chat) if (author && line.trim()) { try { postChat(d, w, 'table', author.accountId, author.role, line); } catch { /* no session running: the log has it */ } }
-    for (const line of said.dmnote) if (line.trim()) d.hub.emit(w, 'mods-note', { mod: modId, text: line }, (v) => v.role === 'dm');
+    for (const line of said.gmnote) if (line.trim()) d.hub.emit(w, 'mods-note', { mod: modId, text: line }, (v) => v.role === 'gm');
   };
-  /** A record as a viewer may see it: the DM all, a player shared records and their own. */
-  const canSee = (res: Response, rec: Rec) => isDM(res) || rec.player === null || rec.player === me(res);
+  /** A record as a viewer may see it: the GM all, a player shared records and their own. */
+  const canSee = (res: Response, rec: Rec) => isGM(res) || rec.player === null || rec.player === me(res);
   const liveMod = (res: Response, idParam: string) => {
     const m = getModRaw(db, W(res), idParam);
-    if (!m.enabled && !isDM(res)) throw new HttpError(404, `No house rule ${idParam.slice(0, 60)}`);
+    if (!m.enabled && !isGM(res)) throw new HttpError(404, `No house rule ${idParam.slice(0, 60)}`);
     return m;
   };
 
-  r.get('/:id/records', requirePlayerOrDM, (req, res) => {
+  r.get('/:id/records', requirePlayerOrGM, (req, res) => {
     const m = liveMod(res, String(req.params.id));
     const kinds = req.query.kind ? [String(req.query.kind)] : m.mod.system.records.map((k) => k.id);
     const player = typeof req.query.player === 'string' && req.query.player ? req.query.player : undefined;
@@ -137,13 +164,13 @@ function routes(d: Deps) {
     res.json({ records: out });
   });
 
-  r.get('/:id/records-log', requirePlayerOrDM, (req, res) => {
+  r.get('/:id/records-log', requirePlayerOrGM, (req, res) => {
     const m = liveMod(res, String(req.params.id));
-    const lines = readRecordLog(db, W(res), { modId: m.mod.id, recordId: typeof req.query.record === 'string' ? req.query.record : undefined, player: isDM(res) ? (typeof req.query.player === 'string' ? req.query.player : undefined) : me(res), limit: Number(req.query.limit) || 100 });
+    const lines = readRecordLog(db, W(res), { modId: m.mod.id, recordId: typeof req.query.record === 'string' ? req.query.record : undefined, player: isGM(res) ? (typeof req.query.player === 'string' ? req.query.player : undefined) : me(res), limit: Number(req.query.limit) || 100 });
     res.json({ log: lines });
   });
 
-  r.post('/:id/records/:action', requirePlayerOrDM, (req, res) => {
+  r.post('/:id/records/:action', requirePlayerOrGM, (req, res) => {
     const w = W(res);
     const m = liveMod(res, String(req.params.id));
     const b = req.body ?? {};
@@ -156,8 +183,8 @@ function routes(d: Deps) {
     res.status(out.before === null ? 201 : 200).json(out);
   });
 
-  // The DM opens a prompt: every player gets its choices.
-  r.post('/:id/prompts/:prompt', requireDM, (req, res) => {
+  // The GM opens a prompt: every player gets its choices.
+  r.post('/:id/prompts/:prompt', requireGM, (req, res) => {
     const w = W(res);
     const m = getModRaw(db, w, String(req.params.id));
     const round = openPrompt(db, w, m, String(req.params.prompt), me(res));
@@ -166,13 +193,13 @@ function routes(d: Deps) {
     res.status(201).json(round);
   });
 
-  r.get('/prompts/open', requirePlayerOrDM, (_req, res) => {
+  r.get('/prompts/open', requirePlayerOrGM, (_req, res) => {
     const w = W(res);
     const rounds = openRounds(db, w).filter((x) => { try { return getModRaw(db, w, x.modId).enabled; } catch { return false; } });
-    res.json({ rounds: rounds.map((x) => (isDM(res) ? x : { ...x, answers: x.answers[me(res)] ? { [me(res)]: x.answers[me(res)] } : {} })) });
+    res.json({ rounds: rounds.map((x) => (isGM(res) ? x : { ...x, answers: x.answers[me(res)] ? { [me(res)]: x.answers[me(res)] } : {} })) });
   });
 
-  r.post('/:id/prompts/round/:round/answer', requirePlayerOrDM, (req, res) => {
+  r.post('/:id/prompts/round/:round/answer', requirePlayerOrGM, (req, res) => {
     const w = W(res);
     const m = liveMod(res, String(req.params.id));
     const b = req.body ?? {};
@@ -180,20 +207,22 @@ function routes(d: Deps) {
     const out = tx(db, () => answerPrompt(db, w, m, String(req.params.round), who, Number(b.choice), { recordId: typeof b.recordId === 'string' ? b.recordId : undefined, values: b.values, note: typeof b.note === 'string' ? b.note.slice(0, 300) : '' }, nameFn(w)));
     say(w, who, out.said, m.mod.id);
     changedRecords(w, m.mod.id);
-    d.hub.emit(w, 'mods-prompt', { mod: m.mod.id, round: out.round.id }, (v) => v.role === 'dm' || v.accountId === who.accountId);
+    d.hub.emit(w, 'mods-prompt', { mod: m.mod.id, round: out.round.id }, (v) => v.role === 'gm' || v.accountId === who.accountId);
     res.json(out);
   });
 
-  r.post('/:id/prompts/round/:round/close', requireDM, (req, res) => {
+  r.post('/:id/prompts/round/:round/close', requireGM, (req, res) => {
     const w = W(res);
     const round = closePrompt(db, w, String(req.params.round));
     d.hub.emit(w, 'mods-prompt', { mod: round.modId, round: round.id }, () => true);
     res.json(round);
   });
 
-  r.get('/', (_req, res) => {
-    const dm = isDM(res);
-    res.json({ mods: listMods(db, W(res)).filter((m) => dm || m.enabled).map((m) => view(m, dm)) });
+  r.get('/', (req, res) => {
+    const gm = isGM(res);
+    const list = listMods(db, W(res)).filter((m) => gm || m.enabled);
+    if (req.query.brief === '1') { res.json(brief(list, gm)); return; }
+    res.json({ mods: list.map((m) => view(m, gm)) });
   });
 
   r.get('/rules', (_req, res) => {
@@ -203,13 +232,13 @@ function routes(d: Deps) {
   // ---- the Mod studio: what the assistant reads to write a rule ----
 
   const exampleIds = () => [...new Set([...exampleFiles().keys(), ...shippedMods().map((s) => s.mod.id)])];
-  r.get('/guide', requireDM, (req, res) => {
+  r.get('/guide', requireGM, (req, res) => {
     const part = typeof req.query.part === 'string' ? req.query.part : undefined;
     res.json({ part: part ?? 'start', text: guideText(part, DEFAULT_SETTINGS as any, exampleIds()) });
   });
 
   // A rule as a file, to read, copy or change: the world's own and built-in rules, or an example from mods/examples.
-  r.get('/:id/file', requireDM, (req, res) => {
+  r.get('/:id/file', requireGM, (req, res) => {
     const id = String(req.params.id);
     const have = listMods(db, W(res)).find((m) => m.mod.id === id);
     if (have) { res.json({ id, source: have.source, enabled: have.enabled, file: toFile(have.mod), note: have.source === 'shipped' ? 'This rule comes with Alexandria: to change it, save a copy under a new id and name.' : 'Keep the id and raise the version to replace it.' }); return; }
@@ -218,9 +247,9 @@ function routes(d: Deps) {
     throw new HttpError(404, `No house rule or example ${id.slice(0, 40)}; examples: ${exampleIds().join(', ')}`);
   });
 
-  // ---- the DM: check, import, export, turn on and off, options, remove ----
+  // ---- the GM: check, import, export, turn on and off, options, remove ----
 
-  r.post('/check', requireDM, (req, res) => {
+  r.post('/check', requireGM, (req, res) => {
     const { mods, errors, info } = unpack(req.body?.mod);
     if (!mods.length) { res.json({ ok: false, errors }); return; }
     const notes: string[] = [];
@@ -245,7 +274,7 @@ function routes(d: Deps) {
     res.json({ ok: true, errors: [], notes, draft: keepDraft(W(res), mods), preview: mods.length === 1 ? previewMod(mods[0]) : mods.map((m) => ({ id: m.id, lines: previewMod(m) })), mod: toFile(mods[0]), mods: mods.map(toFile), package: info });
   });
 
-  r.post('/import', requireDM, (req, res) => {
+  r.post('/import', requireGM, (req, res) => {
     const draft = typeof req.body?.draft === 'string' && req.body.mod === undefined ? takeDraft(W(res), req.body.draft) : null;
     if (typeof req.body?.draft === 'string' && req.body.mod === undefined && !draft) throw new HttpError(404, `No checked draft ${req.body.draft.slice(0, 60)} (drafts last an hour): check the file again with house_rule_check`);
     const { mods, errors } = draft ? { mods: draft, errors: [] as string[] } : unpack(req.body?.mod);
@@ -264,7 +293,7 @@ function routes(d: Deps) {
   });
 
   // A package to share: the rules named in ?ids= (comma-separated), else every rule that is on.
-  r.get('/export', requireDM, (req, res) => {
+  r.get('/export', requireGM, (req, res) => {
     const ids = String(req.query.ids ?? '').split(',').map((x) => x.trim()).filter(Boolean);
     const mods = ids.length ? ids.slice(0, MAX_PACKAGE).map((id) => getMod(db, W(res), id).mod) : enabledMods(db, W(res)).map((m) => m.mod).slice(0, MAX_PACKAGE);
     if (!mods.length) throw new HttpError(400, 'No house rule to export: turn one on or name it');
@@ -272,13 +301,13 @@ function routes(d: Deps) {
     res.json(makePackage(mods, { alexandria: VERSION }));
   });
 
-  r.get('/:id/export', requireDM, (req, res) => {
+  r.get('/:id/export', requireGM, (req, res) => {
     const m = getMod(db, W(res), String(req.params.id));
     res.setHeader('Content-Disposition', `attachment; filename="${m.mod.id}.alxmod.json"`);
     res.json(makePackage([m.mod], { alexandria: VERSION }));
   });
 
-  r.put('/:id/enabled', requireDM, (req, res) => {
+  r.put('/:id/enabled', requireGM, (req, res) => {
     if (typeof req.body?.on !== 'boolean') throw new HttpError(400, 'on must be true or false');
     const id = String(req.params.id);
     const out = setEnabled(db, W(res), id, req.body.on, me(res), { cascade: req.body.cascade === true });
@@ -288,7 +317,7 @@ function routes(d: Deps) {
     res.json({ ...view(getMod(db, W(res), id), true), turnedOff: out.turnedOff, turnedOn: out.turnedOn });
   });
 
-  r.put('/:id/options', requireDM, (req, res) => {
+  r.put('/:id/options', requireGM, (req, res) => {
     const id = String(req.params.id);
     const out = setOptions(db, W(res), id, req.body?.options, me(res));
     audit(db, W(res), me(res), 'mods.options', id);
@@ -297,7 +326,7 @@ function routes(d: Deps) {
     res.json(view(getMod(db, W(res), id), true));
   });
 
-  r.delete('/:id', requireDM, (req, res) => {
+  r.delete('/:id', requireGM, (req, res) => {
     const id = String(req.params.id);
     const was = getMod(db, W(res), id).enabled;
     removeMod(db, W(res), id, me(res));
@@ -311,9 +340,9 @@ function routes(d: Deps) {
 
   r.get('/counters', (req, res) => {
     const w = W(res);
-    const dm = isDM(res);
+    const gm = isGM(res);
     const nm = names(db, w);
-    const ids = dm ? playerIds(db, w) : [me(res)];
+    const ids = gm ? playerIds(db, w) : [me(res)];
     const mods = enabledMods(db, w).filter((m) => m.mod.resources.length);
     res.json({
       players: ids.map((aid) => ({ accountId: aid, name: nm[aid] ?? '', mods: Object.fromEntries(mods.map((m) => [m.mod.id, counters(db, w, m, aid)])) })),
@@ -323,7 +352,7 @@ function routes(d: Deps) {
   r.get('/log', (req, res) => {
     const w = W(res);
     const q = req.query;
-    const accountId = isDM(res) ? (typeof q.accountId === 'string' && q.accountId ? q.accountId : undefined) : me(res);
+    const accountId = isGM(res) ? (typeof q.accountId === 'string' && q.accountId ? q.accountId : undefined) : me(res);
     res.json({ log: readLog(db, w, { accountId, modId: typeof q.mod === 'string' && q.mod ? q.mod : undefined, limit: Number(q.limit) || 50 }) });
   });
 
@@ -332,7 +361,7 @@ function routes(d: Deps) {
    * A reroll rerolls the roll named (or the latest that fits) on the server and posts it under the old one; atTable: true
    * spends the token for a roll made with real dice.
    */
-  r.post('/:id/act', requirePlayerOrDM, (req, res) => {
+  r.post('/:id/act', requirePlayerOrGM, (req, res) => {
     const w = W(res);
     const m = getModRaw(db, w, String(req.params.id));
     const b = req.body ?? {};
@@ -366,14 +395,14 @@ function routes(d: Deps) {
   return r;
 }
 
-/** The chat and DM-note effects of an action (rerolls are handled where the roll is known). */
+/** The chat and GM-note effects of an action (rerolls are handled where the roll is known). */
 function afterEffects(d: Deps, w: string, m: Installed, a: Action, who: Actor, target: string, note: string) {
   const e = a.effect;
   if (!e) return;
   const nm = names(d.db, w)[target] ?? 'someone';
   const fill = (s: string) => s.replace(/\{name\}/g, nm).replace(/\{note\}/g, note);
   if (e.chat) { try { postChat(d, w, 'table', who.accountId, who.role, fill(e.chat)); } catch { /* no session running: the log has it */ } }
-  if (e.dmnote) d.hub.emit(w, 'mods-note', { mod: m.mod.id, text: fill(e.dmnote), accountId: target }, (v) => v.role === 'dm');
+  if (e.gmnote) d.hub.emit(w, 'mods-note', { mod: m.mod.id, text: fill(e.gmnote), accountId: target }, (v) => v.role === 'gm');
 }
 
 // ---- chat words ("/reroll personal") --------------------------------------------------------------------------------
@@ -383,7 +412,7 @@ addCommandResolver((d, call) => {
   const mods = enabledMods(db, call.worldId);
   const hits = mods.flatMap((m) => commandActions(m.mod).filter((c) => c.word === call.word).map((c) => ({ m, c })));
   if (!hits.length) return null;
-  const arg = call.args[0] ?? null;
+  const arg = (gmValue(call.args[0] ?? null) as string | null); // "/reroll dm" still works
   const hit = hits.find((h) => h.c.arg === arg) ?? (hits.length === 1 && hits[0].c.arg === null ? hits[0] : undefined);
   if (!hit) throw new HttpError(400, `Use ${hits.map((h) => `/${h.c.word}${h.c.arg ? ` ${h.c.arg}` : ''}`).join(', ')}`);
   const who: Actor = { accountId: call.viewer.accountId, role: call.viewer.role };
@@ -394,11 +423,11 @@ addCommandResolver((d, call) => {
     const row = rerollTarget(db, call.worldId, p.a, who, target, call.replyTo, call.channel);
     const body = rerollBody(db, call.worldId, hit.m, p.r.id, row);
     act(db, call.worldId, hit.m, p.a.id, who, target, p.r.id, note || `reroll of ${row.id}`);
-    d.hub.emit(call.worldId, 'mods-counts', { accountId: target }, (v) => v.role === 'dm' || v.accountId === target);
+    d.hub.emit(call.worldId, 'mods-counts', { accountId: target }, (v) => v.role === 'gm' || v.accountId === target);
     return { body, replyTo: row.id };
   }
   const out = act(db, call.worldId, hit.m, p.a.id, who, target, p.r.id, note);
-  d.hub.emit(call.worldId, 'mods-counts', { accountId: target }, (v) => v.role === 'dm' || v.accountId === target);
+  d.hub.emit(call.worldId, 'mods-counts', { accountId: target }, (v) => v.role === 'gm' || v.accountId === target);
   return { body: `${p.a.label}: ${label(hit.m, p.r.id)} ${out.before} → ${out.after}${note ? ` (${note})` : ''}` };
 });
 
@@ -445,21 +474,21 @@ const feature: Feature = {
   worldRoutes: routes,
   mcpTools: [
     {
-      name: 'house_rules', description: "The world's house rules (mods) that are on: what each does, its rule text, its counters (e.g. reroll tokens) and the actions and chat words it adds. The DM also sees rules that are off. Use it to explain a house rule or before granting or spending.",
-      props: {}, call: () => ({ method: 'GET', path: '/mods' }),
+      name: 'house_rules', description: "The world's house rules (mods) that are on: what each does, its rule text, its counters (e.g. reroll tokens) and the actions and chat words it adds. The GM also sees rules that are off. Use it to explain a house rule or before granting or spending.",
+      props: {}, call: () => ({ method: 'GET', path: '/mods?brief=1' }),
     },
     {
       name: 'house_rule_counters', description: 'How many of each house rule counter (reroll tokens, hero points...) each player holds. A player sees their own.',
       props: {}, call: () => ({ method: 'GET', path: '/mods/counters' }),
     },
     {
-      name: 'house_rule_grant', write: true, dmOnly: true,
-      description: 'Run a DM action of a house rule on a player, usually Grant (e.g. give Mira a personal reroll for good roleplay). Always pass the reason as note: it is logged and shown to the player.',
+      name: 'house_rule_grant', write: true, gmOnly: true,
+      description: 'Run a GM action of a house rule on a player, usually Grant (e.g. give Mira a personal reroll for good roleplay). Always pass the reason as note: it is logged and shown to the player.',
       props: {
         mod: { type: 'string', description: 'House rule id, e.g. inspiration-rerolls' },
         player: { type: 'string', description: 'Player account id or character name' },
         action: { type: 'string', description: 'Action id (default grant)' },
-        resource: { type: 'string', description: 'Which counter, e.g. personal, everyone or dm' },
+        resource: { type: 'string', description: 'Which counter, e.g. personal, everyone or gm' },
         note: { type: 'string', description: 'Why (the roleplay being rewarded)' },
       },
       required: ['mod', 'player'],
@@ -467,14 +496,14 @@ const feature: Feature = {
     },
     {
       name: 'house_rule_records',
-      description: "A house rule's own lists (a data system such as downtime: its activities, each player's tasks and how far along they are). The DM sees every record; a player sees shared ones and their own. Use house_rules first to see each rule's record kinds and actions.",
-      props: { mod: { type: 'string', description: 'The rule id, e.g. downtime' }, kind: { type: 'string', description: 'A record kind of the rule, e.g. task (default: all)' }, player: { type: 'string', description: 'DM: only this player\'s (account id)' } },
+      description: "A house rule's own lists (a data system such as downtime: its activities, each player's tasks and how far along they are). The GM sees every record; a player sees shared ones and their own. Use house_rules first to see each rule's record kinds and actions.",
+      props: { mod: { type: 'string', description: 'The rule id, e.g. downtime' }, kind: { type: 'string', description: 'A record kind of the rule, e.g. task (default: all)' }, player: { type: 'string', description: 'GM: only this player\'s (account id)' } },
       required: ['mod'],
       call: (a) => ({ method: 'GET', path: `/mods/${enc(a.mod)}/records?${new URLSearchParams(Object.entries({ kind: a.kind, player: a.player }).filter(([, v]) => v) as [string, string][]).toString()}` }),
     },
     {
-      name: 'house_rule_record_act', write: true, dmOnly: true,
-      description: "DM: run one of a house rule's record actions: create a record (values for the fields it asks), change one (recordId), add to a number (amount, negative takes away, e.g. days of downtime lost) or remove one. Logged with the note. For a player's own record, pass player when creating.",
+      name: 'house_rule_record_act', write: true, gmOnly: true,
+      description: "GM: run one of a house rule's record actions: create a record (values for the fields it asks), change one (recordId), add to a number (amount, negative takes away, e.g. days of downtime lost) or remove one. Logged with the note. For a player's own record, pass player when creating.",
       props: {
         mod: { type: 'string' }, action: { type: 'string', description: 'The record action id' }, recordId: { type: 'string' },
         player: { type: 'string', description: 'Whose (account id or name), for a record a player owns' }, values: { type: 'object', description: 'Field values the action asks for' },
@@ -484,8 +513,8 @@ const feature: Feature = {
       call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/records/${enc(a.action)}`, body: { recordId: a.recordId, player: a.player, values: a.values, amount: a.amount, note: a.note } }),
     },
     {
-      name: 'house_rule_prompt', write: true, dmOnly: true,
-      description: "DM: open one of a house rule's prompts, e.g. a downtime day: every player gets its choices (keep working, start something, skip) and their answers move their records.",
+      name: 'house_rule_prompt', write: true, gmOnly: true,
+      description: "GM: open one of a house rule's prompts, e.g. a downtime day: every player gets its choices (keep working, start something, skip) and their answers move their records.",
       props: { mod: { type: 'string' }, prompt: { type: 'string', description: 'The prompt id' } },
       required: ['mod', 'prompt'],
       call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/prompts/${enc(a.prompt)}`, body: {} }),
@@ -509,26 +538,26 @@ const feature: Feature = {
       call: (a) => ({ method: 'POST', path: `/mods/${enc(a.mod)}/act`, body: { action: a.action, rollId: a.rollId, atTable: a.atTable, note: a.note } }),
     },
     {
-      name: 'house_rule_guide', dmOnly: true,
-      description: 'How to write a house rule file (a mod): read it before making or changing one. Part start (default) says which kind fits and how to work; counters (points and tokens), data (lists, tasks, progress, a popup for each player such as downtime), presets (switch on spell points, MANA and other systems with world settings), manifest (targets, requires, conflicts) and assistant (how the DM assistant and the player helper help with the rule) give every field.',
+      name: 'house_rule_guide', gmOnly: true,
+      description: 'How to write a house rule file (a mod): read it before making or changing one. Part start (default) says which kind fits and how to work; counters (points and tokens), data (lists, tasks, progress, a popup for each player such as downtime), presets (switch on spell points, MANA and other systems with world settings), manifest (targets, requires, conflicts) and assistant (how the GM assistant and the player helper help with the rule) give every field.',
       props: { part: { type: 'string', enum: ['start', 'counters', 'data', 'presets', 'manifest', 'assistant'], description: 'Which part (default start)' } },
       call: (a) => ({ method: 'GET', path: `/mods/guide${a.part ? `?part=${enc(a.part)}` : ''}` }),
     },
     {
-      name: 'house_rule_file', dmOnly: true,
+      name: 'house_rule_file', gmOnly: true,
       description: "A house rule as its file: one of the world's rules (to change it), one that comes with Alexandria, or an example to copy (hero-points, downtime-lite). Read a close one before writing a new rule.",
       props: { mod: { type: 'string', description: 'The rule or example id' } }, required: ['mod'],
       call: (a) => ({ method: 'GET', path: `/mods/${enc(a.mod)}/file` }),
     },
     {
-      name: 'house_rule_check', dmOnly: true,
-      description: 'Check a draft house rule (mod file JSON, see house_rule_guide) without saving it. Returns plain errors to fix, notes, a preview (what the rule does, in plain words, to tell the DM), the cleaned file and a draft id. Use it until ok is true, then tell the DM the preview and save with house_rule_save { draft } once they agree.',
+      name: 'house_rule_check', gmOnly: true,
+      description: 'Check a draft house rule (mod file JSON, see house_rule_guide) without saving it. Returns plain errors to fix, notes, a preview (what the rule does, in plain words, to tell the GM), the cleaned file and a draft id. Use it until ok is true, then tell the GM the preview and save with house_rule_save { draft } once they agree.',
       props: { mod: { type: 'object', description: 'The mod file, or a package of several' } }, required: ['mod'],
       call: (a) => ({ method: 'POST', path: '/mods/check', body: { mod: a.mod } }),
     },
     {
-      name: 'house_rule_save', write: true, dmOnly: true,
-      description: "Save a checked house rule to the world (it starts off; the DM turns it on under House rules → Rules). Pass draft, the id house_rule_check gave, so exactly the checked file is saved; or the whole mod. Saving a rule with an existing id replaces it and keeps its counters. One rule or a package (several).",
+      name: 'house_rule_save', write: true, gmOnly: true,
+      description: "Save a checked house rule to the world (it starts off; the GM turns it on under House rules → Rules). Pass draft, the id house_rule_check gave, so exactly the checked file is saved; or the whole mod. Saving a rule with an existing id replaces it and keeps its counters. One rule or a package (several).",
       props: { draft: { type: 'string', description: 'The draft id from house_rule_check (preferred)' }, mod: { type: 'object', description: 'The mod file, or a package of several, when there is no draft' } },
       call: (a) => ({ method: 'POST', path: '/mods/import', body: a.draft ? { draft: a.draft } : { mod: a.mod } }),
     },
