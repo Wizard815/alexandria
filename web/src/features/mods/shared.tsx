@@ -22,6 +22,12 @@ export interface HouseRule {
   dmBand: { chips: string[]; actions: string[] } | null;
   table: { title: string; actions: string[] } | null;
   rules: { term: string; text: string }[];
+  /** Roll buttons on the player's sheet. */
+  rolls: SheetRoll[];
+  /** Made with the quick Homebrew form; `always`: every assistant keeps it in mind while it is on. */
+  homebrew: boolean; always: boolean;
+  /** Game Master only, homebrew rules: the quick form's fields, to edit it. */
+  form?: HomebrewForm;
   presets?: Record<string, unknown>; missing?: string[]; waiting?: string[];
   kit: number;
   targets: { builtFor: Target[]; worksWith: Target[] };
@@ -31,6 +37,9 @@ export interface HouseRule {
   /** Kit 2 data system: the rule's own lists, record actions, prompts and views. */
   system: SystemView | null;
 }
+export type RollMode = 'normal' | 'advantage' | 'disadvantage';
+export interface SheetRoll { id: string; label: string; kind: 'attack' | 'd20'; mode: RollMode; note: string }
+export interface HomebrewForm { name: string; text: string; gm: string; words: string[]; roll: { label: string; kind: 'attack' | 'd20'; mode: RollMode } | null }
 export interface FieldSpec { type: 'text' | 'int' | 'bool' | 'enum' | 'ref'; label: string; optional: boolean; values?: string[]; ref?: string; min?: number; max?: number; default?: unknown }
 export interface RecordKindView { id: string; label: string; plural: string; owned: boolean; title: string; fields: Record<string, FieldSpec> }
 export interface RecordActionView { id: string; label: string; by: 'dm' | 'owner' | 'player' | 'any'; record: string; do: 'create' | 'set' | 'add' | 'remove'; ask: string[]; field: string | null; amount: number | string | null; where: Record<string, unknown> }

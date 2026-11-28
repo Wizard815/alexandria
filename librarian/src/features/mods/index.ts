@@ -23,6 +23,7 @@ import { SCHEMA as RECORDS_SCHEMA, answerPrompt, closePrompt, listRecords, openP
 import { addCommandResolver, latestRoll, postChat, rollMessage } from '../sessionchat/hooks.ts';
 import type { Feature } from '../types.ts';
 import { VERSION } from '../../version.ts';
+import { homebrewFile, nextVersion, rollExpr, slugify } from './homebrew.ts';
 import { MAX_PACKAGE, MOD_API, PERMISSIONS, commandActions, impliedPermissions, toFile, makePackage, presetValues, unpack, val, type Action, type ModFile } from './format.ts';
 import {
   MAX_OWN, SCHEMA, act, tx as storeTx, counters, enabledMods, getMod, getModRaw, importMod, listMods, roomFor, planAct, playerIds, readLog, removeMod, runTriggers, setEnabled, setOptions,
@@ -42,12 +43,14 @@ function view(m: Installed, dm: boolean) {
     actions: mod.actions.map((a) => ({ id: a.id, label: a.label, by: a.by, resource: a.resource, askReason: a.askReason, reroll: a.effect?.reroll?.whose ?? null })),
     commands: commandActions(mod).map((c) => `/${c.word}${c.arg ? ` ${c.arg}` : ''}`),
     sheet: mod.sheet, dmBand: mod.dmBand, table: mod.table, rules: mod.rules,
+    rolls: mod.rolls, homebrew: mod.homebrew, always: !!(mod.homebrew || mod.assistant?.always),
     kit: mod.kit, targets: m.targets, requires: mod.requires.mods, conflicts: mod.conflicts,
     system: mod.system.records.length ? {
       records: mod.system.records.map((k) => ({ id: k.id, label: k.label, plural: k.plural, owned: k.owned, title: k.title, fields: k.fields })),
       recordActions: mod.system.recordActions.map((a) => ({ id: a.id, label: a.label, by: a.by, record: a.record, do: a.do, ask: a.ask, field: a.field ?? null, amount: a.amount ?? null, where: a.where })),
       prompts: mod.system.prompts, views: mod.system.views,
     } : null,
+    ...(dm && mod.homebrew ? { form: homebrewForm(mod) } : {}),
     ...(dm ? { presets: presetValues(mod, m.options), missing: m.missing, waiting: m.waiting, needs: m.needs, alexandria: mod.alexandria || null, api: mod.api, permissions: impliedPermissions(mod).map((k) => PERMISSIONS[k]) } : {}),
   };
 }
@@ -75,6 +78,25 @@ function brief(list: Installed[], dm: boolean) {
     ...(dm ? { off: list.filter((m) => !m.enabled).map((m) => `${m.mod.name} (${m.mod.id}${m.source === 'imported' ? ', added by the DM' : ''})`) } : {}),
     note: 'Ask with a rule id (house_rule_records, house_rule_counters) for its details.',
   };
+}
+
+/** A homebrew rule back in the quick form's fields, to edit it. */
+function homebrewForm(mod: ModFile) {
+  const text = mod.rules[0]?.text ?? '';
+  const dm = mod.assistant?.dm ?? '';
+  const r = mod.rolls[0];
+  return {
+    name: mod.name, text, gm: dm.startsWith(text) ? dm.slice(text.length).trim() : '',
+    words: mod.assistant?.words ?? [],
+    roll: r ? { label: r.label, kind: r.kind, mode: r.mode } : null,
+  };
+}
+
+/** The attacks on a player's Character module (from the D&D Beyond import), as { name, hit }. */
+function sheetAttacks(db: DB, worldId: string, accountId: string): { name: string; hit: number }[] {
+  const mods = parseJson<any[]>(one<any>(db, 'SELECT modules FROM sheets WHERE world_id = ? AND account_id = ?', worldId, accountId)?.modules, []);
+  const c = Array.isArray(mods) ? mods.find((m) => m?.type === 'character') : null;
+  return Array.isArray(c?.data?.attacks) ? c.data.attacks.filter((a: any) => a && typeof a.name === 'string').map((a: any) => ({ name: a.name, hit: Number.isInteger(a.hit) ? a.hit : 0 })) : [];
 }
 
 /** A player by account id, character name or display name. */
@@ -272,6 +294,67 @@ function routes(d: Deps) {
     }
     res.json({ ok: true, errors: [], notes, draft: keepDraft(W(res), mods), preview: mods.length === 1 ? previewMod(mods[0]) : mods.map((m) => ({ id: m.id, lines: previewMod(m) })), mod: toFile(mods[0]), mods: mods.map(toFile), package: info });
   });
+
+  // ---- homebrew rules: the quick form (a name and a sentence, optionally a roll button) ----
+
+  r.post('/homebrew', requireDM, (req, res) => {
+    const b = req.body ?? {};
+    const w = W(res);
+    const name = typeof b.name === 'string' ? b.name.trim() : '';
+    const text = typeof b.text === 'string' ? b.text.trim() : '';
+    if (!name) throw new HttpError(400, 'Give the rule a name');
+    if (!text) throw new HttpError(400, 'Say what the rule does');
+    const have = listMods(db, w);
+    let id = typeof b.id === 'string' && b.id ? b.id : '';
+    const cur = id ? have.find((m) => m.mod.id === id) : undefined;
+    if (id && (!cur || !cur.mod.homebrew || cur.source !== 'imported')) throw new HttpError(404, 'No homebrew rule with that id in this world');
+    if (!id) {
+      const root = `hb-${slugify(name) || 'rule'}`;
+      id = root;
+      for (let n = 2; have.some((m) => m.mod.id === id); n++) id = `${root.slice(0, 36)}-${n}`;
+    }
+    const words = Array.isArray(b.words) ? b.words.filter((x: unknown) => typeof x === 'string').slice(0, 24) : typeof b.words === 'string' ? b.words.split(',').slice(0, 24) : [];
+    const file = homebrewFile(id, { name, text, gm: typeof b.gm === 'string' ? b.gm : '', words, roll: b.roll && typeof b.roll === 'object' ? b.roll : null }, cur ? nextVersion(cur.mod.version) : '1.0.0');
+    const out = importMod(db, w, file, me(res));
+    audit(db, w, me(res), out.updated ? 'mods.update' : 'mods.import', `${id} (homebrew)`);
+    // A new rule goes on at once (the quick form is for rules the table plays with now); an edit keeps its switch.
+    const on = typeof b.on === 'boolean' ? b.on : cur ? cur.enabled : true;
+    if (on !== !!cur?.enabled) setEnabled(db, w, id, on, me(res));
+    changedList(w);
+    res.status(cur ? 200 : 201).json(view(getMod(db, w, id), true));
+  });
+
+  /**
+   * Roll a rule's sheet button: { attack?: index into the Character module's attacks, bonus?: number }. The server
+   * rolls the d20 the rule says (advantage, disadvantage or neither) and posts it in table chat as the roller.
+   */
+  r.post('/:id/rolls/:roll', requirePlayerOrDM, (req, res) => {
+    const w = W(res);
+    const m = getModRaw(db, w, String(req.params.id));
+    if (!m.enabled) throw new HttpError(409, `${m.mod.name} is not on`);
+    const roll = m.mod.rolls.find((x) => x.id === String(req.params.roll));
+    if (!roll) throw new HttpError(404, `${m.mod.name} has no roll ${String(req.params.roll).slice(0, 40)}`);
+    const b = req.body ?? {};
+    const who = actor(res);
+    let bonus = 0;
+    let what = '';
+    if (roll.kind === 'attack' && b.attack !== undefined && b.attack !== null) {
+      const atk = sheetAttacks(db, w, who.accountId)[Number(b.attack)];
+      if (!atk) throw new HttpError(404, 'That attack is not on your Character module');
+      bonus = atk.hit;
+      what = atk.name;
+    } else if (b.bonus !== undefined && b.bonus !== null && b.bonus !== '') {
+      const n = Number(b.bonus);
+      if (!Number.isInteger(n) || n < -30 || n > 30) throw new HttpError(400, 'bonus must be a whole number from -30 to 30');
+      bonus = n;
+    }
+    const mode = roll.mode === 'normal' ? '' : ` at ${roll.mode}`;
+    const note = `${what ? `${what}: ` : ''}${roll.label}${mode}${roll.note ? `, ${roll.note}` : ''} (${m.mod.name})`;
+    const posted = postChat(d, w, 'table', who.accountId, who.role, `/roll ${rollExpr(roll.mode, bonus)} ${note}`.slice(0, 400));
+    const out = parseJson<any>(posted.roll, null);
+    res.json({ id: posted.id, total: out?.total ?? null, expr: out?.expr ?? rollExpr(roll.mode, bonus), note });
+  });
+  r.get('/attacks', requirePlayerOrDM, (_req, res) => { res.json({ attacks: sheetAttacks(db, W(res), me(res)) }); });
 
   r.post('/import', requireDM, (req, res) => {
     const draft = typeof req.body?.draft === 'string' && req.body.mod === undefined ? takeDraft(W(res), req.body.draft) : null;

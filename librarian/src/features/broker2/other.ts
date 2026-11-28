@@ -5,6 +5,8 @@
 //   item:  from the item's own card (the player-visible note and the player
 //          copy of its linked library page), only for items the asker can see
 //          (their own and the party stash).
+import { ruleMatches } from '../mods/assist.ts';
+import { enabledMods, type Installed } from '../mods/store.ts';
 import type { Deps } from '../../app.ts';
 import { all } from '../../core/db.ts';
 import { lines } from '../../core/brokerClassify.ts';
@@ -28,12 +30,22 @@ export function findItem(items: VisibleItem[], question: string): VisibleItem | 
 }
 
 export function rulesAnswer(d: Deps, worldId: string, question: string): OtherAnswer {
-  const hits = searchRules(d.db, worldId, question, 1);
-  if (!hits.length) return { answer: 'I have no rules book that covers that, and I won’t guess. Ask your DM.', sources: [] };
+  // The table's homebrew rules that the question is about come first: they change the rules book at this table.
+  const home = homebrewFor(d, worldId, question);
+  const hits = searchRules(d.db, worldId, question, 1).filter((h: any) => !home.some((m) => m.rules.some((r) => r.term === h.term)));
+  if (!hits.length && !home.length) return { answer: 'I have no rules book that covers that, and I won’t guess. Ask your DM.', sources: [] };
+  const homeLines = home.map((m) => `${m.name} (house rule at this table): ${clip((m.assistant?.player || m.rules.map((r) => r.text).join(' ')).replace(/\*\*/g, ''), 600)}`);
   return {
-    answer: hits.map((h: any) => `${h.term}: ${clip(String(h.passage || h.summary), 600)}`).join('\n\n'),
-    sources: hits.map((h: any) => ({ id: null, title: String(h.citation) })),
+    answer: [...homeLines, ...hits.map((h: any) => `${h.term}${home.length ? ' (the rules book)' : ''}: ${clip(String(h.passage || h.summary), 600)}`)].join('\n\n'),
+    sources: [...home.map((m) => ({ id: null, title: `House rule: ${m.name}` })), ...hits.map((h: any) => ({ id: null, title: String(h.citation) }))],
   };
+}
+
+/** Homebrew rules that are on and that the question names (their words, name or the 5e phrases they change). */
+function homebrewFor(d: Deps, worldId: string, question: string) {
+  let on: Installed[] = [];
+  try { on = enabledMods(d.db, worldId); } catch { return []; }
+  return on.filter((m) => (m.mod.homebrew || m.mod.assistant?.always) && ruleMatches(m, question)).slice(0, 3).map((m) => m.mod);
 }
 
 export function itemAnswer(d: Deps, worldId: string, accountId: string, question: string): OtherAnswer {

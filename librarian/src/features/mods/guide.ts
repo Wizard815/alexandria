@@ -115,6 +115,14 @@ and counters). The house rule tools are offered with it.
   to the helper ("suggest two activities that fit ...").
 - tools: other tools to offer when the rule comes up, from a feature: the Codex's my_spell_codex, read_spell,
   list_spell_recipes, draft_spell_recipe, list_spells. A tool this server does not have is left out.
+- always: true keeps the rule in every assistant's context while it is on (Minerva, Squire and the Broker), not
+  only when a message names it. Use it for a short change to the 5e rules ("a bonus action attack at disadvantage").
+
+Roll buttons on the player's sheet (part "rolls", up to 6):
+"rolls": [{ "id": "ba-attack", "label": "Bonus action attack", "kind": "attack", "mode": "disadvantage", "note": "" }]
+- kind attack: the player picks a weapon from their Character module (its attack bonus is added), or types a bonus;
+  kind d20: a d20 plus a bonus the player types (a check or save the rule changes).
+- mode: normal, advantage (2d20kh1) or disadvantage (2d20kl1). The server rolls it and posts it in table chat.
 Example ids: spell-crafting, spell-points, downtime-lite.`;
 
 const MANIFEST = `# Manifest (kit 2)
@@ -215,6 +223,8 @@ export function previewMod(mod: ModFile): string[] {
   if (mod.group) L.push(`Only one rule of the ${mod.group} group is on at a time`);
   for (const [id, r] of Object.entries(mod.requires.mods)) L.push(`Needs the house rule ${id} ${r}`);
   if (mod.conflicts.length) L.push(`Turns off: ${mod.conflicts.join(', ')}`);
+  for (const r of mod.rolls) L.push(`A ${r.label} button on the player's sheet: ${r.mode === 'normal' ? 'a d20' : `a d20 with ${r.mode}`}${r.kind === 'attack' ? ' plus the weapon\'s attack bonus' : ' plus a bonus the player types'}, posted in table chat`);
+  if (mod.assistant?.always) L.push('Every assistant keeps it in mind while it is on');
   if (mod.assistant) L.push(`The assistant knows it${mod.assistant.words.length ? ` when someone says ${mod.assistant.words.slice(0, 4).join(', ')}` : ''}${mod.assistant.dm ? '; guidance for the DM' : ''}${mod.assistant.player ? '; guidance for the player helper' : ''}${mod.assistant.tools.length ? `; offers ${mod.assistant.tools.join(', ')}` : ''}`);
   if (!L.length) L.push('Does nothing in play yet: add counters (resources and actions), records or presets');
   for (const r of mod.rules) L.push(`Adds to the glossary: ${r.term}`);

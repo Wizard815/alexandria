@@ -16,6 +16,8 @@
 // not in the brief, writing, a change to anything, a long question) is handed
 // off: to the broker for in-world knowledge, or to the table helper (the
 // player harness on the main model, with tools) for everything else.
+import { alwaysNote } from '../mods/homebrew.ts';
+import { enabledModFiles } from '../mods/store.ts';
 import type { Deps } from '../../app.ts';
 import { chat, hasJob, jobConfig, ownJobConfig, wouldBeRefused, ModelUnavailable } from '../../core/ai.ts';
 import { all, one } from '../../core/db.ts';
@@ -362,6 +364,8 @@ export async function quickBrief(d: Deps, worldId: string, accountId: string, s:
     { label: 'What this player knows', text: recap ? '' : clip(brokerContext(d, worldId, accountId, look).trim(), 1500) },
     // A turn with no question of its own gets no passages: a search for "my turn" finds magic items, which a small
     // model then offers as if the character had them.
+    // The table's homebrew rules change the 5e rules here, so they come before any rules passage.
+    { label: 'Table house rules', text: recap ? '' : alwaysNote(enabledModFiles(d.db, worldId), false, 900) },
     { label: 'Rules passages', text: task === 'sheet' || task === 'suggest' || recap || (task === 'turn' && !typed) ? '' : rulesPart(d, worldId, look, s) },
     { label: 'Library (shared with the party)', text: lore.text },
   ];
@@ -385,7 +389,7 @@ export function quickSystem(worldName: string): string {
   return [
     `You are the quick helper of one player in the tabletop campaign "${worldName}": out of character, quick and friendly, like a player who knows the rules well.`,
     'You see only the brief you are given. Use it; never invent names, places, events, numbers or monster stats that are not in it. You know nothing the player does not know.',
-    'Rules come from the Rules passages in the brief; if none covers the question, say you are not sure rather than guess.',
+    'Rules come from the Rules passages in the brief; if none covers the question, say you are not sure rather than guess. Table house rules in the brief change the rules at this table: they win over a rules passage, so say when one applies.',
     'Be brief: short bullets or two or three sentences, no preamble, no repeating the question. Talk to the player as "you". Give reasons from the game itself ("you have two potions"), never from where you read them: do not mention the brief, the notes or the context.',
     'If the request needs more than the brief, reply with one line and nothing else:',
     '  HANDOFF broker: (a few words on why)   for in-world knowledge not in the brief (people, places, history, rumours, secrets)',
