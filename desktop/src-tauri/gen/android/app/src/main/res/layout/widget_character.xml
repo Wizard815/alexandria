@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Small widget: your HP, mana and conditions. The sample text is the widget picker's preview; the widget fills in real values. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:paddingStart="12dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="6dp"
+    android:paddingBottom="2dp">
+    <TextView
+        android:id="@+id/w_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="0dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Jess"
+        android:textColor="@color/w_accent"
+        android:textSize="14sp" android:textStyle="bold" />
+    <LinearLayout
+        android:id="@+id/w_hp_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <TextView
+            android:layout_width="42dp"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_hp"
+            android:textColor="@color/w_muted"
+            android:textSize="12sp" />
+        <ProgressBar
+            android:id="@+id/w_hp_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="0dp"
+            android:layout_height="6dp"
+            android:layout_weight="1"
+            android:max="100"
+            android:progress="60"
+            android:progressDrawable="@drawable/widget_bar_hp" />
+        <TextView
+            android:id="@+id/w_hp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="23 / 40"
+            android:textColor="@color/w_text"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/w_mana_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <TextView
+            android:layout_width="42dp"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_mana"
+            android:textColor="@color/w_muted"
+            android:textSize="12sp" />
+        <ProgressBar
+            android:id="@+id/w_mana_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="0dp"
+            android:layout_height="6dp"
+            android:layout_weight="1"
+            android:max="100"
+            android:progress="80"
+            android:progressDrawable="@drawable/widget_bar_mana" />
+        <TextView
+            android:id="@+id/w_mana"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="12 / 15"
+            android:textColor="@color/w_text"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/w_conditions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Poisoned (3)"
+        android:textColor="@color/w_danger"
+        android:textSize="12sp" />
+    <TextView
+        android:id="@+id/w_line"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Fight · round 2 · your turn!"
+        android:textColor="@color/w_text"
+        android:textSize="13sp" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <TextView
+            android:id="@+id/w_updated"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:textColor="@color/w_muted"
+            android:textSize="11sp" />
+        <TextView
+            android:id="@+id/w_refresh"
+            android:layout_width="36dp"
+            android:layout_height="28dp"
+            android:contentDescription="@string/widget_refresh"
+            android:gravity="center"
+            android:text="↻"
+            android:textColor="@color/w_accent"
+            android:textSize="18sp" />
+    </LinearLayout>
+</LinearLayout>

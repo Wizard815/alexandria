@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home-screen widgets (see java/.../widget). Colours follow the web app's fantasy theme
+     (web/src/theme.css): panel, text, muted, accent and danger. -->
+<resources>
+    <color name="w_bg">#F21C222D</color>
+    <color name="w_line">#FF5A4E33</color>
+    <color name="w_text">#FFEDE3CF</color>
+    <color name="w_muted">#FFB3A98F</color>
+    <color name="w_accent">#FFF3D99B</color>
+    <color name="w_hp">#FFC8675C</color>
+    <color name="w_mana">#FF6A9FD9</color>
+    <color name="w_track">#FF3A4253</color>
+    <color name="w_danger">#FFF0A096</color>
+
+    <string name="widget_character_name">Alexandria: character</string>
+    <string name="widget_character_desc">Your HP, mana and conditions. For the DM, whose turn it is.</string>
+    <string name="widget_table_name">Alexandria: table</string>
+    <string name="widget_table_desc">World date, the session, quick events, your HP and mana and what waits for you.</string>
+    <string name="widget_not_linked">Open Alexandria, then More, Home-screen widget, to link this widget.</string>
+    <string name="widget_link_expired">This widget\'s link was removed. Link it again from Alexandria, More, Home-screen widget.</string>
+    <string name="widget_updated">Updated %1$s</string>
+    <string name="widget_offline_since">Offline · from %1$s</string>
+    <string name="widget_refresh">Refresh</string>
+    <string name="widget_hp">HP</string>
+    <string name="widget_mana">Mana</string>
+</resources>

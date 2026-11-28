@@ -301,7 +301,7 @@ function Inventory({ account, own }: { account: string; own: boolean }) {
       {own && <TradeOffers compact />}
       {items.length ? <ul className="sht-list">{items.slice(0, 30).map((it: any) => <li key={it.id}><span className="grow small">{it.name}</span>{it.qty !== 1 && <span className="tiny muted">×{it.qty}</span>}</li>)}</ul> : <span className="tiny muted">Nothing in the pack.</span>}
       {items.length > 30 && <span className="tiny faint">and {items.length - 30} more</span>}
-      {own && <Link className="tiny" to="../inventory">Open inventory</Link>}
+      {own && <Link className="btn small" to="../inventory">Open inventory</Link>}
     </div>
   );
 }

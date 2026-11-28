@@ -13,13 +13,24 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.5", features = [] }
+tauri = { version = "2.5", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
+# alexandria://join?server=…&code=… opens an invite in the app (src/lib.rs, open_link).
+tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
+# Updates from the person's own server (src/update.rs): a small HTTP client and the checksum.
+ureq = { version = "2", default-features = false, features = ["tls"] }
+sha2 = "0.10"
+# System notifications from the page (your turn, a quick event): src/lib.rs app_link "notify".
+tauri-plugin-notification = "2"
+# The tray icon's "Start with the computer" (src/tray.rs).
+tauri-plugin-autostart = "2"
+# A second launch (a deep link on Windows and Linux) goes to the running app instead.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"

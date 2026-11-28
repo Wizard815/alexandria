@@ -63,6 +63,7 @@ export const DM_NAMES: Record<string, DMName> = {
   screens: { group: 'setup', label: 'Screens', icon: 'fa-display', desc: 'Open the side, TV and table screens on your monitors.' },
   audio: { group: 'setup', label: 'Microphones', icon: 'fa-microphone', desc: 'Choose the mics the table transcript listens to.' },
   phone: { group: 'setup', label: 'Phone', icon: 'fa-mobile-screen', desc: 'Your pocket remote and assistant.' },
+  app: { group: 'setup', label: 'This device', icon: 'fa-mobile-screen-button', desc: 'Install the app, link the Android widget, change server.' },
   settings: { group: 'setup', label: 'Settings', icon: 'fa-gear', desc: 'Visibility, invites and options for this world.' },
   foundry: { group: 'setup', label: 'Foundry VTT', icon: 'fa-chess-rook', desc: 'Keep a Foundry world in step: maps, tokens, fog, HP and conditions.' },
   roll20: { group: 'setup', label: 'Roll20', icon: 'fa-dice-d20', desc: 'Keep a Roll20 game in step: HP, conditions, rolls and handouts.' },

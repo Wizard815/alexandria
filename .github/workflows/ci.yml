@@ -42,6 +42,7 @@ jobs:
           node e2e/buttons.mjs
           node e2e/leaks.mjs
           node e2e/thoughts.mjs
+          node e2e/apps.mjs
           node e2e/sheet.mjs
           node e2e/foundry.mjs
           node e2e/roll20.mjs

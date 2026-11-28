@@ -727,6 +727,8 @@ const PLAYER_ROUTES = [
   'POST /libshare/seen',
   'POST /shop/shops/:sid/buy', 'POST /shop/shops/:sid/sell', 'POST /shop/orders/:oid/cancel', 'POST /shop/shops/:sid/haggle',
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
+  // A player links their phone's home-screen widget: a key that reads only their own glance.
+  'POST /glance/link', 'POST /glance/answer/:eid',
   // House rules: a player spends their own counters (the server checks who may run each action).
   'POST /mods/:id/act',
   // DownTime: a player starts, pauses and stops their own tasks, picks in a Downtime round, and asks the helper to rank or rate activities.
@@ -739,7 +741,7 @@ const PLAYER_ROUTES = [
   'POST /discord/me/code', 'DELETE /discord/me',
 ];
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
-const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/)/;
+const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password|notifications)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/|apps\/builds\/|push\/)/;
 
 test('TestSecurityAuth_PlayersCannotCallDmRoutes', async () => {
   const mine = new Set(PLAYER_ROUTES.map((x) => `${x.split(' ')[0]} /api/worlds/:world${x.split(' ')[1]}`));

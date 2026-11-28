@@ -120,6 +120,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev patchelf
       - name: Install
         run: cd desktop && npm install --no-audit --no-fund
+      - name: App version from VERSION (so the apps can tell an update from the server's builds)
+        shell: bash
+        run: node -e "const f='desktop/src-tauri/tauri.conf.json',c=JSON.parse(require('fs').readFileSync(f,'utf8'));c.version='${{ needs.meta.outputs.version }}';require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\\n')"
       - name: Apple signing (only if the secrets exist)
         if: matrix.kind == 'macos' && env.HAS_APPLE == 'true'
         shell: bash
@@ -186,6 +189,9 @@ jobs:
           workspaces: desktop/src-tauri
       - name: Install
         run: cd desktop && npm install --no-audit --no-fund
+      - name: App version from VERSION (so the apps can tell an update from the server's builds)
+        shell: bash
+        run: node -e "const f='desktop/src-tauri/tauri.conf.json',c=JSON.parse(require('fs').readFileSync(f,'utf8'));c.version='${{ needs.meta.outputs.version }}';require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\\n')"
       - name: Signing key (the real one if the secrets exist, otherwise a throwaway debug key)
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

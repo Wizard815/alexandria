@@ -31,6 +31,7 @@ export const ADMIN_NAMES: Record<string, AdminName> = {
   audit: { group: 'access', label: 'Audit log', icon: 'fa-clipboard-list', desc: 'Who changed what, and when.' },
 
   search: { group: 'server', label: 'Search', icon: 'fa-magnifying-glass', desc: 'Search every world; the world mirror folders.' },
+  apps: { group: 'server', label: 'App builds', icon: 'fa-mobile-screen-button', desc: 'The Android and desktop apps players download and update from.' },
   integrations: { group: 'server', label: 'Devices', icon: 'fa-plug-circle-bolt', desc: 'Lights, speakers and microphones hosted here.' },
 };
 

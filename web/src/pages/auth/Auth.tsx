@@ -5,6 +5,8 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
 import { ErrorBox, Field, useAction } from '../../ui/index.tsx';
 import { McpCard, type McpConnection } from '../shared/McpCard.tsx';
+import { inApp } from '../../lib/nativeApp.ts';
+import { isIOS } from '../../lib/install.tsx';
 
 function Frame({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
   return (
@@ -123,6 +125,13 @@ export function Join() {
         <button className="btn primary" disabled={a.busy}>Join</button>
         {!me && <p className="small"><Link to="/login">I already have an account</Link></p>}
       </form>
+      {/* With the Alexandria app installed (Android, Windows, Linux, macOS), the invite opens there. */}
+      {params.get('code') && !inApp() && !isIOS() && (
+        <div className="stack tight" style={{ marginTop: 16 }} data-testid="open-in-app">
+          <a className="btn" href={`alexandria://join?server=${encodeURIComponent(window.location.origin)}&code=${encodeURIComponent(params.get('code') ?? '')}`}><i className="fa-solid fa-mobile-screen-button" aria-hidden="true" /> Open in the Alexandria app</a>
+          <span className="tiny faint">Don't have it? <Link to="/get-app">Get the app</Link>, or join here in the browser.</span>
+        </div>
+      )}
     </Frame>
   );
 }

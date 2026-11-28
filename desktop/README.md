@@ -18,6 +18,11 @@ What it adds over the browser:
 - **Push-to-talk** is the assistant's own mic button, the same as in the browser.
 - **Change server** from the Alexandria menu; **Reload** too.
 
+**App links.** A page of the saved server asks the app for something by going to
+`/app-link/<action>`: the app cancels that navigation and acts (`app_link` in `src/lib.rs`):
+`widget#k=...&w=...` (Android: link the home-screen widget), `widget-off`, `change-server`.
+In a browser the same address shows "Open this in the app". Nothing else is reachable that way.
+
 The web app and the Assistant window are remote pages and are given no access
 to the app (`src-tauri/capabilities/default.json` covers only the bundled
 first-run screen, with `core:default`). Window, menu and shortcut handling are
@@ -81,7 +86,60 @@ npx tauri android build --apk --target aarch64           # arm64 only, faster
   an earlier build only if it was signed with the same key. The release workflow reads the
   key from the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` and
   `ANDROID_STORE_PASSWORD` secrets.
-- To change the server address on Android, clear the app's data in system settings.
+- **Change server:** More, This device, Change server (or clear the app's data in system settings).
+- **Home-screen widgets** (`gen/android/.../widget/`): *Alexandria: character* (2x1: your HP, temp
+  HP, mana and conditions; for the DM, whose turn it is) and *Alexandria: table* (4x2: world date,
+  the fight or session or next game night, quick events, the bars, and what waits for you). Link
+  them in the app: More, This device, Home-screen widget. That makes a widget key on the server
+  (`alx_wdg_`, read-only, opens only `GET /api/worlds/<world>/glance`) and hands it to the app
+  through `/app-link/widget#k=...&w=...`; `app_link` in `src/lib.rs` writes `widget.json`
+  (server, world, key) next to `settings.json`, where only this app can read it. Changing server
+  forgets it. The widgets load every 30 minutes (Android's shortest period), when you leave the
+  app, and from their ↻ button; offline they show the last answer and when it was from. A tap
+  opens the app at the right page (Live in a fight, the quick event, the calendar).
+- **Updates from your own server** (`src/update.rs`, `gen/android/.../AppUpdater.kt`): the server
+  keeps the app builds in `ALX_APPS_DIR` (see docs/HOSTING.md). The page knows the app's
+  version from `window.__ALEXANDRIA_APP__` (set by an initialization script). When the server has
+  a newer build for this platform, a banner offers it, and More, This device, Updates has an
+  "Update to ..." button and an automatic-update switch. The page asks the server for a
+  15-minute ticket and opens `/app-link/update#f=<file>&t=<ticket>&s=<sha256>`. The app downloads
+  from its saved server only and checks the SHA-256, then:
+  Android opens the system installer (it asks once to allow installs from Alexandria, and the APK
+  must be signed with the same key); Windows runs the setup in passive mode and closes; Linux
+  unpacks the .tar.gz, runs its `install.sh` and restarts (an AppImage replaces itself); macOS
+  opens the .dmg to drag into Applications. Before installing, the Android app compares the
+  update's signing key with its own and, if they differ, tells the person to uninstall and
+  reinstall instead of letting Android fail with "App not installed".
+- **Notifications** (`Notifications.kt`, `notify_os` in `src/lib.rs`): the alerts of the glance (your
+  turn, a quick event for you, game night within the hour, an answer to your request; for the DM,
+  a new request), filtered by what the person picked on This device. While the app runs, the page
+  sends each new one through `/app-link/notify#i=&t=&b=&p=`: Android posts it (a tap opens the
+  page), the desktop apps use the notification plugin. With the widget link in place, Android also
+  checks every 15 minutes when the app is closed (WorkManager), for the linked world. Android 13+
+  asks once for permission. Browsers and the iPhone home-screen app get web push from the server
+  instead (`librarian/src/features/notify`).
+- **Answer from the notification** (Android): a quick event's notification has "Roll for me" or its
+  first three choices. A tap answers with the widget's key (`POST /glance/answer`, its one allowed
+  write), so it needs the widget link for that world; without it, a tap opens the app.
+- **Tray** (desktop, `src/tray.rs`): closing the window keeps Alexandria in the tray (menu bar on
+  macOS), so notifications keep coming. The tray menu: Open, Show Assistant, Keep running when the
+  window is closed, Start with the computer (autostart plugin, starts in the tray), Quit.
+- **Invites open in the app:** `alexandria://join?server=<origin>&code=<code>` (deep-link plugin; one
+  running copy on Windows and Linux via single-instance). The Join page offers "Open in the
+  Alexandria app" for an invite link, and the DM's invite shows a QR code of the link. An invite for
+  another server goes to the first-run screen first, with the address filled in.
+- **Recording with the screen locked** (Android, `Recording.kt`): while this phone records as a table
+  mic, the page sends `/app-link/recording#on=1`; a microphone foreground service (with its
+  "Recording the session" notification) and a CPU wake lock keep it going, and the web view is kept
+  running when the screen goes off.
+- **Share to Alexandria** (Android): text, links and pictures from any app's Share menu open
+  `/share`, where the person picks the world and where it goes: the table or party chat, or for the
+  DM the library's files or the stage. Pictures up to 12 MB in all.
+- **Getting builds onto the server:** Admin, App builds. "Fetch the latest release" copies every
+  platform's build from GitHub (the release workflow builds macOS on GitHub's own Macs, so no Mac
+  is needed); "Upload a build" takes a file from any computer, for example a macOS build someone
+  made on their Mac. The release workflow sets the app's version from
+  `VERSION`, so the apps and the server's builds compare correctly.
 
 Not part of the root npm workspaces, and not built by the server's Docker image. The
 Linux build and the Android arm64 build were compiled and checked for AlphaV1; the
@@ -92,6 +150,7 @@ Windows and macOS builds are made by the release workflow.
 | Path | What |
 |---|---|
 | `ui/` | The first-run screen (plain HTML and JS, no build step) |
-| `src-tauri/src/lib.rs` | Windows, menu, shortcut, saved address |
+| `src-tauri/src/lib.rs` | Windows, menu, shortcut, saved address, app links (`/app-link/...`) |
+| `src-tauri/gen/android/.../widget/` | The Android home-screen widgets (Kotlin; layouts in `res/layout/widget_*.xml`) |
 | `src-tauri/tauri.conf.json` | App and bundle config; no windows are declared, Rust creates them |
 | `src-tauri/capabilities/` | Permissions for the bundled screen |

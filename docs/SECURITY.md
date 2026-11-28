@@ -81,6 +81,37 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
 - An admin (table session or gateway admin session) is not a DM: world routes
   answer 404 or 403. Push keys read nothing. A key made for one world does
   nothing in another; a person in one world gets nothing from another.
+- Home-screen widget keys (`alx_wdg_`, made by `POST /api/worlds/:w/glance/link`
+  by a signed-in player or DM, never by a key) are read keys that resolve on exactly one
+  route, `GET /api/worlds/:w/glance` for their own world. Everywhere else,
+  MCP and `/v1` included, they are unknown (401), so a phone's home screen
+  never holds a key that can read the library. An account keeps its newest
+  four per world; they are listed with the other keys and can be revoked.
+  The Android app keeps the key in its own data folder, and the web app hands
+  it over in a `#fragment`, which never reaches the server (`Glance_widgetKey` in
+  `librarian/test/glance.test.ts`, `web/e2e/apps.mjs`). The one write a widget
+  key can make is answering a quick event its owner was asked
+  (`POST /glance/answer/:eid`, from an Android notification's buttons); the
+  normal quick-event routes still refuse it (`Glance_answer`).
+- Notifications: web push text is encrypted for the one browser (RFC 8291) and
+  signed with this server's VAPID key (kept in the database), so the push
+  service can't read it. A subscription is accepted only for the browsers'
+  own push services, so the server never posts to an address a page made up.
+  Alerts carry what the glance would show that person, nothing more. The
+  Android background check uses the widget's glance-only key (`Notify_*` in
+  `librarian/test/notify.test.ts`).
+- App downloads and updates come only from the server the app was set up with.
+  The builds list needs a sign-in; a download needs a ticket that a signed-in
+  session (not a key) asks for, which opens one file for 15 minutes and lives
+  only in the server's memory. File names are checked against a strict pattern,
+  so a name never leaves the apps folder. The web app hands the ticket and the
+  file's SHA-256 to the app in a `#fragment`; the app downloads only from its
+  saved server's `/api/apps/file/`, and a file whose SHA-256 differs is thrown
+  away before anything installs. Android still asks the person to confirm each
+  install and only installs over an APK signed with the same key; the app
+  checks the key first and says so instead of trying. Only an admin signed in
+  (never a key) can upload a build, since the apps install what is there
+  (`AppBuilds_*` in `librarian/test/appbuilds.test.ts`, `web/e2e/apps.mjs`).
 - Library files (`docs/LIBRARY_FILES.md`): a viewer gets a file only when they may see its page and its own level; a classified file is in no model's view; the admin library gives a non-DM admin only the party copy. The bytes live under `libfiles/` (exempt from the on-disk classified check: they are served only through those checks).
 - Gateway status pages (`/api/admin/gwstatus/*`, `librarian/src/features/gatewaystatus`): connection health, the world mirror, files held from sources and the search log. An admin who is not a world's DM gets counts only for that world (no page paths, file names or search words); errors are cleaned of tokens and keyed URLs before they are kept; searches keep a role, the words and counts for 30 days, never a result title. `TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheDmMayRead` reads them as an admin against the `dm_search_query` marker.
 - Media tickets are signed, for one account and one kind of file, expire, and

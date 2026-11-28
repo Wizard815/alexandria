@@ -20,9 +20,13 @@ async function reachable(base) {
   try { await fetch(base + '/health', { mode: 'no-cors', signal: ctl.signal, cache: 'no-store' }); return true; } catch { return false; } finally { clearTimeout(t); }
 }
 
+// Opened from an invite for another server: ?server=…&code=… (src/lib.rs, open_link).
+const params = new URLSearchParams(location.search);
+const inviteCode = /^[A-Za-z0-9_-]{1,64}$/.test(params.get('code') || '') ? params.get('code') : null;
+
 async function connect(base) {
   go.disabled = true;
-  try { await invoke('set_server', { url: base }); } catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = String(e); go.disabled = false; }
+  try { await invoke('set_server', { url: base, code: inviteCode }); } catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = String(e); go.disabled = false; }
 }
 
 form.addEventListener('submit', async (ev) => {
@@ -41,4 +45,10 @@ form.addEventListener('submit', async (ev) => {
 });
 anyway.addEventListener('click', () => connect(normalize(input.value)));
 
-invoke('get_server').then((s) => { if (s) input.value = s; }).catch(() => {});
+if (inviteCode && params.get('server')) {
+  input.value = params.get('server');
+  msg.style.color = 'var(--muted)';
+  msg.textContent = 'This invite is for another server. Connect to it to join; you can change back later (Change server).';
+} else {
+  invoke('get_server').then((s) => { if (s) input.value = s; }).catch(() => {});
+}
