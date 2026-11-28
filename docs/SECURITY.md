@@ -2,12 +2,12 @@
 
 Two promises, checked by tests that run with `npm test`:
 
-1. **DM-only information never reaches a player.** That means responses,
+1. **GM-only information never reaches a player.** That means responses,
    live events, MCP tools, files, media and the player's own AI.
 2. **Classified information never reaches any AI.** That means model
    requests, MCP answers and anything sent to the model gateway.
 
-The levels (`party`, `broker`, `dm`, `classified`) and the four copies of a
+The levels (`party`, `broker`, `gm`, `classified`) and the four copies of a
 page are described in `librarian/README.md` and `librarian/src/core/levels.ts`.
 This page is about the tests and the last lines of defence.
 
@@ -17,24 +17,24 @@ This page is about the tests and the last lines of defence.
 `security-world.ts` and helpers in `security-kit.ts`.
 
 **One world, a marker at every secret spot.** `seedContent()` gives each
-secret its own random token (for example `ZQX-DMPAGE-7f3a21`, new on every
+secret its own random token (for example `ZQX-GMPAGE-7f3a21`, new on every
 run) and says who may see it. Spots covered include:
 
 - pages at every level, and secret, broker and classified blocks, headings,
-  callouts, comments, frontmatter keys, DM aliases and links inside a shared
+  callouts, comments, frontmatter keys, GM aliases and links inside a shared
   page
-- imported pages with DM, broker and classified fact groups, secret blocks,
+- imported pages with GM, broker and classified fact groups, secret blocks,
   map pins; imported relations, timelines, map markers and calendars that are
-  private; imported pictures that are DM-only or belong to a DM-only page
+  private; imported pictures that are GM-only or belong to a GM-only page
   (their bytes carry the marker; checked through the signed media route)
-- DM item notes (and alerts after an edit), item pictures, a player's
-  proposed item, DM-only people, quotes and notes, the DM's note on a shared
+- GM item notes (and alerts after an edit), item pictures, a player's
+  proposed item, GM-only people, quotes and notes, the GM's note on a shared
   person, every player's private note and profile block ("only me")
-- DM-only map marks, a mark the DM hid, hidden combatants, monster HP
-- DM-only clock events, broker notes and spoiler topics, broker offers to
-  other players, a player's broker question (and the DM-side evidence), open
+- GM-only map marks, a mark the GM hid, hidden combatants, monster HP
+- GM-only clock events, broker notes and spoiler topics, broker offers to
+  other players, a player's broker question (and the GM-side evidence), open
   and resolved quick events (DC, success and fail text)
-- transcript DM and aside lines, session-log drafts and DM notes, stage cards
+- transcript GM and aside lines, session-log drafts and GM notes, stage cards
   in staging and a card shown to one player, a stage picture, the party chat
   (players only), the table chat, a chat between two players, trades
 - quick-gen, Sculpting (templates, history), voice presets, WorldLore broker
@@ -42,7 +42,7 @@ run) and says who may see it. Spots covered include:
 - a second world, whose pages must never show up in the first
 
 Look at `mark(id, seen, where)` calls: `seen` lists who may read it
-(`dm`, `jess`, `tom`, `guest`; `dm2` means nobody here).
+(`gm`, `jess`, `tom`, `guest`; `gm2` means nobody here).
 
 **The crawl.**
 
@@ -52,8 +52,8 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
   and path, every item, person, card, thread...) plus one that does not
   exist. Routes that take a query string are asked several ways (`SPEC` and
   `queries()` in the test).
-- **As a player** (session and read key), **as a guest**, and **as the DM**
-  (session, read key, write key, and a DM request flagged as a model), every
+- **As a player** (session and read key), **as a guest**, and **as the GM**
+  (session, read key, write key, and a GM request flagged as a model), every
   GET route is read. Any marker the viewer may not read, found in any
   response, fails the test, naming the marker and the URL.
 - Also checked: every live event on each viewer's event stream (open during
@@ -62,27 +62,27 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
   (read from `web/src/lib/prefetch.ts`) and the bulk page fetch, stage and
   item pictures, sound and voice files, media tickets (a player only ever
   gets tickets made for them).
-- The DM side: the party chat marker and another player's private markers
-  never appear in anything the DM, the DM's keys or the DM's MCP tools read.
+- The GM side: the party chat marker and another player's private markers
+  never appear in anything the GM, the GM's keys or the GM's MCP tools read.
 - A crawl that finds nothing proves nothing, so two more tests guard it:
   `EverySeededSecretCanBeReadByWhoOwnsIt` (every marker was shown to someone
   allowed to read it) and `TheCrawlerCatchesALeakWhenOneIsMade` (it shares a
-  DM page, and lowers a classified page, and the crawl must fail).
+  GM page, and lowers a classified page, and the crawl must fail).
 
 **Authorization.**
 
-- `PlayersCannotCallDmRoutes`: every POST, PUT, PATCH and DELETE route, called
+- `PlayersCannotCallGmRoutes`: every POST, PUT, PATCH and DELETE route, called
   by a player and a guest with real ids and an empty body, must answer 401,
   403 or 404. A 400 or 409 would mean the handler ran before it checked who
   was calling. The routes a player may call are listed by hand in
   `PLAYER_ROUTES`; adding to that list is a review decision.
 - Read keys cannot write (all write routes answer 403, and a read key cannot
   call a write tool over MCP). Players cannot make write keys.
-- An admin (table session or gateway admin session) is not a DM: world routes
+- An admin (table session or gateway admin session) is not a GM: world routes
   answer 404 or 403. Push keys read nothing. A key made for one world does
   nothing in another; a person in one world gets nothing from another.
-- Library files (`docs/LIBRARY_FILES.md`): a viewer gets a file only when they may see its page and its own level; a classified file is in no model's view; the admin library gives a non-DM admin only the party copy. The bytes live under `libfiles/` (exempt from the on-disk classified check: they are served only through those checks).
-- Gateway status pages (`/api/admin/gwstatus/*`, `librarian/src/features/gatewaystatus`): connection health, the world mirror, files held from sources and the search log. An admin who is not a world's DM gets counts only for that world (no page paths, file names or search words); errors are cleaned of tokens and keyed URLs before they are kept; searches keep a role, the words and counts for 30 days, never a result title. `TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheDmMayRead` reads them as an admin against the `dm_search_query` marker.
+- Library files (`docs/LIBRARY_FILES.md`): a viewer gets a file only when they may see its page and its own level; a classified file is in no model's view; the admin library gives a non-GM admin only the party copy. The bytes live under `libfiles/` (exempt from the on-disk classified check: they are served only through those checks).
+- Gateway status pages (`/api/admin/gwstatus/*`, `librarian/src/features/gatewaystatus`): connection health, the world mirror, files held from sources and the search log. An admin who is not a world's GM gets counts only for that world (no page paths, file names or search words); errors are cleaned of tokens and keyed URLs before they are kept; searches keep a role, the words and counts for 30 days, never a result title. `TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheGmMayRead` reads them as an admin against the `gm_search_query` marker.
 - Media tickets are signed, for one account and one kind of file, expire, and
   are checked again on every use.
 - Revoked and signed-out credentials stop working.
@@ -91,18 +91,18 @@ Look at `mark(id, seen, where)` calls: `seen` lists who may read it
 
 In the same file. A recording fake stands in for every model job
 (`fakeModels` in `security-kit.ts`, installed with `createApp({ fetch })`) and
-the test drives every model-using feature: the DM agent (prefetch and tools,
+the test drives every model-using feature: the GM agent (prefetch and tools,
 with a classified page on screen and its words selected), a player's
 assistant, Sculpting (every built-in template), the session-log draft and
 revise, a statblock from a page, quick-gen flavour, read aloud, the broker's
 routing, a recorded chunk of audio (the transcription prompt), embeddings
-indexing, and every MCP tool with a DM write key (once per page, the
+indexing, and every MCP tool with a GM write key (once per page, the
 classified ones included).
 
 It then checks that no classified marker appears in **any** recorded model
 request body, in any MCP answer, or in any GET answer given to a caller flagged
 as a model. It also checks that a player's assistant was sent nothing that
-player may not see, and that the DM's was sent no player's private note.
+player may not see, and that the GM's was sent no player's private note.
 
 ## The last line of defence: `core/ai.ts`
 
@@ -111,7 +111,7 @@ Before any request leaves for a model (`chat`, `chatStream`, `chatJson`,
 text is checked against an index of every 8-word run of classified text, in
 every world.
 
-- Classified text is whatever the DM copy of a page has that no AI copy has
+- Classified text is whatever the GM copy of a page has that no AI copy has
   (a classified page, block, fact group or frontmatter key), minus any run that
   also appears in text a model may read.
 - The index (`Library.classifiedGrams()`) is built on first use and again
@@ -137,7 +137,7 @@ every world.
 Every route that reaches a model needs a sign-in (without one: 401): `/v1/*`, `/mcp` (a scribe key only), the search, the agent, the
 voice and the audio routes. The `/v1` gateway (a pass-through to your provider, for tools that speak the OpenAI API) is stricter:
 
-- It is for **the admin and DMs, signed in**. A player, a guest and every scribe or MCP key get `403`, even a scribe key made on the DM's
+- It is for **the admin and GMs, signed in**. A player, a guest and every scribe or MCP key get `403`, even a scribe key made on the GM's
   own account: a leaked key must not be able to spend the provider credit.
 - The admin lists the accounts or keys that may also use it, with limits of their own (Admin > Models, or
   `PUT /api/admin/models/access {kind: "account" | "key", id, dailyRequests, dailyTokens}`).
@@ -157,25 +157,25 @@ behind a proxy that checks a key) so a neighbour on your LAN cannot use them eit
 
 `librarian/test/security-state.test.ts`:
 
-- Classified text lives only in the DM columns of `pages` and the DM search
-  index (`fts_dm`). No other table, no `player_*`, `broker_*` or `ai_*`
-  column, no other search index, and no file outside the DM's `vault/` folder
+- Classified text lives only in the GM columns of `pages` and the GM search
+  index (`fts_gm`). No other table, no `player_*`, `broker_*` or `ai_*`
+  column, no other search index, and no file outside the GM's `vault/` folder
   holds it.
 - Changing a page's level, or deleting it, takes it out of every copy, every
   index, every semantic chunk and every file the new audience must not have
   (including the `party/` and `_api/` files), and cards, item cards and people
   that used it stop showing it.
-- A broker-level answer waits for the DM.
+- A broker-level answer waits for the GM.
 
 Semantic rows (`search_chunks`, `bible_facts`, see `docs/MEMORY.md`) have four
-scopes: `dm` (AI copy), `broker`, `party` and `lifted` (the player copy of a
-DM-level page that some account may open through its own key, a grant or a
+scopes: `gm` (AI copy), `broker`, `party` and `lifted` (the player copy of a
+GM-level page that some account may open through its own key, a grant or a
 share). Each viewer reads only their own: players `party` plus the `lifted`
 rows of the pages they may open right now. Unsharing, revoking a key,
 demoting a page at the source, a level change, a source audience change and a
 removal delete the rows they make wrong in the same step
 (`Library.changed`), and every read checks the page again.
-`memory.test.ts` and the markers `bible_dm`, `share_revoked` and
+`memory.test.ts` and the markers `bible_gm`, `share_revoked` and
 `demoted_page` in `security-world.ts` cover this.
 
 ## Adding a feature: how it gets covered
@@ -185,9 +185,9 @@ removal delete the rows they make wrong in the same step
 2. If your feature stores something that not everyone may see, add a marker to
    `seedContent()` in `security-world.ts`:
    ```ts
-   await dm('POST', '/myfeature/things', { title: mark('thing_dm', ['dm'], 'a DM-only thing') });
+   await gm('POST', '/myfeature/things', { title: mark('thing_gm', ['gm'], 'a GM-only thing') });
    ```
-   Use `mark('id', ['dm', 'jess'], ...)` for something one player owns, and
+   Use `mark('id', ['gm', 'jess'], ...)` for something one player owns, and
    `{ ai: false, long: true }` for classified text (a whole sentence). If the
    secret is a number, use `markNum`.
 3. If a path parameter of yours is not an id the crawler knows, add its table
@@ -200,9 +200,9 @@ removal delete the rows they make wrong in the same step
 ## Known, by design
 
 - The whiteboard is one shared board. Everyone reads every version, so a
-  drawing of the DM's is visible to the table (the crawler checks that it is,
+  drawing of the GM's is visible to the table (the crawler checks that it is,
   as a control).
-- A map mark a player shared and the DM hid later was in a live event when it
+- A map mark a player shared and the GM hid later was in a live event when it
   was made (`eventsOk` in the seed). It is gone from every read after the
   hide.
 - Another world's text can be in the same embeddings batch (one model for the

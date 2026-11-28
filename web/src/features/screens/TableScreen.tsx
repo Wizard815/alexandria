@@ -1,9 +1,9 @@
 // /w/:world/screen/table: the screen lying face up on the table, which the players gather around. It is the battle map and
 // the initiative order, big, with large touch targets and a rotate control for whichever side someone is sitting.
 //
-// THE PLAYERS SEE THIS, even when the DM's login opened it. So it never trusts itself to hide things: every read below asks
-// the server for the players' copy (?view=players), and nothing here branches on isDM. A DM-only pin, a hidden foe, a monster's
-// AC or a map picture only the DM may see is never in the page to begin with.
+// THE PLAYERS SEE THIS, even when the GM's login opened it. So it never trusts itself to hide things: every read below asks
+// the server for the players' copy (?view=players), and nothing here branches on isGM. A GM-only pin, a hidden foe, a monster's
+// AC or a map picture only the GM may see is never in the page to begin with.
 import { useEffect, useState } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { MarkLayer, RouteLayer, ICONS, type Mark } from '../../pages/player/mapParts.tsx';
@@ -23,15 +23,15 @@ function stored<T>(key: string, fallback: T): T {
 function keep(key: string, v: unknown) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* private window */ } }
 
 export default function TableScreen() {
-  const { w, isDM, info } = useWorld();
+  const { w, isGM, info } = useWorld();
   const [rot, setRot] = useState<Rot>(() => { const r = stored<number>(ROT_KEY, 0); return ([0, 90, 180, 270].includes(r) ? r : 0) as Rot; });
   const [view, setView] = useState<View>('map');
   const [zoom, setZoom] = useState(0);
   const [sel, setSel] = useState<string | null>(null);
   useEffect(() => { document.title = `Table · ${info?.name ?? 'Alexandria'}`; }, [info?.name]);
 
-  // Which map and which picture of it is the DM's choice (set from the DM's map page or the fog panel, followed live). Until the
-  // DM has chosen, the first map and picture the players may see.
+  // Which map and which picture of it is the GM's choice (set from the GM's map page or the fog panel, followed live). Until the
+  // GM has chosen, the first map and picture the players may see.
   const { display } = useTableDisplay();
   const maps = stored<string[]>(`alx.maps.${info.id}`, ['world']);
   const mapId = display?.mapId ?? stored<string>(`alx.map.${info.id}`, maps[0] ?? 'world');
@@ -41,7 +41,7 @@ export default function TableScreen() {
   const { options } = useMapPictures('players');
   const board = useLoad<{ doc: { shapes?: any[] } }>(() => w.whiteboard() as Promise<any>, [w], ['whiteboard']);
 
-  // Only a picture the players may see is ever drawn: an address typed on the DM's Map page is not carried over.
+  // Only a picture the players may see is ever drawn: an address typed on the GM's Map page is not carried over.
   const want = display?.pic ?? stored<Record<string, string>>(`alx.mapbg.${info.id}`, {})[mapId] ?? '';
   const pic = pickPicture(options, want);
   const fog = useFog(mapId, pic?.value ?? 'none', 'players');
@@ -57,7 +57,7 @@ export default function TableScreen() {
     ? { width: '100vh', height: '100vw', left: '50%', top: '50%', transform: `translate(-50%, -50%) rotate(${rot}deg)` }
     : { inset: 0, transform: rot ? 'rotate(180deg)' : undefined };
 
-  if (!isDM) return <div className="t-fantasy"><div className="page"><p className="muted">The table screen is opened by the DM.</p></div></div>;
+  if (!isGM) return <div className="t-fantasy"><div className="page"><p className="muted">The table screen is opened by the GM.</p></div></div>;
   return (
     <div className="t-fantasy ts-root" data-testid="table-screen" data-view="players">
       <div className="ts-stage" style={frame}>
@@ -118,7 +118,7 @@ export default function TableScreen() {
                     ))}
                   </ol>
                 ) : <p className="muted">No one in the order yet.</p>
-              ) : <p className="muted">The DM is keeping the order hidden.</p>}
+              ) : <p className="muted">The GM is keeping the order hidden.</p>}
             </aside>
           )}
         </div>

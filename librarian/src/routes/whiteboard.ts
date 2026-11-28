@@ -1,4 +1,4 @@
-// One persistent whiteboard per world, shared by the DM and players.
+// One persistent whiteboard per world, shared by the GM and players.
 // Saves carry the version they were based on, so two people drawing at once
 // do not silently overwrite each other. Every version is kept; a wipe needs
 // {"confirm": true} and is just another version you can go back to.
@@ -6,9 +6,9 @@ import { Router } from 'express';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { one, all, run, tx } from '../core/db.ts';
-import { requirePlayerOrDM } from '../core/auth.ts';
+import { requirePlayerOrGM } from '../core/auth.ts';
 import { HttpError, int, now } from '../core/util.ts';
-import { ctx, isDM, me, settings } from './_shared.ts';
+import { ctx, isGM, me, settings } from './_shared.ts';
 
 const MAX_DOC = 2_000_000;
 
@@ -35,7 +35,7 @@ export default function whiteboardRoutes(d: Deps) {
     res.json({ version: c.version, doc: JSON.parse(c.doc), updated_by: c.updated_by, updated_at: c.updated_at });
   });
 
-  r.put('/', requirePlayerOrDM, (req, res) => {
+  r.put('/', requirePlayerOrGM, (req, res) => {
     const w = ctx(res).world.id;
     const base = int(req.body?.baseVersion, 'baseVersion', { min: 0 })!;
     if (!req.body?.doc || typeof req.body.doc !== 'object') throw new HttpError(400, 'doc is required');
@@ -46,9 +46,9 @@ export default function whiteboardRoutes(d: Deps) {
     res.json(out);
   });
 
-  r.post('/wipe', requirePlayerOrDM, (req, res) => {
+  r.post('/wipe', requirePlayerOrGM, (req, res) => {
     const w = ctx(res).world.id;
-    if (settings(res).whiteboardWipe === 'dm' && !isDM(res)) throw new HttpError(403, 'Only the DM can wipe the board in this world');
+    if (settings(res).whiteboardWipe === 'gm' && !isGM(res)) throw new HttpError(403, 'Only the GM can wipe the board in this world');
     if (req.body?.confirm !== true) throw new HttpError(400, 'Send {"confirm": true} to wipe the board');
     const out = save(w, cur(w).version, '{"shapes":[]}', me(res));
     audit(db, w, me(res), 'whiteboard.wipe', `version ${out.version}`);

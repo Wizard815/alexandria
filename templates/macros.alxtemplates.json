@@ -36,7 +36,7 @@
       "triggers": [],
       "enabled": true,
       "spec": {
-        "prompt": "End the session: list what the party did, propose XP or a milestone, list loot to hand out, and write DM notes on open threads.",
+        "prompt": "End the session: list what the party did, propose XP or a milestone, list loot to hand out, and write GM notes on open threads.",
         "params": [],
         "mode": "propose",
         "tools": ""

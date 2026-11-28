@@ -29,7 +29,7 @@ export function findItem(items: VisibleItem[], question: string): VisibleItem | 
 
 export function rulesAnswer(d: Deps, worldId: string, question: string): OtherAnswer {
   const hits = searchRules(d.db, worldId, question, 1);
-  if (!hits.length) return { answer: 'I have no rules book that covers that, and I won’t guess. Ask your DM.', sources: [] };
+  if (!hits.length) return { answer: 'I have no rules book that covers that, and I won’t guess. Ask your GM.', sources: [] };
   return {
     answer: hits.map((h: any) => `${h.term}: ${clip(String(h.passage || h.summary), 600)}`).join('\n\n'),
     sources: hits.map((h: any) => ({ id: null, title: String(h.citation) })),

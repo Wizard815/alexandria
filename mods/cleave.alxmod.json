@@ -25,7 +25,7 @@
       "leftover damage",
       "overkill"
     ],
-    "dm": "Cleave is on: when a melee attack drops an undamaged creature to 0 HP, leftover damage carries to another creature in reach if the same attack roll would hit it. Great with minions.",
+    "gm": "Cleave is on: when a melee attack drops an undamaged creature to 0 HP, leftover damage carries to another creature in reach if the same attack roll would hit it. Great with minions.",
     "player": "At this table extra damage from a melee hit that drops a fresh enemy carries over to another enemy in reach, if your attack roll would hit it too."
   }
 }

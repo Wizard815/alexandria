@@ -14,7 +14,7 @@ import { kankaCalendar, kankaDate } from '../src/intake/connectors/kanka.ts';
 import { playerBlocks } from '../src/intake/player.ts';
 
 const player = { accountId: 'p', role: 'player' as const };
-const dm = { accountId: 'a', role: 'dm' as const };
+const gm = { accountId: 'a', role: 'gm' as const };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 function world(kind: string, config: Record<string, unknown>) {
@@ -85,10 +85,10 @@ test('TestIntakeRecords_KankaRelationsWithPrivateOnesHiddenFromPlayers', async (
   assert.equal(out.status, 'ok', out.error);
   assert.ok(urls.includes('https://api.kanka.io/1.0/campaigns/42/relations?page=1'));
   assert.equal(out.stats.records > 0, true);
-  const mine = lib.relations('w', dm) as any[];
+  const mine = lib.relations('w', gm) as any[];
   assert.deepEqual(mine.map((r) => `${r.from_title}|${r.kind}|${r.to_title}|${r.visibility}`).sort(), [
-    'Mira|Friends|Odo|party', 'Mira|Rival of|Odo|dm', 'Mira|Spies for|Velmira Secret|dm', 'Odo|Cousins|Mira|party', 'Odo|Owes a debt|Mira|dm',
-  ].sort(), 'the DM sees every imported relation, with who may see it');
+    'Mira|Friends|Odo|party', 'Mira|Rival of|Odo|gm', 'Mira|Spies for|Velmira Secret|gm', 'Odo|Cousins|Mira|party', 'Odo|Owes a debt|Mira|gm',
+  ].sort(), 'the GM sees every imported relation, with who may see it');
   assert.equal(mine.find((r) => r.kind === 'Friends').attitude, 40);
   const seen = lib.relations('w', player) as any[];
   assert.deepEqual(seen.map((r) => r.kind).sort(), ['Cousins', 'Friends'], 'players get only shared relations between shared pages');
@@ -126,9 +126,9 @@ test('TestIntakeRecords_KankaTimelinesAndMarkersNeverLeakPrivateOnes', async () 
   const { db, lib } = world('kanka-api', { campaignId: '42', token: 'k'.repeat(24) });
   const out = await sync(db, lib, kankaFake().fake);
   assert.equal(out.status, 'ok', out.error);
-  // Timelines: a private timeline and a non-shared element stay DM-only.
-  const dmTl = timelinesFor(db, 'w', dm);
-  assert.equal(dmTl.length, 2);
+  // Timelines: a private timeline and a non-shared element stay GM-only.
+  const gmTl = timelinesFor(db, 'w', gm);
+  assert.equal(gmTl.length, 2);
   const pTl = timelinesFor(db, 'w', player);
   assert.deepEqual(pTl.map((t: any) => t.name), ['Ages']);
   const names = pTl[0].groups[0].events.map((e: any) => e.name);
@@ -138,10 +138,10 @@ test('TestIntakeRecords_KankaTimelinesAndMarkersNeverLeakPrivateOnes', async () 
   assert.ok(pj.includes('An uprising begins') && pj.includes('The age of rivers'));
   const quiet = pTl[0].groups[0].events.find((e: any) => e.name === 'Quiet Pact');
   assert.equal(quiet.page, null, 'an event linked to a private entity shows no link, and its page name is not given');
-  assert.ok(JSON.stringify(dmTl).includes('Secret Coup'), 'the DM sees all');
+  assert.ok(JSON.stringify(gmTl).includes('Secret Coup'), 'the GM sees all');
   // Markers.
-  const dmM = markersFor(db, 'w', dm);
-  assert.equal(dmM.length, 5);
+  const gmM = markersFor(db, 'w', gm);
+  assert.equal(gmM.length, 5);
   const pM = markersFor(db, 'w', player);
   assert.deepEqual(pM.map((m: any) => m.name), ['Lighthouse'], 'admin-only, private, private-entity and private-map markers are hidden');
   assert.deepEqual([pM[0].latitude, pM[0].longitude, pM[0].shape, pM[0].map.title], [10.5, 20, 'marker', 'Coast Map']);
@@ -151,7 +151,7 @@ test('TestIntakeRecords_KankaTimelinesAndMarkersNeverLeakPrivateOnes', async () 
   const broken = (async (url: string) => (String(url).includes('/relations') ? json({ message: 'no' }, 500) : kankaFake().fake(url))) as unknown as typeof fetch;
   const again = await sync(db, lib, broken);
   assert.equal(again.status, 'ok', again.error);
-  assert.equal((lib.relations('w', dm) as any[]).length, 5, 'an unreadable listing never removes what was stored');
+  assert.equal((lib.relations('w', gm) as any[]).length, 5, 'an unreadable listing never removes what was stored');
 });
 
 // ---------- LegendKeeper ----------
@@ -201,15 +201,15 @@ test('TestIntakeRecords_LegendKeeperCalendarsTimelinesAndMaps', async () => {
   const { db, lib } = world('legendkeeper-api', { apiUrl: 'https://www.legendkeeper.com/api/v3/projects/proj1', apiKey: 'lk_testkey_123' });
   const out = await sync(db, lib, fake);
   assert.equal(out.status, 'ok', out.error);
-  const titles = (lib.list('w', dm) as any[]).map((p: any) => p.title);
+  const titles = (lib.list('w', gm) as any[]).map((p: any) => p.title);
   assert.ok(!titles.some((t: string) => /Template/.test(t)), `templates are not imported: ${titles}`);
   assert.ok(titles.includes('Port Town'));
   assert.ok(!urls.some((x) => /^\/resources\/(tpl|tplkid)/.test(x)), 'a template is never read');
   assert.ok(urls.includes('/resources/atlas/docs/dtl/lanes'), 'lanes are not paged by the API: no limit or cursor is sent');
   assert.ok(urls.some((x) => x.startsWith('/resources?limit=100')), 'resources are listed 100 at a time');
-  // Calendar: definition in the shared shape. LegendKeeper has no hidden flag for calendars, so DM-only.
+  // Calendar: definition in the shared shape. LegendKeeper has no hidden flag for calendars, so GM-only.
   const cal = all<any>(db, 'SELECT * FROM intake_calendars')[0];
-  assert.equal(cal.visibility, 'dm');
+  assert.equal(cal.visibility, 'gm');
   assert.equal(cal.current, null);
   assert.deepEqual(JSON.parse(cal.definition), {
     name: 'Old Reckoning', epochYear: 1, yearSuffix: 'OR', months: [{ name: 'Thaw', days: 28 }, { name: 'Feast', days: 3, intercalary: true }],
@@ -224,18 +224,18 @@ test('TestIntakeRecords_LegendKeeperCalendarsTimelinesAndMaps', async () => {
   assert.equal(mapBlock.image, 'https://cdn.example/map.png');
   const pj = JSON.stringify(mapPage);
   for (const leak of ['Hidden Lair', 'Plot Site', 'Secret Plot']) assert.ok(!pj.includes(leak), leak);
-  const dmMap = lib.get('w', atlasP.id, dm) as any;
-  assert.equal(dmMap.blocks.find((b: any) => b.kind === 'map').pins.length, 4);
+  const gmMap = lib.get('w', atlasP.id, gm) as any;
+  assert.equal(gmMap.blocks.find((b: any) => b.kind === 'map').pins.length, 4);
   // Timeline: events carry their own hidden flag.
   const tl = timelinesFor(db, 'w', player);
   assert.equal(tl.length, 1);
   assert.deepEqual(tl[0].groups[0].events.map((e: any) => e.name), ['Siege']);
   assert.ok(!JSON.stringify(tl).includes('Betrayal'));
-  assert.equal(timelinesFor(db, 'w', dm)[0].groups[0].events.length, 2);
+  assert.equal(timelinesFor(db, 'w', gm)[0].groups[0].events.length, 2);
 });
 
 test('TestIntakeRecords_MapBlockFailsClosedInThePlayerGuard', () => {
-  const b = playerBlocks([{ kind: 'map', title: 'M', image: 'javascript:alert(1)', pins: [{ name: 'A', lat: 1, lng: 2 }, { name: 'B', lat: 1, lng: 2, dm: true }, { name: 'C', lat: 1, lng: 2, ref: 'x' }, null as any] }], (m) => m.ref === 'x');
+  const b = playerBlocks([{ kind: 'map', title: 'M', image: 'javascript:alert(1)', pins: [{ name: 'A', lat: 1, lng: 2 }, { name: 'B', lat: 1, lng: 2, gm: true }, { name: 'C', lat: 1, lng: 2, ref: 'x' }, null as any] }], (m) => m.ref === 'x');
   assert.deepEqual(b, [{ kind: 'map', title: 'M', pins: [{ name: 'A', lat: 1, lng: 2 }] }]);
 });
 
@@ -259,12 +259,12 @@ async function boot(env: Record<string, string> = {}, fetchImpl?: typeof fetch) 
     return r.body;
   };
   const admin = (await ok('POST', '/api/setup', null, { username: 'wizard', password: 'correct horse battery' })).token as string;
-  const dmAcc = await ok('POST', '/api/admin/accounts', admin, { username: 'dungeon', password: 'dm password 123' });
-  const dmTok = (await ok('POST', '/api/auth/login', null, { username: 'dungeon', password: 'dm password 123' })).token as string;
-  const W = (await ok('POST', '/api/admin/worlds', admin, { name: 'Pushland', dmAccountId: dmAcc.account.id })).id as string;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, dmTok, { role: 'player' });
+  const gmAcc = await ok('POST', '/api/admin/accounts', admin, { username: 'dungeon', password: 'gm password 123' });
+  const gmTok = (await ok('POST', '/api/auth/login', null, { username: 'dungeon', password: 'gm password 123' })).token as string;
+  const W = (await ok('POST', '/api/admin/worlds', admin, { name: 'Pushland', gmAccountId: gmAcc.account.id })).id as string;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, gmTok, { role: 'player' });
   const pl = await ok('POST', '/api/join', null, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'jess' });
-  return { server, call, ok, admin, dm: dmTok, player: pl.token as string, W, done: () => server.close() };
+  return { server, call, ok, admin, gm: gmTok, player: pl.token as string, W, done: () => server.close() };
 }
 
 test('TestIntakeCapabilities_ConnectorsDeclareThemAndWorldsUnionThem', async () => {
@@ -281,30 +281,30 @@ test('TestIntakeCapabilities_ConnectorsDeclareThemAndWorldsUnionThem', async () 
     await t.ok('POST', `/api/admin/worlds/${t.W}/sources`, t.admin, { kind: 'push', name: 'Tool', config: {} });
     assert.deepEqual((await t.ok('GET', `/api/worlds/${t.W}/intake/capabilities`, t.player)).capabilities, ['pages', 'properties', 'tags', 'images']);
     await t.ok('POST', `/api/admin/worlds/${t.W}/sources`, t.admin, { kind: 'kanka-api', name: 'K', config: { campaignId: '1', token: 'k'.repeat(24) } });
-    const dmView = await t.ok('GET', `/api/worlds/${t.W}/intake/capabilities`, t.dm);
-    assert.deepEqual(dmView.capabilities, ['pages', 'properties', 'tags', 'images', 'relations', 'timelines', 'maps', 'calendars', 'items', 'characters'], 'the union, in a fixed order');
-    assert.equal(dmView.sources.length, 2);
+    const gmView = await t.ok('GET', `/api/worlds/${t.W}/intake/capabilities`, t.gm);
+    assert.deepEqual(gmView.capabilities, ['pages', 'properties', 'tags', 'images', 'relations', 'timelines', 'maps', 'calendars', 'items', 'characters'], 'the union, in a fixed order');
+    assert.equal(gmView.sources.length, 2);
     const pView = await t.ok('GET', `/api/worlds/${t.W}/intake/capabilities`, t.player);
-    assert.equal(pView.sources, undefined, 'source names are for the DM');
+    assert.equal(pView.sources, undefined, 'source names are for the GM');
   } finally { t.done(); }
 });
 
 test('TestIntakePush_SecretNeverReachesThePlayerCopyAndKeysStayInTheirLane', async () => {
   const t = await boot();
   try {
-    const mk = async (name: string, share: boolean) => (await t.ok('POST', `/api/admin/worlds/${t.W}/sources`, t.admin, { kind: 'push', name, config: {}, defaultVisibility: share ? 'party' : 'dm' })).id as string;
+    const mk = async (name: string, share: boolean) => (await t.ok('POST', `/api/admin/worlds/${t.W}/sources`, t.admin, { kind: 'push', name, config: {}, defaultVisibility: share ? 'party' : 'gm' })).id as string;
     const A = await mk('Tool A', true);
     const B = await mk('Tool B', true);
-    const dmOnly = await mk('Tool C', false);
-    // Players can't make keys; the DM and admin can. The key is shown once.
+    const gmOnly = await mk('Tool C', false);
+    // Players can't make keys; the GM and admin can. The key is shown once.
     assert.equal((await t.call('POST', `/api/worlds/${t.W}/intake/sources/${A}/keys`, t.player, { label: 'x' })).status, 403);
-    const made = await t.ok('POST', `/api/worlds/${t.W}/intake/sources/${A}/keys`, t.dm, { label: 'my tool' });
+    const made = await t.ok('POST', `/api/worlds/${t.W}/intake/sources/${A}/keys`, t.gm, { label: 'my tool' });
     assert.match(made.key, /^alx_push_/);
-    const listed = await t.ok('GET', `/api/worlds/${t.W}/intake/sources/${A}/keys`, t.dm);
+    const listed = await t.ok('GET', `/api/worlds/${t.W}/intake/sources/${A}/keys`, t.gm);
     assert.equal(listed.length, 1);
     assert.ok(!JSON.stringify(listed).includes(made.key), 'only a prefix is ever shown again');
     const adminKey = await t.ok('POST', `/api/admin/intake/sources/${B}/keys`, t.admin, { label: 'b' });
-    const cKey = await t.ok('POST', `/api/admin/intake/sources/${dmOnly}/keys`, t.admin, { label: 'c' });
+    const cKey = await t.ok('POST', `/api/admin/intake/sources/${gmOnly}/keys`, t.admin, { label: 'c' });
     const url = (s: string, rest = 'entries') => `/api/intake/${s}/${rest}`;
 
     const entries = [
@@ -316,14 +316,14 @@ test('TestIntakePush_SecretNeverReachesThePlayerCopyAndKeysStayInTheirLane', asy
           { kind: 'callout', variant: 'gm', children: [{ kind: 'paragraph', content: [{ text: 'GM callout twist' }] }] },
           { kind: 'futureWidget', payload: 'widget secret' },
         ] },
-      { externalId: 'npc-2', title: 'Private Pete', visibility: 'dm', blocks: [{ kind: 'paragraph', content: [{ text: 'Only the DM.' }] }] },
-      { externalId: 'md-1', title: 'Markdown Page', visibility: 'party', markdown: '# Hi\n\nOpen text.\n\n> [!secret] DM\n> md twist\n' },
+      { externalId: 'npc-2', title: 'Private Pete', visibility: 'gm', blocks: [{ kind: 'paragraph', content: [{ text: 'Only the GM.' }] }] },
+      { externalId: 'md-1', title: 'Markdown Page', visibility: 'party', markdown: '# Hi\n\nOpen text.\n\n> [!secret] GM\n> md twist\n' },
     ];
     const res = await t.ok('POST', url(A), made.key, { entries });
     assert.deepEqual([res.saved, res.shared, res.errors], [3, 2, []]);
 
     const pages = await t.ok('GET', `/api/worlds/${t.W}/library/pages`, t.player);
-    assert.deepEqual(pages.map((p: any) => p.title).sort(), ['Captain Odda', 'Markdown Page'], 'a DM-only entry is not listed');
+    assert.deepEqual(pages.map((p: any) => p.title).sort(), ['Captain Odda', 'Markdown Page'], 'a GM-only entry is not listed');
     const odda = pages.find((p: any) => p.title === 'Captain Odda');
     const page = await t.ok('GET', `/api/worlds/${t.W}/library/pages/${odda.id}`, t.player);
     const all = JSON.stringify(page);
@@ -333,10 +333,10 @@ test('TestIntakePush_SecretNeverReachesThePlayerCopyAndKeysStayInTheirLane', asy
     assert.ok(!JSON.stringify(await t.ok('GET', `/api/worlds/${t.W}/library/pages/${md.id}`, t.player)).includes('md twist'));
     const found = await t.ok('GET', `/api/worlds/${t.W}/library/search?q=Velmira`, t.player);
     assert.equal(found.length, 0, 'search finds nothing of the secret');
-    assert.ok(JSON.stringify(await t.ok('GET', `/api/worlds/${t.W}/library/pages/${odda.id}`, t.dm)).includes('Velmira'), 'the DM still sees it');
+    assert.ok(JSON.stringify(await t.ok('GET', `/api/worlds/${t.W}/library/pages/${odda.id}`, t.gm)).includes('Velmira'), 'the GM still sees it');
 
     // A source that does not share: "party" is ignored (fail closed).
-    const r2 = await t.ok('POST', url(dmOnly), cKey.key, { entries: [{ externalId: 'x', title: 'Asked To Share', visibility: 'party', blocks: [] }] });
+    const r2 = await t.ok('POST', url(gmOnly), cKey.key, { entries: [{ externalId: 'x', title: 'Asked To Share', visibility: 'party', blocks: [] }] });
     assert.equal(r2.shared, 0);
     assert.ok(!(await t.ok('GET', `/api/worlds/${t.W}/library/pages`, t.player)).some((p: any) => p.title === 'Asked To Share'));
 
@@ -370,7 +370,7 @@ test('TestIntakePush_SecretNeverReachesThePlayerCopyAndKeysStayInTheirLane', asy
     assert.equal((await t.call('POST', `/api/admin/sources/${A}/sync`, t.admin)).status, 400);
 
     // Revoke.
-    await t.ok('DELETE', `/api/worlds/${t.W}/intake/keys/${made.id}`, t.dm);
+    await t.ok('DELETE', `/api/worlds/${t.W}/intake/keys/${made.id}`, t.gm);
     assert.equal((await t.call('POST', url(A), made.key, { entries })).status, 401);
     assert.equal((await t.call('DELETE', `/api/worlds/${t.W}/intake/keys/${adminKey.id}`, t.player)).status, 403);
   } finally { t.done(); }

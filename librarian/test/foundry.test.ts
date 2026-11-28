@@ -99,11 +99,11 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Keephold', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Keephold', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : 'Tomas' });
     T[name] = j.token;
     ID[name] = j.account.id;
@@ -137,15 +137,15 @@ test('TestFoundry_FogParity: the module draws exactly the fog the server enforce
   }
 });
 
-test('TestFoundry_Keys: only the DM makes a key; a bad or replaced key is refused; the module installs by URL', async () => {
+test('TestFoundry_Keys: only the GM makes a key; a bad or replaced key is refused; the module installs by URL', async () => {
   assert.equal((await call('POST', api('/foundry/key'), T.jess)).status, 403);
   assert.equal((await call('GET', api('/foundry'), T.jess)).status, 403);
-  const first = (await ok('POST', api('/foundry/key'), T.dm)).key;
+  const first = (await ok('POST', api('/foundry/key'), T.gm)).key;
   assert.match(first, /^alx_fvtt_/);
-  KEY = (await ok('POST', api('/foundry/key'), T.dm)).key;
+  KEY = (await ok('POST', api('/foundry/key'), T.gm)).key;
   assert.equal((await call('POST', '/api/foundry/bridge/sync', first, {})).status, 401);
   assert.equal((await call('POST', '/api/foundry/bridge/sync', 'alx_fvtt_nope', {})).status, 401);
-  assert.equal((await call('POST', '/api/foundry/bridge/sync', T.dm, {})).status, 401, 'a DM session is not a bridge key');
+  assert.equal((await call('POST', '/api/foundry/bridge/sync', T.gm, {})).status, 401, 'a GM session is not a bridge key');
   // The bridge answers a Foundry page on any address (CORS), preflight included.
   const pre = await fetch(`${base}/api/foundry/bridge/sync`, { method: 'OPTIONS', headers: { Origin: 'http://foundry.local:30000', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Private-Network': 'true' } });
   assert.equal(pre.status, 204);
@@ -167,7 +167,7 @@ test('TestFoundry_Keys: only the DM makes a key; a bad or replaced key is refuse
 test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and journal entries move both ways', async () => {
   const g = foundry();
   assert.equal(await g.connect(), true);
-  let st = await ok('GET', api('/foundry'), T.dm);
+  let st = await ok('GET', api('/foundry'), T.gm);
   assert.equal(st.online, true);
   assert.equal(st.moduleVersion, '1.0.0');
   assert.equal(st.foundryWorld, 'Sunken Realm');
@@ -175,7 +175,7 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   assert.ok(st.statusIds.includes('poisoned'));
   // The player characters (not the goblin) were linked by character name; Foundry's HP filled in Alexandria's.
   assert.deepEqual(st.actors.map((a: any) => [a.name, a.accountId]), [['Jessamine', ID.jess], ['Tomas', ID.tom]]);
-  let sheet = await ok('GET', api(`/sheet/${ID.jess}`), T.dm);
+  let sheet = await ok('GET', api(`/sheet/${ID.jess}`), T.gm);
   assert.equal(sheet.hp, 30);
   assert.equal(sheet.maxHp, 30);
   assert.deepEqual(st.scenes.map((s: any) => [s.name, s.mapId]), [['Sunken Keep', null]]);
@@ -184,32 +184,32 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   // Damage in Foundry → Alexandria's sheet (logged as Foundry), not sent back.
   await g.jess.update({ 'system.attributes.hp.value': 21 });
   await g.tick();
-  sheet = await ok('GET', api(`/sheet/${ID.jess}`), T.dm);
+  sheet = await ok('GET', api(`/sheet/${ID.jess}`), T.gm);
   assert.equal(sheet.hp, 21);
-  const log = (await ok('GET', api(`/sheet/log?account=${ID.jess}`), T.dm)).log;
+  const log = (await ok('GET', api(`/sheet/log?account=${ID.jess}`), T.gm)).log;
   assert.equal(log[0].source, 'foundry');
   // Damage and conditions in Alexandria → the actor's HP and status effects.
-  await ok('POST', api(`/sheet/${ID.jess}/vitals`), T.dm, { damage: 5, conditions: ['Poisoned', 'Inspired'] });
+  await ok('POST', api(`/sheet/${ID.jess}/vitals`), T.gm, { damage: 5, conditions: ['Poisoned', 'Inspired'] });
   await g.tick();
   assert.equal(g.jess.system.attributes.hp.value, 16);
   assert.deepEqual([...g.jess.statuses], ['poisoned']);
-  const logLen = (await ok('GET', api(`/sheet/log?account=${ID.jess}`), T.dm)).log.length;
+  const logLen = (await ok('GET', api(`/sheet/log?account=${ID.jess}`), T.gm)).log.length;
   await g.tick();
   await g.tick();
-  assert.equal((await ok('GET', api(`/sheet/log?account=${ID.jess}`), T.dm)).log.length, logLen, 'what the module applied is not reported back as a change');
+  assert.equal((await ok('GET', api(`/sheet/log?account=${ID.jess}`), T.gm)).log.length, logLen, 'what the module applied is not reported back as a change');
   // A status toggled in Foundry → conditions (Inspired has no status and stays).
   await g.jess.toggleStatusEffect('prone', { active: true });
   await g.jess.toggleStatusEffect('poisoned', { active: false });
   await g.tick();
-  sheet = await ok('GET', api(`/sheet/${ID.jess}`), T.dm);
+  sheet = await ok('GET', api(`/sheet/${ID.jess}`), T.gm);
   assert.deepEqual(sheet.conditions, ['Inspired', 'Prone']);
 
   // ---- a scene comes into Alexandria as a map ----
   const keepId = g.keep.id;
   assert.equal((await call('POST', api(`/foundry/scenes/${keepId}/import`), T.jess)).status, 403);
-  await ok('POST', api(`/foundry/scenes/${keepId}/import`), T.dm);
+  await ok('POST', api(`/foundry/scenes/${keepId}/import`), T.gm);
   await g.tick(); // the module gets the item and uploads the picture
-  st = await ok('GET', api('/foundry'), T.dm);
+  st = await ok('GET', api('/foundry'), T.gm);
   const sc = st.scenes[0];
   assert.equal(sc.mapId, 'sunken-keep');
   assert.match(sc.pic, /^lib:lf_/);
@@ -220,21 +220,21 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
 
   // ---- tokens: the linked scene's tokens are on the map ----
   await g.tick(); // config now lists the scene: the module sends its tokens
-  let dmMarks = await ok('GET', api('/map/sunken-keep/marks'), T.dm);
-  const jm = dmMarks.find((m: any) => m.data.label === 'Jessamine');
-  const gm = dmMarks.find((m: any) => m.data.label === 'Goblin');
+  let gmMarks = await ok('GET', api('/map/sunken-keep/marks'), T.gm);
+  const jm = gmMarks.find((m: any) => m.data.label === 'Jessamine');
+  const gm = gmMarks.find((m: any) => m.data.label === 'Goblin');
   assert.ok(jm && gm, 'both tokens');
   // Token centre: (5.5 squares × 100 px) / 4000 px wide.
   assert.equal(jm.data.x, 13.75);
   assert.equal(jm.data.y, 22);
   assert.equal(jm.data.token.account, ID.jess);
-  assert.equal(gm.hidden_by_dm, true);
+  assert.equal(gm.hidden_by_gm, true);
   let jessMarks = await ok('GET', api('/map/sunken-keep/marks'), T.jess);
-  assert.deepEqual(jessMarks.map((m: any) => m.data.label), ['Jessamine'], 'a hidden token is the DM\'s alone');
+  assert.deepEqual(jessMarks.map((m: any) => m.data.label), ['Jessamine'], 'a hidden token is the GM\'s alone');
 
   // ---- fog: on in Alexandria → drawn in Foundry; the goblin under fog is kept from players ----
-  await ok('PUT', api('/fog/map/sunken-keep/enabled'), T.dm, { pic: sc.pic, enabled: true });
-  await ok('POST', api('/fog/map/sunken-keep/ops'), T.dm, { pic: sc.pic, op: { k: 'c', x: 0.1375, y: 0.22, r: 0.1 } });
+  await ok('PUT', api('/fog/map/sunken-keep/enabled'), T.gm, { pic: sc.pic, enabled: true });
+  await ok('POST', api('/fog/map/sunken-keep/ops'), T.gm, { pic: sc.pic, op: { k: 'c', x: 0.1375, y: 0.22, r: 0.1 } });
   await g.gt.update({ hidden: false });
   await g.tick();
   const flag = g.keep.getFlag('alexandria-bridge', 'fog');
@@ -246,7 +246,7 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   // A player token moving in Foundry uncovers fog around it (6 squares × 100/4000 = 0.15 of the width).
   await g.jt.update({ x: g.keep.dimensions.sceneX + 25 * 100, y: g.keep.dimensions.sceneY + 20 * 100 });
   await g.tick();
-  let fog = await ok('GET', api(`/fog/map/sunken-keep?pic=${encodeURIComponent(sc.pic)}`), T.dm);
+  let fog = await ok('GET', api(`/fog/map/sunken-keep?pic=${encodeURIComponent(sc.pic)}`), T.gm);
   assert.equal(fog.ops.length, 2);
   assert.deepEqual(fog.ops[1], { k: 'c', x: 0.6375, y: 0.82, r: 0.15, v: 1 });
   jessMarks = await ok('GET', api('/map/sunken-keep/marks'), T.jess);
@@ -256,7 +256,7 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   // The goblin moving in Foundry does not uncover anything.
   await g.gt.update({ x: g.gt.x + 100 });
   await g.tick();
-  fog = await ok('GET', api(`/fog/map/sunken-keep?pic=${encodeURIComponent(sc.pic)}`), T.dm);
+  fog = await ok('GET', api(`/fog/map/sunken-keep?pic=${encodeURIComponent(sc.pic)}`), T.gm);
   assert.equal(fog.ops.length, 2);
 
   // ---- moving a token from Alexandria ----
@@ -270,23 +270,23 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   assert.equal(g.jt.x, g.keep.dimensions.sceneX + 3000);
   assert.equal(g.jt.y, g.keep.dimensions.sceneY + 1000);
   await g.tick();
-  dmMarks = await ok('GET', api('/map/sunken-keep/marks'), T.dm);
-  assert.equal(dmMarks.find((m: any) => m.id === jm.id).data.x, 76.25, 'Foundry\'s answer does not move it back');
-  // The DM and the assistant move tokens by name too.
-  await ok('PUT', api('/foundry/tokens/goblin'), T.dm, { x: 11.25, y: 10 });
+  gmMarks = await ok('GET', api('/map/sunken-keep/marks'), T.gm);
+  assert.equal(gmMarks.find((m: any) => m.id === jm.id).data.x, 76.25, 'Foundry\'s answer does not move it back');
+  // The GM and the assistant move tokens by name too.
+  await ok('PUT', api('/foundry/tokens/goblin'), T.gm, { x: 11.25, y: 10 });
   await g.tick();
   assert.equal(g.gt.x, g.keep.dimensions.sceneX + 400);
   // A token deleted in Foundry leaves the map.
   g.keep.tokens.delete(g.gt.id);
   g.fv.api.Hooks.callAll('deleteToken', g.gt, {}, 'x');
   await g.tick();
-  dmMarks = await ok('GET', api('/map/sunken-keep/marks'), T.dm);
-  assert.deepEqual(dmMarks.map((m: any) => m.data.label), ['Jessamine']);
+  gmMarks = await ok('GET', api('/map/sunken-keep/marks'), T.gm);
+  assert.deepEqual(gmMarks.map((m: any) => m.data.label), ['Jessamine']);
 
   // ---- an Alexandria map picture becomes a Foundry scene ----
-  const up = await ok('POST', api('/files?kind=map&level=party&name=harbor.png&title=Harbor'), T.dm, undefined, { type: 'image/png', data: png(64, 40) });
-  assert.equal((await call('POST', api('/foundry/scenes'), T.dm, { pic: 'lib:lf_nope' })).status, 404);
-  await ok('POST', api('/foundry/scenes'), T.dm, { pic: `lib:${up.id}`, name: 'The Harbor' });
+  const up = await ok('POST', api('/files?kind=map&level=party&name=harbor.png&title=Harbor'), T.gm, undefined, { type: 'image/png', data: png(64, 40) });
+  assert.equal((await call('POST', api('/foundry/scenes'), T.gm, { pic: 'lib:lf_nope' })).status, 404);
+  await ok('POST', api('/foundry/scenes'), T.gm, { pic: `lib:${up.id}`, name: 'The Harbor' });
   await g.tick();
   const made = g.fv.api.game.scenes.find((s: any) => s.name === 'The Harbor');
   assert.ok(made, 'scene made');
@@ -294,22 +294,22 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   assert.equal(g.fv.files[made.background.src].length, png(64, 40).length, 'with the picture saved in Foundry');
   assert.equal(made.width, 40);
   await g.tick();
-  st = await ok('GET', api('/foundry'), T.dm);
+  st = await ok('GET', api('/foundry'), T.gm);
   const harbor = st.scenes.find((s: any) => s.name === 'The Harbor');
   assert.equal(harbor.mapId, 'the-harbor');
   assert.equal(harbor.pic, `lib:${up.id}`);
   // Unlinking takes the scene's tokens off the map.
-  await ok('PUT', api(`/foundry/scenes/${keepId}`), T.dm, { mapId: null });
-  assert.deepEqual(await ok('GET', api('/map/sunken-keep/marks'), T.dm), []);
+  await ok('PUT', api(`/foundry/scenes/${keepId}`), T.gm, { mapId: null });
+  assert.deepEqual(await ok('GET', api('/map/sunken-keep/marks'), T.gm), []);
   await g.tick();
   assert.equal(g.keep.getFlag('alexandria-bridge', 'fog').enabled, false, 'and its fog from Foundry');
-  await ok('PUT', api(`/foundry/scenes/${keepId}`), T.dm, { mapId: 'sunken-keep', pic: sc.pic });
+  await ok('PUT', api(`/foundry/scenes/${keepId}`), T.gm, { mapId: 'sunken-keep', pic: sc.pic });
   await g.tick();
   await g.tick();
-  assert.equal((await ok('GET', api('/map/sunken-keep/marks'), T.dm)).length, 1, 'linked again: the token is back');
+  assert.equal((await ok('GET', api('/map/sunken-keep/marks'), T.gm)).length, 1, 'linked again: the token is back');
 
   // ---- rolls, journal entries and chat lines ----
-  await ok('POST', api('/sessionchat/sessions/start'), T.dm, { title: 'Foundry night' });
+  await ok('POST', api('/sessionchat/sessions/start'), T.gm, { title: 'Foundry night' });
   await g.fv.api.ChatMessage.create({ speaker: { actor: g.jess.id, alias: 'Jessamine' }, author: g.jessU, flavor: 'Stealth check', rolls: [{ formula: '1d20 + 4', total: 19, dice: [{ results: [{ result: 15, active: true }] }] }] });
   await g.fv.api.ChatMessage.create({ speaker: { alias: 'GM' }, author: g.fv.gm, whisper: ['x'], rolls: [{ formula: '1d20', total: 3, dice: [] }] });
   await g.tick();
@@ -320,17 +320,17 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   assert.match(roll.roll.note, /Stealth check · Foundry/);
   assert.equal(chat.filter((m: any) => m.kind === 'roll').length, 1, 'whispers stay in Foundry');
 
-  await ok('PUT', api('/library/pages'), T.dm, { path: 'Handouts/Plot', markdown: '# Plot\nThe twist.' });
-  const port = await ok('PUT', api('/library/pages'), T.dm, { path: 'Places/Port', visibility: 'party', markdown: '# Port\nFish and [[Plot]].\n\n> [!secret]\n> Smugglers.\n' });
-  assert.equal((await call('POST', api('/foundry/handout'), T.dm, { page: 'Plot', players: true })).status, 409);
-  await ok('POST', api('/foundry/handout'), T.dm, { page: port.id, players: true });
-  await ok('POST', api('/foundry/say'), T.dm, { text: 'The bell <tolls> twice.', as: 'Bellringer' });
+  await ok('PUT', api('/library/pages'), T.gm, { path: 'Handouts/Plot', markdown: '# Plot\nThe twist.' });
+  const port = await ok('PUT', api('/library/pages'), T.gm, { path: 'Places/Port', visibility: 'party', markdown: '# Port\nFish and [[Plot]].\n\n> [!secret]\n> Smugglers.\n' });
+  assert.equal((await call('POST', api('/foundry/handout'), T.gm, { page: 'Plot', players: true })).status, 409);
+  await ok('POST', api('/foundry/handout'), T.gm, { page: port.id, players: true });
+  await ok('POST', api('/foundry/say'), T.gm, { text: 'The bell <tolls> twice.', as: 'Bellringer' });
   await g.tick();
   const j = g.fv.journals.find((x: any) => x.name === 'Port');
   assert.ok(j, 'journal entry made');
   assert.equal(j.ownership.default, 2, 'players can read it');
   assert.doesNotMatch(j.pages[0].text.content, /Smugglers/, 'players get the player copy');
-  assert.match(j.pages[1].text.content, /Smugglers/, 'the GM notes page has the DM copy');
+  assert.match(j.pages[1].text.content, /Smugglers/, 'the GM notes page has the GM copy');
   assert.equal(j.pages[1].ownership.default, 0);
   const said = g.fv.chat.find((m: any) => m.speaker?.alias === 'Bellringer');
   assert.equal(said.content, '<p>The bell &lt;tolls&gt; twice.</p>');
@@ -338,24 +338,24 @@ test('TestFoundry_Sync: HP, statuses, scenes, tokens, fog, moves, rolls and jour
   assert.equal((await ok('GET', api('/sessionchat/chat/table'), T.tom)).messages.filter((m: any) => m.kind === 'roll').length, 1, 'Alexandria\'s own lines are not read back as rolls');
 
   // Table chat rolls → Foundry when that is on.
-  await ok('PATCH', api('/settings'), T.dm, { foundryRollsOut: true });
+  await ok('PATCH', api('/settings'), T.gm, { foundryRollsOut: true });
   await g.tick();
   await ok('POST', api('/sessionchat/chat/table'), T.tom, { body: '/roll 1d20+2 perception' });
   await g.tick();
   assert.ok(g.fv.chat.some((m: any) => /Tom/.test(m.content) && /1d20\+2/.test(m.content)), 'Tom\'s roll is in the Foundry chat');
 
-  st = await ok('GET', api('/foundry'), T.dm);
+  st = await ok('GET', api('/foundry'), T.gm);
   assert.ok(st.activity.some((a: any) => a.dir === 'in' && /Jessamine: HP 30 → 21/.test(a.text)), JSON.stringify(st.activity.slice(0, 5)));
   assert.ok(st.activity.some((a: any) => a.dir === 'out' && /Journal entry "Port"/.test(a.text)));
 });
 
-test('TestFoundry_Settings: tokens and fog follow the DM\'s switches; players may be kept from moving tokens', async () => {
-  const marks = await ok('GET', api('/map/sunken-keep/marks'), T.dm);
+test('TestFoundry_Settings: tokens and fog follow the GM\'s switches; players may be kept from moving tokens', async () => {
+  const marks = await ok('GET', api('/map/sunken-keep/marks'), T.gm);
   const jm = marks.find((m: any) => m.data.label === 'Jessamine');
-  await ok('PATCH', api('/settings'), T.dm, { foundryPlayersMove: false });
+  await ok('PATCH', api('/settings'), T.gm, { foundryPlayersMove: false });
   assert.equal((await call('PUT', api(`/foundry/tokens/${jm.id}`), T.jess, { x: 20, y: 20 })).status, 403);
-  await ok('PATCH', api('/settings'), T.dm, { foundryPlayersMove: true, foundryRevealSquares: 0 });
+  await ok('PATCH', api('/settings'), T.gm, { foundryPlayersMove: true, foundryRevealSquares: 0 });
   assert.equal((await ok('PUT', api(`/foundry/tokens/${jm.id}`), T.jess, { x: 20, y: 20 })).uncovered, false, 'reveal is off');
-  assert.equal((await call('PATCH', api('/settings'), T.dm, { foundryStatuses: { Poisoned: 5 } })).status, 400);
-  assert.equal((await call('PATCH', api('/settings'), T.dm, { foundryRevealSquares: 99 })).status, 400);
+  assert.equal((await call('PATCH', api('/settings'), T.gm, { foundryStatuses: { Poisoned: 5 } })).status, 400);
+  assert.equal((await call('PATCH', api('/settings'), T.gm, { foundryRevealSquares: 99 })).status, 400);
 });

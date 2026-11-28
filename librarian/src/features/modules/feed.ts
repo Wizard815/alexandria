@@ -40,7 +40,7 @@ export function feedModule(d: Deps, worldId: string, moduleId: string, feed: Fee
     ensureSeeded(d.db, worldId, enabledIds(d.db, worldId));
     const r = importItems(d.db, worldId, moduleItems(d.db, worldId, moduleId), { onDuplicate: feed.replace ? 'update' : 'skip', by });
     out.items = { added: r.added, updated: r.updated, skipped: r.skipped };
-    d.hub.emit(worldId, 'shop-items', {}, (v) => v.role === 'dm');
+    d.hub.emit(worldId, 'shop-items', {}, (v) => v.role === 'gm');
   }
   return out;
 }

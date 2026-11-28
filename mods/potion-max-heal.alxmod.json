@@ -26,7 +26,7 @@
       "healing potion",
       "drink"
     ],
-    "dm": "Healing potions drunk with an action heal their maximum (potion of healing: 10). As a bonus action they roll normally.",
+    "gm": "Healing potions drunk with an action heal their maximum (potion of healing: 10). As a bonus action they roll normally.",
     "player": "At this table drinking a healing potion with your action heals its maximum (10 for a potion of healing); as a bonus action you roll."
   }
 }

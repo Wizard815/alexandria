@@ -26,7 +26,7 @@
       "character creation",
       "new character"
     ],
-    "dm": "Each character takes one extra feat at 1st level (prerequisites apply). When helping make a character, offer a feat that fits the build.",
+    "gm": "Each character takes one extra feat at 1st level (prerequisites apply). When helping make a character, offer a feat that fits the build.",
     "player": "At this table each character gets one free feat at 1st level (it must meet the prerequisites). Suggest feats that fit their class and play style."
   }
 }

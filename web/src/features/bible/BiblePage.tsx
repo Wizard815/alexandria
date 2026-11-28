@@ -1,6 +1,6 @@
 // The story bible: facts about people, places, factions, items, events and
 // lore, grouped by subject, each citing its library page. Built for the caller
-// from the pages they may open (GET /bible); a DM gets the DM bible, a player
+// from the pages they may open (GET /bible); a GM gets the GM bible, a player
 // their own.
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -18,17 +18,17 @@ const KINDS = ['person', 'place', 'faction', 'item', 'event', 'lore'];
 const ICON: Record<string, string> = { person: 'fa-user', place: 'fa-location-dot', faction: 'fa-flag', item: 'fa-gem', event: 'fa-hourglass-half', lore: 'fa-book-open' };
 
 export default function BiblePage() {
-  const { w, info, isDM } = useWorld();
+  const { w, info, isGM } = useWorld();
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
   const [kind, setKind] = useState('');
   useEffect(() => { const t = setTimeout(() => setDebounced(q.trim()), 250); return () => clearTimeout(t); }, [q]);
   const path = useMemo(() => { const p = new URLSearchParams(); if (debounced) p.set('q', debounced); if (kind) p.set('kind', kind); p.set('limit', '400'); return `/bible?${p}`; }, [debounced, kind]);
   const data = useLoad<Bible>(() => w.call('GET', path), [w, path], ['page']);
-  const href = (id: string) => `/w/${info.slug}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(id)}`;
+  const href = (id: string) => `/w/${info.slug}/${isGM ? 'gm/' : ''}library?page=${encodeURIComponent(id)}`;
   const b = data.data;
-  // The DM sees how far the background reading has got, so an empty bible is not a mystery.
-  const status = useLoad<{ configured: boolean; progress?: Progress; reading?: boolean; runs?: string }>(() => (isDM ? w.call('GET', '/bible/status') : Promise.resolve({ configured: false })), [w, isDM], ['page']);
+  // The GM sees how far the background reading has got, so an empty bible is not a mystery.
+  const status = useLoad<{ configured: boolean; progress?: Progress; reading?: boolean; runs?: string }>(() => (isGM ? w.call('GET', '/bible/status') : Promise.resolve({ configured: false })), [w, isGM], ['page']);
   const left = progressText(status.data?.progress);
   useEffect(() => {
     if (!left || status.data?.reading === false) return;
@@ -41,7 +41,7 @@ export default function BiblePage() {
   useEffect(() => setN(60), [path]);
   return (
     <div className="page">
-      <PageHead title="Story bible" lead={isDM ? 'The world as facts, from every page but classified ones.' : 'What you know about the world, as facts, from the pages you can read.'} />
+      <PageHead title="Story bible" lead={isGM ? 'The world as facts, from every page but classified ones.' : 'What you know about the world, as facts, from the pages you can read.'} />
       <div className="bible-filters">
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search facts by words or meaning" aria-label="Search the story bible" />
         <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind">
@@ -49,7 +49,7 @@ export default function BiblePage() {
           {KINDS.map((k) => <option key={k} value={k}>{k}{b?.kinds[k] ? ` (${b.kinds[k]})` : ''}</option>)}
         </select>
       </div>
-      {isDM && <BibleControls left={left} onChanged={() => { void status.reload(); void data.reload(); }} />}
+      {isGM && <BibleControls left={left} onChanged={() => { void status.reload(); void data.reload(); }} />}
       <ErrorBox error={data.error} />
       {!b ? <Loading /> : !b.subjects.length ? (
         <Empty>{debounced || kind ? 'No facts match.' : 'Nothing has been written into the bible yet. It fills in the background once a chat model is set and the library has been read.'}</Empty>

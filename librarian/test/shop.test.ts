@@ -1,5 +1,5 @@
 // The Shop: the item database (SRD seed, imports and dedupe), the shop generator, buying (own coin or the party
-// pouch, overdraw, two buyers racing for the last one, DM approval), selling back, and what players never see.
+// pouch, overdraw, two buyers racing for the last one, GM approval), selling back, and what players never see.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -34,8 +34,8 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
   assert.ok(r.status < 300, `${method} ${url} -> ${r.status} ${JSON.stringify(r.body)}`);
   return r.body;
 };
-const set = (patch: Record<string, unknown>) => ok('PATCH', `/api/worlds/${W}/settings`, T.dm, patch);
-const setCoin = (owner: string, cp: number) => { run(deps.db, 'DELETE FROM ledger WHERE world_id = ? AND owner = ?', W, owner); if (cp) run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Test', ?, ?, 'approved')`, `led_t${Math.random()}`, W, owner, cp, ID.dm, new Date().toISOString()); };
+const set = (patch: Record<string, unknown>) => ok('PATCH', `/api/worlds/${W}/settings`, T.gm, patch);
+const setCoin = (owner: string, cp: number) => { run(deps.db, 'DELETE FROM ledger WHERE world_id = ? AND owner = ?', W, owner); if (cp) run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Test', ?, ?, 'approved')`, `led_t${Math.random()}`, W, owner, cp, ID.gm, new Date().toISOString()); };
 const coin = (owner: string) => balance(deps.db, W, owner);
 const invQty = (owner: string, name: string) => all<any>(deps.db, `SELECT qty FROM items WHERE world_id = ? AND owner = ? AND name = ? AND status = 'approved'`, W, owner, name).reduce((n, x) => n + x.qty, 0);
 
@@ -47,15 +47,15 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Shopland', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Shopland', gmAccountId: ID.gm })).id;
   for (const [u, c] of [['jess', 'Jess'], ['tom', 'Tom']]) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: u, password: 'player pass 123', characterName: c });
     T[u] = j.token; ID[u] = j.account.id;
   }
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'guest' });
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'guest' });
   T.guest = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'visitor', password: 'guest pass 1234', characterName: 'Visitor' })).token;
 });
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -72,7 +72,7 @@ test('TestShop_ParseHelpers', () => {
 });
 
 test('TestShop_ItemDatabaseIsSeededFromTheSrdWithAttribution', async () => {
-  const r = await ok('GET', `${P()}/items?q=longsword`, T.dm);
+  const r = await ok('GET', `${P()}/items?q=longsword`, T.gm);
   assert.ok(r.all > 300, `seeded ${r.all} items`);
   const ls = r.items.find((x: any) => x.name === 'Longsword');
   assert.equal(ls.costCp, 1500);
@@ -80,12 +80,12 @@ test('TestShop_ItemDatabaseIsSeededFromTheSrdWithAttribution', async () => {
   assert.equal(ls.weight, 3);
   assert.equal(ls.sourceLabel, 'SRD 5.2');
   assert.match(ls.attribution, /System Reference Document 5\.2.*Creative Commons Attribution 4\.0/);
-  const ring = (await ok('GET', `${P()}/items?q=ring%20of%20protection`, T.dm)).items[0];
+  const ring = (await ok('GET', `${P()}/items?q=ring%20of%20protection`, T.gm)).items[0];
   assert.equal(ring.rarity, 'rare');
   assert.equal(ring.attunement, true);
   assert.ok(ring.costCp > 0, 'a magic item gets a price from its rarity band');
   // Filters.
-  const potions = await ok('GET', `${P()}/items?type=potion&rarity=common`, T.dm);
+  const potions = await ok('GET', `${P()}/items?type=potion&rarity=common`, T.gm);
   assert.ok(potions.total > 0 && potions.items.every((x: any) => x.type === 'potion' && x.rarity === 'common'));
   // Players and guests never reach the item database.
   assert.equal((await call('GET', `${P()}/items`, T.jess)).status, 403);
@@ -94,21 +94,21 @@ test('TestShop_ItemDatabaseIsSeededFromTheSrdWithAttribution', async () => {
 });
 
 test('TestShop_ImportDedupesAndExportRoundTrips', async () => {
-  const before = (await ok('GET', `${P()}/items?limit=1`, T.dm)).all;
+  const before = (await ok('GET', `${P()}/items?limit=1`, T.gm)).all;
   // The SRD 5.1 has many of the same items: those are skipped, new ones (mounts, more gear) are added.
-  const pre = await ok('POST', `${P()}/items/import`, T.dm, { type: 'module', module: 'dnd-2014', preview: true });
-  assert.equal((await ok('GET', `${P()}/items?limit=1`, T.dm)).all, before, 'a preview saves nothing');
-  const im = await ok('POST', `${P()}/items/import`, T.dm, { type: 'module', module: 'dnd-2014' });
+  const pre = await ok('POST', `${P()}/items/import`, T.gm, { type: 'module', module: 'dnd-2014', preview: true });
+  assert.equal((await ok('GET', `${P()}/items?limit=1`, T.gm)).all, before, 'a preview saves nothing');
+  const im = await ok('POST', `${P()}/items/import`, T.gm, { type: 'module', module: 'dnd-2014' });
   assert.equal(im.added, pre.added);
   assert.ok(im.skipped > 100, `skipped ${im.skipped} duplicates`);
   assert.ok(im.added > 10);
-  const longswords = (await ok('GET', `${P()}/items?q=longsword&limit=50`, T.dm)).items.filter((x: any) => x.name === 'Longsword');
+  const longswords = (await ok('GET', `${P()}/items?q=longsword&limit=50`, T.gm)).items.filter((x: any) => x.name === 'Longsword');
   assert.equal(longswords.length, 1, 'one Longsword, not two');
-  const again = await ok('POST', `${P()}/items/import`, T.dm, { type: 'module', module: 'dnd-2014' });
+  const again = await ok('POST', `${P()}/items/import`, T.gm, { type: 'module', module: 'dnd-2014' });
   assert.equal(again.added, 0);
   // JSON: duplicates inside the batch, against the database, a bad record, and the attribution kept.
-  const j = await ok('POST', `${P()}/items/import`, T.dm, { type: 'json', source: 'homebrew-pack', sourceLabel: 'Homebrew pack', attribution: 'By the table, CC-BY-4.0', json: { items: [
-    { name: 'Lantern of Whispers', type: 'wondrous', rarity: 'uncommon', cost: '300 gp', description: 'Speaks softly.', tags: 'light, homebrew', dm_notes: 'cursed' },
+  const j = await ok('POST', `${P()}/items/import`, T.gm, { type: 'json', source: 'homebrew-pack', sourceLabel: 'Homebrew pack', attribution: 'By the table, CC-BY-4.0', json: { items: [
+    { name: 'Lantern of Whispers', type: 'wondrous', rarity: 'uncommon', cost: '300 gp', description: 'Speaks softly.', tags: 'light, homebrew', gm_notes: 'cursed' },
     { name: 'lantern of whispers!', cost: '1 gp' },
     { name: 'Longsword', cost: '1 gp' },
     { name: '', cost: '1 gp' },
@@ -117,47 +117,47 @@ test('TestShop_ImportDedupesAndExportRoundTrips', async () => {
   assert.equal(j.added, 1);
   assert.equal(j.skipped, 2);
   assert.equal(j.errors.length, 2);
-  const lw = (await ok('GET', `${P()}/items?q=whispers`, T.dm)).items[0];
+  const lw = (await ok('GET', `${P()}/items?q=whispers`, T.gm)).items[0];
   assert.equal(lw.costCp, 30000);
   assert.equal(lw.type, 'wondrous item');
   assert.equal(lw.attribution, 'By the table, CC-BY-4.0');
   assert.deepEqual(lw.tags, ['light', 'homebrew']);
-  assert.equal(lw.dmNotes, 'cursed');
+  assert.equal(lw.gmNotes, 'cursed');
   // Update mode refreshes rows from the same source only.
-  const up = await ok('POST', `${P()}/items/import`, T.dm, { type: 'json', source: 'homebrew-pack', onDuplicate: 'update', json: [{ name: 'Lantern of Whispers', cost: '350 gp', rarity: 'uncommon', type: 'wondrous item' }, { name: 'Longsword', cost: '1 gp' }] });
+  const up = await ok('POST', `${P()}/items/import`, T.gm, { type: 'json', source: 'homebrew-pack', onDuplicate: 'update', json: [{ name: 'Lantern of Whispers', cost: '350 gp', rarity: 'uncommon', type: 'wondrous item' }, { name: 'Longsword', cost: '1 gp' }] });
   assert.equal(up.updated, 1);
   assert.equal(up.skipped, 1);
-  assert.equal((await ok('GET', `${P()}/items?q=whispers`, T.dm)).items[0].costCp, 35000);
-  assert.equal((await ok('GET', `${P()}/items?q=longsword`, T.dm)).items.find((x: any) => x.name === 'Longsword').costCp, 1500, 'an SRD row is not overwritten by another source');
+  assert.equal((await ok('GET', `${P()}/items?q=whispers`, T.gm)).items[0].costCp, 35000);
+  assert.equal((await ok('GET', `${P()}/items?q=longsword`, T.gm)).items.find((x: any) => x.name === 'Longsword').costCp, 1500, 'an SRD row is not overwritten by another source');
   // CSV in.
-  const c = await ok('POST', `${P()}/items/import`, T.dm, { type: 'csv', csv: 'name,type,rarity,cost,weight,attunement,description,tags\nSalt Knife,weapon,mundane,3 gp,1,,A knife for salting fish,"fish;kitchen"\nTorch,gear,mundane,1 cp,1,,,\n' });
+  const c = await ok('POST', `${P()}/items/import`, T.gm, { type: 'csv', csv: 'name,type,rarity,cost,weight,attunement,description,tags\nSalt Knife,weapon,mundane,3 gp,1,,A knife for salting fish,"fish;kitchen"\nTorch,gear,mundane,1 cp,1,,,\n' });
   assert.equal(c.added, 1);
   assert.equal(c.skipped, 1);
   // Export JSON and CSV, and import the CSV export into the same world: nothing new.
-  const ex = await ok('GET', `${P()}/items/export?format=json`, T.dm);
+  const ex = await ok('GET', `${P()}/items/export?format=json`, T.gm);
   assert.equal(ex.format, 'alexandria-items');
   assert.ok(ex.items.some((x: any) => x.name === 'Salt Knife' && x.costCp === 300));
-  const csv = await call('GET', `${P()}/items/export?format=csv`, T.dm);
+  const csv = await call('GET', `${P()}/items/export?format=csv`, T.gm);
   assert.match(csv.text, /^name,type,category,rarity,cost/);
-  const round = await ok('POST', `${P()}/items/import`, T.dm, { type: 'csv', csv: csv.text });
+  const round = await ok('POST', `${P()}/items/import`, T.gm, { type: 'csv', csv: csv.text });
   assert.equal(round.added, 0);
   assert.equal(round.errors.length, 0, JSON.stringify(round.errors.slice(0, 3)));
 });
 
-test('TestShop_DMCreatesEditsAndDuplicatesItems', async () => {
-  const it = await ok('POST', `${P()}/items`, T.dm, { name: 'Moonpetal Tea', type: 'food', cost: '5 sp', description: 'Calming.', dmNotes: 'Really a sleeping draught' });
+test('TestShop_GMCreatesEditsAndDuplicatesItems', async () => {
+  const it = await ok('POST', `${P()}/items`, T.gm, { name: 'Moonpetal Tea', type: 'food', cost: '5 sp', description: 'Calming.', gmNotes: 'Really a sleeping draught' });
   assert.equal(it.costCp, 50);
   assert.equal(it.source, 'custom');
-  assert.equal((await call('POST', `${P()}/items`, T.dm, { name: 'moonpetal tea' })).status, 409);
-  const ed = await ok('PATCH', `${P()}/items/${it.id}`, T.dm, { cost: '1 gp', rarity: 'common' });
+  assert.equal((await call('POST', `${P()}/items`, T.gm, { name: 'moonpetal tea' })).status, 409);
+  const ed = await ok('PATCH', `${P()}/items/${it.id}`, T.gm, { cost: '1 gp', rarity: 'common' });
   assert.equal(ed.costCp, 100);
   assert.equal(ed.rarity, 'common');
-  assert.equal(ed.dmNotes, 'Really a sleeping draught');
-  const dup = await ok('POST', `${P()}/items/${it.id}/duplicate`, T.dm, {});
+  assert.equal(ed.gmNotes, 'Really a sleeping draught');
+  const dup = await ok('POST', `${P()}/items/${it.id}/duplicate`, T.gm, {});
   assert.equal(dup.name, 'Moonpetal Tea (copy)');
   assert.equal(dup.costCp, 100);
-  await ok('DELETE', `${P()}/items/${dup.id}`, T.dm);
-  assert.equal((await call('GET', `${P()}/items/${dup.id}`, T.dm)).status, 404);
+  await ok('DELETE', `${P()}/items/${dup.id}`, T.gm);
+  assert.equal((await call('GET', `${P()}/items/${dup.id}`, T.gm)).status, 404);
   assert.equal((await call('POST', `${P()}/items`, T.jess, { name: 'Free Gold' })).status, 403);
 });
 
@@ -183,10 +183,10 @@ test('TestShop_GeneratorIsRepeatableAndFollowsSizeAndLevel', async () => {
   assert.equal(g.guided, true);
   await assert.rejects(() => generateShop(deps, W, { kind: 'spaceport' }), RangeError);
   // Over HTTP: a draft, then saved hidden.
-  const dr = await ok('POST', `${P()}/generate`, T.dm, { kind: 'alchemist', size: 'village', level: 2, seed: 'alc' });
+  const dr = await ok('POST', `${P()}/generate`, T.gm, { kind: 'alchemist', size: 'village', level: 2, seed: 'alc' });
   assert.ok(dr.draft.stock.length > 0);
-  assert.equal((await call('POST', `${P()}/generate`, T.dm, { kind: 'alchemist', size: 'nowhere' })).status, 400);
-  const saved = await ok('POST', `${P()}/generate`, T.dm, { kind: 'alchemist', size: 'village', level: 2, seed: 'alc', save: true });
+  assert.equal((await call('POST', `${P()}/generate`, T.gm, { kind: 'alchemist', size: 'nowhere' })).status, 400);
+  const saved = await ok('POST', `${P()}/generate`, T.gm, { kind: 'alchemist', size: 'village', level: 2, seed: 'alc', save: true });
   assert.equal(saved.shop.status, 'hidden');
   assert.deepEqual(saved.shop.stock.map((x: any) => x.name).sort(), dr.draft.stock.map((x: any) => x.name).sort());
   assert.equal((await call('POST', `${P()}/generate`, T.jess, { kind: 'general' })).status, 403);
@@ -194,9 +194,9 @@ test('TestShop_GeneratorIsRepeatableAndFollowsSizeAndLevel', async () => {
 
 /** A shop with a few lines, open. */
 async function makeShop(name: string, lines: { item: string; qty: number | null; price?: number; hidden?: boolean }[], status = 'open') {
-  const items = (await ok('GET', `${P()}/items?limit=500`, T.dm)).items;
+  const items = (await ok('GET', `${P()}/items?limit=500`, T.gm)).items;
   const stock = lines.map((l) => ({ itemId: items.find((x: any) => x.name === l.item).id, qty: l.qty, priceCp: l.price, hidden: l.hidden }));
-  return ok('POST', `${P()}/shops`, T.dm, { name, kind: 'general', status, stock, keeper: { name: 'Odo', look: 'Round', voice: 'Squeaky', personality: 'Kind', secret: 'SHOPSECRET_KEEPER fences for the smugglers' }, haggle: 'SHOPSECRET_HAGGLE drops 10% for dwarves', dmNotes: 'SHOPSECRET_NOTES restocked by the guild' });
+  return ok('POST', `${P()}/shops`, T.gm, { name, kind: 'general', status, stock, keeper: { name: 'Odo', look: 'Round', voice: 'Squeaky', personality: 'Kind', secret: 'SHOPSECRET_KEEPER fences for the smugglers' }, haggle: 'SHOPSECRET_HAGGLE drops 10% for dwarves', gmNotes: 'SHOPSECRET_NOTES restocked by the guild' });
 }
 const lineOf = (shop: any, name: string) => shop.stock.find((x: any) => x.name === name);
 
@@ -244,8 +244,8 @@ test('TestShop_PartyPouchPaysAndTheLogStaysNeutral', async () => {
   // The party log a player reads never names the item.
   const log = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.jess);
   assert.ok(!JSON.stringify(log).includes('Lantern'));
-  // The DM's own note on the item never reaches the inventory.
-  assert.equal(one<any>(deps.db, `SELECT dm_note FROM items WHERE world_id = ? AND owner = 'party' AND name = 'Lantern of Whispers'`, W).dm_note, '');
+  // The GM's own note on the item never reaches the inventory.
+  assert.equal(one<any>(deps.db, `SELECT gm_note FROM items WHERE world_id = ? AND owner = 'party' AND name = 'Lantern of Whispers'`, W).gm_note, '');
   // The pouch can be switched off for shops.
   await set({ shopPartyPay: false });
   assert.equal((await call('POST', `${P()}/shops/${shop.id}/buy`, T.tom, { stockId: line.id, from: 'party' })).status, 403);
@@ -277,7 +277,7 @@ test('TestShop_TwoBuyersRaceForTheLastOne', async () => {
   assert.equal(coin('party'), 40);
 });
 
-test('TestShop_DMApprovesPurchasesWhenTheSettingIsOn', async () => {
+test('TestShop_GMApprovesPurchasesWhenTheSettingIsOn', async () => {
   await set({ shopApproval: true });
   const shop = await makeShop('Careful Shop', [{ item: 'Torch', qty: 3, price: 100 }]);
   setCoin(ID.jess, 150);
@@ -293,20 +293,20 @@ test('TestShop_DMApprovesPurchasesWhenTheSettingIsOn', async () => {
   // Held coin cannot be spent twice.
   assert.equal((await call('POST', `${P()}/shops/${shop.id}/buy`, T.jess, { stockId: line.id })).status, 402);
   // It is decided on the Shops page, not as a bare coin request.
-  const ap = await ok('GET', `/api/worlds/${W}/approvals`, T.dm);
+  const ap = await ok('GET', `/api/worlds/${W}/approvals`, T.gm);
   assert.ok(!ap.coin.some((c: any) => c.id === r.body.order.id || /Shop/.test(c.note)), 'not in the coin approvals');
   const led = one<any>(deps.db, 'SELECT ledger_id FROM shop_orders WHERE id = ?', r.body.order.id).ledger_id;
-  assert.equal((await call('POST', `/api/worlds/${W}/approvals/${led}`, T.dm, { action: 'approve' })).status, 409);
+  assert.equal((await call('POST', `/api/worlds/${W}/approvals/${led}`, T.gm, { action: 'approve' })).status, 409);
   assert.equal((await call('POST', `${P()}/orders/${r.body.order.id}`, T.jess, { action: 'approve' })).status, 403);
   const mine = await ok('GET', `${P()}/orders`, T.jess);
   assert.equal(mine.orders[0].status, 'pending');
-  await ok('POST', `${P()}/orders/${r.body.order.id}`, T.dm, { action: 'approve' });
+  await ok('POST', `${P()}/orders/${r.body.order.id}`, T.gm, { action: 'approve' });
   assert.equal(invQty(ID.jess, 'Torch'), had + 1);
   assert.equal(coin(ID.jess), 50);
   // A rejected one gives the coin and the stock back.
   setCoin(ID.jess, 500);
   const r2 = await ok('POST', `${P()}/shops/${shop.id}/buy`, T.jess, { stockId: line.id });
-  await ok('POST', `${P()}/orders/${r2.order.id}`, T.dm, { action: 'reject' });
+  await ok('POST', `${P()}/orders/${r2.order.id}`, T.gm, { action: 'reject' });
   assert.equal(spendable(deps.db, W, ID.jess), 500);
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Torch').qty, 2);
   // And a player can take back their own.
@@ -317,7 +317,7 @@ test('TestShop_DMApprovesPurchasesWhenTheSettingIsOn', async () => {
   await set({ shopApproval: false });
 });
 
-test('TestShop_SellBackWaitsForTheDM', async () => {
+test('TestShop_SellBackWaitsForTheGM', async () => {
   const shop = await makeShop('Buyback', [{ item: 'Rope', qty: 1 }]);
   const rope = one<any>(deps.db, `SELECT id, qty FROM items WHERE world_id = ? AND owner = ? AND name = 'Rope'`, W, ID.jess);
   assert.equal((await call('POST', `${P()}/shops/${shop.id}/sell`, T.jess, { itemId: rope.id })).status, 403, 'off by default');
@@ -325,21 +325,21 @@ test('TestShop_SellBackWaitsForTheDM', async () => {
   assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.jess)).sellPct, 50);
   // Not someone else's things.
   assert.equal((await call('POST', `${P()}/shops/${shop.id}/sell`, T.tom, { itemId: rope.id })).status, 404);
-  const cost = (await ok('GET', `${P()}/items?q=rope`, T.dm)).items.find((x: any) => x.name === 'Rope').costCp;
+  const cost = (await ok('GET', `${P()}/items?q=rope`, T.gm)).items.find((x: any) => x.name === 'Rope').costCp;
   setCoin(ID.jess, 0);
   const r = await call('POST', `${P()}/shops/${shop.id}/sell`, T.jess, { itemId: rope.id, qty: 1 });
   assert.equal(r.status, 202);
   assert.equal(r.body.order.totalCp, Math.floor(cost / 2));
   assert.equal((await call('POST', `${P()}/shops/${shop.id}/sell`, T.jess, { itemId: rope.id, qty: 1 })).status, 409, 'offered once');
-  await ok('POST', `${P()}/orders/${r.body.order.id}`, T.dm, { action: 'approve' });
+  await ok('POST', `${P()}/orders/${r.body.order.id}`, T.gm, { action: 'approve' });
   assert.equal(coin(ID.jess), Math.floor(cost / 2));
   assert.equal(invQty(ID.jess, 'Rope'), rope.qty - 1);
   await set({ shopSellBack: false });
 });
 
-test('TestShop_PlayersNeverSeeHiddenShopsLinesOrDMNotes', async () => {
+test('TestShop_PlayersNeverSeeHiddenShopsLinesOrGMNotes', async () => {
   const open = await makeShop('Open Shop', [{ item: 'Torch', qty: 4 }, { item: 'Moonpetal Tea', qty: 1, hidden: true }]);
-  await ok('PATCH', `${P()}/shops/${open.id}/stock/${lineOf(open, 'Torch').id}`, T.dm, { dmNote: 'SHOPSECRET_LINE stolen from the temple' });
+  await ok('PATCH', `${P()}/shops/${open.id}/stock/${lineOf(open, 'Torch').id}`, T.gm, { gmNote: 'SHOPSECRET_LINE stolen from the temple' });
   const hidden = await makeShop('SHOPSECRET_HIDDENSHOP Den', [{ item: 'Torch', qty: 1 }], 'hidden');
   const closed = await makeShop('Closed Shop', [{ item: 'Torch', qty: 1 }], 'closed');
   for (const who of ['jess', 'tom']) {
@@ -358,17 +358,17 @@ test('TestShop_PlayersNeverSeeHiddenShopsLinesOrDMNotes', async () => {
     assert.equal((await call('POST', `${P()}/shops/${closed.id}/buy`, T[who], { stockId: closed.stock[0].id })).status, 409);
     // A hidden line cannot be bought by id.
     assert.equal((await call('POST', `${P()}/shops/${open.id}/buy`, T[who], { stockId: lineOf(open, 'Moonpetal Tea').id })).status, 404);
-    // No DM write for players.
+    // No GM write for players.
     assert.equal((await call('POST', `${P()}/shops/${open.id}/status`, T[who], { status: 'hidden' })).status, 403);
   }
-  // The DM sees it all.
-  const dm = await ok('GET', `${P()}/shops/${open.id}`, T.dm);
-  assert.equal(dm.keeper.secret, 'SHOPSECRET_KEEPER fences for the smugglers');
-  assert.ok(lineOf(dm, 'Moonpetal Tea').hidden);
+  // The GM sees it all.
+  const gm = await ok('GET', `${P()}/shops/${open.id}`, T.gm);
+  assert.equal(gm.keeper.secret, 'SHOPSECRET_KEEPER fences for the smugglers');
+  assert.ok(lineOf(gm, 'Moonpetal Tea').hidden);
   // Hiding a shop takes it away from players at once; opening it brings it back.
-  await ok('POST', `${P()}/shops/${open.id}/status`, T.dm, { status: 'hidden' });
+  await ok('POST', `${P()}/shops/${open.id}/status`, T.gm, { status: 'hidden' });
   assert.equal((await call('GET', `${P()}/shops/${open.id}`, T.jess)).status, 404);
-  await ok('POST', `${P()}/shops/${open.id}/status`, T.dm, { status: 'open' });
+  await ok('POST', `${P()}/shops/${open.id}/status`, T.gm, { status: 'open' });
   assert.equal((await call('GET', `${P()}/shops/${open.id}`, T.jess)).status, 200);
 });
 
@@ -377,19 +377,19 @@ test('TestShop_RestockOnTheWorldClockAndByHand', async () => {
   setCoin(ID.tom, 100);
   const line = lineOf(shop, 'Torch');
   await ok('POST', `${P()}/shops/${shop.id}/buy`, T.tom, { stockId: line.id, qty: 2 });
-  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.dm), 'Torch').qty, 0);
-  await ok('POST', `${P()}/shops/${shop.id}/restock`, T.dm);
-  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.dm), 'Torch').qty, 2);
-  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { restock: { rule: 'days', days: 1 } });
-  await ok('GET', `${P()}/shops/${shop.id}`, T.dm);
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.gm), 'Torch').qty, 0);
+  await ok('POST', `${P()}/shops/${shop.id}/restock`, T.gm);
+  assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.gm), 'Torch').qty, 2);
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.gm, { restock: { rule: 'days', days: 1 } });
+  await ok('GET', `${P()}/shops/${shop.id}`, T.gm);
   await ok('POST', `${P()}/shops/${shop.id}/buy`, T.tom, { stockId: line.id, qty: 2 });
-  await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { minutes: 1500 });
+  await ok('POST', `/api/worlds/${W}/clock/advance`, T.gm, { minutes: 1500 });
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Torch').qty, 2, 'restocked after a game day');
 });
 
-test('TestShop_StageCardHasNoDMText', async () => {
+test('TestShop_StageCardHasNoGMText', async () => {
   const shop = await makeShop('Stage Shop', [{ item: 'Torch', qty: 3 }, { item: 'Moonpetal Tea', qty: 1, hidden: true }]);
-  const r = await ok('POST', `${P()}/shops/${shop.id}/stage`, T.dm, { show: false });
+  const r = await ok('POST', `${P()}/shops/${shop.id}/stage`, T.gm, { show: false });
   const card = one<any>(deps.db, 'SELECT * FROM stage_cards WHERE id = ?', r.cardId);
   const text = JSON.stringify(card);
   assert.ok(text.includes('Torch'));
@@ -428,32 +428,32 @@ test('TestShop_HaggleRulesAndPersonalPrices', () => {
 
 test('TestShop_TownPriceLevelMovesEveryShopInIt', async () => {
   await set({ shopApproval: false });
-  const town = await ok('POST', `${P()}/towns`, T.dm, { name: 'Harrowgate', size: 'city', pricePct: 50, description: 'A city under siege.', dmNotes: 'SHOPSECRET_TOWN the duke hoards grain' });
+  const town = await ok('POST', `${P()}/towns`, T.gm, { name: 'Harrowgate', size: 'city', pricePct: 50, description: 'A city under siege.', gmNotes: 'SHOPSECRET_TOWN the duke hoards grain' });
   assert.equal(town.prices, 'steep');
   const shop = await makeShop('Siege Smith', [{ item: 'Longsword', qty: 3 }]);
-  const listed = (await ok('GET', `${P()}/items?q=longsword`, T.dm)).items.find((x: any) => x.name === 'Longsword').costCp;
+  const listed = (await ok('GET', `${P()}/items?q=longsword`, T.gm)).items.find((x: any) => x.name === 'Longsword').costCp;
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Longsword').priceCp, listed);
-  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { townId: town.id });
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.gm, { townId: town.id });
   const v = await ok('GET', `${P()}/shops/${shop.id}`, T.jess);
   assert.equal(lineOf(v, 'Longsword').priceCp, Math.round(listed * 1.5));
   assert.deepEqual(v.town, { name: 'Harrowgate', description: 'A city under siege.', prices: 'steep' });
-  assert.doesNotMatch(JSON.stringify(v), /SHOPSECRET|pricePct|dmNotes/);
+  assert.doesNotMatch(JSON.stringify(v), /SHOPSECRET|pricePct|gmNotes/);
   // The siege ends: every shop in the town follows.
-  await ok('PATCH', `${P()}/towns/${town.id}`, T.dm, { pricePct: -20 });
+  await ok('PATCH', `${P()}/towns/${town.id}`, T.gm, { pricePct: -20 });
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Longsword').priceCp, Math.round(listed * 0.8));
-  const dmv = await ok('GET', `${P()}/shops/${shop.id}`, T.dm);
+  const dmv = await ok('GET', `${P()}/shops/${shop.id}`, T.gm);
   assert.equal(dmv.town.pricePct, -20);
   // Players cannot see or change towns.
   assert.equal((await call('GET', `${P()}/towns`, T.jess)).status, 403);
   assert.equal((await call('POST', `${P()}/towns`, T.jess, { name: 'Mine' })).status, 403);
-  assert.equal((await call('PATCH', `${P()}/shops/${shop.id}`, T.dm, { townId: 'twn_nope' })).status, 400);
+  assert.equal((await call('PATCH', `${P()}/shops/${shop.id}`, T.gm, { townId: 'twn_nope' })).status, 400);
   // A generated shop in a town takes its size, and gets a purse and a barter percent.
-  const g = await ok('POST', `${P()}/generate`, T.dm, { kind: 'armorer', townId: town.id, seed: 'twn', save: true });
+  const g = await ok('POST', `${P()}/generate`, T.gm, { kind: 'armorer', townId: town.id, seed: 'twn', save: true });
   assert.equal(g.draft.size, 'city');
   assert.equal(g.shop.townId, town.id);
   assert.ok(g.shop.goldCp > 0 && g.shop.barterPct >= 0);
   // Deleting the town leaves its shops at their own prices.
-  await ok('DELETE', `${P()}/towns/${town.id}`, T.dm);
+  await ok('DELETE', `${P()}/towns/${town.id}`, T.gm);
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Longsword').priceCp, listed);
 });
 
@@ -462,16 +462,16 @@ test('TestShop_ReputationAndDealsAreRememberedPerPlayer', async () => {
   const shop = await makeShop('Memory Lane', [{ item: 'Rope', qty: 20 }, { item: 'Torch', qty: null, price: 1000 }]);
   const torch = lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Torch');
   assert.equal(torch.priceCp, 1000);
-  // The DM makes Jess a friend of the keeper: 10% off everything (rep 100, effect 10).
-  await ok('PUT', `${P()}/shops/${shop.id}/memory/${ID.jess}`, T.dm, { rep: 100, note: 'Saved his daughter' });
+  // The GM makes Jess a friend of the keeper: 10% off everything (rep 100, effect 10).
+  await ok('PUT', `${P()}/shops/${shop.id}/memory/${ID.jess}`, T.gm, { rep: 100, note: 'Saved his daughter' });
   const jv = await ok('GET', `${P()}/shops/${shop.id}`, T.jess);
   assert.equal(lineOf(jv, 'Torch').priceCp, 900);
   assert.equal(lineOf(jv, 'Torch').listPriceCp, 1000);
   assert.equal(jv.you.standing, 'Trusted friend');
-  assert.doesNotMatch(JSON.stringify(jv), /Saved his daughter/, 'the DM note on reputation stays DM-only');
+  assert.doesNotMatch(JSON.stringify(jv), /Saved his daughter/, 'the GM note on reputation stays GM-only');
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.tom), 'Torch').priceCp, 1000, 'Tom is a stranger');
   // A deal for Tom on the torch, used up by his next purchase.
-  await ok('POST', `${P()}/shops/${shop.id}/deals`, T.dm, { accountId: ID.tom, stockId: torch.id, pct: 25, note: 'Bribe' });
+  await ok('POST', `${P()}/shops/${shop.id}/deals`, T.gm, { accountId: ID.tom, stockId: torch.id, pct: 25, note: 'Bribe' });
   const tv = await ok('GET', `${P()}/shops/${shop.id}`, T.tom);
   assert.equal(lineOf(tv, 'Torch').priceCp, 750);
   assert.equal(tv.you.deals.length, 1);
@@ -480,7 +480,7 @@ test('TestShop_ReputationAndDealsAreRememberedPerPlayer', async () => {
   assert.equal(coin(ID.tom), 10_000 - 1500);
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.tom), 'Torch').priceCp, 1000, 'the deal was used');
   // The keeper remembers: Tom spent 15 gp there and his reputation went up.
-  const mem = await ok('GET', `${P()}/shops/${shop.id}/memory`, T.dm);
+  const mem = await ok('GET', `${P()}/shops/${shop.id}/memory`, T.gm);
   const tom = mem.players.find((p: any) => p.accountId === ID.tom);
   assert.deepEqual([tom.spentCp, tom.purchases, tom.rep], [1500, 1, 1]);
   assert.equal(mem.players.find((p: any) => p.accountId === ID.jess).note, 'Saved his daughter');
@@ -492,7 +492,7 @@ test('TestShop_ReputationAndDealsAreRememberedPerPlayer', async () => {
 test('TestShop_HaggleOnceADayAndTheDealIsUsedAtTheCounter', async () => {
   await set({ shopApproval: false, shopHaggle: true });
   const shop = await makeShop('Barter Barn', [{ item: 'Rope', qty: 20 }, { item: 'Torch', qty: null, price: 1000 }]);
-  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { barterPct: 20 });
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.gm, { barterPct: 20 });
   const v = await ok('GET', `${P()}/shops/${shop.id}`, T.jess);
   assert.equal(v.haggles, true);
   const torch = lineOf(v, 'Torch');
@@ -505,14 +505,14 @@ test('TestShop_HaggleOnceADayAndTheDealIsUsedAtTheCounter', async () => {
   const bad = await ok('POST', `${P()}/shops/${shop.id}/haggle`, T.tom, { stockId: torch.id, pct: 80 });
   assert.deepEqual([bad.accepted, bad.mood, bad.deal], [false, 'insulted', null]);
   assert.equal((await call('POST', `${P()}/shops/${shop.id}/haggle`, T.tom, { stockId: torch.id, pct: 5 })).status, 429);
-  assert.equal((await ok('GET', `${P()}/shops/${shop.id}/memory`, T.dm)).players.find((p: any) => p.accountId === ID.tom).rep, -5);
+  assert.equal((await ok('GET', `${P()}/shops/${shop.id}/memory`, T.gm)).players.find((p: any) => p.accountId === ID.tom).rep, -5);
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.tom), 'Torch').priceCp, 1000, 'rep -5 is less than 1% at effect 10');
   // The next game day the keeper has forgotten, and Jess's deal has run out.
-  await ok('POST', `/api/worlds/${W}/clock/advance`, T.dm, { minutes: 1500 });
+  await ok('POST', `/api/worlds/${W}/clock/advance`, T.gm, { minutes: 1500 });
   assert.equal(lineOf(await ok('GET', `${P()}/shops/${shop.id}`, T.jess), 'Torch').priceCp, 1000);
   assert.equal((await ok('POST', `${P()}/shops/${shop.id}/haggle`, T.tom, { stockId: torch.id, pct: 5 })).accepted, true);
   // A keeper who never haggles, and the world switch.
-  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { barterPct: 0 });
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.gm, { barterPct: 0 });
   const rope = lineOf(v, 'Rope');
   assert.equal((await ok('POST', `${P()}/shops/${shop.id}/haggle`, T.jess, { stockId: rope.id, pct: 5 })).mood, 'never');
   await set({ shopHaggle: false });
@@ -524,52 +524,52 @@ test('TestShop_HaggleOnceADayAndTheDealIsUsedAtTheCounter', async () => {
 test('TestShop_KeeperPurseFillsOnSalesAndLimitsBuyingBack', async () => {
   await set({ shopApproval: false, shopSellBack: true, shopSellBackPct: 50 });
   const shop = await makeShop('Thin Purse', [{ item: 'Torch', qty: null, price: 300 }]);
-  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { goldCp: 100 });
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.gm, { goldCp: 100 });
   setCoin(ID.jess, 1000);
   await ok('POST', `${P()}/shops/${shop.id}/buy`, T.jess, { stockId: lineOf(shop, 'Torch').id, qty: 1 });
-  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.dm)).goldCp, 400);
+  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.gm)).goldCp, 400);
   // Jess offers something worth more than the purse holds: refused up front.
-  const items = (await ok('GET', `${P()}/items?limit=500`, T.dm)).items;
+  const items = (await ok('GET', `${P()}/items?limit=500`, T.gm)).items;
   const sword = items.find((x: any) => x.name === 'Longsword');
-  run(deps.db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, dm_note, link, image, updated_at, updated_by, status) VALUES ('itm_purse', ?, ?, 'Longsword', 1, 3, '', '', NULL, NULL, ?, ?, 'approved')`, W, ID.jess, new Date().toISOString(), ID.jess);
+  run(deps.db, `INSERT INTO items (id, world_id, owner, name, qty, weight, note, gm_note, link, image, updated_at, updated_by, status) VALUES ('itm_purse', ?, ?, 'Longsword', 1, 3, '', '', NULL, NULL, ?, ?, 'approved')`, W, ID.jess, new Date().toISOString(), ID.jess);
   assert.ok(Math.floor(sword.costCp / 2) > 400);
   const r = await call('POST', `${P()}/shops/${shop.id}/sell`, T.jess, { itemId: 'itm_purse' });
   assert.equal(r.status, 409);
   assert.match(r.body.error, /cannot afford/);
   // With more coin in the purse it goes through, and the purse pays.
-  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { goldCp: 5000 });
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.gm, { goldCp: 5000 });
   const o = await ok('POST', `${P()}/shops/${shop.id}/sell`, T.jess, { itemId: 'itm_purse' });
-  await ok('POST', `${P()}/orders/${o.order.id}`, T.dm, { action: 'approve' });
-  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.dm)).goldCp, 5000 - o.order.totalCp);
+  await ok('POST', `${P()}/orders/${o.order.id}`, T.gm, { action: 'approve' });
+  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.gm)).goldCp, 5000 - o.order.totalCp);
   // Unlimited purse (blank) again.
-  await ok('PATCH', `${P()}/shops/${shop.id}`, T.dm, { goldCp: null });
-  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.dm)).goldCp, null);
+  await ok('PATCH', `${P()}/shops/${shop.id}`, T.gm, { goldCp: null });
+  assert.equal((await ok('GET', `${P()}/shops/${shop.id}`, T.gm)).goldCp, null);
   await set({ shopSellBack: false });
 });
 
 test('TestShop_PresentSendsTheShopToChosenPlayersOnly', async () => {
   const shop = await makeShop('Wandering Peddler', [{ item: 'Torch', qty: 5 }], 'hidden');
-  const seen: { type: string; data: any; jess: boolean; tom: boolean; dm: boolean }[] = [];
+  const seen: { type: string; data: any; jess: boolean; tom: boolean; gm: boolean }[] = [];
   const orig = deps.hub.emit.bind(deps.hub);
   deps.hub.emit = (w: string, type: string, data: unknown, aud: any) => {
-    if (type === 'shop-present') seen.push({ type, data, jess: aud({ accountId: ID.jess, role: 'player' }), tom: aud({ accountId: ID.tom, role: 'player' }), dm: aud({ accountId: ID.dm, role: 'dm' }) });
+    if (type === 'shop-present') seen.push({ type, data, jess: aud({ accountId: ID.jess, role: 'player' }), tom: aud({ accountId: ID.tom, role: 'player' }), gm: aud({ accountId: ID.gm, role: 'gm' }) });
     return orig(w, type, data, aud);
   };
   try {
-    // Hidden: refused unless the DM opens it with the same call.
-    assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: [ID.jess] })).status, 409);
-    const r = await ok('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: [ID.jess], open: true, message: 'Fine wares, friend!' });
+    // Hidden: refused unless the GM opens it with the same call.
+    assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.gm, { to: [ID.jess] })).status, 409);
+    const r = await ok('POST', `${P()}/shops/${shop.id}/present`, T.gm, { to: [ID.jess], open: true, message: 'Fine wares, friend!' });
     assert.deepEqual([r.sentTo, r.opened, r.shop.status], [[ID.jess], true, 'open']);
     assert.equal(seen.length, 1);
-    assert.deepEqual([seen[0].jess, seen[0].tom, seen[0].dm], [true, false, false]);
+    assert.deepEqual([seen[0].jess, seen[0].tom, seen[0].gm], [true, false, false]);
     assert.equal(seen[0].data.shopId, shop.id);
     assert.equal(seen[0].data.message, 'Fine wares, friend!');
     assert.doesNotMatch(JSON.stringify(seen[0].data), /SHOPSECRET/);
     // Everyone.
-    await ok('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: 'all' });
+    await ok('POST', `${P()}/shops/${shop.id}/present`, T.gm, { to: 'all' });
     assert.deepEqual([seen[1].jess, seen[1].tom], [true, true]);
     // Not to people outside the world, and never by a player.
-    assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.dm, { to: ['acc_nobody'] })).status, 400);
+    assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.gm, { to: ['acc_nobody'] })).status, 400);
     assert.equal((await call('POST', `${P()}/shops/${shop.id}/present`, T.jess, { to: [ID.jess] })).status, 403);
   } finally {
     deps.hub.emit = orig;

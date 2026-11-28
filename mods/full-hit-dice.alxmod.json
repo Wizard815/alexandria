@@ -25,7 +25,7 @@
       "hit die",
       "long rest"
     ],
-    "dm": "Long rests restore all spent hit dice at this table, not half.",
+    "gm": "Long rests restore all spent hit dice at this table, not half.",
     "player": "At this table a long rest gives back all your spent hit dice, so spend them freely on short rests."
   }
 }

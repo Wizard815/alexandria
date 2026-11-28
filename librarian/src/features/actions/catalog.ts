@@ -8,7 +8,7 @@ import { HttpError } from '../../core/util.ts';
 import { rollDice } from '../agent/intent.ts';
 import { runScene } from '../lights/engine.ts';
 
-export type Role = 'dm' | 'player';
+export type Role = 'gm' | 'player';
 
 export interface ArgSpec {
   name: string;
@@ -36,7 +36,7 @@ export interface ActionDef {
   title: string;
   group: string;
   description: string;
-  /** Who may run it. Everything not listed for players is DM-only. */
+  /** Who may run it. Everything not listed for players is GM-only. */
   roles: Role[];
   args: ArgSpec[];
   run(rc: Runner, a: Record<string, any>): Promise<unknown>;
@@ -136,60 +136,60 @@ const TARGET: ArgSpec = A({ name: 'target', type: 'string', label: 'Who (current
 
 export const ACTIONS: ActionDef[] = [
   // ---- combat ----
-  { id: 'combat.start', title: 'Start combat', group: 'Combat', description: 'Turn the combat tracker on.', roles: ['dm'], args: [], run: (rc) => ok(rc, 'PUT', '/live/combat', { active: true }) },
-  { id: 'combat.end', title: 'End combat', group: 'Combat', description: 'Turn the combat tracker off.', roles: ['dm'], args: [], run: (rc) => ok(rc, 'PUT', '/live/combat', { active: false }) },
-  { id: 'combat.next', title: 'Next turn', group: 'Combat', description: 'Move the combat tracker to the next turn.', roles: ['dm'], args: [], run: async (rc) => { const c = await ok(rc, 'POST', '/live/combat/next'); return { round: c.round, turn: c.turn }; } },
+  { id: 'combat.start', title: 'Start combat', group: 'Combat', description: 'Turn the combat tracker on.', roles: ['gm'], args: [], run: (rc) => ok(rc, 'PUT', '/live/combat', { active: true }) },
+  { id: 'combat.end', title: 'End combat', group: 'Combat', description: 'Turn the combat tracker off.', roles: ['gm'], args: [], run: (rc) => ok(rc, 'PUT', '/live/combat', { active: false }) },
+  { id: 'combat.next', title: 'Next turn', group: 'Combat', description: 'Move the combat tracker to the next turn.', roles: ['gm'], args: [], run: async (rc) => { const c = await ok(rc, 'POST', '/live/combat/next'); return { round: c.round, turn: c.turn }; } },
   {
-    id: 'combat.damage', title: 'Damage a combatant', group: 'Combat', description: 'Take hit points off a combatant (the current one by default).', roles: ['dm'],
+    id: 'combat.damage', title: 'Damage a combatant', group: 'Combat', description: 'Take hit points off a combatant (the current one by default).', roles: ['gm'],
     args: [TARGET, A({ name: 'amount', type: 'int', label: 'Damage', required: true, min: 0, max: 99999 })],
     run: async (rc, a) => { const x = await combatant(rc, a.target); const r = await ok(rc, 'PATCH', `/live/combatants/${encodeURIComponent(x.id)}`, { damage: a.amount }); return { name: x.name, hp: r.hp }; },
   },
   {
-    id: 'combat.heal', title: 'Heal a combatant', group: 'Combat', description: 'Give hit points to a combatant (the current one by default), up to their maximum.', roles: ['dm'],
+    id: 'combat.heal', title: 'Heal a combatant', group: 'Combat', description: 'Give hit points to a combatant (the current one by default), up to their maximum.', roles: ['gm'],
     args: [TARGET, A({ name: 'amount', type: 'int', label: 'Healing', required: true, min: 0, max: 99999 })],
     run: async (rc, a) => { const x = await combatant(rc, a.target); const r = await ok(rc, 'PATCH', `/live/combatants/${encodeURIComponent(x.id)}`, { heal: a.amount }); return { name: x.name, hp: r.hp }; },
   },
   {
-    id: 'combat.add_statblock', title: 'Add a statblock to combat', group: 'Combat', description: 'Add a creature from a statblock page to the combat tracker.', roles: ['dm'],
+    id: 'combat.add_statblock', title: 'Add a statblock to combat', group: 'Combat', description: 'Add a creature from a statblock page to the combat tracker.', roles: ['gm'],
     args: [A({ name: 'page', type: 'string', label: 'Statblock page id', required: true, maxLength: 80 }), A({ name: 'initiative', type: 'int', label: 'Initiative (rolled if empty)', min: -20, max: 60 }), A({ name: 'hidden', type: 'bool', label: 'Hidden from players', default: false })],
     run: async (rc, a) => { const r = await ok(rc, 'POST', `/agent/statblock/${encodeURIComponent(a.page)}/combat`, { initiative: a.initiative, hidden: a.hidden }); return r.combatant; },
   },
   // ---- clock ----
-  { id: 'clock.short_rest', title: 'Short rest', group: 'Clock', description: 'Advance the world clock by a short rest.', roles: ['dm'], args: [], run: (rc) => ok(rc, 'POST', '/clock/advance', { preset: 'short-rest' }).then((r) => ({ date: r.entry?.afterLabel ?? null })) },
-  { id: 'clock.long_rest', title: 'Long rest', group: 'Clock', description: 'Advance the world clock by a long rest.', roles: ['dm'], args: [], run: (rc) => ok(rc, 'POST', '/clock/advance', { preset: 'long-rest' }).then((r) => ({ date: r.entry?.afterLabel ?? null })) },
-  { id: 'clock.next_day', title: 'Next day', group: 'Clock', description: 'Advance the world clock to the next day.', roles: ['dm'], args: [], run: (rc) => ok(rc, 'POST', '/clock/advance', { preset: 'next-day' }).then((r) => ({ date: r.entry?.afterLabel ?? null })) },
-  { id: 'clock.advance', title: 'Advance the clock', group: 'Clock', description: 'Move the world clock forward by some minutes.', roles: ['dm'], args: [A({ name: 'minutes', type: 'int', label: 'Minutes', required: true, min: 1, max: 525600 }), A({ name: 'reason', type: 'string', label: 'Why', maxLength: 200 })], run: (rc, a) => ok(rc, 'POST', '/clock/advance', { minutes: a.minutes, reason: a.reason ?? '' }).then(() => ({ minutes: a.minutes })) },
+  { id: 'clock.short_rest', title: 'Short rest', group: 'Clock', description: 'Advance the world clock by a short rest.', roles: ['gm'], args: [], run: (rc) => ok(rc, 'POST', '/clock/advance', { preset: 'short-rest' }).then((r) => ({ date: r.entry?.afterLabel ?? null })) },
+  { id: 'clock.long_rest', title: 'Long rest', group: 'Clock', description: 'Advance the world clock by a long rest.', roles: ['gm'], args: [], run: (rc) => ok(rc, 'POST', '/clock/advance', { preset: 'long-rest' }).then((r) => ({ date: r.entry?.afterLabel ?? null })) },
+  { id: 'clock.next_day', title: 'Next day', group: 'Clock', description: 'Advance the world clock to the next day.', roles: ['gm'], args: [], run: (rc) => ok(rc, 'POST', '/clock/advance', { preset: 'next-day' }).then((r) => ({ date: r.entry?.afterLabel ?? null })) },
+  { id: 'clock.advance', title: 'Advance the clock', group: 'Clock', description: 'Move the world clock forward by some minutes.', roles: ['gm'], args: [A({ name: 'minutes', type: 'int', label: 'Minutes', required: true, min: 1, max: 525600 }), A({ name: 'reason', type: 'string', label: 'Why', maxLength: 200 })], run: (rc, a) => ok(rc, 'POST', '/clock/advance', { minutes: a.minutes, reason: a.reason ?? '' }).then(() => ({ minutes: a.minutes })) },
   // ---- sound ----
   {
-    id: 'sound.pad', title: 'Play a sound pad', group: 'Sound', description: 'Play a sound pad by its label or id.', roles: ['dm'], args: [A({ name: 'pad', type: 'string', label: 'Pad label or id', required: true, maxLength: 80 })],
+    id: 'sound.pad', title: 'Play a sound pad', group: 'Sound', description: 'Play a sound pad by its label or id.', roles: ['gm'], args: [A({ name: 'pad', type: 'string', label: 'Pad label or id', required: true, maxLength: 80 })],
     run: async (rc, a) => { const pads: any[] = await ok(rc, 'GET', '/sound/pads'); const p = pick(pads, a.pad, (x) => x.label); if (!p) throw new ActionError(`No sound pad "${a.pad}"`, 404); await ok(rc, 'POST', '/sound/sfx/play', { padId: p.id }); return { pad: p.label }; },
   },
   {
-    id: 'sound.mood', title: 'Set the music mood', group: 'Sound', description: 'Move the music to a spot on the mood map (x left to right, y top to bottom, both 0 to 1).', roles: ['dm'],
+    id: 'sound.mood', title: 'Set the music mood', group: 'Sound', description: 'Move the music to a spot on the mood map (x left to right, y top to bottom, both 0 to 1).', roles: ['gm'],
     args: [A({ name: 'x', type: 'number', label: 'Mood x (0 to 1)', required: true, min: 0, max: 1 }), A({ name: 'y', type: 'number', label: 'Mood y (0 to 1)', required: true, min: 0, max: 1 }), A({ name: 'area', type: 'string', label: 'Area (music folder)', maxLength: 120 })],
     run: async (rc, a) => { const r = await ok(rc, 'POST', '/sound/music/mood', { x: a.x, y: a.y, area: a.area }); return { track: r.track?.title ?? null, changed: r.changed }; },
   },
   {
-    id: 'sound.ambience', title: 'Start an ambience scene', group: 'Sound', description: 'Start a saved ambience scene by name or id.', roles: ['dm'], args: [A({ name: 'scene', type: 'string', label: 'Scene name or id', required: true, maxLength: 80 })],
+    id: 'sound.ambience', title: 'Start an ambience scene', group: 'Sound', description: 'Start a saved ambience scene by name or id.', roles: ['gm'], args: [A({ name: 'scene', type: 'string', label: 'Scene name or id', required: true, maxLength: 80 })],
     run: async (rc, a) => { const list: any[] = await ok(rc, 'GET', '/sound/scenes'); const s = pick(list, a.scene, (x) => x.name); if (!s) throw new ActionError(`No ambience scene "${a.scene}"`, 404); await ok(rc, 'POST', `/sound/scenes/${encodeURIComponent(s.id)}/play`, {}); return { scene: s.name }; },
   },
-  { id: 'sound.stop_all', title: 'Stop all sound', group: 'Sound', description: 'Stop the music and the ambience.', roles: ['dm'], args: [], run: async (rc) => { await ok(rc, 'POST', '/sound/music/stop', {}); await ok(rc, 'POST', '/sound/ambience/stop', {}); return { stopped: ['music', 'ambience'] }; } },
+  { id: 'sound.stop_all', title: 'Stop all sound', group: 'Sound', description: 'Stop the music and the ambience.', roles: ['gm'], args: [], run: async (rc) => { await ok(rc, 'POST', '/sound/music/stop', {}); await ok(rc, 'POST', '/sound/ambience/stop', {}); return { stopped: ['music', 'ambience'] }; } },
   // ---- stage ----
   {
-    id: 'stage.show', title: 'Show a stage card', group: 'Stage', description: 'Show a stage card to the players. Name it by label, id or kind (for example combat).', roles: ['dm'],
+    id: 'stage.show', title: 'Show a stage card', group: 'Stage', description: 'Show a stage card to the players. Name it by label, id or kind (for example combat).', roles: ['gm'],
     args: [A({ name: 'card', type: 'string', label: 'Card label, id or kind', required: true, maxLength: 120 })],
     run: async (rc, a) => { const c = await stageCard(rc, a.card); await ok(rc, 'POST', `/stage/cards/${encodeURIComponent(c.id)}/show`, {}); return { card: c.label || c.kind }; },
   },
   {
-    id: 'stage.hide', title: 'Hide a stage card', group: 'Stage', description: 'Take a stage card away from the players.', roles: ['dm'],
+    id: 'stage.hide', title: 'Hide a stage card', group: 'Stage', description: 'Take a stage card away from the players.', roles: ['gm'],
     args: [A({ name: 'card', type: 'string', label: 'Card label, id or kind', required: true, maxLength: 120 })],
     run: async (rc, a) => { const c = await stageCard(rc, a.card); await ok(rc, 'POST', `/stage/cards/${encodeURIComponent(c.id)}/hide`, {}); return { card: c.label || c.kind }; },
   },
   // ---- recording ----
-  { id: 'recording.start', title: 'Start recording', group: 'Recording', description: 'Start a recording session.', roles: ['dm'], args: [A({ name: 'name', type: 'string', label: 'Session name', maxLength: 80 })], run: async (rc, a) => { const s = await ok(rc, 'POST', '/audio/sessions', { name: a.name }); return { session: s.name }; } },
-  { id: 'recording.stop', title: 'Stop recording', group: 'Recording', description: 'Stop the running recording session.', roles: ['dm'], args: [], run: async (rc) => { const s = await activeSession(rc); if (!s) throw new ActionError('Nothing is being recorded'); await ok(rc, 'POST', `/audio/sessions/${encodeURIComponent(s.id)}/stop`, {}); return { session: s.name }; } },
+  { id: 'recording.start', title: 'Start recording', group: 'Recording', description: 'Start a recording session.', roles: ['gm'], args: [A({ name: 'name', type: 'string', label: 'Session name', maxLength: 80 })], run: async (rc, a) => { const s = await ok(rc, 'POST', '/audio/sessions', { name: a.name }); return { session: s.name }; } },
+  { id: 'recording.stop', title: 'Stop recording', group: 'Recording', description: 'Stop the running recording session.', roles: ['gm'], args: [], run: async (rc) => { const s = await activeSession(rc); if (!s) throw new ActionError('Nothing is being recorded'); await ok(rc, 'POST', `/audio/sessions/${encodeURIComponent(s.id)}/stop`, {}); return { session: s.name }; } },
   {
-    id: 'recording.aside', title: 'Aside on or off', group: 'Recording', description: 'Mark your microphones as an aside (kept out of the players\' transcript) or back to normal.', roles: ['dm'], args: [A({ name: 'on', type: 'bool', label: 'Aside on', required: true })],
+    id: 'recording.aside', title: 'Aside on or off', group: 'Recording', description: 'Mark your microphones as an aside (kept out of the players\' transcript) or back to normal.', roles: ['gm'], args: [A({ name: 'on', type: 'bool', label: 'Aside on', required: true })],
     run: async (rc, a) => {
       const mics: any[] = (await ok(rc, 'GET', '/audio/mics')).filter((m: any) => m.accountId === rc.accountId);
       if (!mics.length) throw new ActionError('You have no microphone registered');
@@ -198,7 +198,7 @@ export const ACTIONS: ActionDef[] = [
     },
   },
   {
-    id: 'recording.aside_hold', title: 'Aside (hold)', group: 'Recording', description: 'For a key held down: phase start when it goes down, end when it comes up. The stretch in between is marked as an aside.', roles: ['dm'], args: [A({ name: 'phase', type: 'enum', values: ['start', 'end'], required: true })],
+    id: 'recording.aside_hold', title: 'Aside (hold)', group: 'Recording', description: 'For a key held down: phase start when it goes down, end when it comes up. The stretch in between is marked as an aside.', roles: ['gm'], args: [A({ name: 'phase', type: 'enum', values: ['start', 'end'], required: true })],
     run: async (rc, a) => {
       const s = await activeSession(rc);
       if (!s) throw new ActionError('Nothing is being recorded');
@@ -216,24 +216,24 @@ export const ACTIONS: ActionDef[] = [
   },
   // ---- quick event ----
   {
-    id: 'event.send', title: 'Send a quick event', group: 'Table', description: 'Send a quick event to the players: a ready template (ambush, noise, vote, trap), with your own title or text if you like.', roles: ['dm'],
+    id: 'event.send', title: 'Send a quick event', group: 'Table', description: 'Send a quick event to the players: a ready template (ambush, noise, vote, trap), with your own title or text if you like.', roles: ['gm'],
     args: [A({ name: 'template', type: 'enum', values: Object.keys(QUICK_TEMPLATES), required: true }), A({ name: 'title', type: 'string', maxLength: 120 }), A({ name: 'prompt', type: 'string', maxLength: 2000 }), A({ name: 'dc', type: 'int', min: 1, max: 40 })],
     run: async (rc, a) => { const t = QUICK_TEMPLATES[a.template]; const e = await ok(rc, 'POST', '/quick-events', { ...t, title: a.title || t.title, prompt: a.prompt || t.prompt, dc: a.dc ?? t.dc }); return { id: e.id, title: e.title }; },
   },
   // ---- voice ----
   {
-    id: 'voice.speak', title: 'Speak with a voice', group: 'Table', description: 'Read a line aloud with a voice preset.', roles: ['dm'],
+    id: 'voice.speak', title: 'Speak with a voice', group: 'Table', description: 'Read a line aloud with a voice preset.', roles: ['gm'],
     args: [A({ name: 'preset', type: 'string', label: 'Voice preset name or id', required: true, maxLength: 80 }), A({ name: 'text', type: 'string', required: true, maxLength: 2000 })],
     run: async (rc, a) => { const list: any[] = await ok(rc, 'GET', '/voice/presets'); const p = pick(list, a.preset, (x) => x.name); if (!p) throw new ActionError(`No voice preset "${a.preset}"`, 404); await ok(rc, 'POST', '/voice/speak', { presetId: p.id, text: a.text }); return { preset: p.name }; },
   },
   // ---- dice (players too) ----
   {
-    id: 'dice.roll', title: 'Roll dice', group: 'Table', description: 'Roll dice such as 2d6+3 or d20.', roles: ['dm', 'player'], args: [A({ name: 'notation', type: 'string', label: 'Dice', default: 'd20', maxLength: 40 })],
+    id: 'dice.roll', title: 'Roll dice', group: 'Table', description: 'Roll dice such as 2d6+3 or d20.', roles: ['gm', 'player'], args: [A({ name: 'notation', type: 'string', label: 'Dice', default: 'd20', maxLength: 40 })],
     run: async (_rc, a) => { const r = rollDice(a.notation); if (!r) throw new ActionError(`"${a.notation}" is not dice notation (try 2d6+3)`); return { notation: r.notation, total: r.total, text: r.text }; },
   },
   // ---- quick gen ----
   {
-    id: 'gen.gold', title: 'Gold to the party', group: 'Table', description: 'Roll treasure coins and put them in the party pouch.', roles: ['dm'],
+    id: 'gen.gold', title: 'Gold to the party', group: 'Table', description: 'Roll treasure coins and put them in the party pouch.', roles: ['gm'],
     args: [A({ name: 'mode', type: 'enum', values: ['individual', 'hoard'], default: 'individual' }), A({ name: 'level', type: 'int', label: 'Party level', default: 3, min: 1, max: 20 })],
     run: async (rc, a) => {
       const c = await ok(rc, 'GET', `/quickgen/coins?mode=${a.mode}&level=${a.level}`);
@@ -247,7 +247,7 @@ export const ACTIONS: ActionDef[] = [
   {
     id: 'sculpt.run', title: 'Run a template', group: 'Story',
     description: "Fill a Sculpting template (e.g. Encounter, Rumour table) and send the result where the template's outputs say: a page, the stage, combat, the players or the broker.",
-    roles: ['dm'],
+    roles: ['gm'],
     args: [
       A({ name: 'template', type: 'string', label: 'Template name or id', required: true, maxLength: 80 }),
       A({ name: 'count', type: 'int', label: 'How many', default: 1, min: 1, max: 20 }),
@@ -260,7 +260,7 @@ export const ACTIONS: ActionDef[] = [
   },
   // ---- lights ----
   {
-    id: 'lights.scene', title: 'Run a light scene', group: 'Lights', description: 'Set the lights to a saved scene.', roles: ['dm'], args: [A({ name: 'scene', type: 'string', label: 'Scene name or id', required: true, maxLength: 80 })],
+    id: 'lights.scene', title: 'Run a light scene', group: 'Lights', description: 'Set the lights to a saved scene.', roles: ['gm'], args: [A({ name: 'scene', type: 'string', label: 'Scene name or id', required: true, maxLength: 80 })],
     run: async (rc, a) => {
       try { const r = runScene(rc.d, rc.worldId, a.scene); return { scene: r.scene.name, queued: r.queued }; }
       catch (e) { if (e instanceof HttpError) throw new ActionError(e.message, e.status); throw e; }
@@ -268,7 +268,7 @@ export const ACTIONS: ActionDef[] = [
   },
   // ---- Minerva ----
   {
-    id: 'minerva.run', title: 'Minerva: do this', group: 'Minerva', roles: ['dm'],
+    id: 'minerva.run', title: 'Minerva: do this', group: 'Minerva', roles: ['gm'],
     description: 'Give Minerva a task in words. The prompt may use {{parameters}} of the macro. Mode "do" carries it out at once with the allowed tools; "propose" leaves each change for you to confirm. Tools: a comma list that limits what she may use (empty: the usual table tools). She never deletes, ends sessions or shows players anything that is not party-level.',
     args: [
       A({ name: 'prompt', type: 'string', label: 'What to do', required: true, maxLength: 2000 }),
@@ -282,7 +282,7 @@ export const ACTIONS: ActionDef[] = [
     },
   },
   {
-    id: 'minerva.active', title: 'Minerva: active on/off', group: 'Minerva', roles: ['dm'], description: 'Switch Minerva between Assistant mode and Active mode (listening to the table while recording).',
+    id: 'minerva.active', title: 'Minerva: active on/off', group: 'Minerva', roles: ['gm'], description: 'Switch Minerva between Assistant mode and Active mode (listening to the table while recording).',
     args: [A({ name: 'mode', type: 'enum', label: 'Mode', values: ['on', 'off', 'toggle'], default: 'toggle' }), A({ name: 'session', type: 'bool', label: 'Only for the recording now', default: false })],
     run: async (rc, a) => {
       const cur = await ok(rc, 'GET', '/active');
@@ -292,7 +292,7 @@ export const ACTIONS: ActionDef[] = [
     },
   },
   {
-    id: 'minerva.command', title: 'Minerva: command', group: 'Minerva', roles: ['dm'], description: 'A takeover command: /takeover, /takeover-1 to /takeover-3, /takeover-save 4 Name, /auto music on|off|ask.',
+    id: 'minerva.command', title: 'Minerva: command', group: 'Minerva', roles: ['gm'], description: 'A takeover command: /takeover, /takeover-1 to /takeover-3, /takeover-save 4 Name, /auto music on|off|ask.',
     args: [A({ name: 'command', type: 'string', label: 'Command', required: true, maxLength: 120 })],
     run: async (rc, a) => { const r = await ok(rc, 'POST', '/active/command', { text: a.command }); return { message: r.message }; },
   },
@@ -308,6 +308,6 @@ async function stageCard(rc: Runner, ref: string) {
 
 export const actionById = (id: string) => ACTIONS.find((x) => x.id === id);
 
-export const canRun = (a: ActionDef, role: string) => (role === 'dm' || role === 'player') && a.roles.includes(role);
+export const canRun = (a: ActionDef, role: string) => (role === 'gm' || role === 'player') && a.roles.includes(role);
 
 export const actionView = (a: ActionDef) => ({ id: a.id, title: a.title, group: a.group, description: a.description, roles: a.roles, args: a.args });

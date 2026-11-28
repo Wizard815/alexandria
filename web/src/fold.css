@@ -9,13 +9,13 @@
    - the player's tab bar becomes a rail down the left edge (thumbs reach it with the
      device held in two hands, and it gives the page its full height back), the More
      menu opens beside it as a drawer, pop-ups are centred and no wider than 640px;
-   - the DM keeps the desktop's left rail instead of a bottom bar, with touch-sized
+   - the GM keeps the desktop's left rail instead of a bottom bar, with touch-sized
      areas, tabs and top-bar buttons, and gets the phone assistant banner.
 
    The query (repeated below, CSS has no named media queries yet):
      upright or sideways near-square touch screen 600-1180px wide, or
      any near-square screen 600-760px wide (it already gets the phone layout)
-   It matches the DM phone assistant's two-pane test (features/dmphone/hooks.ts shapeOf). */
+   It matches the GM phone assistant's two-pane test (features/gmphone/hooks.ts shapeOf). */
 
 :root { --rail-w: 84px; }
 
@@ -70,7 +70,7 @@
   .player .modal-back { justify-content: center; padding: 0 16px 0 calc(var(--rail-w) + 16px + env(safe-area-inset-left, 0px)); }
   .player .modal { max-width: 640px; border-bottom: 1px solid var(--line-strong); }
 
-  /* DM: the left rail stays on the left (the phone layout would move it to the bottom), touch-sized. */
+  /* GM: the left rail stays on the left (the phone layout would move it to the bottom), touch-sized. */
   .dmx-top { height: calc(56px + var(--safe-top)); min-height: 0; padding: var(--safe-top) 12px 0; gap: 8px; }
   .dmx-brand { max-width: 34vw; }
   .dmx-search, .dmx-session, .dmx-end .btn, .dmx-end .icon-btn, .dmx-brand { min-height: 44px; min-width: 44px; }
@@ -84,15 +84,15 @@
   body:has(.dmx-rail) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
   html body:has(.dmx-rail) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   html body:has(.dmx-rail) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
-  .dmx .page { padding: 14px 18px var(--dock-reserve); }
-  .dmx .cols > .col-2 { flex: 2 1 340px; } .dmx .cols > .col-3 { flex: 3 1 440px; }
-  .dmx .lib-tree { height: calc(var(--dvh100, 100dvh) - 260px); }
+  .gmx .page { padding: 14px 18px var(--dock-reserve); }
+  .gmx .cols > .col-2 { flex: 2 1 340px; } .gmx .cols > .col-3 { flex: 3 1 440px; }
+  .gmx .lib-tree { height: calc(var(--dvh100, 100dvh) - 260px); }
   .dmx-end .dmx-phone-btn { display: inline-flex; }
   .dmx-phone-btn span { display: inline; }
   /* Workspace layouts (panes side by side) work here, unlike on a phone. */
   .dmx-ws { display: inline-flex; }
-  .dmx .main.main-ws { height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top) - 53px); min-height: 0; }
-  :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx .main.main-ws { height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top) - 53px - 57px); }
+  .gmx .main.main-ws { height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top) - 53px); min-height: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .gmx .main.main-ws { height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top) - 53px - 57px); }
   .set-shell { grid-template-columns: 180px minmax(0, 1fr); } .set-nav { position: sticky; top: 120px; } .set-list { flex-direction: column; } .set-link { min-height: 44px; }
 }
 
@@ -150,7 +150,7 @@
   :root[data-nav-side=top] .player .sticky-actions { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   :root[data-nav-side=top] { scroll-padding-top: calc(var(--top-h, 52px) + var(--nav-h) + 16px); }
 
-  /* -- DM: the area rail (left or right) -- */
+  /* -- GM: the area rail (left or right) -- */
   :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-rail { position: sticky; top: var(--top-h, 48px); left: auto; right: auto; bottom: auto; height: calc(var(--dvh100, 100dvh) - var(--top-h, 48px)); width: auto; flex: 0 0 var(--rail-w); flex-direction: column; gap: 6px; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 0; border-bottom: 0; z-index: 25; }
   :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-area { flex: 0 0 auto; min-height: 64px; justify-content: center; padding: 6px 2px; font-size: 12.5px; border-radius: 12px; }
   :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
@@ -162,7 +162,7 @@
   :root[data-nav-side=right] .dmx-rail { border-right: 0; border-left: 1px solid var(--line); }
   :root[data-nav-side=right] body:has(.dmx-rail) .dock, :root[data-nav-side=right] body:has(.dmx-rail) .dock-panel { right: calc(var(--rail-w) + 12px); }
 
-  /* -- DM: the area bar (top or bottom) -- */
+  /* -- GM: the area bar (top or bottom) -- */
   :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx-rail { height: auto; width: auto; flex: none; flex-direction: row; gap: 2px; border-left: 0; border-right: 0; }
   :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx-area { flex: 1 1 0; min-height: 52px; justify-content: center; padding: 6px 2px; font-size: 12px; border-radius: 8px; }
   :root[data-nav-side=bottom] .dmx-body { flex-direction: row; }
@@ -177,16 +177,16 @@
   :root[data-nav-side=top] body:has(.dmx-rail) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   :root[data-nav-side=top] body:has(.dmx-rail) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
 }
-/* The position buttons (More > Edit tabs for players, the world menu for the DM). */
+/* The position buttons (More > Edit tabs for players, the world menu for the GM). */
 .nav-side { display: flex; flex-wrap: wrap; gap: 6px; }
 .nav-side .btn { flex: 1 1 auto; }
 .dmx-menu .nav-side { padding: 0 8px 6px; }
 .dmx-menu-h { padding: 6px 8px 0; }
 
-/* Screen size (lib/uiZoom.tsx): this device's zoom, in the More sheet, the DM's world menu and the phone assistant. */
+/* Screen size (lib/uiZoom.tsx): this device's zoom, in the More sheet, the GM's world menu and the phone assistant. */
 .ui-zoom { display: flex; flex-direction: column; gap: 6px; }
 .ui-zoom-label { font-size: 14px; }
 .ui-zoom-row { display: flex; align-items: center; gap: 6px; }
 .ui-zoom-val { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent-strong); }
 .dmx-menu .ui-zoom { padding: 6px 8px; }
-.dmp .ui-zoom .btn { min-height: 48px; min-width: 48px; }
+.gmp .ui-zoom .btn { min-height: 48px; min-width: 48px; }

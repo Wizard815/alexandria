@@ -84,8 +84,8 @@ export default function authRoutes(d: Deps) {
     res.json({ token: createSession(db, row.id) });
   });
 
-  // Join a world with an invite code from its DM.
-  // Join a world with an invite code from its DM. New players make an
+  // Join a world with an invite code from its GM.
+  // Join a world with an invite code from its GM. New players make an
   // account here; someone already signed in (Bearer session) just joins.
   // Every join also makes the player's read-only AI key for that world, so
   // their MCP integration works with no setup.
@@ -173,7 +173,7 @@ export default function authRoutes(d: Deps) {
     if (auth.via !== 'session') throw new HttpError(403, 'Make keys from a signed-in session, not with another key');
     const scope = oneOf(req.body?.scope, 'scope', ['admin', 'scribe'] as const);
     const label = str(req.body?.label, 'label', { max: 60 });
-    // read: players' apps and MCP clients. write: the DM's own tools.
+    // read: players' apps and MCP clients. write: the GM's own tools.
     const access = oneOf(req.body?.access, 'access', ['read', 'write'] as const, scope === 'admin' ? 'write' : 'read');
     let worldId: string | null = null;
     if (scope === 'admin') {
@@ -182,7 +182,7 @@ export default function authRoutes(d: Deps) {
       worldId = str(req.body?.worldId, 'worldId', { max: 60 });
       const m = one<{ role: string }>(db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, auth.account.id);
       if (!m) throw new HttpError(404, 'World not found');
-      if (access === 'write' && m.role !== 'dm') throw new HttpError(403, 'Only the DM can make a write key. Players get read-only keys.');
+      if (access === 'write' && m.role !== 'gm') throw new HttpError(403, 'Only the GM can make a write key. Players get read-only keys.');
     }
     const k = createKey(db, auth.account.id, scope, label, worldId, access);
     audit(db, worldId, auth.account.id, 'key.create', `${scope} ${access} ${label}`);

@@ -1,7 +1,7 @@
 // Active mode, layer two: an intent becomes a candidate (tool calls, who sees
 // the effect, how long to wait before the same thing may fire again) or
 // nothing. Safety lives here: stage cards only ever show pages players can
-// open, and a DM-aside line only gets the categories listed in ASIDE_OK.
+// open, and a GM-aside line only gets the categories listed in ASIDE_OK.
 import type { Deps } from '../../app.ts';
 import { pageView } from '../stage/cards.ts';
 import { norm, SKILLS, type Category, type CueCtx, type Scored } from './cues.ts';
@@ -34,7 +34,7 @@ export function statsFor(d: Deps, worldId: string, name: string): { hp?: number;
   } catch { return {}; }
 }
 
-/** 2160 -> "1 day 12 hours", 90 -> "1 hour 30 min": exact, so the DM approves what will happen. */
+/** 2160 -> "1 day 12 hours", 90 -> "1 hour 30 min": exact, so the GM approves what will happen. */
 export function spanText(minutes: number): string {
   const m = Math.max(0, Math.round(minutes));
   const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), r = m % 60;
@@ -45,12 +45,12 @@ export function spanText(minutes: number): string {
 export interface Call { tool: string; args: Record<string, any> }
 export interface Candidate {
   category: Category; calls: Call[]; summary: string; confidence: number; cue: string; ruleKey: string;
-  visible: 'dm' | 'table' | 'players'; dedupeKey: string; dedupeMs: number;
-  /** A player's own words: never run without the DM's tap. */
+  visible: 'gm' | 'table' | 'players'; dedupeKey: string; dedupeMs: number;
+  /** A player's own words: never run without the GM's tap. */
   playerSource?: boolean;
   /** Always a confirm card, whatever the setting. */
   forceAsk?: boolean;
-  /** Why it asks, in the DM's words (shown in Minerva's thoughts). */
+  /** Why it asks, in the GM's words (shown in Minerva's thoughts). */
   why?: string;
   source: 'rules' | 'model';
   /** What is still unsure (the model may settle it). */
@@ -59,7 +59,7 @@ export interface Candidate {
   kind: string;
 }
 
-/** Categories a DM-aside line may set off: only things on the DM's side. */
+/** Categories a GM-aside line may set off: only things on the GM's side. */
 export const ASIDE_OK: ReadonlySet<Category> = new Set<Category>(['music', 'combat']);
 
 const stable = (o: unknown): string => JSON.stringify(o, (_k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v));
@@ -81,7 +81,7 @@ export function matchPage(ctx: CueCtx, phrase: string): { id: string; title: str
     const titleHit = [...titleToks].filter((h) => [...wantSet].some((t) => near(h, t))).length;
     const cover = titleToks.size ? titleHit / titleToks.size : 0;
     const titleKind = new RegExp(`\\b(${[...GENERIC].join('|')})\\b`).test(norm(p.title));
-    // Either the phrase is mostly the page's name, or the page's name is mostly in the phrase (the DM talks around it).
+    // Either the phrase is mostly the page's name, or the page's name is mostly in the phrase (the GM talks around it).
     const score = Math.max(hit / want.length, titleHit >= Math.min(2, titleToks.size) ? cover : 0) + (hasKind && titleKind ? 0.1 : 0);
     return { p, score };
   }).filter((x) => x.score >= 0.6).sort((a, b) => b.score - a.score);

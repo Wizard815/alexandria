@@ -7,14 +7,15 @@ import { randomInt } from 'node:crypto';
 export const MAX_TOOLS = 16;
 /** Offered to the player harness for every message. */
 export const CORE_TOOLS = ['search_library', 'read_page'];
-/** Offered to the DM harness for every message: the tools of a DM's working day. `more_tools` is the harness's own meta tool. */
-export const DM_CORE_TOOLS = ['search_library', 'read_page', 'save_page', 'context_for', 'who_is', 'memory_log', 'status_update', 'get_combat', 'lookup_rule', 'more_tools'];
+/** Offered to the GM harness for every message: the tools of a GM's working day. `more_tools` is the harness's own meta tool. */
+export const GM_CORE_TOOLS = ['search_library', 'read_page', 'save_page', 'context_for', 'who_is', 'memory_log', 'status_update', 'get_combat', 'lookup_rule', 'more_tools'];
 
 interface Category { re: RegExp; tools: string[] }
 
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\bwhat('?s| is| has been)? new\b|\bwhat (have|did) (i|we|you) (just |recently )?(add|import|install|made|make)\w*|\b(added|imported|installed) (lately|recently)\b|\b(recently|lately) added\b|\bnew (house ?rules?|mods?|items?|templates?|guides?|modules?|stuff)\b(?! (for|to|called|named))/i, tools: ['whats_new', 'house_rules', 'search_items', 'list_gm_templates'] },
   { re: /\b(make|write|build|create|draft|design|add|change|edit|fix|copy|import)\b.{0,40}\b(house ?rules?|mods?|rule files?|homebrew (rule|system)s?|variant rules?|table rules?)\b|\b(house ?rule|mod) (file|studio|kit)\b/i, tools: ['house_rule_guide', 'house_rule_file', 'house_rule_check', 'house_rule_save', 'house_rules'] },
   { re: /\b(house ?rules?|table rules?|variant rules?|re-?rolls?|inspiration|hero points?|luck (tokens?|points?)|reward (the |their |good )?(rp|roleplay|role-play))\b/i, tools: ['house_rule_grant', 'house_rules', 'house_rule_counters', 'house_rule_spend', 'house_rule_check', 'house_rule_save'] },
   // DownTime (the feature) and a house rule's own data system can both answer "downtime": a plain mention offers the core of each.
@@ -25,7 +26,7 @@ const CATEGORIES: Category[] = [
   { re: /\bfoundry\b|\bvtt\b|\b(move|drag|put) (the |my |our )?[\w' -]{0,30}token\b|\btokens?\b.*\b(scene|map)\b/i, tools: ['foundry_status', 'foundry_move_token', 'foundry_send_map', 'foundry_send_handout', 'foundry_say', 'list_pages'] },
   { re: /\broll ?20\b/i, tools: ['roll20_status', 'roll20_send_handout', 'roll20_say', 'list_pages'] },
   { re: /\bowlbear\b|\bvtt\b|\bvirtual table(top)?\b/i, tools: ['owlbear_status', 'owlbear_link'] },
-  { re: /\b(share|unshare)\b|\bshared with\b|\bwho can (see|read|open)\b|\bnew from the dm\b|\bsend (this|that|the|a|my) (\w+ )?(page|file|folder|handout|picture|image) (to|with)\b/i, tools: ['share_library_item', 'library_sharing', 'list_pages', 'read_page'] },
+  { re: /\b(share|unshare)\b|\bshared with\b|\bwho can (see|read|open)\b|\bnew from the [dg]m\b|\bsend (this|that|the|a|my) (\w+ )?(page|file|folder|handout|picture|image) (to|with)\b/i, tools: ['share_library_item', 'library_sharing', 'list_pages', 'read_page'] },
   { re: /\b(open|close|start|end|begin|finish)\b.*\b(the table|a game session|tonight'?s game|game session)\b|\bgame session (open|closed)\b/i, tools: ['start_game_session', 'end_game_session', 'get_game_session'] },
   { re: /\b(accept|reject|decline|approve)\b.*\bdate (change|the draft)|\bdate change\b/i, tools: ['decide_session_date', 'list_session_log_drafts', 'read_session_log_draft'] },
   { re: /\b(own (codex )?page|keeps? coming up|promote (him|her|them|it)|give (him|her|them) (a |his |her |their )?(own )?(codex )?page)\b/i, tools: ['promote', 'who_is', 'codex_upsert', 'context_for'] },
@@ -49,7 +50,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(activate|run|trigger|switch to|go to|start|cue) (the |a |my )?([\w' -]{1,30} )?(scene|preset)\b|\b(saved|my) scenes?\b|\bset the (whole )?room\b|\bone[- ]button\b/i, tools: ['activate_scene', 'list_scenes'] },
   { re: /\b(play|mood|tense|ambience|ambient|sound|sounds|music|scene|layer|soundtrack|sound ?board|sound effects?|sfx|thunder|rain|creak|hush|eerie|spooky|creepy|ominous|haunting|battle music)\b/i, tools: ['get_sound_now', 'play_music', 'play_ambience', 'send_scene', 'play_sfx', 'stop_music', 'list_sound_library', 'list_sound_scenes'] },
   { re: /\b(templates?|sculpt\w*)\b/i, tools: ['list_templates', 'sculpt_templates', 'sculpt', 'create_template'] },
-  { re: /\b(guides?|dm templates?|templates? (?:and|&) guides?|web research|research (?:the|a|an|it|on)|search the web|look (?:it |that )?up online|on the (?:web|internet)|irl|real[- ]world)\b/i, tools: ['list_dm_templates', 'get_dm_template', 'create_dm_template', 'update_dm_template', 'web_research'] },
+  { re: /\b(guides?|[dg]m templates?|templates? (?:and|&) guides?|web research|research (?:the|a|an|it|on)|search the web|look (?:it |that )?up online|on the (?:web|internet)|irl|real[- ]world)\b/i, tools: ['list_gm_templates', 'get_gm_template', 'create_gm_template', 'update_gm_template', 'web_research'] },
   { re: /\b(initiative|end (the )?(fight|combat|battle|encounter)|flee|fled|flees|run away|remove|removed|kill(ed)?|dead|dies|died|defeated|slain)\b/i, tools: ['set_initiative', 'remove_combatant', 'set_combat', 'damage_combatant', 'add_combatant', 'next_turn'] },
   { re: /\b(concentrat\w*|temp(orary)? (hp|hit points)|death sav\w*|saving throws? (at|on) 0|stabili[sz]e\w*|unconscious|dying|nat(ural)? (20|1)|crit(ical)?)\b/i, tools: ['give_temp_hp', 'set_concentration', 'concentration_save', 'death_save', 'set_combatant_state', 'damage_combatant', 'heal_combatant', 'get_combat'] },
   { re: /\b(party (status|health|hp|mana)|(player|character|their|his|her)'?s? (hp|health|hit points|mana|sheet)|how (hurt|healthy) is|sheets?|re-?rolls?|inspiration)\b/i, tools: ['party_status', 'change_player_hp', 'give_reroll'] },
@@ -65,6 +66,8 @@ const CATEGORIES: Category[] = [
   { re: /\b(refresh (the )?world|resync|re-?sync|sync (everything|all|the sources)|update (the )?(index|knowledge)|rebuild (the )?(index|knowledge))\b/i, tools: ['refresh_world', 'world_sources'] },
   { re: /\b(quick events?|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['list_quick_events', 'send_quick_event', 'resolve_quick_event', 'cancel_quick_event'] },
   { re: /\b(encounters?|npc (walks|comes) up|walks up to|approaches|wander(ing)?|street gambler|shell game|coin toss|dice duel|peddler|mini-?games?)\b/i, tools: ['list_encounters', 'list_encounter_templates', 'send_encounter', 'encounter_say', 'end_encounter'] },
+  { re: /\b(quick[- ]?events?|random events?|(?:town|city|road|woods|forest|cave|dungeon|tavern|market|wilderness|travel) events?|something happens|pickpocket|undervalued gem)\b/i, tools: ['list_encounter_templates', 'send_encounter', 'save_encounter_template', 'list_encounters', 'list_gm_templates', 'get_gm_template'] },
+  { re: /\b(new spell|homebrew spell|make (?:a|me a) spell|design (?:a )?spell|invent (?:a )?spell|spell template|cantrip)\b/i, tools: ['save_homebrew_spell', 'list_spells', 'read_spell', 'list_gm_templates', 'get_gm_template'] },
   { re: /\b(arcs?|close the (current )?arc|new arc|start an arc)\b/i, tools: ['arc_close', 'arc_start', 'context_for', 'codex_upsert'] },
   { re: /\b(jot|jot down|note down|write (this |that |it )?down|an idea|idea:|log that|log this|file (this )?conversation|by speaker)\b/i, tools: ['memory_capture', 'conversation_log', 'memory_log'] },
   { re: /\b(broker|special offers?|offers?|information for sale|sell (this|that|the) (fact|info)|may sell)\b/i, tools: ['add_broker_note', 'send_broker_offer', 'list_broker_requests', 'broker_answer', 'list_broker_offers', 'ask_broker_quote', 'broker_pay_options', 'broker_deliver', 'broker_refuse'] },
@@ -113,26 +116,26 @@ const CATEGORIES: Category[] = [
 const DEFAULTS = ['search_transcript', 'list_pages', 'lookup_rule', 'get_world_date', 'list_people', 'get_live'];
 
 /** Every tool name some message can get offered (the categories, the defaults and the always-on ones). */
-export const offerableTools = (): Set<string> => new Set([...CORE_TOOLS, ...DM_CORE_TOOLS, ...DEFAULTS, ...CATEGORIES.flatMap((c) => c.tools)]);
+export const offerableTools = (): Set<string> => new Set([...CORE_TOOLS, ...GM_CORE_TOOLS, ...DEFAULTS, ...CATEGORIES.flatMap((c) => c.tools)]);
 
 /**
  * At most `max` tool names for this message, from the ones a harness may use
- * (`available`). The DM gets a fixed core (DM_CORE_TOOLS) then the matching
+ * (`available`). The GM gets a fixed core (GM_CORE_TOOLS) then the matching
  * categories, most specific first, and never the player-only `my_*` tools; a
  * player gets search_library and read_page then the categories. A tool that is
  * not offered but exists is still run if the model asks for it, and
  * `more_tools` lets the model fetch the schemas of others.
  */
-export function selectTools(text: string, available: string[], max = MAX_TOOLS, dm = available.includes('save_page')): string[] {
+export function selectTools(text: string, available: string[], max = MAX_TOOLS, gm = available.includes('save_page')): string[] {
   const have = new Set(available);
-  if (dm) have.add('more_tools');
+  if (gm) have.add('more_tools');
   const out: string[] = [];
-  const add = (n: string) => { if (have.has(n) && !out.includes(n) && !(dm && n.startsWith('my_'))) out.push(n); };
-  for (const n of dm ? DM_CORE_TOOLS : CORE_TOOLS) add(n);
+  const add = (n: string) => { if (have.has(n) && !out.includes(n) && !(gm && n.startsWith('my_'))) out.push(n); };
+  for (const n of gm ? GM_CORE_TOOLS : CORE_TOOLS) add(n);
   let matched = false;
   for (const c of CATEGORIES) if (c.re.test(text)) { matched = true; for (const n of c.tools) add(n); }
   // Combat words are common in plain questions ("what turn is it"): the combat list leaves room for the others.
-  if (!matched || (!dm && out.length < max)) for (const n of DEFAULTS) add(n);
+  if (!matched || (!gm && out.length < max)) for (const n of DEFAULTS) add(n);
   // The core always stays; what does not fit among the categories is left out.
   return out.slice(0, max);
 }
@@ -203,10 +206,10 @@ const title = (w: string) => w.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
  * A command that needs no model: rolling dice, the date, next turn, adding
  * creatures, "who's up", damage and healing by name. Null if it is something
  * else (and the model should answer). Writes are only planned here: the agent
- * still asks the DM to confirm them. `dm` is false for a player, who only
+ * still asks the GM to confirm them. `gm` is false for a player, who only
  * gets dice and the date.
  */
-export function fastPlan(raw: string, dm: boolean, rng: (n: number) => number = (n) => randomInt(1, n + 1)): FastPlan | null {
+export function fastPlan(raw: string, gm: boolean, rng: (n: number) => number = (n) => randomInt(1, n + 1)): FastPlan | null {
   if (raw.length > 120) return null;
   const t = clean(raw);
   let m: RegExpMatchArray | null;
@@ -231,7 +234,7 @@ export function fastPlan(raw: string, dm: boolean, rng: (n: number) => number = 
 
   if (/^(what('?s| is| was)?|tell me|show me|whats)\s+(the\s+)?(current\s+|today'?s\s+)?(in[- ]game\s+|world\s+|game\s+)?(date|time|day)(\s+(today|now|is it|is it now))?$/i.test(t) || /^what\s+(day|date|time)\s+is\s+it(\s+now)?$/i.test(t)) return { kind: 'date', what: 'date' };
 
-  if (!dm) return null;
+  if (!gm) return null;
 
   if (/^(next(\s+turn)?|end(\s+the)?\s+turn|next up|advance(\s+the)?\s+(turn|initiative)|go to the next (turn|creature|combatant))$/i.test(t)) return { kind: 'calls', what: 'next_turn', intro: 'Moving to the next turn.', calls: [{ tool: 'next_turn', args: {} }] };
   if (/^(who'?s|who is|whose)\s+(up|next|turn)(\s+(is it|now|next))?$/i.test(t) || /^whose turn( is it)?$/i.test(t)) return { kind: 'combat', verb: 'who', what: 'whose_turn' };

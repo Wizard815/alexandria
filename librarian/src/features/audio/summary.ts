@@ -4,7 +4,7 @@
 // and a player's assistant can say what happened tonight.
 //
 // Two summaries per session, never mixed:
-//   dm     from every line the DM can read (asides included). DM only.
+//   gm     from every line the GM can read (asides included). GM only.
 //   party  from the lines players can read, nothing else. What a player's assistant is given.
 // A line holding classified content is left out before anything is sent to a model. The summary is folded forward:
 // the model gets the summary so far and the lines that came in since, and returns the new summary.
@@ -17,7 +17,7 @@ import { listSessions, sessionLines, type TranscriptLine } from './api.ts';
 export const SUMMARY_SCHEMA = `
 CREATE TABLE IF NOT EXISTS audio_summaries (
   session_id TEXT NOT NULL REFERENCES audio_sessions(id) ON DELETE CASCADE,
-  audience TEXT NOT NULL CHECK (audience IN ('dm', 'party')),
+  audience TEXT NOT NULL CHECK (audience IN ('gm', 'party')),
   world_id TEXT NOT NULL,
   text TEXT NOT NULL DEFAULT '',
   upto TEXT NOT NULL DEFAULT '',
@@ -35,7 +35,7 @@ const STEP_LINES = 120;
 const STEP_CHARS = 14_000;
 const MAX_WORDS = 350;
 
-export type Audience = 'dm' | 'party';
+export type Audience = 'gm' | 'party';
 export interface SessionSummary { sessionId: string; audience: Audience; text: string; lines: number; updatedAt: string | null }
 
 const busy = new Set<string>();
@@ -65,14 +65,14 @@ function system(audience: Audience): string {
     '**Right now**: one or two sentences: the scene, where the party is, what is going on.',
     '**Open threads**: bullets: questions, plans, promises, unfinished business.',
     'Facts only from the summary and the lines: never invent names, numbers or events. Keep names as they were spoken. Table talk that is not the game (food, jokes, real life) is left out.',
-    audience === 'party' ? 'This summary is for the players: only what they said, heard and saw.' : 'This summary is for the Dungeon Master.',
+    audience === 'party' ? 'This summary is for the players: only what they said, heard and saw.' : 'This summary is for the Game Master.',
   ].join('\n');
 }
 
 /**
  * Bring one session's summary up to date for one audience. `force` folds in whatever is new now (the session ended,
  * or someone asked); otherwise only when enough has come in. `rebuild` makes it again from every line the session has
- * now (the final transcript replaced the live lines, or the DM undid it): the old summary is kept unless the whole
+ * now (the final transcript replaced the live lines, or the GM undid it): the old summary is kept unless the whole
  * rebuild succeeds. Never throws for a model problem.
  */
 export async function updateSummary(d: Deps, worldId: string, sessionId: string, audience: Audience, opts: { force?: boolean; at?: number; rebuild?: boolean } = {}): Promise<{ ran: boolean; reason?: string; lines: number }> {
@@ -88,7 +88,7 @@ export async function updateSummary(d: Deps, worldId: string, sessionId: string,
     // The same test the outgoing screen uses (any classified page, by shared word runs), so a line that would make the
     // whole request refused is left out instead and the summary still runs.
     const secret = (t: string) => d.library.containsClassified(worldId, t) || wouldBeRefused(d, t);
-    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: audience === 'dm' });
+    const lines = sessionLines(d.db, worldId, sessionId, { includeGm: audience === 'gm' });
     // Newer than the summary first, then the secret test: the whole night is not tested again on every pass.
     const fresh = lines.filter((l) => l.updatedAt > upto && !secret(l.text)).sort((a, b) => a.start - b.start);
     if (!fresh.length) return { ran: false, reason: 'Nothing new', lines: 0 };
@@ -123,22 +123,22 @@ export async function updateSummary(d: Deps, worldId: string, sessionId: string,
       run(d.db, `INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id, audience) DO UPDATE SET text = excluded.text, upto = excluded.upto, lines = excluded.lines, updated_at = excluded.updated_at`,
         sessionId, audience, worldId, text, newest, done, now());
-      d.hub.emit(worldId, 'audio-summary', { sessionId, audience }, (v) => audience === 'party' || v.role === 'dm');
+      d.hub.emit(worldId, 'audio-summary', { sessionId, audience }, (v) => audience === 'party' || v.role === 'gm');
       return { ran: true, lines: done };
     }
     run(d.db, `INSERT INTO audio_summaries (session_id, audience, world_id, text, upto, lines, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id, audience) DO UPDATE SET text = excluded.text, upto = excluded.upto, lines = audio_summaries.lines + ?, updated_at = excluded.updated_at`,
       sessionId, audience, worldId, text, newest, done, now(), done);
-    d.hub.emit(worldId, 'audio-summary', { sessionId, audience }, (v) => audience === 'party' || v.role === 'dm');
+    d.hub.emit(worldId, 'audio-summary', { sessionId, audience }, (v) => audience === 'party' || v.role === 'gm');
     return { ran: true, lines: done };
   } finally { busy.delete(key); }
 }
 
 /** Both summaries of one session. */
 export async function updateBoth(d: Deps, worldId: string, sessionId: string, opts: { force?: boolean; rebuild?: boolean } = {}) {
-  const dm = await updateSummary(d, worldId, sessionId, 'dm', opts);
+  const gm = await updateSummary(d, worldId, sessionId, 'gm', opts);
   const party = await updateSummary(d, worldId, sessionId, 'party', opts);
-  return { dm, party };
+  return { gm, party };
 }
 
 /**
@@ -156,7 +156,7 @@ export function closeStaleSessions(d: Deps, at = Date.now()): { sessionId: strin
     if (at - Date.parse(s.last) < mins * 60_000) continue;
     run(d.db, 'UPDATE audio_sessions SET stopped_at = ? WHERE id = ? AND stopped_at IS NULL', s.last, s.id);
     run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', s.world_id, null, 'audio.auto_close', `Session ${s.id} had no activity for ${mins} minutes and was closed at ${s.last}`, new Date(at).toISOString());
-    d.hub.emit(String(s.world_id), 'audio-closed', { sessionId: s.id, at: s.last, reason: 'idle' }, (v) => v.role === 'dm');
+    d.hub.emit(String(s.world_id), 'audio-closed', { sessionId: s.id, at: s.last, reason: 'idle' }, (v) => v.role === 'gm');
     out.push({ sessionId: String(s.id), worldId: String(s.world_id), stoppedAt: String(s.last) });
   }
   return out;

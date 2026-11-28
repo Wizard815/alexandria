@@ -36,7 +36,7 @@
       "stress"
     ]
   },
-  "dmBand": {
+  "gmBand": {
     "chips": [
       "stress"
     ],
@@ -58,7 +58,7 @@
     {
       "id": "add",
       "label": "Add stress",
-      "by": "dm",
+      "by": "gm",
       "resource": "stress",
       "add": 1,
       "askReason": true,
@@ -69,7 +69,7 @@
     {
       "id": "relieve",
       "label": "Relieve",
-      "by": "dm",
+      "by": "gm",
       "resource": "stress",
       "add": -1,
       "askReason": true
@@ -89,7 +89,7 @@
       "madness",
       "sanity"
     ],
-    "dm": "Stress is on: add 1 for terrifying sights, failed fear saves and grim losses (2 for the truly awful). At the limit the character breaks: give a short-term madness or flaw for the session, then set stress to half. A long rest removes 2.",
+    "gm": "Stress is on: add 1 for terrifying sights, failed fear saves and grim losses (2 for the truly awful). At the limit the character breaks: give a short-term madness or flaw for the session, then set stress to half. A long rest removes 2.",
     "player": "Stress builds from horror and hardship and a long rest takes 2 off. At the limit your character breaks for the session, so rest and find comfort when you can."
   }
 }

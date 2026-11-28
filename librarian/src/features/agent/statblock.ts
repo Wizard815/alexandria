@@ -1,6 +1,6 @@
 // Statblocks in the game module's monster format (docs/MODULES.md): built
 // from a module monster (a copy, no model), a library page or a prompt (the
-// chat model), checked, and saved as a DM-only page in "Statblocks".
+// chat model), checked, and saved as a GM-only page in "Statblocks".
 import type { Deps } from '../../app.ts';
 import { chatJson, hasJob, type ChatMessage } from '../../core/ai.ts';
 import { one } from '../../core/db.ts';
@@ -128,7 +128,7 @@ export async function buildStatblock(d: Deps, worldId: string, viewer: Viewer, s
   let source: { kind: string; ref: string; title: string };
   if ('pageId' in src) {
     // The page goes to a model: the AI copy, which never has classified content.
-    const pg: any = d.library.get(worldId, src.pageId, viewer.role === 'dm' ? { ...viewer, audience: 'ai' } : viewer);
+    const pg: any = d.library.get(worldId, src.pageId, viewer.role === 'gm' ? { ...viewer, audience: 'ai' } : viewer);
     user = `Library page "${pg.title}":\n\n${String(pg.body ?? '').slice(0, 8000)}\n\nBuild the creature's statblock from this page. Use any numbers the page gives; fill in what is missing to fit the creature.`;
     source = { kind: 'page', ref: pg.id, title: pg.title };
   } else {
@@ -136,7 +136,7 @@ export async function buildStatblock(d: Deps, worldId: string, viewer: Viewer, s
     source = { kind: 'prompt', ref: '', title: src.prompt.slice(0, 80) };
   }
   const messages: ChatMessage[] = [
-    { role: 'system', content: `You write D&D 5e statblocks for a game master. Answer with one JSON object only, in this shape (all fields shown; ac, hp, speed, abilities and at least one action are required):\n${SHAPE}\nAbility scores are integers 1 to 30. Keep action text short, with attack bonus and damage.` },
+    { role: 'system', content: `You write 5e statblocks for a Game Master. Answer with one JSON object only, in this shape (all fields shown; ac, hp, speed, abilities and at least one action are required):\n${SHAPE}\nAbility scores are integers 1 to 30. Keep action text short, with attack bonus and damage.` },
     { role: 'user', content: user },
   ];
   const raw = await chatJson<any>(d, 'chat', messages);
@@ -144,12 +144,12 @@ export async function buildStatblock(d: Deps, worldId: string, viewer: Viewer, s
   return { statblock: normalizeStatblock(raw, source.kind === 'page' ? source.title : ''), source };
 }
 
-/** Save a statblock as a DM-only library page in "Statblocks". */
+/** Save a statblock as a GM-only library page in "Statblocks". */
 export function saveStatblockPage(d: Deps, worldId: string, accountId: string, sb: Statblock, source: { kind: string; ref: string; title: string; attribution?: string }) {
   const base = `Statblocks/${sb.name.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim() || 'Creature'}`;
   let path = `${base}.md`;
   for (let n = 2; one(d.db, 'SELECT 1 FROM pages WHERE world_id = ? AND path = ?', worldId, path); n++) path = `${base} ${n}.md`;
-  const frontmatter: Record<string, any> = { title: sb.name, kind: 'statblock', tags: ['statblock'], visibility: 'dm', source: source.kind === 'module' ? `module ${source.ref}` : source.kind };
+  const frontmatter: Record<string, any> = { title: sb.name, kind: 'statblock', tags: ['statblock'], visibility: 'gm', source: source.kind === 'module' ? `module ${source.ref}` : source.kind };
   if (source.attribution) frontmatter.attribution = source.attribution;
-  return d.library.save(worldId, { path, title: sb.name, body: statblockMarkdown(sb), frontmatter, visibility: 'dm' }, accountId);
+  return d.library.save(worldId, { path, title: sb.name, body: statblockMarkdown(sb), frontmatter, visibility: 'gm' }, accountId);
 }

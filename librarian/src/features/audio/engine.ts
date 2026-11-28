@@ -1,6 +1,6 @@
 // The audio pipeline: chunk -> speech to text -> per-mic words -> merged
 // lines with an audience. Everything that decides who may read a line is in
-// flush(): it fails closed (a line is DM-only unless every rule lets
+// flush(): it fails closed (a line is GM-only unless every rule lets
 // players have it).
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -14,7 +14,7 @@ import { DEFAULT_SETTINGS, featureSetting } from '../../core/policy.ts';
 import { HttpError, id as newId, now, parseJson } from '../../core/util.ts';
 import { groupUtterances, MAX_UTTERANCE_MS, mergeGroup, similarity, token, utterances, type Word } from './merge.ts';
 import { cleanWords, echoesPrompt, junkReason, QUIET_LEVEL, type Pw } from './clean.ts';
-import { buildHint, containsTerm, dmOnlyTerms } from './hint.ts';
+import { buildHint, containsTerm, gmOnlyTerms } from './hint.ts';
 import { notifyLine } from './hooks.ts';
 import { runRecordingRetention, rewriteTranscript } from './recordings.ts';
 import { chooseOffsets, dedupeLines, tidyLines, type OffsetEstimate } from './final.ts';
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS audio_lines (
   text TEXT NOT NULL,
   words TEXT NOT NULL DEFAULT '[]',
   sources TEXT NOT NULL DEFAULT '[]',
-  audience TEXT NOT NULL DEFAULT 'dm',
+  audience TEXT NOT NULL DEFAULT 'gm',
   audience_override TEXT,
   rev INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL
@@ -127,10 +127,10 @@ export const HOLD_KINDS = ['talk', 'mute', 'aside'] as const;
 export interface MicRow { id: string; world_id: string; account_id: string; device_id: string; label: string; mode: Mode; players_transcript: number; aside: number; room: number; created_at: string }
 export interface LineRow {
   id: string; session_id: string; world_id: string; start_ms: number; end_ms: number; speaker_account: string | null; speaker_label: string;
-  text: string; words: string; sources: string; audience: 'players' | 'dm'; audience_override: 'players' | 'dm' | null; rev: number; updated_at: string;
+  text: string; words: string; sources: string; audience: 'players' | 'gm'; audience_override: 'players' | 'gm' | null; rev: number; updated_at: string;
 }
 
-// A line is DM-only only if it overlaps the aside (plus a little for clock jitter between devices); the lines either side stay with the table.
+// A line is GM-only only if it overlaps the aside (plus a little for clock jitter between devices); the lines either side stay with the table.
 const ASIDE_PAD = 40;
 
 /** Split an utterance wherever a cut time falls between two of its words. */
@@ -152,10 +152,10 @@ export const TABLE = 'Table';
 const overlaps = (a0: number, a1: number, b0: number, b1: number) => a0 < b1 && a1 > b0;
 
 /** What each kind of viewer is sent for a line. Players never get sources, words or the audience field. */
-export function lineView(l: LineRow, dm: boolean, nameOf: (accountId: string) => string) {
+export function lineView(l: LineRow, gm: boolean, nameOf: (accountId: string) => string) {
   const speaker = l.speaker_account ? nameOf(l.speaker_account) : l.speaker_label;
   const base = { id: l.id, sessionId: l.session_id, start: l.start_ms, end: l.end_ms, speaker, speakerId: l.speaker_account, text: l.text, rev: l.rev, updatedAt: l.updated_at };
-  if (!dm) return base;
+  if (!gm) return base;
   return { ...base, audience: l.audience, override: l.audience_override, sources: parseJson<string[]>(l.sources, []), words: parseJson<unknown[]>(l.words, []) };
 }
 
@@ -177,7 +177,7 @@ export class Engine {
 
   // ---- hints for the speech model --------------------------------------
 
-  /** What a world's players may read: see hint.ts. Never a DM-only, broker or classified title. */
+  /** What a world's players may read: see hint.ts. Never a GM-only, broker or classified title. */
   hint(worldId: string): string {
     const c = this.hints.get(worldId);
     if (c && Date.now() - c.at < 15_000) return c.text;
@@ -188,12 +188,12 @@ export class Engine {
   }
   resetHint(worldId?: string) { if (worldId) this.hints.delete(worldId); else this.hints.clear(); this.terms.clear(); }
 
-  /** DM-only titles and aliases of a world, as token lists (cached for a short while). */
-  private dmTerms(worldId: string): string[][] {
+  /** GM-only titles and aliases of a world, as token lists (cached for a short while). */
+  private gmTerms(worldId: string): string[][] {
     const c = this.terms.get(worldId);
     if (c && Date.now() - c.at < 15_000) return c.list;
     let list: string[][] = [];
-    try { list = dmOnlyTerms(this.d.db, worldId); } catch { /* none */ }
+    try { list = gmOnlyTerms(this.d.db, worldId); } catch { /* none */ }
     this.terms.set(worldId, { at: Date.now(), list });
     return list;
   }
@@ -388,7 +388,7 @@ export class Engine {
   /**
    * After a recording stops: listen to the kept audio again in windows of up to 60 s with the audio job's `refineModel`
    * (a bigger model; longer context is worth about ten points of word error over 5 s pieces) and replace the words. Lines
-   * keep their ids and DM-only flags, and a line that was DM-only stays DM-only (nothing is loosened). Off unless the
+   * keep their ids and GM-only flags, and a line that was GM-only stays GM-only (nothing is loosened). Off unless the
    * world's transcriptRefine is on and the job names a refineModel. Returns how many windows were redone.
    */
   async refine(sessionId: string, opts: { force?: boolean } = {}): Promise<number> {
@@ -465,10 +465,10 @@ export class Engine {
     if (p.finished) { sets.push('finished_at = ?'); vals.push(now()); }
     if (sets.length) run(this.d.db, `UPDATE audio_final SET ${sets.join(', ')} WHERE session_id = ?`, ...vals, sessionId);
     const row = one<any>(this.d.db, 'SELECT status, step, pct FROM audio_final WHERE session_id = ?', sessionId);
-    if (row) this.d.hub.emit(worldId, 'transcript-final', { sessionId, status: row.status, step: row.step, pct: row.pct }, (v) => v.role === 'dm');
+    if (row) this.d.hub.emit(worldId, 'transcript-final', { sessionId, status: row.status, step: row.step, pct: row.pct }, (v) => v.role === 'gm');
   }
 
-  /** The final pass of a session (running, finished or undone), for the DM. */
+  /** The final pass of a session (running, finished or undone), for the GM. */
   finalView(sessionId: string) {
     const f = one<any>(this.d.db, 'SELECT * FROM audio_final WHERE session_id = ?', sessionId);
     if (!f) return null;
@@ -478,7 +478,7 @@ export class Engine {
     };
   }
 
-  /** The lines as they were live, before the final pass (as the DM's view). */
+  /** The lines as they were live, before the final pass (as the GM's view). */
   liveLines(sessionId: string): LineRow[] {
     const f = one<any>(this.d.db, 'SELECT live_lines FROM audio_final WHERE session_id = ?', sessionId);
     return f ? parseJson<LineRow[]>(f.live_lines, []) : [];
@@ -496,7 +496,7 @@ export class Engine {
    * The final transcript of a stopped session: every mic's words put on one timeline (clock offsets from the words they
    * share and from the clock samples of their uploads), the best mic for each moment, duplicates across mics removed,
    * speakers from the mic's owner, line breaks fixed. It replaces the live lines (kept in audio_final for comparing and
-   * undo); DM-only lines stay DM-only and a DM's own audience marks are kept. With `retranscribe` the kept audio is first
+   * undo); GM-only lines stay GM-only and a GM's own audience marks are kept. With `retranscribe` the kept audio is first
    * listened to again with the server's speech model. Transcript.md is written again after.
    */
   finalize(sessionId: string, opts: { retranscribe?: boolean } = {}): Promise<void> {
@@ -566,7 +566,7 @@ export class Engine {
     }
   }
 
-  /** Put the live lines back (the DM prefers them) and write Transcript.md again. */
+  /** Put the live lines back (the GM prefers them) and write Transcript.md again. */
   undoFinal(sessionId: string): number {
     const { db } = this.d;
     const f = one<any>(db, 'SELECT * FROM audio_final WHERE session_id = ?', sessionId);
@@ -617,7 +617,7 @@ export class Engine {
   }
   flushAll() { for (const k of [...this.dirty.keys()]) this.flush(k); }
 
-  private merge(sessionId: string, from: number, to: number, keepDm = false, opts: { offsets?: Map<string, number>; final?: boolean } = {}) {
+  private merge(sessionId: string, from: number, to: number, keepGm = false, opts: { offsets?: Map<string, number>; final?: boolean } = {}) {
     const { db } = this.d;
     const session = one<any>(db, 'SELECT * FROM audio_sessions WHERE id = ?', sessionId);
     if (!session) return;
@@ -663,14 +663,14 @@ export class Engine {
     for (const [micId, words] of raw) {
       const m = mics.get(micId);
       if (!m) continue;
-      // A mic marked "aside" is an aside whenever it hears speech; a DM-only mic that is hold-to-talk likewise
+      // A mic marked "aside" is an aside whenever it hears speech; a GM-only mic that is hold-to-talk likewise
       // (in case its hold events never arrived).
       if (m.aside || (!m.players_transcript && m.mode === 'hold-to-talk')) for (const u of utterances(micId, words, 1000)) aside.push([u.start, u.end]);
     }
 
     // Speech never joins across an aside's edges: without this a mic's talk just
     // before an aside and the aside itself become one utterance, and the merge
-    // splices them together (the whole line then turns DM-only).
+    // splices them together (the whole line then turns GM-only).
     const cuts = [...new Set(aside.flatMap(([a, b]) => [a, b]))].sort((x, y) => x - y);
 
     // Per mic: apply its mode and hold windows, then split into utterances.
@@ -699,7 +699,7 @@ export class Engine {
     const existing = all<LineRow>(db, 'SELECT * FROM audio_lines WHERE session_id = ? AND end_ms >= ? AND start_ms <= ? ORDER BY start_ms', sessionId, lowest, highest);
     const used = new Set<string>();
     const nm = this.nameOf(session.world_id);
-    const terms = this.dmTerms(session.world_id);
+    const terms = this.gmTerms(session.world_id);
 
     for (const l of lines) {
       // Speaker: a personal mic is credited only when it is clearly the close one; otherwise it is the table.
@@ -716,16 +716,16 @@ export class Engine {
       // Audience: fail closed.
       const inAside = aside.some(([a, b]) => overlaps(l.start - ASIDE_PAD, l.end + ASIDE_PAD, a, b));
       const anyPlayersMic = l.mics.some((id) => mics.get(id)?.players_transcript === 1);
-      // A DM-only title in a line that only one mic heard may be the speech model repeating something it was given: DM-only.
+      // A GM-only title in a line that only one mic heard may be the speech model repeating something it was given: GM-only.
       const echoRisk = l.mics.length < 2 && containsTerm(l.text, terms);
-      const computed: 'players' | 'dm' = !anyPlayersMic || inAside || echoRisk ? 'dm' : 'players';
+      const computed: 'players' | 'gm' = !anyPlayersMic || inAside || echoRisk ? 'gm' : 'players';
 
       const match = this.findExisting(existing, used, l.start, l.end, l.text);
       const sources = JSON.stringify(l.mics);
       const words = JSON.stringify(l.words.map((w) => ({ w: w.w, s: w.s, e: w.e, c: Math.round(w.c * 1000) / 1000, mic: w.mic })));
       if (match) {
         used.add(match.id);
-        const audience = match.audience_override ?? (keepDm && match.audience === 'dm' ? 'dm' : computed);
+        const audience = match.audience_override ?? (keepGm && match.audience === 'gm' ? 'gm' : computed);
         if (match.text === l.text && match.start_ms === l.start && match.end_ms === l.end && match.audience === audience && match.speaker_account === speakerAccount && match.speaker_label === speakerLabel && match.sources === sources) continue;
         const next: LineRow = { ...match, start_ms: l.start, end_ms: l.end, text: l.text, words, sources, speaker_account: speakerAccount, speaker_label: speakerLabel, audience, rev: match.rev + 1, updated_at: now() };
         run(db, 'UPDATE audio_lines SET start_ms = ?, end_ms = ?, text = ?, words = ?, sources = ?, speaker_account = ?, speaker_label = ?, audience = ?, rev = ?, updated_at = ? WHERE id = ?',
@@ -770,24 +770,24 @@ export class Engine {
     return (accountId: string) => m.get(accountId) ?? 'Someone';
   }
 
-  /** Live event: the DM gets every revision; a player only lines that are (or were just) theirs. */
-  emitLine(l: LineRow, prevAudience: 'players' | 'dm' | null, nameOf: (id: string) => string, removed = false) {
+  /** Live event: the GM gets every revision; a player only lines that are (or were just) theirs. */
+  emitLine(l: LineRow, prevAudience: 'players' | 'gm' | null, nameOf: (id: string) => string, removed = false) {
     notifyLine(this.d, l.world_id, l.id, removed);
     this.d.hub.emitPer(l.world_id, 'transcript-line', (v) => {
-      if (v.role === 'dm') return removed ? { id: l.id, rev: l.rev, removed: true, sessionId: l.session_id } : { ...lineView(l, true, nameOf) };
+      if (v.role === 'gm') return removed ? { id: l.id, rev: l.rev, removed: true, sessionId: l.session_id } : { ...lineView(l, true, nameOf) };
       if (v.role !== 'player') return null;
       if (!removed && l.audience === 'players') return lineView(l, false, nameOf);
-      // It was visible and now is not (marked DM-only, or gone): tell players to drop it.
+      // It was visible and now is not (marked GM-only, or gone): tell players to drop it.
       if (prevAudience === 'players') return { id: l.id, rev: l.rev, removed: true, sessionId: l.session_id };
       return null;
     });
   }
 
-  /** DM marks a line (or clears the mark with 'auto'). */
-  setAudience(line: LineRow, to: 'players' | 'dm' | 'auto', worldId: string) {
+  /** GM marks a line (or clears the mark with 'auto'). */
+  setAudience(line: LineRow, to: 'players' | 'gm' | 'auto', worldId: string) {
     const override = to === 'auto' ? null : to;
-    let audience: 'players' | 'dm' = override ?? line.audience;
-    if (to === 'auto') audience = 'dm'; // until the next merge recomputes it: fail closed
+    let audience: 'players' | 'gm' = override ?? line.audience;
+    if (to === 'auto') audience = 'gm'; // until the next merge recomputes it: fail closed
     const next: LineRow = { ...line, audience_override: override, audience, rev: line.rev + 1, updated_at: now() };
     run(this.d.db, 'UPDATE audio_lines SET audience = ?, audience_override = ?, rev = ?, updated_at = ? WHERE id = ?', next.audience, override, next.rev, next.updated_at, next.id);
     this.emitLine(next, line.audience, this.nameOf(worldId));

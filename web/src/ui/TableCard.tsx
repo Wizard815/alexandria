@@ -1,4 +1,4 @@
-// One block on the DM's Table (pages/dm/Table.tsx), for the page itself and for features that add blocks (registry dmTable).
+// One block on the GM's Table (pages/gm/Table.tsx), for the page itself and for features that add blocks (registry gmTable).
 // A block with nothing going on shrinks to one line ("quiet"), so the busy ones get the room.
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -9,7 +9,7 @@ export interface TableCardProps {
   title: string;
   /** A Font Awesome solid name, e.g. 'fa-khanda'. */
   icon: string;
-  /** Under /w/:world/dm/, with its words. */
+  /** Under /w/:world/gm/, with its words. */
   link?: [string, string];
   /** Set when there is nothing to show: the block is one line with this text. */
   quiet?: ReactNode;
@@ -22,7 +22,7 @@ export interface TableCardProps {
 
 export function TableCard({ id, title, icon, link, quiet, tone, badge, className, children }: TableCardProps) {
   const { info } = useWorld();
-  const href = link && `/w/${info.slug}/dm/${link[0]}`;
+  const href = link && `/w/${info.slug}/gm/${link[0]}`;
   const h = `tb-${id}-h`;
   if (quiet) {
     return (

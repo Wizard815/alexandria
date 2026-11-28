@@ -1,5 +1,5 @@
 // Where modules live: the two built-in ones (bundled JSON, read once) and
-// the ones a DM imported (tables below). A world enables some of them in an
+// the ones a GM imported (tables below). A world enables some of them in an
 // order; the merged, de-duplicated term list is cached per world.
 import fs from 'node:fs';
 import path from 'node:path';

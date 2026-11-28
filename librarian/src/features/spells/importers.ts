@@ -1,4 +1,4 @@
-// Spells into a world from somewhere else: a JSON or CSV file the DM uploads,
+// Spells into a world from somewhere else: a JSON or CSV file the GM uploads,
 // a game module the world has (its terms of kind "spell"), or library pages.
 // Everything is stored for this world only, marked with its source, and a
 // spell with the same name and source as one already there is skipped (or
@@ -25,7 +25,7 @@ function fromRows(rows: unknown[], source: string, warnings: string[]): Omit<Spe
   return out;
 }
 
-/** Read what the DM sent, without saving anything. */
+/** Read what the GM sent, without saving anything. */
 export function readImport(d: Deps, worldId: string, b: any): ImportRead {
   const warnings: string[] = [];
   const type = String(b?.type ?? '');
@@ -53,8 +53,8 @@ export function readImport(d: Deps, worldId: string, b: any): ImportRead {
     return { source, attribution: m.doc.attribution ?? '', spells: fromRows(rows, source, warnings), warnings };
   }
   if (type === 'library') {
-    // Pages the DM picked, or every page in a folder. A classified page is never read (its text may never reach a model),
-    // and DM-only parts inside a page (secret blocks, DM comments) are left out: they stay on the page.
+    // Pages the GM picked, or every page in a folder. A classified page is never read (its text may never reach a model),
+    // and GM-only parts inside a page (secret blocks, GM comments) are left out: they stay on the page.
     const ids: string[] = Array.isArray(b.pageIds) ? b.pageIds.map(String).slice(0, 2000) : [];
     const folder = typeof b.folder === 'string' ? b.folder.replace(/^\/+|\/+$/g, '') : '';
     if (!ids.length && !folder) throw new HttpError(400, 'Choose pages (pageIds) or a folder');

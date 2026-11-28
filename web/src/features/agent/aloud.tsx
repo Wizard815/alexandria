@@ -1,7 +1,7 @@
-// Read the assistant's replies aloud, on the DM's own device only. The text goes to the world's own text-to-speech model
-// (POST /agent/speak, DM only) and the audio is played here, never on the table speakers. The choice is remembered per
-// browser. Also home to the spoken-request notice: when the DM says "Minerva, <request>" while recording, the reply
-// arrives as a live event to the DM alone and is shown as a small notice (and read aloud if that is on).
+// Read the assistant's replies aloud, on the GM's own device only. The text goes to the world's own text-to-speech model
+// (POST /agent/speak, GM only) and the audio is played here, never on the table speakers. The choice is remembered per
+// browser. Also home to the spoken-request notice: when the GM says "Minerva, <request>" while recording, the reply
+// arrives as a live event to the GM alone and is shown as a small notice (and read aloud if that is on).
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import { useAuth } from '../../lib/auth.tsx';
@@ -93,23 +93,23 @@ interface Spoken { chatId: string; text: string; request?: string; pending?: num
  * collapsed. Clicking the notice opens that chat; `onOpen` lets the panel unfold itself.
  */
 export function SpokenNotice({ onOpen, phone }: { onOpen?: () => void; phone?: boolean }) {
-  const { on, info, isDM } = useWorld();
+  const { on, info, isGM } = useWorld();
   const { client } = useAuth();
   const [shown, setShown] = useState<Spoken | null>(null);
   const world = info?.id ?? '';
 
   useEffect(() => {
-    if (!isDM) return;
+    if (!isGM) return;
     return on(['agent'], (e) => {
       const d: any = e.data;
       if (d?.kind !== 'spoken' || !d.chatId || typeof d.text !== 'string') return;
-      // The DM phone covers the screen and shows its own notice; the layout's (behind it) must not take the event first.
-      if (!phone && document.querySelector('[data-testid="dmphone"]')) return;
+      // The GM phone covers the screen and shows its own notice; the layout's (behind it) must not take the event first.
+      if (!phone && document.querySelector('[data-testid="gmphone"]')) return;
       if (!claimSpoken(`${d.messageId ?? d.chatId}`)) return;
       setShown({ chatId: d.chatId, text: d.text, request: d.request, pending: d.pending });
       if (aloudNow()) void speakAloud(world, client.token, d.text);
     });
-  }, [on, isDM, client, world, phone]);
+  }, [on, isGM, client, world, phone]);
 
   useEffect(() => {
     if (!shown) return;
@@ -119,7 +119,7 @@ export function SpokenNotice({ onOpen, phone }: { onOpen?: () => void; phone?: b
 
   const open = useCallback(() => {
     if (!shown) return;
-    rememberChat(chatKey(world, 'dm'), shown.chatId);
+    rememberChat(chatKey(world, 'gm'), shown.chatId);
     window.dispatchEvent(new CustomEvent(OPEN_CHAT, { detail: { chatId: shown.chatId } }));
     onOpen?.();
     setShown(null);

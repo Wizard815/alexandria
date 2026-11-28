@@ -1,5 +1,5 @@
 // The pieces of the assistant chat that both layouts draw: the chat switcher, the messages with their approval cards
-// and sources, and the dictation button. `phone` swaps the desktop classes for the DM phone's big-target ones; the
+// and sources, and the dictation button. `phone` swaps the desktop classes for the GM phone's big-target ones; the
 // state and behaviour live in Chat.tsx, so there is one chat, not a desktop one and a phone copy.
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -196,7 +196,7 @@ export function ActionCard({ a, phone, auto, decide, tools = {} }: { a: Act; pho
   );
 }
 
-/** Say a tool name the way the DM would ("lore_delete" -> "lore delete", "publish_*" -> "publish"). */
+/** Say a tool name the way the GM would ("lore_delete" -> "lore delete", "publish_*" -> "publish"). */
 const plain = (t: string) => t.replace(/[_*]+$/, '').replace(/_/g, ' ');
 
 /** The chat's mode: "Ask first" (every change waits for a card) or "Auto" (changes are applied at once, except the tools that always ask). */
@@ -221,9 +221,9 @@ export function AutoSwitch({ phone, on, saving, onToggle, alwaysAsk, trusted = [
   );
 }
 
-/** Messages and the actions waiting on the DM, in the order they happened. */
-export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLink, onNavigate, decide, retry, cardTools }: {
-  phone?: boolean; items: Item[]; live: Live | null; isDM: boolean; auto?: boolean; retry?: () => void; cardTools?: CardTools;
+/** Messages and the actions waiting on the GM, in the order they happened. */
+export function ChatMessages({ phone, items, live, isGM, auto, libraryHref, onLink, onNavigate, decide, retry, cardTools }: {
+  phone?: boolean; items: Item[]; live: Live | null; isGM: boolean; auto?: boolean; retry?: () => void; cardTools?: CardTools;
   libraryHref: (id: string) => string; onLink: (e: React.MouseEvent) => void; onNavigate: (href: string) => void;
   decide: (a: Act, d: 'approve' | 'reject') => void;
 }) {
@@ -249,7 +249,7 @@ export function ChatMessages({ phone, items, live, isDM, auto, libraryHref, onLi
             ))}
           </ul>
         );
-        const timing = isDM && m.role === 'assistant' && m.timings && m.status !== 'working' ? <span title={timingTitle(m.timings)}>{timingText(m.timings)}</span> : null;
+        const timing = isGM && m.role === 'assistant' && m.timings && m.status !== 'working' ? <span title={timingTitle(m.timings)}>{timingText(m.timings)}</span> : null;
         const stamp = m.status === 'working' ? null : <time dateTime={m.at} title={new Date(m.at).toLocaleString()} className={phone ? 'sub' : undefined}>{clock(m.at)}</time>;
         if (phone) {
           return (

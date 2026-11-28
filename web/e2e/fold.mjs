@@ -1,7 +1,7 @@
 // Foldables opened up (fold.css): the Galaxy Z Fold's inner screen upright (700x850) and
 // sideways (850x700), and a wide 4:3 foldable like a folding iPhone (960x720). For the
 // player: the tab bar is a rail on the left, More opens as a drawer beside it, pop-ups
-// stay phone-width and the dock sits in the corner. For the DM: the area rail stays on
+// stay phone-width and the dock sits in the corner. For the GM: the area rail stays on
 // the left, touch-sized, and the Table page offers the phone assistant. On every page
 // tried: no sideways scrolling, no touch target under 40px, no console errors. A desktop
 // window of the same size (mouse) keeps the desktop layout, and a phone keeps its bottom bar.
@@ -22,11 +22,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('fold'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tokDM = await login('dm', 'dungeon master 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokDM } })).json())[0].id;
-const dm = async (method, p, body) => (await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tokDM }, body: body ? JSON.stringify(body) : undefined })).json().catch(() => ({}));
-await dm('POST', '/live/combatants', { name: 'Goblin boss', initiative: 14, hp: 21, maxHp: 21 });
-await dm('PUT', '/live/combat', { active: true, round: 1, turn: 0 });
+const tokGM = await login('gm', 'game master 123');
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokGM } })).json())[0].id;
+const gm = async (method, p, body) => (await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tokGM }, body: body ? JSON.stringify(body) : undefined })).json().catch(() => ({}));
+await gm('POST', '/live/combatants', { name: 'Goblin boss', initiative: 14, hp: 21, maxHp: 21 });
+await gm('PUT', '/live/combat', { active: true, round: 1, turn: 0 });
 
 const FOLDS = [
   { name: 'fold-upright', viewport: { width: 700, height: 850 } },
@@ -34,7 +34,7 @@ const FOLDS = [
   { name: 'wide-4x3', viewport: { width: 960, height: 720 } },
 ];
 const PLAYER = ['', 'live', 'sheet', 'inventory', 'me', 'assistant', 'library', 'people', 'calendar', 'map'];
-const DM = ['', 'combat', 'party', 'inbox', 'library', 'settings', 'phone'];
+const GM = ['', 'combat', 'party', 'inbox', 'library', 'settings', 'phone'];
 
 const browser = await chromium.launch();
 async function open(viewport, touch, user, pass, landing) {
@@ -51,7 +51,7 @@ async function open(viewport, touch, user, pass, landing) {
   return { ctx, page, errors };
 }
 const player = (vp, touch = true) => open(vp, touch, 'jess', 'player pass 123', /\/w\/saltreach/);
-const dmOpen = (vp, touch = true) => open(vp, touch, 'dm', 'dungeon master 123', /\/w\/saltreach\/dm/);
+const gmOpen = (vp, touch = true) => open(vp, touch, 'gm', 'game master 123', /\/w\/saltreach\/gm/);
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `${name}.png`) }).catch(() => {}); };
 const box = (page, sel) => page.locator(sel).first().boundingBox();
 
@@ -135,7 +135,7 @@ for (const f of FOLDS) {
     const { ctx, page } = await player(f.viewport);
     await page.waitForSelector('[data-testid=tabbar]');
     await closeQuick(page);
-    await dm('POST', '/quick-events', { kind: 'notice', title: 'A sound in the reeds', prompt: 'Something moves out there.', skill: 'Perception', dc: 12 });
+    await gm('POST', '/quick-events', { kind: 'notice', title: 'A sound in the reeds', prompt: 'Something moves out there.', skill: 'Perception', dc: 12 });
     const modal = page.locator('.modal[role=dialog]');
     if (check(await modal.waitFor({ timeout: 8000 }).then(() => true, () => false), `${f.name}: quick event did not appear`)) {
       const b = await modal.boundingBox();
@@ -148,51 +148,51 @@ for (const f of FOLDS) {
     await ctx.close();
   }
 
-  // ---- DM ----
+  // ---- GM ----
   {
-    const { ctx, page, errors } = await dmOpen(f.viewport);
+    const { ctx, page, errors } = await gmOpen(f.viewport);
     await page.waitForSelector('.dmx-rail');
     const rail = await box(page, '.dmx-rail');
-    check(rail && rail.x <= 1 && rail.height > rail.width && rail.width <= 110, `${f.name} DM: the area rail is not on the left (${JSON.stringify(rail)})`);
-    for (const a of await page.locator('.dmx-area').all()) { const b = await a.boundingBox(); check(b && b.height >= 56, `${f.name} DM: rail area is small (${JSON.stringify(b)})`); }
-    for (const t of (await page.locator('.dmx-tab').all()).slice(0, 4)) { const b = await t.boundingBox(); check(b && b.height >= 44, `${f.name} DM: page tab is small (${JSON.stringify(b)})`); }
+    check(rail && rail.x <= 1 && rail.height > rail.width && rail.width <= 110, `${f.name} GM: the area rail is not on the left (${JSON.stringify(rail)})`);
+    for (const a of await page.locator('.dmx-area').all()) { const b = await a.boundingBox(); check(b && b.height >= 56, `${f.name} GM: rail area is small (${JSON.stringify(b)})`); }
+    for (const t of (await page.locator('.dmx-tab').all()).slice(0, 4)) { const b = await t.boundingBox(); check(b && b.height >= 44, `${f.name} GM: page tab is small (${JSON.stringify(b)})`); }
     const banner = page.getByTestId('phone-banner');
-    if (check(await banner.isVisible(), `${f.name} DM: no phone assistant banner on the Table`)) {
+    if (check(await banner.isVisible(), `${f.name} GM: no phone assistant banner on the Table`)) {
       const b = await banner.boundingBox();
-      check(b.height <= 90, `${f.name} DM: the phone banner is a tall tile (${Math.round(b.height)}px)`);
+      check(b.height <= 90, `${f.name} GM: the phone banner is a tall tile (${Math.round(b.height)}px)`);
     }
-    for (const r of DM) {
+    for (const r of GM) {
       errors.length = 0;
-      await page.goto(`${base}/w/saltreach/dm/${r}`, { waitUntil: 'domcontentloaded' });
-      await page.waitForSelector(r === 'phone' ? '[data-testid=dmphone]' : '.dmx-rail');
+      await page.goto(`${base}/w/saltreach/gm/${r}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector(r === 'phone' ? '[data-testid=gmphone]' : '.dmx-rail');
       await sleep(800);
       const a = await page.evaluate(AUDIT);
       const bad = [];
       if (a.scrollW > a.vw) bad.push(`sideways scroll (${a.scrollW} > ${a.vw})`);
       if (errors.length) bad.push(errors.join(' | ').slice(0, 200));
-      if (r === 'phone') check((await page.getByTestId('dmphone').getAttribute('data-layout')) === 'two-pane', `${f.name} DM: the phone assistant is not two panes`);
-      for (const b of bad) problems.push(`${f.name} DM /${r}: ${b}`);
-      note(`${bad.length ? 'FAIL' : 'ok  '} dm /${r || '(table)'}${bad.length ? '  ' + bad.join('; ') : ''}`);
-      await shot(page, `${f.name}-dm-${r || 'table'}`);
+      if (r === 'phone') check((await page.getByTestId('gmphone').getAttribute('data-layout')) === 'two-pane', `${f.name} GM: the phone assistant is not two panes`);
+      for (const b of bad) problems.push(`${f.name} GM /${r}: ${b}`);
+      note(`${bad.length ? 'FAIL' : 'ok  '} gm /${r || '(table)'}${bad.length ? '  ' + bad.join('; ') : ''}`);
+      await shot(page, `${f.name}-gm-${r || 'table'}`);
     }
     // Phone mode and back, one tap each way.
-    await page.goto(`${base}/w/saltreach/dm`);
+    await page.goto(`${base}/w/saltreach/gm`);
     await page.getByTestId('to-phone').click();
-    await page.getByTestId('dmphone').waitFor();
+    await page.getByTestId('gmphone').waitFor();
     await page.getByTestId('to-full').click();
-    check(await page.locator('.dmx-rail').waitFor({ timeout: 8000 }).then(() => true, () => false), `${f.name} DM: Full DM did not go back`);
-    note('dm: phone mode and back');
+    check(await page.locator('.dmx-rail').waitFor({ timeout: 8000 }).then(() => true, () => false), `${f.name} GM: Full GM did not go back`);
+    note('gm: phone mode and back');
     // Workspace layouts: two pages side by side, picked from the strip like on a desktop.
-    check(await page.getByTestId('menu-workspace').isVisible(), `${f.name} DM: no Workspace in the strip`);
-    await page.goto(`${base}/w/saltreach/dm/ws?l=cols&p=combat,sound&s=50,50&f=0`);
+    check(await page.getByTestId('menu-workspace').isVisible(), `${f.name} GM: no Workspace in the strip`);
+    await page.goto(`${base}/w/saltreach/gm/ws?l=cols&p=combat,sound&s=50,50&f=0`);
     await page.locator('.ws-pane').first().waitFor();
     await sleep(800);
     const panes = await page.locator('.ws-pane').evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width > 100).map((e) => Math.round(e.getBoundingClientRect().x)));
-    check(panes.length === 2 && panes[1] > panes[0] + 100, `${f.name} DM: the workspace is not two panes side by side (${JSON.stringify(panes)})`);
+    check(panes.length === 2 && panes[1] > panes[0] + 100, `${f.name} GM: the workspace is not two panes side by side (${JSON.stringify(panes)})`);
     const wa = await page.evaluate(AUDIT);
-    check(wa.scrollW <= wa.vw, `${f.name} DM workspace: sideways scroll`);
-    await shot(page, `${f.name}-dm-workspace`);
-    note('dm workspace: two panes');
+    check(wa.scrollW <= wa.vw, `${f.name} GM workspace: sideways scroll`);
+    await shot(page, `${f.name}-gm-workspace`);
+    note('gm workspace: two panes');
     await ctx.close();
   }
 }
@@ -204,9 +204,9 @@ for (const f of FOLDS) {
   check(await page.locator('.topnav.desktop').isVisible(), 'desktop 900x700: the desktop nav is gone');
   check(!(await page.getByTestId('tabbar').isVisible()), 'desktop 900x700: the rail shows with a mouse');
   await ctx.close();
-  const d = await dmOpen({ width: 900, height: 700 }, false);
+  const d = await gmOpen({ width: 900, height: 700 }, false);
   const t = await box(d.page, '.dmx-top');
-  check(t && t.height <= 49, `desktop 900x700 DM: the top bar grew (${t && t.height})`);
+  check(t && t.height <= 49, `desktop 900x700 GM: the top bar grew (${t && t.height})`);
   await d.ctx.close();
   note('desktop 900x700: unchanged');
 }
@@ -219,12 +219,12 @@ for (const f of FOLDS) {
   note('phone 390x844: bottom bar');
 }
 
-// ---- the tab panel can sit left, right, top or bottom (per device), for the player and the DM ----
+// ---- the tab panel can sit left, right, top or bottom (per device), for the player and the GM ----
 const where = (b, W, H) => !b ? 'missing' : b.x <= 1 && b.height >= H * 0.5 && b.width < W / 2 ? 'left' : b.x + b.width >= W - 1 && b.height >= H * 0.5 && b.width < W / 2 ? 'right' : b.width >= W - 2 && b.y + b.height >= H - 1 ? 'bottom' : b.width >= W * 0.8 && b.y < H / 3 ? 'top' : `odd ${JSON.stringify(b)}`;
 // Every side on the Fold; on a phone and a 4:3 screen, the sides that are not their default.
 for (const [vp, sides] of [[{ width: 700, height: 850 }, ['left', 'right', 'top', 'bottom']], [{ width: 390, height: 844 }, ['right', 'top']], [{ width: 960, height: 720 }, ['right', 'bottom']]]) {
   for (const side of sides) {
-    for (const [user, pass, url, sel] of [['jess', 'player pass 123', /\/w\/saltreach/, '[data-testid=tabbar]'], ['dm', 'dungeon master 123', /\/w\/saltreach\/dm/, '.dmx-rail']]) {
+    for (const [user, pass, url, sel] of [['jess', 'player pass 123', /\/w\/saltreach/, '[data-testid=tabbar]'], ['gm', 'game master 123', /\/w\/saltreach\/gm/, '.dmx-rail']]) {
       const ctx = await browser.newContext({ viewport: vp, isMobile: true, hasTouch: true });
       await ctx.addInitScript((s) => { try { localStorage.setItem('alx.navSide', s); } catch { /* */ } }, side);
       const page = await ctx.newPage();
@@ -238,21 +238,21 @@ for (const [vp, sides] of [[{ width: 700, height: 850 }, ['left', 'right', 'top'
       await closeQuick(page);
       const b = await box(page, sel);
       const got = where(b, vp.width, vp.height);
-      const who = user === 'dm' ? 'DM' : 'player';
+      const who = user === 'gm' ? 'GM' : 'player';
       check(got === side, `${vp.width}x${vp.height} ${who}: panel set to ${side} sits ${got}`);
       const a = await page.evaluate(AUDIT);
       check(a.scrollW <= a.vw, `${vp.width}x${vp.height} ${who} ${side}: sideways scroll`);
-      if (user === 'dm') {
+      if (user === 'gm') {
         const ib = await box(page, '.dmx-end a[href$="/inbox"]');
-        check(ib && ib.x + ib.width <= vp.width + 1, `${vp.width}x${vp.height} DM: the top bar runs off the screen (inbox at ${ib && Math.round(ib.x + ib.width)})`);
-        check(await page.getByTestId('to-phone').isVisible(), `${vp.width}x${vp.height} DM: no Phone mode button`);
+        check(ib && ib.x + ib.width <= vp.width + 1, `${vp.width}x${vp.height} GM: the top bar runs off the screen (inbox at ${ib && Math.round(ib.x + ib.width)})`);
+        check(await page.getByTestId('to-phone').isVisible(), `${vp.width}x${vp.height} GM: no Phone mode button`);
       }
       // Nothing of the page hides under the panel: the first heading is clear of it.
       const h = await page.locator('main h1, main h2').first().boundingBox();
       if (h && b) check(!(h.x < b.x + b.width && h.x + h.width > b.x && h.y < b.y + b.height && h.y + h.height > b.y), `${vp.width}x${vp.height} ${who} ${side}: the panel covers the page heading`);
       // A pop-up sits beside a rail, not under it.
       if (user === 'jess' && vp.width === 700 && (side === 'left' || side === 'right')) {
-        await dm('POST', '/quick-events', { kind: 'notice', title: 'A gull cries', prompt: 'Look up.', skill: 'Perception', dc: 10 });
+        await gm('POST', '/quick-events', { kind: 'notice', title: 'A gull cries', prompt: 'Look up.', skill: 'Perception', dc: 10 });
         const m = page.locator('.modal[role=dialog]').first();
         if (check(await m.waitFor({ timeout: 8000 }).then(() => true, () => false), `${side}: quick event did not appear`)) {
           await sleep(400); // the slide-up animation
@@ -269,7 +269,7 @@ for (const [vp, sides] of [[{ width: 700, height: 850 }, ['left', 'right', 'top'
   }
   note(`${vp.width}x${vp.height}: panel ${sides.join(', ')}`);
 }
-// The player picks it in More > Edit tabs; the DM in the world menu.
+// The player picks it in More > Edit tabs; the GM in the world menu.
 {
   const { ctx, page } = await player({ width: 700, height: 850 });
   await page.waitForSelector('[data-testid=tabbar]');
@@ -284,31 +284,31 @@ for (const [vp, sides] of [[{ width: 700, height: 850 }, ['left', 'right', 'top'
   await closeQuick(page);
   check(where(await box(page, '[data-testid=tabbar]'), 700, 850) === 'right', 'the tab bar did not stay on the right after a reload');
   await ctx.close();
-  const d = await dmOpen({ width: 700, height: 850 });
+  const d = await gmOpen({ width: 700, height: 850 });
   await d.page.getByRole('button', { name: /worlds and account/ }).click();
   await d.page.getByTestId('nav-side').getByRole('radio', { name: /Top/ }).click();
   await sleep(200);
-  check(where(await box(d.page, '.dmx-rail'), 700, 850) === 'top', 'DM world menu: Top did not move the rail');
+  check(where(await box(d.page, '.dmx-rail'), 700, 850) === 'top', 'GM world menu: Top did not move the rail');
   // The phone assistant follows the same choice: tabs on top, and no Ask tab beside the Ask pane.
-  await d.page.goto(`${base}/w/saltreach/dm/phone`);
-  await d.page.getByTestId('dmphone').waitFor();
-  const tb = await box(d.page, '.dmp-tabs');
+  await d.page.goto(`${base}/w/saltreach/gm/phone`);
+  await d.page.getByTestId('gmphone').waitFor();
+  const tb = await box(d.page, '.gmp-tabs');
   check(tb && tb.y < 120 && tb.width >= 600, `phone assistant: tabs are not on top (${JSON.stringify(tb)})`);
   check(!(await d.page.getByRole('tab', { name: /^Ask/ }).count()), 'phone assistant: an Ask tab beside the Ask pane');
   await d.page.getByRole('tab', { name: /^Remote/ }).click();
   await d.page.getByRole('radio', { name: /Right/ }).click();
   await sleep(200);
-  const tr = await box(d.page, '.dmp-tabs');
+  const tr = await box(d.page, '.gmp-tabs');
   check(tr && tr.x + tr.width >= 699 && tr.height > 400, `phone assistant: Right did not move the tabs (${JSON.stringify(tr)})`);
   // This device opens in phone mode: the next launch lands on the assistant, once.
   await d.page.getByTestId('start-phone').click();
   const d2 = await d.ctx.newPage();
-  await d2.goto(`${base}/w/saltreach/dm`);
-  check(await d2.getByTestId('dmphone').waitFor({ timeout: 8000 }).then(() => true, () => false), 'start in phone mode: the app did not open the assistant');
+  await d2.goto(`${base}/w/saltreach/gm`);
+  check(await d2.getByTestId('gmphone').waitFor({ timeout: 8000 }).then(() => true, () => false), 'start in phone mode: the app did not open the assistant');
   await d2.getByTestId('to-full').click();
-  check(await d2.locator('.dmx-rail').waitFor({ timeout: 8000 }).then(() => true, () => false), 'start in phone mode: Full DM bounced back to the assistant');
+  check(await d2.locator('.dmx-rail').waitFor({ timeout: 8000 }).then(() => true, () => false), 'start in phone mode: Full GM bounced back to the assistant');
   await d.ctx.close();
-  note('picked from More and from the DM world menu; start in phone mode');
+  note('picked from More and from the GM world menu; start in phone mode');
 }
 
 await browser.close();

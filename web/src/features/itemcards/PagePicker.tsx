@@ -1,5 +1,5 @@
 // "Linked page" picker for the item forms. Searches the pages the person can
-// open (players never see DM-only pages), and shows the current link.
+// open (players never see GM-only pages), and shows the current link.
 import { useEffect, useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
 import { Field } from '../../ui/index.tsx';
@@ -45,7 +45,7 @@ export function PagePicker({ value, onChange, label = 'Linked page (optional)', 
             {hits.map((h) => (
               <li key={h.id}>
                 <button type="button" className="btn small ghost" style={{ textAlign: 'left', width: '100%' }} onClick={() => { onChange(h.id); setTitle(h.title); setQ(''); onPick?.(h); }}>
-                  {h.title}{h.source ? <span className="tiny faint"> · {h.source}</span> : null}{h.visibility === 'dm' ? <span className="tiny faint"> · DM only</span> : null}
+                  {h.title}{h.source ? <span className="tiny faint"> · {h.source}</span> : null}{h.visibility === 'gm' ? <span className="tiny faint"> · GM only</span> : null}
                 </button>
               </li>
             ))}

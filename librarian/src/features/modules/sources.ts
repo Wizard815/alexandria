@@ -1,4 +1,4 @@
-// Free, keyless content sources a DM can pull a module from in one step:
+// Free, keyless content sources a GM can pull a module from in one step:
 //   open5e    https://api.open5e.com (v2): pick books (Tome of Beasts, Deep
 //             Magic, Vault of Magic, A5e, Black Flag, the SRDs ...)
 //   dnd5eapi  the 5e SRD API's database (what https://www.dnd5eapi.co
@@ -110,7 +110,7 @@ export async function open5eDocuments(d: Deps, b: any = {}): Promise<{ base: str
   };
 }
 
-/** Open5e's "next" links name its own host; keep the paging on the base the DM chose. */
+/** Open5e's "next" links name its own host; keep the paging on the base the GM chose. */
 function sameOrigin(next: string, base: string): string {
   const n = new URL(next);
   const b = new URL(base);

@@ -1,6 +1,6 @@
 // NPC generator. A race-correct name (quickgen), a look, a voice and mannerism,
 // a want, a secret, a hook and a tie to something real in the world (a place or
-// faction the DM can see: never classified), from tables of our own. Every field
+// faction the GM can see: never classified), from tables of our own. Every field
 // can be locked while the rest is rerolled. Optionally a quick statblock.
 import { genNames, RACES, type Race } from '../quickgen/api.ts';
 import { chance, int, makeRng, pick, seedOf, type Rng } from '../quickgen/rng.ts';
@@ -125,7 +125,7 @@ export function genNpc(o: NpcOpts = {}): NpcResult {
   const secret = chance(r, 0.75) ? pick(r, role.secret) : pick(r, SECRET_ANY);
   const hook = chance(r, 0.75) ? pick(r, role.hook) : pick(r, HOOK_ANY);
 
-  // tie to the world: a place or a faction the DM can see (never classified); none when the world has neither
+  // tie to the world: a place or a faction the GM can see (never classified); none when the world has neither
   const lockedTie = lockStr(locks, 'tie');
   const pool: Tie[] = [...(o.world?.places ?? []), ...(o.world?.factions ?? [])];
   let tie: NpcResult['tie'] = null;
@@ -160,13 +160,13 @@ export function genNpc(o: NpcOpts = {}): NpcResult {
 }
 const cap1 = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) + (/[.!?]$/.test(s) ? '' : '.') : s);
 
-/** The sections of an NPC page, in order. `dm` ones never go in a player copy. */
-export function npcSections(n: Pick<NpcResult, 'fields' | 'preset' | 'role'>): { key: string; label: string; text: string; dm?: boolean }[] {
+/** The sections of an NPC page, in order. `gm` ones never go in a player copy. */
+export function npcSections(n: Pick<NpcResult, 'fields' | 'preset' | 'role'>): { key: string; label: string; text: string; gm?: boolean }[] {
   const f = n.fields;
-  const out: { key: string; label: string; text: string; dm?: boolean }[] = [
+  const out: { key: string; label: string; text: string; gm?: boolean }[] = [
     { key: 'look', label: 'Look', text: f.look }, { key: 'voice', label: 'Voice and manner', text: f.voice },
-    { key: 'want', label: 'Wants', text: f.want, dm: true }, { key: 'secret', label: 'Secret', text: f.secret, dm: true }, { key: 'hook', label: 'Hook', text: f.hook, dm: true },
+    { key: 'want', label: 'Wants', text: f.want, gm: true }, { key: 'secret', label: 'Secret', text: f.secret, gm: true }, { key: 'hook', label: 'Hook', text: f.hook, gm: true },
   ];
-  if (f.tie) out.push({ key: 'tie', label: 'Ties to the world', text: f.tie, dm: true });
+  if (f.tie) out.push({ key: 'tie', label: 'Ties to the world', text: f.tie, gm: true });
   return out;
 }

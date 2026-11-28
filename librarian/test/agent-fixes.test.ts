@@ -13,7 +13,7 @@ import { toolsFor } from '../src/routes/mcpServer.ts';
 import { toneWav } from './soundTone.ts';
 
 const SECRET = 'Velmira the smuggler queen keeps her treasury beneath the lighthouse';
-const DM_LINE = 'The vault code is seven seven three nine and nobody must learn it yet';
+const GM_LINE = 'The vault code is seven seven three nine and nobody must learn it yet';
 const OPEN_LINE = 'We arrive at the harbour of Saltmarsh as the evening bells ring';
 
 type Handler = (req: any) => any;
@@ -68,23 +68,23 @@ async function boot(withModel: boolean): Promise<Env> {
   const T: Record<string, string> = {};
   const ID: Record<string, string> = {};
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Agentland', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Agentland', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  const saltmarsh = await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
-  const velmira = await page('dm/Velmira', 'dm', `# Velmira\n${SECRET}.\n`);
-  // A session with one line for everyone and one DM-only aside.
+  const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown });
+  const saltmarsh = await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
+  const velmira = await page('gm/Velmira', 'gm', `# Velmira\n${SECRET}.\n`);
+  // A session with one line for everyone and one GM-only aside.
   run(made.deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at) VALUES (?, ?, ?, ?)', 'as_1', W, 'Session 1', new Date().toISOString());
   run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_1', 'as_1', ?, 0, 1000, 'Narrator', ?, 'players', ?)`, W, OPEN_LINE, new Date().toISOString());
-  run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_2', 'as_1', ?, 2000, 3000, 'Whisper', ?, 'dm', ?)`, W, DM_LINE, new Date().toISOString());
+  run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_2', 'as_1', ?, 2000, 3000, 'Whisper', ?, 'gm', ?)`, W, GM_LINE, new Date().toISOString());
   ID.saltmarsh = saltmarsh.id;
   ID.velmira = velmira.id;
   return { audit, base, server, deps: made.deps, T, ID, W, model, call, ok };
@@ -107,7 +107,7 @@ async function ask(e: Env, token: string, text: string, extra: Record<string, un
 const toolNames = (req: any) => (req.tools ?? []).map((t: any) => t.function.name);
 const A = (e: Env) => `/api/worlds/${e.W}/agent`;
 
-import { selectTools, MAX_TOOLS, DM_CORE_TOOLS, fastPlan } from '../src/features/agent/intent.ts';
+import { selectTools, MAX_TOOLS, GM_CORE_TOOLS, fastPlan } from '../src/features/agent/intent.ts';
 import { claimsChange, rewriteClaim, COULD_NOT, matchTools } from '../src/features/agent/moretools.ts';
 import { systemPrompt } from '../src/features/agent/harness.ts';
 import { personaGiveaway } from '../src/features/minerva/player.ts';
@@ -120,13 +120,13 @@ import { currentSession } from '../src/features/minerva/store.ts';
 
 const e = await boot(true);
 const W = e.W;
-const dmNames = toolsFor(true).map((t) => t.name);
+const gmNames = toolsFor(true).map((t) => t.name);
 const api = (p: string) => `/api/worlds/${W}${p}`;
 const acts = (chatId: string) => all<any>(e.deps.db, 'SELECT * FROM agent_actions WHERE chat_id = ? ORDER BY created_at, rowid', chatId);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const until = async (f: () => boolean, what: string) => { for (let i = 0; i < 200; i++) { if (f()) return; await sleep(25); } throw new Error(`timed out: ${what}`); };
-const approve = (id: string) => e.ok('POST', `${A(e)}/actions/${id}`, e.T.dm, { decision: 'approve' });
-const clearCombat = async () => { const c = await e.ok('GET', api('/live/combat'), e.T.dm); for (const x of c.combatants) await e.ok('DELETE', api(`/live/combatants/${x.id}`), e.T.dm); };
+const approve = (id: string) => e.ok('POST', `${A(e)}/actions/${id}`, e.T.gm, { decision: 'approve' });
+const clearCombat = async () => { const c = await e.ok('GET', api('/live/combat'), e.T.gm); for (const x of c.combatants) await e.ok('DELETE', api(`/live/combatants/${x.id}`), e.T.gm); };
 
 // sound files for the library
 const data = e.deps.dataDir as string;
@@ -137,15 +137,15 @@ put('ambience/storm/rumble.wav', toneWav(1, 90));
 
 // ---- 1. which tools are offered ------------------------------------------------------------------------------
 
-test('AgentTools_DmCoreIsAlwaysOfferedAndNeverTheMyTools', () => {
+test('AgentTools_GmCoreIsAlwaysOfferedAndNeverTheMyTools', () => {
   for (const text of ['hello', 'play tense music', 'roll initiative and the goblins flee', 'give the party an item', 'summarise the session transcript', 'create a template']) {
-    const got = selectTools(text, dmNames, undefined, true);
-    for (const n of DM_CORE_TOOLS) assert.ok(got.includes(n), `${text}: core tool ${n} missing from ${got.join(',')}`);
+    const got = selectTools(text, gmNames, undefined, true);
+    for (const n of GM_CORE_TOOLS) assert.ok(got.includes(n), `${text}: core tool ${n} missing from ${got.join(',')}`);
     assert.ok(got.length <= MAX_TOOLS && MAX_TOOLS >= 14 && MAX_TOOLS <= 16, `${text}: ${got.length}`);
-    assert.ok(!got.some((n) => n.startsWith('my_')), `${text}: a player tool was offered to the DM`);
+    assert.ok(!got.some((n) => n.startsWith('my_')), `${text}: a player tool was offered to the GM`);
   }
-  // A player gets the player tools, and never the DM's core.
-  const player = toolsFor(false).filter((t) => !t.write && !(t as any).dmOnly).map((t) => t.name);
+  // A player gets the player tools, and never the GM's core.
+  const player = toolsFor(false).filter((t) => !t.write && !(t as any).gmOnly).map((t) => t.name);
   const p = selectTools('what are my goals and notes', player);
   assert.ok(p.includes('my_context') && !p.includes('more_tools') && !p.includes('save_page'));
 });
@@ -168,13 +168,13 @@ test('AgentTools_KeywordsPickTheRightCategories', () => {
     ['capture what was said in the transcript', ['memory_capture', 'search_transcript']],
   ];
   for (const [text, tools] of want) {
-    const got = selectTools(text, dmNames, undefined, true);
+    const got = selectTools(text, gmNames, undefined, true);
     for (const t of tools) assert.ok(got.includes(t), `"${text}" should offer ${t}; got ${got.join(', ')}`);
   }
   // An NPC request goes to the generators, not to sculpt, unless a template is named.
-  const npc = selectTools('make me an NPC for the harbour', dmNames, undefined, true);
+  const npc = selectTools('make me an NPC for the harbour', gmNames, undefined, true);
   assert.ok(npc.includes('generate') && !npc.includes('sculpt') && !npc.includes('create_template'), npc.join(','));
-  assert.ok(selectTools('use the NPC template', dmNames, undefined, true).includes('sculpt'));
+  assert.ok(selectTools('use the NPC template', gmNames, undefined, true).includes('sculpt'));
 });
 
 test('AgentTools_RequestsTheRealModelTestMissedNowGetTheirTool', () => {
@@ -201,14 +201,14 @@ test('AgentTools_RequestsTheRealModelTestMissedNowGetTheirTool', () => {
     ['Do I have a template for rumours?', 'list_templates'],
   ];
   for (const [text, tool] of want) {
-    const got = selectTools(text, dmNames, undefined, true);
+    const got = selectTools(text, gmNames, undefined, true);
     assert.ok(got.includes(tool), `"${text}" should offer ${tool}; got ${got.join(', ')}`);
     assert.ok(got.length <= MAX_TOOLS);
   }
 });
 
 test('AgentTools_MoreToolsFindsTheSchemasAndOffersThemNext', async () => {
-  const goblin = await e.ok('POST', api('/live/combatants'), e.T.dm, { name: 'More Goblin', initiative: 5, hp: 7, maxHp: 7 });
+  const goblin = await e.ok('POST', api('/live/combatants'), e.T.gm, { name: 'More Goblin', initiative: 5, hp: 7, maxHp: 7 });
   e.model.seen.length = 0;
   e.model.queue.push(
     () => toolCall('more_tools', { query: 'change initiative order' }),
@@ -222,14 +222,14 @@ test('AgentTools_MoreToolsFindsTheSchemasAndOffersThemNext', async () => {
     },
     () => say('I proposed the initiative change.'),
   );
-  const r = await ask(e, e.T.dm, 'Make the little green one go first, whatever tool that takes');
+  const r = await ask(e, e.T.gm, 'Make the little green one go first, whatever tool that takes');
   assert.ok(!toolNames(e.model.seen[0]).includes('set_initiative'), 'it was not offered at first');
   assert.ok(toolNames(e.model.seen[0]).includes('more_tools'));
   const a = acts(r.id);
   assert.equal(a.length, 1);
   assert.equal(a[0].tool, 'set_initiative');
   await approve(a[0].id);
-  const c = await e.ok('GET', api('/live/combat'), e.T.dm);
+  const c = await e.ok('GET', api('/live/combat'), e.T.gm);
   assert.equal(c.combatants.find((x: any) => x.id === goblin.id).initiative, 19);
   await clearCombat();
 });
@@ -240,7 +240,7 @@ test('AgentTools_MoreToolsMatchesByNameAndDescriptionAndHidesPlayerTools', () =>
   assert.ok(matchTools(all_, 'remove a combatant', true).map((t) => t.name).includes('remove_combatant'));
   assert.ok(!matchTools(all_, 'my goals journal notes', true).some((t) => t.name.startsWith('my_')));
   assert.deepEqual(matchTools(all_, '', true), []);
-  assert.match(systemPrompt({ harness: 'dm', worldName: 'X' }), /never say "I have no tool" without calling more_tools/i);
+  assert.match(systemPrompt({ harness: 'gm', worldName: 'X' }), /never say "I have no tool" without calling more_tools/i);
   assert.ok(!/more_tools/.test(systemPrompt({ harness: 'player', worldName: 'X' })));
 });
 
@@ -255,7 +255,7 @@ test('AgentTools_TooManyToolCallsInOneMessageAreSkipped', async () => {
       return say('Done.');
     },
   );
-  const r = await ask(e, e.T.dm, 'Search the library for fourteen different things');
+  const r = await ask(e, e.T.gm, 'Search the library for fourteen different things');
   assert.equal(r.reply.text, 'Done.');
 });
 
@@ -285,7 +285,7 @@ test('AgentClaims_NoWriteCallRetriesOnceThenSaysItCouldNot', async () => {
       return say('Proposed again: 14 damage to the Ogre.');
     },
   );
-  const r = await ask(e, e.T.dm, 'Hit the ogre for 14 and tell me how it looks');
+  const r = await ask(e, e.T.gm, 'Hit the ogre for 14 and tell me how it looks');
   assert.equal(e.model.seen.length, 2);
   assert.ok(r.reply.text.startsWith(COULD_NOT), r.reply.text);
   assert.ok(!/proposed/i.test(r.reply.text));
@@ -293,21 +293,21 @@ test('AgentClaims_NoWriteCallRetriesOnceThenSaysItCouldNot', async () => {
 });
 
 test('AgentClaims_ARealWriteInTheRetryKeepsTheReply', async () => {
-  const ogre = await e.ok('POST', api('/live/combatants'), e.T.dm, { name: 'Ogre', initiative: 8, hp: 59, maxHp: 59 });
+  const ogre = await e.ok('POST', api('/live/combatants'), e.T.gm, { name: 'Ogre', initiative: 8, hp: 59, maxHp: 59 });
   e.model.seen.length = 0;
   e.model.queue.push(
     () => say('Proposed: 14 damage to the Ogre.'),
     () => toolCall('damage_combatant', { combatant: ogre.id, amount: 14 }),
     () => say('Proposed: 14 damage to the Ogre. It will be at 45.'),
   );
-  const r = await ask(e, e.T.dm, 'Hit the ogre for 14 and tell me how it looks');
+  const r = await ask(e, e.T.gm, 'Hit the ogre for 14 and tell me how it looks');
   assert.equal(acts(r.id).length, 1);
   assert.match(r.reply.text, /^Proposed: 14 damage/);
   assert.ok(!r.reply.text.startsWith(COULD_NOT));
   // A write that did run first: no retry at all.
   e.model.seen.length = 0;
   e.model.queue.push(() => toolCall('damage_combatant', { combatant: ogre.id, amount: 1 }), () => say('Proposed: 1 damage.'));
-  await ask(e, e.T.dm, 'Hit the ogre for 1 and tell me how it looks');
+  await ask(e, e.T.gm, 'Hit the ogre for 1 and tell me how it looks');
   assert.equal(e.model.seen.length, 2);
   await clearCombat();
 });
@@ -315,17 +315,17 @@ test('AgentClaims_ARealWriteInTheRetryKeepsTheReply', async () => {
 // ---- 3. combat ----------------------------------------------------------------------------------------------
 
 test('AgentCombat_FastPathsMatchTheShapesTheRealModelTestMissed', () => {
-  const dmPlan = (t: string) => fastPlan(t, true);
+  const gmPlan = (t: string) => fastPlan(t, true);
   for (const t of ['Ogre takes 7', 'Ogre takes 7 damage', 'the Ogre takes 7 (from the flail)', 'Goblin 2 takes 7 damage from Anselm', 'Ogre took 7 from the flail']) {
-    const p: any = dmPlan(t);
+    const p: any = gmPlan(t);
     assert.ok(p && p.kind === 'combat' && p.verb === 'damage' && p.amount === 7, `${t}: ${JSON.stringify(p)}`);
   }
-  assert.deepEqual({ ...(dmPlan('set Goblin 2 initiative to 14') as any) }, { kind: 'combat', verb: 'init', target: 'Goblin 2', amount: 14, what: 'set_initiative' });
-  assert.equal((dmPlan('Goblin 2 initiative 9') as any).verb, 'init');
-  const pc: any = dmPlan('add Tomas to combat with initiative 17');
+  assert.deepEqual({ ...(gmPlan('set Goblin 2 initiative to 14') as any) }, { kind: 'combat', verb: 'init', target: 'Goblin 2', amount: 14, what: 'set_initiative' });
+  assert.equal((gmPlan('Goblin 2 initiative 9') as any).verb, 'init');
+  const pc: any = gmPlan('add Tomas to combat with initiative 17');
   assert.deepEqual({ kind: pc.kind, name: pc.name, initiative: pc.initiative }, { kind: 'pc', name: 'Tomas', initiative: 17 });
-  assert.equal((dmPlan('Jessamine rolled 12 for initiative') as any).kind, 'pc');
-  const end: any = dmPlan('end the fight');
+  assert.equal((gmPlan('Jessamine rolled 12 for initiative') as any).kind, 'pc');
+  const end: any = gmPlan('end the fight');
   assert.deepEqual(end.calls, [{ tool: 'set_combat', args: { active: false } }]);
   assert.equal(fastPlan('Ogre takes 7', false), null, 'a player gets none of these');
 });
@@ -334,7 +334,7 @@ test('AgentCombat_PlayerCharactersJoinWithTheirRolledInitiativeAndFastPathsSkipT
   await clearCombat();
   e.model.seen.length = 0;
   const t0 = performance.now();
-  const r = await ask(e, e.T.dm, 'add jess to combat with initiative 17');
+  const r = await ask(e, e.T.gm, 'add jess to combat with initiative 17');
   assert.ok(performance.now() - t0 < 1500, 'no model call is waited for');
   assert.equal(e.model.seen.length, 0);
   const a = acts(r.id);
@@ -342,44 +342,44 @@ test('AgentCombat_PlayerCharactersJoinWithTheirRolledInitiativeAndFastPathsSkipT
   assert.equal(JSON.parse(a[0].args).initiative, 17);
   assert.equal(JSON.parse(a[0].args).accountId, e.ID.jess, 'the player character is that player\'s own combatant');
   await approve(a[0].id);
-  const c = await e.ok('GET', api('/live/combat'), e.T.dm);
+  const c = await e.ok('GET', api('/live/combat'), e.T.gm);
   const j = c.combatants.find((x: any) => x.account_id === e.ID.jess);
   assert.ok(j && j.initiative === 17 && j.is_pc);
   // Damage by the new shapes, and the initiative change.
-  const g = await e.ok('POST', api('/live/combatants'), e.T.dm, { name: 'Ogre', initiative: 9, hp: 30, maxHp: 30 });
-  const d1 = await ask(e, e.T.dm, 'the Ogre takes 7 (from the flail)');
+  const g = await e.ok('POST', api('/live/combatants'), e.T.gm, { name: 'Ogre', initiative: 9, hp: 30, maxHp: 30 });
+  const d1 = await ask(e, e.T.gm, 'the Ogre takes 7 (from the flail)');
   await approve(acts(d1.id)[0].id);
-  assert.equal((await e.ok('GET', api('/live/combat'), e.T.dm)).combatants.find((x: any) => x.id === g.id).hp, 23);
-  const d2 = await ask(e, e.T.dm, 'set Ogre initiative to 3');
+  assert.equal((await e.ok('GET', api('/live/combat'), e.T.gm)).combatants.find((x: any) => x.id === g.id).hp, 23);
+  const d2 = await ask(e, e.T.gm, 'set Ogre initiative to 3');
   await approve(acts(d2.id)[0].id);
-  assert.equal((await e.ok('GET', api('/live/combat'), e.T.dm)).combatants.find((x: any) => x.id === g.id).initiative, 3);
+  assert.equal((await e.ok('GET', api('/live/combat'), e.T.gm)).combatants.find((x: any) => x.id === g.id).initiative, 3);
   assert.equal(e.model.seen.length, 0, 'all of it without a model');
   await clearCombat();
 });
 
 test('AgentCombat_DeadMonstersAreMarkedDefeatedAndMayBeRemoved', async () => {
   await clearCombat();
-  const gob = await e.ok('POST', api('/live/combatants'), e.T.dm, { name: 'Goblin', initiative: 5, hp: 5, maxHp: 5 });
-  const pc = await e.ok('POST', api('/live/combatants'), e.T.dm, { name: 'jess', initiative: 5, hp: 3, maxHp: 3, accountId: e.ID.jess });
-  const hit = await e.ok('PATCH', api(`/live/combatants/${gob.id}`), e.T.dm, { damage: 9 });
+  const gob = await e.ok('POST', api('/live/combatants'), e.T.gm, { name: 'Goblin', initiative: 5, hp: 5, maxHp: 5 });
+  const pc = await e.ok('POST', api('/live/combatants'), e.T.gm, { name: 'jess', initiative: 5, hp: 3, maxHp: 3, accountId: e.ID.jess });
+  const hit = await e.ok('PATCH', api(`/live/combatants/${gob.id}`), e.T.gm, { damage: 9 });
   assert.equal(hit.defeated, true);
   assert.equal(hit.removed, false);
-  let c = await e.ok('GET', api('/live/combat'), e.T.dm);
+  let c = await e.ok('GET', api('/live/combat'), e.T.gm);
   assert.ok(c.combatants.find((x: any) => x.id === gob.id).effects.some((f: any) => f.name === 'Defeated'));
   // A second hit on a dead one does not mark it again.
-  await e.ok('PATCH', api(`/live/combatants/${gob.id}`), e.T.dm, { damage: 1 });
-  c = await e.ok('GET', api('/live/combat'), e.T.dm);
+  await e.ok('PATCH', api(`/live/combatants/${gob.id}`), e.T.gm, { damage: 1 });
+  c = await e.ok('GET', api('/live/combat'), e.T.gm);
   assert.equal(c.combatants.find((x: any) => x.id === gob.id).effects.filter((f: any) => f.name === 'Defeated').length, 1);
   // A player character at 0 is not "defeated" (they roll death saves).
-  const pcHit = await e.ok('PATCH', api(`/live/combatants/${pc.id}`), e.T.dm, { damage: 9 });
+  const pcHit = await e.ok('PATCH', api(`/live/combatants/${pc.id}`), e.T.gm, { damage: 9 });
   assert.equal(pcHit.defeated, false);
   // With the setting on, the monster leaves the tracker.
-  await e.ok('PATCH', api('/settings'), e.T.dm, { combatRemoveDefeated: true });
-  const orc = await e.ok('POST', api('/live/combatants'), e.T.dm, { name: 'Orc', initiative: 4, hp: 4, maxHp: 4 });
-  const gone = await e.ok('PATCH', api(`/live/combatants/${orc.id}`), e.T.dm, { damage: 4 });
+  await e.ok('PATCH', api('/settings'), e.T.gm, { combatRemoveDefeated: true });
+  const orc = await e.ok('POST', api('/live/combatants'), e.T.gm, { name: 'Orc', initiative: 4, hp: 4, maxHp: 4 });
+  const gone = await e.ok('PATCH', api(`/live/combatants/${orc.id}`), e.T.gm, { damage: 4 });
   assert.equal(gone.removed, true);
-  assert.ok(!(await e.ok('GET', api('/live/combat'), e.T.dm)).combatants.some((x: any) => x.id === orc.id));
-  await e.ok('PATCH', api('/settings'), e.T.dm, { combatRemoveDefeated: false });
+  assert.ok(!(await e.ok('GET', api('/live/combat'), e.T.gm)).combatants.some((x: any) => x.id === orc.id));
+  await e.ok('PATCH', api('/settings'), e.T.gm, { combatRemoveDefeated: false });
   await clearCombat();
 });
 
@@ -388,7 +388,7 @@ test('AgentCombat_DeadMonstersAreMarkedDefeatedAndMayBeRemoved', async () => {
 test('AgentSound_ToolDescriptionsListTheMoodsAndLayerKindsTheLibraryHas', async () => {
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Nothing is playing.'));
-  await ask(e, e.T.dm, 'play something tense and add some ambient sound');
+  await ask(e, e.T.gm, 'play something tense and add some ambient sound');
   const tools = e.model.seen[0].tools;
   const desc = (n: string) => tools.find((t: any) => t.function.name === n)?.function.description ?? '';
   for (const n of ['play_music', 'play_ambience']) {
@@ -404,24 +404,24 @@ test('AgentSound_AnUnknownLayerPlaysTheNearestOneAndNoOneOptedInIsSaid', async (
   assert.equal(nearestLayer('rainfall', ['rain', 'storm']), 'rain');
   assert.equal(nearestLayer('raen', ['rain', 'storm']), 'rain');
   assert.equal(nearestLayer('dragons', ['rain', 'storm']), null);
-  const out = await e.ok('POST', api('/sound/ambience/scene'), e.T.dm, { layers: [{ kind: 'thunderstorm', volume: 0.5 }, { kind: 'rainfall' }, { kind: 'dragons' }], target: 'players' });
+  const out = await e.ok('POST', api('/sound/ambience/scene'), e.T.gm, { layers: [{ kind: 'thunderstorm', volume: 0.5 }, { kind: 'rainfall' }, { kind: 'dragons' }], target: 'players' });
   assert.deepEqual(out.layers.map((l: any) => l.kind).sort(), ['rain', 'storm']);
   assert.deepEqual(out.matched, [{ asked: 'thunderstorm', used: 'storm' }, { asked: 'rainfall', used: 'rain' }]);
   assert.deepEqual(out.missing, ['dragons']);
   assert.deepEqual(out.available.sort(), ['rain', 'storm']);
-  // Nobody has "Allow sound" on: the result says so (the agent tells the DM).
+  // Nobody has "Allow sound" on: the result says so (the agent tells the GM).
   assert.equal(out.playersHearing, 0);
   assert.match(out.note, /No player has "Allow sound" switched on/);
-  const music = await e.ok('POST', api('/sound/music/mood'), e.T.dm, { mood: 'tense', target: 'players' });
+  const music = await e.ok('POST', api('/sound/music/mood'), e.T.gm, { mood: 'tense', target: 'players' });
   assert.match(music.note, /Allow sound/);
   // Aimed at the table only: nothing to warn about.
-  assert.equal((await e.ok('POST', api('/sound/music/mood'), e.T.dm, { mood: 'calm', target: 'table' })).note, undefined);
+  assert.equal((await e.ok('POST', api('/sound/music/mood'), e.T.gm, { mood: 'calm', target: 'table' })).note, undefined);
   // One player opts in.
   await e.ok('PUT', api('/sound/me/switches'), e.T.jess, { device: 'jess-phone-1', music: true, ambience: true });
-  const again = await e.ok('POST', api('/sound/ambience/scene'), e.T.dm, { layers: [{ kind: 'rain' }], target: 'players' });
+  const again = await e.ok('POST', api('/sound/ambience/scene'), e.T.gm, { layers: [{ kind: 'rain' }], target: 'players' });
   assert.equal(again.playersHearing, 1);
   assert.equal(again.note, undefined);
-  const now = await e.ok('GET', api('/sound/now'), e.T.dm);
+  const now = await e.ok('GET', api('/sound/now'), e.T.gm);
   assert.equal(now.playersListening.ambience, 1);
   assert.equal(now.playersListening.sfx, 0);
   // A player's own view says nothing of who listens.
@@ -431,27 +431,27 @@ test('AgentSound_AnUnknownLayerPlaysTheNearestOneAndNoOneOptedInIsSaid', async (
 
 // ---- 5. templates and NPCs ---------------------------------------------------------------------------------------
 
-test('AgentTemplates_CreateTemplateIsADraftTheDmApproves', async () => {
+test('AgentTemplates_CreateTemplateIsADraftTheGmApproves', async () => {
   e.model.seen.length = 0;
-  const tpl = { name: 'Harbour ritual', description: 'A rite at the quay', perspective: 'dm', category: 'Story', fields: [{ key: 'place', label: 'Place', type: 'text' }, { key: 'omen', label: 'Omen', type: 'text', gen: 'pick:a gull|a bell|nothing' }], body: 'A ritual at {{place}} with the omen of {{omen}}.' };
+  const tpl = { name: 'Harbour ritual', description: 'A rite at the quay', perspective: 'gm', category: 'Story', fields: [{ key: 'place', label: 'Place', type: 'text' }, { key: 'omen', label: 'Omen', type: 'text', gen: 'pick:a gull|a bell|nothing' }], body: 'A ritual at {{place}} with the omen of {{omen}}.' };
   e.model.queue.push(() => toolCall('create_template', tpl), () => say('I drafted the template for you to approve.'));
-  const r = await ask(e, e.T.dm, 'Create a new template for a harbour ritual with a place and an omen');
+  const r = await ask(e, e.T.gm, 'Create a new template for a harbour ritual with a place and an omen');
   for (const n of ['list_templates', 'sculpt_templates', 'sculpt', 'create_template']) assert.ok(toolNames(e.model.seen[0]).includes(n), `${n} is offered when templates are mentioned`);
   const a = acts(r.id);
   assert.equal(a.length, 1);
   assert.match(a[0].summary, /Create sculpting template "Harbour ritual" \(2 fields/);
-  assert.ok(!(await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.dm)).templates.some((t: any) => t.name === 'Harbour ritual'), 'nothing is saved before approval');
+  assert.ok(!(await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.gm)).templates.some((t: any) => t.name === 'Harbour ritual'), 'nothing is saved before approval');
   await approve(a[0].id);
-  const list = (await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.dm)).templates;
+  const list = (await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.gm)).templates;
   assert.ok(list.some((t: any) => t.name === 'Harbour ritual'));
-  // A schema that would be refused is sent back to the model with the reason; the DM is never asked to approve it.
+  // A schema that would be refused is sent back to the model with the reason; the GM is never asked to approve it.
   e.model.queue.push(
-    () => toolCall('create_template', { name: 'Broken', fields: [{ key: 'Bad Key', type: 'text' }], body: 'x {{dm}} y' }),
+    () => toolCall('create_template', { name: 'Broken', fields: [{ key: 'Bad Key', type: 'text' }], body: 'x {{gm}} y' }),
     (req) => { assert.match(req.messages.filter((m: any) => m.role === 'tool').at(-1).content, /^Not proposed: .*lowercase/); return say('Let me fix that.'); },
   );
-  const b = await ask(e, e.T.dm, 'Create a template named Broken');
+  const b = await ask(e, e.T.gm, 'Create a template named Broken');
   assert.equal(acts(b.id).length, 0);
-  assert.ok(!(await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.dm)).templates.some((t: any) => t.name === 'Broken'));
+  assert.ok(!(await e.ok('GET', api('/sculpt/templates?compact=1'), e.T.gm)).templates.some((t: any) => t.name === 'Broken'));
 });
 
 // ---- 6. party items --------------------------------------------------------------------------------------------
@@ -462,10 +462,10 @@ test('AgentItems_AddItemToThePartyNeedsNoReason', async () => {
   assert.equal((add.call({ owner: e.ID.jess, name: 'Brass bell' }).body as any).reason, undefined, 'a player\'s item still asks for a reason when the world wants one');
   assert.match(JSON.stringify(add.props.reason), /optional/i);
   e.model.queue.push(() => toolCall('add_item', { owner: 'party', name: 'Brass bell', qty: 1 }), () => say('Proposed the bell.'));
-  const r = await ask(e, e.T.dm, 'Put a brass bell in the party pouch');
+  const r = await ask(e, e.T.gm, 'Put a brass bell in the party pouch');
   const done = await approve(acts(r.id)[0].id);
   assert.equal(done.status, 'done', JSON.stringify(done).slice(0, 300));
-  assert.ok((await e.ok('GET', api('/inventory?owner=party'), e.T.dm)).items.some((i: any) => i.name === 'Brass bell'));
+  assert.ok((await e.ok('GET', api('/inventory?owner=party'), e.T.gm)).items.some((i: any) => i.name === 'Brass bell'));
 });
 
 // ---- 7. broker routing -----------------------------------------------------------------------------------------
@@ -477,8 +477,8 @@ const route = (labels: any, answers?: boolean) => (body: any) => {
   return labels;
 };
 
-test('AgentBroker_AWhyQuestionWhoseSharedTextDoesNotAnswerItGoesToTheDm', async () => {
-  await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'places/Lighthouse', visibility: 'party', markdown: '# Saltmarsh Lighthouse\nThe Saltmarsh lighthouse has been dark for a month and boats keep to the harbour.\n\n> [!secret] DM\n> The keeper sold the lamp oil to smugglers.\n' });
+test('AgentBroker_AWhyQuestionWhoseSharedTextDoesNotAnswerItGoesToTheGm', async () => {
+  await e.ok('PUT', api('/library/pages'), e.T.gm, { path: 'places/Lighthouse', visibility: 'party', markdown: '# Saltmarsh Lighthouse\nThe Saltmarsh lighthouse has been dark for a month and boats keep to the harbour.\n\n> [!secret] GM\n> The keeper sold the lamp oil to smugglers.\n' });
   // Audit model says: world question, fact, why; and then that the shared text does not answer it.
   e.audit.seen.length = 0;
   e.audit.handler = route({ scope: 'world', intent: 'fact', type: 'why', confidence: 0.9 }, false);
@@ -506,13 +506,13 @@ test('AgentBroker_WithoutAnAuditModelTheRulesDecide', async () => {
   const fact = await quote(e.T.jess, 'How long has the Saltmarsh lighthouse been dark?');
   assert.equal(fact.secret, false, JSON.stringify(fact).slice(0, 300));
   // A page that does give the reason sells the why.
-  await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'places/Quay bell', visibility: 'party', markdown: '# The quay bell\nThe quay bell stopped ringing because the clapper was stolen during the flood.\n' });
+  await e.ok('PUT', api('/library/pages'), e.T.gm, { path: 'places/Quay bell', visibility: 'party', markdown: '# The quay bell\nThe quay bell stopped ringing because the clapper was stolen during the flood.\n' });
   const why = await quote(e.T.jess, 'Why did the quay bell stop ringing?');
   assert.equal(why.secret, false, JSON.stringify(why).slice(0, 300));
 });
 
 test('AgentBroker_AnAllowedRealWorldTopicIsAnsweredFromGeneralKnowledgeNeverFromTheLibrary', async () => {
-  await e.ok('PATCH', api('/settings'), e.T.dm, { brokerTopics: ['Medieval history: castles, armour'] });
+  await e.ok('PATCH', api('/settings'), e.T.gm, { brokerTopics: ['Medieval history: castles, armour'] });
   e.audit.handler = route({ scope: 'real-world-allowed', intent: 'fact', type: 'what', confidence: 0.9 });
   e.model.seen.length = 0;
   e.model.queue.push(() => say("That's not my trade, but castles had thick walls so siege engines struggled against them."));
@@ -526,20 +526,20 @@ test('AgentBroker_AnAllowedRealWorldTopicIsAnsweredFromGeneralKnowledgeNeverFrom
   assert.ok(!/Velmira|smuggler|Saltmarsh|harbour council/i.test(sent), sent.slice(0, 400));
   const ask_ = await e.ok('POST', api('/broker/ask'), e.T.jess, { quoteId: q.quoteId });
   assert.equal(ask_.status, 'answered');
-  // No chat model answer (a failure): the old route, a question for the DM.
+  // No chat model answer (a failure): the old route, a question for the GM.
   e.model.queue.push(() => new Response('no', { status: 500 }));
   const fallback = await quote(e.T.jess, 'How thick were medieval castle walls?');
   assert.notEqual(fallback.kind, 'other');
-  await e.ok('PATCH', api('/settings'), e.T.dm, { brokerTopics: [] });
+  await e.ok('PATCH', api('/settings'), e.T.gm, { brokerTopics: [] });
 });
 
 // ---- 8. keyword cards for players -------------------------------------------------------------------------------
 
 test('AgentCards_PlayersSeeNoAcHpAbilityScoresOrCrOnMonsterCards', async () => {
   const dragon = encodeURIComponent((await e.ok('GET', api('/modules/terms?q=Adult%20Blue%20Dragon'), e.T.jess)).terms[0].id);
-  const dmCard = await e.ok('GET', api(`/modules/card/module/${dragon}`), e.T.dm);
-  assert.match(dmCard.text, /\*\*AC\*\*/);
-  assert.equal(dmCard.data.abilities.str, 25);
+  const gmCard = await e.ok('GET', api(`/modules/card/module/${dragon}`), e.T.gm);
+  assert.match(gmCard.text, /\*\*AC\*\*/);
+  assert.equal(gmCard.data.abilities.str, 25);
   const pl = await e.ok('GET', api(`/modules/card/module/${dragon}`), e.T.jess);
   assert.ok(!/\*\*AC\*\*|\*\*HP\*\*|\*\*CR\*\*|\| STR \|/.test(pl.text), pl.text.slice(0, 300));
   assert.ok(!/(AC|HP|CR) \d/.test(pl.summary), pl.summary);
@@ -549,15 +549,15 @@ test('AgentCards_PlayersSeeNoAcHpAbilityScoresOrCrOnMonsterCards', async () => {
   const hits = (await e.ok('GET', api('/modules/rules/search?q=Adult%20Blue%20Dragon&limit=2'), e.T.jess)).results;
   assert.ok(hits.every((h: any) => !/\*\*AC\*\*|\| STR \|/.test(h.passage)));
   // With monster health shown exactly, the HP comes back (never AC, scores or CR).
-  await e.ok('PATCH', api('/settings'), e.T.dm, { monsterHealth: 'exact' });
+  await e.ok('PATCH', api('/settings'), e.T.gm, { monsterHealth: 'exact' });
   const ex = await e.ok('GET', api(`/modules/card/module/${dragon}`), e.T.jess);
   assert.ok(ex.data.hp > 0 && ex.data.ac === undefined && ex.data.abilities === undefined);
-  await e.ok('PATCH', api('/settings'), e.T.dm, { monsterHealth: 'words' });
+  await e.ok('PATCH', api('/settings'), e.T.gm, { monsterHealth: 'words' });
 });
 
 test('AgentCards_CommonItemWordsDoNotHighlightButTheFullNameDoes', async () => {
-  const dm = { accountId: e.ID.dm, role: 'dm' } as any;
-  const find = (text: string) => findMatches(e.deps.db, W, dm, text).map((m) => m.text);
+  const gm = { accountId: e.ID.gm, role: 'gm' } as any;
+  const find = (text: string) => findMatches(e.deps.db, W, gm, text).map((m) => m.text);
   const text = 'The bell tolled and he fumbled in his pouch for a rope, but the Bell of Opening was gone.';
   const found = find(text);
   assert.ok(!found.some((t) => /^(bell|pouch|rope)$/i.test(t)), `common words lit up: ${found.join(', ')}`);
@@ -566,15 +566,15 @@ test('AgentCards_CommonItemWordsDoNotHighlightButTheFullNameDoes', async () => {
   assert.ok(!find('Bell').includes('Bell'));
   assert.ok(!find('he lit the lamp').some((t) => /lamp/i.test(t)));
   // A world page called "Bell" is the world's own and does match.
-  await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'items/Bell', visibility: 'party', markdown: '# Bell\nThe drowned bell of Saltmarsh.\n' });
+  await e.ok('PUT', api('/library/pages'), e.T.gm, { path: 'items/Bell', visibility: 'party', markdown: '# Bell\nThe drowned bell of Saltmarsh.\n' });
   assert.ok(findMatches(e.deps.db, W, { accountId: e.ID.jess, role: 'player' } as any, 'They rang the Bell at dusk.').some((m) => m.source === 'library'));
 });
 
 // ---- 9. the leak gate ---------------------------------------------------------------------------------------------
 
 test('AgentLeakGate_APublicFactIsNotAnEightWordLeakButASecretStillIs', async () => {
-  await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'dm/Campaign Status', visibility: 'dm', markdown: '# Campaign Status\nThe quiet harbour lighthouse has been dark for a month because Velmira bribed the keeper with crates of black powder.\n' });
-  await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'places/Quiet harbour', visibility: 'party', markdown: '# Quiet harbour\nIts quiet harbour lighthouse has been dark for a month.\n' });
+  await e.ok('PUT', api('/library/pages'), e.T.gm, { path: 'gm/Campaign Status', visibility: 'gm', markdown: '# Campaign Status\nThe quiet harbour lighthouse has been dark for a month because Velmira bribed the keeper with crates of black powder.\n' });
+  await e.ok('PUT', api('/library/pages'), e.T.gm, { path: 'places/Quiet harbour', visibility: 'party', markdown: '# Quiet harbour\nIts quiet harbour lighthouse has been dark for a month.\n' });
   const check = leakChecker(e.deps.db, W);
   assert.equal(check('Locals say the quiet harbour lighthouse has been dark for a month, and nobody can say why.').blocked, false);
   assert.equal(check('The quiet harbour lighthouse has been dark for a month now.').blocked, false);
@@ -583,25 +583,25 @@ test('AgentLeakGate_APublicFactIsNotAnEightWordLeakButASecretStillIs', async () 
 });
 
 test('AgentLeakGate_PersonaDenialsPassButAffirmationsAreHeld', () => {
-  for (const ok_ of ["I'm not Minerva.", 'I do not work for the DM, I trade in rumours.', "I don't have any DM notes.", 'There is no DM assistant here, friend.', "Nobody called Minerva has told me anything."]) assert.equal(personaGiveaway(ok_), null, ok_);
-  for (const bad of ["I'm Minerva, the keeper of records.", 'I work for the DM.', "Minerva told me you would ask.", "The DM's assistant says no.", 'There is no secret. I work for the dungeon master.', "I'm not sure. Minerva knows."]) assert.ok(personaGiveaway(bad), bad);
+  for (const ok_ of ["I'm not Minerva.", 'I do not work for the GM, I trade in rumours.', "I don't have any GM notes.", 'There is no GM assistant here, friend.', "Nobody called Minerva has told me anything."]) assert.equal(personaGiveaway(ok_), null, ok_);
+  for (const bad of ["I'm Minerva, the keeper of records.", 'I work for the GM.', "Minerva told me you would ask.", "The GM's assistant says no.", 'There is no secret. I work for the dungeon master.', "I'm not sure. Minerva knows."]) assert.ok(personaGiveaway(bad), bad);
   assert.equal(personaGiveaway('Not that I know of. I am Tideglass.', 'Tideglass') !== null, true, 'a renamed assistant named plainly is held');
   assert.equal(personaGiveaway('I am not Tideglass.', 'Tideglass'), null);
 });
 
-// ---- 10. Minerva: no DM analysis on a page the players can read --------------------------------------------------
+// ---- 10. Minerva: no GM analysis on a page the players can read --------------------------------------------------
 
 test('AgentMinerva_CodexAnalysisOnAPartyPageGoesInASecretBlockAndNoPlayerSeesIt', async () => {
-  await e.ok('POST', api('/minerva/enable'), e.T.dm, {});
+  await e.ok('POST', api('/minerva/enable'), e.T.gm, {});
   const HOOK = 'Hook aimed at Jessamine: the dockhand will pay unless she keeps her promise, and Velmira hears of any broken oath.';
   // The Anselm case: a player character's page is party level; her analysis is proposed and approved.
   e.model.queue.push(() => toolCall('codex_upsert', { name: 'jess', kind: 'pc', section: 'notes', text: HOOK }), () => say('Proposed the hook on her page.'));
-  const r = await ask(e, e.T.dm, 'Log the promise Jess made as a hook for her character');
+  const r = await ask(e, e.T.gm, 'Log the promise Jess made as a hook for her character');
   const a = acts(r.id)[0];
-  assert.match(a.summary, /DM-only block on a level party page/, a.summary);
+  assert.match(a.summary, /GM-only block on a level party page/, a.summary);
   assert.ok(!/Visible to players/.test(a.summary));
   await approve(a.id);
-  const page = await e.ok('GET', api(`/minerva/page?rel=${encodeURIComponent('codex/characters/pc/jess.md')}`), e.T.dm);
+  const page = await e.ok('GET', api(`/minerva/page?rel=${encodeURIComponent('codex/characters/pc/jess.md')}`), e.T.gm);
   assert.equal(page.level, 'party');
   assert.match(page.body, /> \[!secret\]\n> .*dockhand will pay/);
   for (const who of ['jess', 'tom']) {
@@ -610,57 +610,57 @@ test('AgentMinerva_CodexAnalysisOnAPartyPageGoesInASecretBlockAndNoPlayerSeesIt'
   }
   // Nor does the broker's gate treat it as public text: repeating it is blocked.
   assert.equal(leakChecker(e.deps.db, W)('Hook aimed at Jessamine: the dockhand will pay unless she keeps her promise, and Velmira hears of any broken oath.').blocked, true);
-  // Only when the DM says it is for the players does it go in the open, and the card says so in red words.
+  // Only when the GM says it is for the players does it go in the open, and the card says so in red words.
   e.model.queue.push(() => toolCall('codex_upsert', { name: 'jess', kind: 'pc', section: 'appearances', text: 'Helped the dockhand at the quay.', visible: true }), () => say('Proposed.'));
-  const v = await ask(e, e.T.dm, 'Add to Jess\'s page that she helped the dockhand, for the players to read');
+  const v = await ask(e, e.T.gm, 'Add to Jess\'s page that she helped the dockhand, for the players to read');
   const va = acts(v.id)[0];
   assert.match(va.summary, /Visible to players \(level party\)/);
   await approve(va.id);
   assert.match(JSON.stringify(await e.ok('GET', api('/minerva/me/context'), e.T.tom)), /Helped the dockhand at the quay/);
   // The Minerva review card for a codex draft carries the same fact.
-  const dr = (await e.ok('POST', api('/minerva/codex'), e.T.dm, { name: 'jess', section: 'notes', text: 'another note' }));
+  const dr = (await e.ok('POST', api('/minerva/codex'), e.T.gm, { name: 'jess', section: 'notes', text: 'another note' }));
   assert.equal(dr.visibleToPlayers, false);
   assert.equal(dr.level, 'party');
-  // An NPC page the DM has not opened to the party stays plain DM text.
-  const npc = await e.ok('POST', api('/minerva/codex'), e.T.dm, { name: 'Marla Tuck', kind: 'npc', section: 'notes', text: 'Wants the keeper gone.' });
-  assert.equal(npc.level, 'dm');
-  assert.match((await e.ok('GET', api(`/minerva/page?rel=${encodeURIComponent(npc.rel)}`), e.T.dm)).body, /- Wants the keeper gone\./);
+  // An NPC page the GM has not opened to the party stays plain GM text.
+  const npc = await e.ok('POST', api('/minerva/codex'), e.T.gm, { name: 'Marla Tuck', kind: 'npc', section: 'notes', text: 'Wants the keeper gone.' });
+  assert.equal(npc.level, 'gm');
+  assert.match((await e.ok('GET', api(`/minerva/page?rel=${encodeURIComponent(npc.rel)}`), e.T.gm)).body, /- Wants the keeper gone\./);
 });
 
 // ---- 11. live help ------------------------------------------------------------------------------------------------
 
 let lineN = 100;
-const addLine = (speaker: string | null, label: string, text: string, audience: 'players' | 'dm', at = new Date().toISOString()) => {
+const addLine = (speaker: string | null, label: string, text: string, audience: 'players' | 'gm', at = new Date().toISOString()) => {
   lineN += 1;
   run(e.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_account, speaker_label, text, audience, updated_at) VALUES (?, 'as_1', ?, ?, ?, ?, ?, ?, ?, ?)`, `ln_${lineN}`, W, lineN * 1000, lineN * 1000 + 800, speaker, label, text, audience, at);
 };
 
 test('AgentLive_TheHarnessCarriesTheLastLinesOfARunningSessionAndNeverTheOtherSide', async () => {
-  const DM_SECRET_LINE = 'The vault code is seven seven three nine and nobody must learn it yet';
+  const GM_SECRET_LINE = 'The vault code is seven seven three nine and nobody must learn it yet';
   const CLASSIFIED = 'the sunken bell opens only when three silver keys turn together at ebb tide';
-  await e.ok('PUT', api('/library/pages'), e.T.dm, { path: 'dm/Sealed bell', visibility: 'classified', markdown: `# Sealed bell\n${CLASSIFIED}.\n` });
+  await e.ok('PUT', api('/library/pages'), e.T.gm, { path: 'gm/Sealed bell', visibility: 'classified', markdown: `# Sealed bell\n${CLASSIFIED}.\n` });
   addLine(e.ID.jess, 'jess', 'We should ask the harbourmaster about the lamp', 'players');
-  addLine(null, 'DM', 'Whisper: the harbourmaster is secretly the keeper brother', 'dm');
+  addLine(null, 'GM', 'Whisper: the harbourmaster is secretly the keeper brother', 'gm');
   addLine(e.ID.tom, 'tom', CLASSIFIED, 'players');
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Nothing yet.'), () => say('Nothing yet.'));
-  await ask(e, e.T.dm, 'Did the table just find a clue?');
+  await ask(e, e.T.gm, 'Did the table just find a clue?');
   await ask(e, e.T.jess, 'What did we just say?');
-  const dmCtx = JSON.stringify(e.model.seen[0].messages.at(-1));
+  const gmCtx = JSON.stringify(e.model.seen[0].messages.at(-1));
   const plCtx = JSON.stringify(e.model.seen[1].messages.at(-1));
-  assert.match(dmCtx, /Live transcript/);
-  assert.match(dmCtx, /ask the harbourmaster about the lamp/);
-  assert.match(dmCtx, /secretly the keeper brother/, 'the DM sees the DM-visible lines');
+  assert.match(gmCtx, /Live transcript/);
+  assert.match(gmCtx, /ask the harbourmaster about the lamp/);
+  assert.match(gmCtx, /secretly the keeper brother/, 'the GM sees the GM-visible lines');
   assert.match(plCtx, /Live transcript/);
   assert.match(plCtx, /ask the harbourmaster about the lamp/);
   assert.ok(!/secretly the keeper brother|vault code/.test(plCtx), 'a player gets the players\' lines only');
-  assert.ok(!dmCtx.includes('three silver keys') && !plCtx.includes('three silver keys'), 'classified text is never sent');
+  assert.ok(!gmCtx.includes('three silver keys') && !plCtx.includes('three silver keys'), 'classified text is never sent');
   assert.ok(liveLines(e.deps, W, true, 20).lines.length <= 20);
 });
 
 test('AgentLive_SuggestionsLandInTheReviewQueueLowAndAreRateLimited', async () => {
   // A mystery with a clue, a promise and a new NPC named twice.
-  await e.ok('POST', api('/minerva/revelations'), e.T.dm, { title: 'Who took the lamp oil?', conclusion: 'The keeper did.', clues: ['A silver ring engraved with a grey heron lies in the keeper cellar', 'Oil barrels were rolled to the east quay at night', 'The keeper bought a new boat in autumn'] });
+  await e.ok('POST', api('/minerva/revelations'), e.T.gm, { title: 'Who took the lamp oil?', conclusion: 'The keeper did.', clues: ['A silver ring engraved with a grey heron lies in the keeper cellar', 'Oil barrels were rolled to the east quay at night', 'The keeper bought a new boat in autumn'] });
   const t = new Date().toISOString();
   addLine(e.ID.jess, 'jess', 'I found a silver ring engraved with a grey heron in the keeper cellar', 'players', t);
   addLine(e.ID.tom, 'tom', 'We should talk to Bram Oakes about the boat', 'players', t);
@@ -671,7 +671,7 @@ test('AgentLive_SuggestionsLandInTheReviewQueueLowAndAreRateLimited', async () =
   const first = await suggestionPass(e.deps, W);
   assert.equal(first.ran, true);
   assert.ok(first.drafted >= 3, JSON.stringify(first));
-  const review = await e.ok('GET', api('/minerva/review'), e.T.dm);
+  const review = await e.ok('GET', api('/minerva/review'), e.T.gm);
   const sug = review.drafts.filter((x: any) => x.kind.startsWith('suggest-'));
   const kinds = new Set(sug.map((x: any) => x.kind));
   for (const k of ['suggest-clue', 'suggest-npc', 'suggest-goal']) assert.ok(kinds.has(k), `${k} in ${[...kinds]}`);
@@ -681,8 +681,8 @@ test('AgentLive_SuggestionsLandInTheReviewQueueLowAndAreRateLimited', async () =
   // Low priority: they come after every other draft, and nothing was applied.
   const last = review.drafts.map((x: any) => x.kind.startsWith('suggest-'));
   assert.equal(last.indexOf(false) === -1 || last.lastIndexOf(false) < last.indexOf(true), true);
-  assert.ok(!JSON.stringify(await e.ok('GET', api('/minerva/revelations'), e.T.dm)).includes('"accountId":"' + e.ID.jess + '","name":"jess","session"'), 'the clue was not marked by itself');
-  // The model saw DM-visible lines but never classified text or players' private notes.
+  assert.ok(!JSON.stringify(await e.ok('GET', api('/minerva/revelations'), e.T.gm)).includes('"accountId":"' + e.ID.jess + '","name":"jess","session"'), 'the clue was not marked by itself');
+  // The model saw GM-visible lines but never classified text or players' private notes.
   assert.ok(e.audit.seen.length >= 1 && !JSON.stringify(e.audit.seen).includes('three silver keys'));
   // Rate limit: a new line right away does nothing; after two minutes (or 30 lines) it runs, and nothing is suggested twice.
   addLine(e.ID.tom, 'tom', 'Bram Oakes is hiding something', 'players');
@@ -692,23 +692,23 @@ test('AgentLive_SuggestionsLandInTheReviewQueueLowAndAreRateLimited', async () =
   assert.equal(later.drafted, 0, 'the same suggestions are not made twice');
   for (let i = 0; i < LIVE_LINES; i++) addLine(e.ID.tom, 'tom', `Another line about the weather number ${i}`, 'players');
   assert.equal((await suggestionPass(e.deps, W)).ran, true, 'thirty new lines run it at once');
-  // Nothing new: nothing to do. A forced run (the DM\'s button) with no new lines is also a no-op.
+  // Nothing new: nothing to do. A forced run (the GM\'s button) with no new lines is also a no-op.
   assert.equal((await suggestionPass(e.deps, W, { force: true })).ran, false);
   // A line stamped in the same millisecond as the last line read is still new (it was skipped as "No new lines" on a fast machine).
   const lastAt = (all<any>(e.deps.db, "SELECT MAX(updated_at) AS t FROM audio_lines WHERE session_id = 'as_1'")[0]).t as string;
   addLine(e.ID.tom, 'tom', 'Same millisecond line about Bram Oakes', 'players', lastAt);
   assert.deepEqual(await suggestionPass(e.deps, W, { force: true }).then((r) => [r.ran, r.lines]), [true, 1]);
   assert.equal((await suggestionPass(e.deps, W, { force: true })).ran, false, 'and read once only');
-  // The DM's button.
+  // The GM's button.
   addLine(e.ID.jess, 'jess', 'I will protect Brask the dockhand with my life', 'players');
-  assert.equal((await e.ok('POST', api('/minerva/live/suggest'), e.T.dm, {})).ran, true);
+  assert.equal((await e.ok('POST', api('/minerva/live/suggest'), e.T.gm, {})).ran, true);
   // A player cannot ask for it, and no suggestion shows in a player's view.
   assert.equal((await e.call('POST', api('/minerva/live/suggest'), e.T.jess, {})).status, 403);
   assert.ok(!/Bram Oakes|suggest-/.test(JSON.stringify(await e.ok('GET', api('/minerva/me'), e.T.jess))));
-  // A suggestion is applied only when the DM approves it.
+  // A suggestion is applied only when the GM approves it.
   const clue = sug.find((x: any) => x.kind === 'suggest-clue');
-  await e.ok('POST', api(`/minerva/review/${clue.id}`), e.T.dm, { decision: 'approve' });
-  assert.ok(JSON.stringify(await e.ok('GET', api('/minerva/revelations'), e.T.dm)).includes('jess'));
+  await e.ok('POST', api(`/minerva/review/${clue.id}`), e.T.gm, { decision: 'approve' });
+  assert.ok(JSON.stringify(await e.ok('GET', api('/minerva/revelations'), e.T.gm)).includes('jess'));
   e.audit.handler = undefined;
 });
 
@@ -722,24 +722,24 @@ test('AgentReview_ActivityIsDetectedFromMostOfATitlesWords', () => {
 
 test('AgentReview_AfterSessionDraftsAppendNeverCoolAnActiveHookPromoteOnlyNamedPeopleAndUseTheTableNumber', async () => {
   // Two hooks that are on: one came up this session, the other did not.
-  await e.ok('PUT', api('/minerva/page'), e.T.dm, { rel: 'dm/hooks/The darkened lamp.md', body: '# The darkened lamp\nWhy was it put out?\n', heat: 'on' });
-  await e.ok('PUT', api('/minerva/page'), e.T.dm, { rel: 'dm/hooks/The drowned bell.md', body: '# The drowned bell\nWho rings it?\n', heat: 'on' });
-  // An old NPC that is a promotion candidate (in an active hook) but was not in this session, and a status section the DM wrote.
-  await e.ok('PUT', api('/minerva/page'), e.T.dm, { rel: 'dm/state/Campaign Status.md', body: '# Campaign Status\n\n## What changed last session\n- The DM wrote this and it stays.\n\n## Next session\n- Visit the quay.\n' });
+  await e.ok('PUT', api('/minerva/page'), e.T.gm, { rel: 'gm/hooks/The darkened lamp.md', body: '# The darkened lamp\nWhy was it put out?\n', heat: 'on' });
+  await e.ok('PUT', api('/minerva/page'), e.T.gm, { rel: 'gm/hooks/The drowned bell.md', body: '# The drowned bell\nWho rings it?\n', heat: 'on' });
+  // An old NPC that is a promotion candidate (in an active hook) but was not in this session, and a status section the GM wrote.
+  await e.ok('PUT', api('/minerva/page'), e.T.gm, { rel: 'gm/state/Campaign Status.md', body: '# Campaign Status\n\n## What changed last session\n- The GM wrote this and it stays.\n\n## Next session\n- Visit the quay.\n' });
   const from = new Date(Date.now() - 3_600_000).toISOString();
-  const draft = await e.ok('POST', api('/sessionlog/drafts'), e.T.dm, { from, to: new Date().toISOString(), title: 'The dark lamp' });
-  await e.ok('PUT', api(`/sessionlog/drafts/${draft.id}`), e.T.dm, { markdown: '## Recap\n- The party spoke of the lamp, who darkened it and why.\n\n## Key moments\n- The keeper admitted it.\n\n## People met\n- Nell Harrow: a net mender\n- Captain Brask: the harbour captain\n\n## Open threads\n- Who paid the keeper?\n' });
-  await e.ok('POST', api(`/sessionlog/drafts/${draft.id}/publish`), e.T.dm, {});
+  const draft = await e.ok('POST', api('/sessionlog/drafts'), e.T.gm, { from, to: new Date().toISOString(), title: 'The dark lamp' });
+  await e.ok('PUT', api(`/sessionlog/drafts/${draft.id}`), e.T.gm, { markdown: '## Recap\n- The party spoke of the lamp, who darkened it and why.\n\n## Key moments\n- The keeper admitted it.\n\n## People met\n- Nell Harrow: a net mender\n- Captain Brask: the harbour captain\n\n## Open threads\n- Who paid the keeper?\n' });
+  await e.ok('POST', api(`/sessionlog/drafts/${draft.id}/publish`), e.T.gm, {});
   await until(() => !!one(e.deps.db, 'SELECT 1 FROM minerva_sessions WHERE world_id = ?', W), 'the session was filed');
   await until(() => (one<any>(e.deps.db, `SELECT COUNT(*) AS n FROM minerva_drafts WHERE world_id = ? AND review LIKE 'session-%'`, W)?.n ?? 0) > 3, 'drafts made');
   const filed = one<any>(e.deps.db, 'SELECT * FROM minerva_sessions WHERE world_id = ?', W);
-  const rv = await e.ok('GET', api('/minerva/review'), e.T.dm);
+  const rv = await e.ok('GET', api('/minerva/review'), e.T.gm);
   const mine = rv.drafts.filter((x: any) => x.review === `session-${filed.number}`);
   // Status drafts add to the section.
   const status = mine.filter((x: any) => x.kind === 'status' && x.op.op === 'section');
   assert.ok(status.length >= 1 && status.every((x: any) => x.op.mode === 'append'), JSON.stringify(status.map((x: any) => x.op)));
   const st = status.find((x: any) => /what changed/i.test(x.title));
-  assert.match(st.preview.after, /The DM wrote this and it stays\./);
+  assert.match(st.preview.after, /The GM wrote this and it stays\./);
   assert.match(st.preview.after, /The keeper admitted it/);
   // The hook that came up is raised and never lowered; the one that did not cools a step.
   const heat = (n: string) => mine.find((x: any) => x.kind === 'heat' && x.title.includes(n));
@@ -766,7 +766,7 @@ test('AgentPrep_ThePrepContextCarriesTheStatusTheArcAndTheLastSessionAndTheModel
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Here is a prep outline.'));
   const t0 = performance.now();
-  const r = await ask(e, e.T.dm, 'Prep next session for me: strong start, scenes and what to prepare');
+  const r = await ask(e, e.T.gm, 'Prep next session for me: strong start, scenes and what to prepare');
   const ctx = e.model.seen[0].messages.at(-1).content as string;
   assert.match(ctx, /Prefetched for prep/);
   assert.match(ctx, /## Campaign Status/);
@@ -795,15 +795,15 @@ test('AgentFixes_QuotedToolOutputIsNotAClaimAndTheRealDateIsKnown', async () => 
 });
 
 test('AgentCards_SpokenRulesTermsMatchRunTogetherAndLowerCaseConditions', async () => {
-  const dm = { accountId: e.ID.dm, role: 'dm' } as any;
-  const terms = (text: string, spoken = false) => findMatches(e.deps.db, W, dm, text, { spoken }).filter((m) => m.source === 'module').map((m) => m.term);
+  const gm = { accountId: e.ID.gm, role: 'gm' } as any;
+  const terms = (text: string, spoken = false) => findMatches(e.deps.db, W, gm, text, { spoken }).filter((m) => m.source === 'module').map((m) => m.term);
   assert.ok(terms('I cast counter spell on him!').includes('Counterspell'), 'two words for a one-word spell');
   assert.ok(terms('She casts Misty-Step away').some((t) => /misty step/i.test(t)));
   assert.ok(!terms('the mage is grappled now').some((t) => /grappled/i.test(t)), 'a page or a note: lower case stays plain');
   assert.ok(terms('the mage is grappled now', true).some((t) => /grappled/i.test(t)), 'said at the table: the condition');
   assert.ok(!terms('he lit a fire and felt cold', true).length, 'everyday words stay plain even when spoken');
   const { rulesSaid } = await import('../src/features/agent/harness.ts');
-  const block = rulesSaid(e.deps, { worldId: W, viewer: dm } as any, 'Jessamine: I cast counter spell!\nDM: the mage is grappled');
+  const block = rulesSaid(e.deps, { worldId: W, viewer: gm } as any, 'Jessamine: I cast counter spell!\nGM: the mage is grappled');
   assert.match(block, /Counterspell \(spell\)/);
   assert.match(block, /Grappled \(condition\)/);
 });

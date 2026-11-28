@@ -1,4 +1,4 @@
-// Shapes of /minerva (the DM's memory) and /minerva/me (a player's own notes).
+// Shapes of /minerva (the GM's memory) and /minerva/me (a player's own notes).
 export interface Arc { id: string; n: number; slug: string; title: string; status: 'open' | 'closed'; openedAt: string; closedAt: string | null }
 export interface Thread { title: string; rel: string; heat: string; kind: 'hook' | 'goal'; owner?: string }
 export interface Candidate { name: string; kind: string; sessions: number; reasons: string[]; entity?: string }

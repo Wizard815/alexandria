@@ -42,7 +42,7 @@
       "luck"
     ]
   },
-  "dmBand": {
+  "gmBand": {
     "chips": [
       "luck"
     ],
@@ -63,7 +63,7 @@
     {
       "id": "give",
       "label": "Give",
-      "by": "dm",
+      "by": "gm",
       "resource": "luck",
       "add": 1,
       "askReason": true
@@ -91,7 +91,7 @@
       "reroll",
       "luck point"
     ],
-    "dm": "Players have luck points that refill each session. A player spends one after a d20 roll to reroll and keep either result.",
+    "gm": "Players have luck points that refill each session. A player spends one after a d20 roll to reroll and keep either result.",
     "player": "You have luck points that refill each session: spend one after a bad d20 roll to reroll it and keep either result. Type /luck in chat."
   }
 }

@@ -1,15 +1,15 @@
 // Player marks on a map: pins, sticky notes, routes, numbered stops and
 // icons. 'party' marks are seen by everyone, 'me' marks only by their author.
-// The DM can hide any party mark; DM marks ('dm') are the DM's own layer.
+// The GM can hide any party mark; GM marks ('gm') are the GM's own layer.
 import { Router } from 'express';
 import type { Deps } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
-import { requirePlayerOrDM } from '../core/auth.ts';
+import { requirePlayerOrGM } from '../core/auth.ts';
 import { canSee } from '../core/policy.ts';
 import { fogLayers, markUnderFog } from '../core/fog.ts';
 import { HttpError, id, now, oneOf, str } from '../core/util.ts';
 import { readOnOpen } from '../features/connections/ondemand.ts';
-import { ctx, isDM, me, readerFor, settings } from './_shared.ts';
+import { ctx, isGM, me, readerFor, settings } from './_shared.ts';
 
 const ICONS = ['camp', 'fight', 'danger', 'skull', 'anchor', 'question', 'rest', 'treasure', 'door', 'eye'];
 
@@ -25,12 +25,12 @@ export default function mapRoutes(d: Deps) {
 
   db.exec('CREATE TABLE IF NOT EXISTS map_scales (world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE, pic TEXT NOT NULL, width REAL NOT NULL, unit TEXT NOT NULL, PRIMARY KEY (world_id, pic))');
 
-  // How wide the whole picture is in the world ("400 miles"), for the ruler. One per map picture, set by the DM, read by everyone.
+  // How wide the whole picture is in the world ("400 miles"), for the ruler. One per map picture, set by the GM, read by everyone.
   r.get('/scale', (req, res) => {
     res.json(one<any>(db, 'SELECT width, unit FROM map_scales WHERE world_id = ? AND pic = ?', ctx(res).world.id, str(req.query.pic, 'pic', { max: 200 })) ?? null);
   });
-  r.put('/scale', requirePlayerOrDM, (req, res) => {
-    if (!isDM(res)) throw new HttpError(403, 'Only the DM sets the scale');
+  r.put('/scale', requirePlayerOrGM, (req, res) => {
+    if (!isGM(res)) throw new HttpError(403, 'Only the GM sets the scale');
     const w = ctx(res).world.id;
     const pic = str(req.body?.pic, 'pic', { max: 200 });
     const width = Number(req.body?.width);
@@ -55,17 +55,17 @@ export default function mapRoutes(d: Deps) {
     try { page = d.library.get(c.world.id, pg.id, v as any); } catch { res.json({ page: null, pins: [] }); return; }
     const block = (page.blocks ?? []).find((b: any) => b.kind === 'map');
     const b = block?.bounds;
-    const fog = v.role === 'dm' ? [] : fogLayers(db, c.world.id, str(req.query.map, 'map', { max: 60, optional: true }) || 'world');
+    const fog = v.role === 'gm' ? [] : fogLayers(db, c.world.id, str(req.query.map, 'map', { max: 60, optional: true }) || 'world');
     const pins = !b ? [] : (block.pins ?? []).map((p: any, i: number) => ({
-      id: `p${i}`, name: p.name, icon: p.type ?? null, color: p.color ?? null, dm: p.dm === true, pageId: p.ref ? page.links[`ref:${p.ref}`] ?? null : null,
+      id: `p${i}`, name: p.name, icon: p.type ?? null, color: p.color ?? null, gm: p.gm === true, pageId: p.ref ? page.links[`ref:${p.ref}`] ?? null : null,
       x: ((p.lng - b[0][1]) / (b[1][1] - b[0][1])) * 100, y: ((b[1][0] - p.lat) / (b[1][0] - b[0][0])) * 100,
     })).filter((p: any) => p.x >= 0 && p.x <= 100 && p.y >= 0 && p.y <= 100 && !markUnderFog(fog, { kind: 'pin', data: p }));
     res.json({ page: { id: page.id, title: page.title }, pins });
   });
 
-  // DM: read the world's map pages from their source now (they are only listed until someone opens them), a few at a time.
-  r.post('/imported/read', requirePlayerOrDM, async (req, res) => {
-    if (!isDM(res)) throw new HttpError(403, 'Only the DM can read maps from the source');
+  // GM: read the world's map pages from their source now (they are only listed until someone opens them), a few at a time.
+  r.post('/imported/read', requirePlayerOrGM, async (req, res) => {
+    if (!isGM(res)) throw new HttpError(403, 'Only the GM can read maps from the source');
     const w = ctx(res).world.id;
     const todo = all<any>(db, "SELECT p.id FROM pages p JOIN sources s ON s.id = p.source_id AND s.enabled = 1 WHERE p.world_id = ? AND p.kind = 'map' AND p.depth = 'index' ORDER BY p.title LIMIT 12", w);
     let read = 0;
@@ -78,26 +78,26 @@ export default function mapRoutes(d: Deps) {
     const c = ctx(res);
     const v = readerFor(req, res);
     const rows = all<any>(db, 'SELECT * FROM map_marks WHERE world_id = ? AND map_id = ? ORDER BY created_at', c.world.id, String(req.params.mapId));
-    // Fog is enforced here, not on the page: a mark under fog is never sent to anyone but the DM (and not to the DM's
+    // Fog is enforced here, not on the page: a mark under fog is never sent to anyone but the GM (and not to the GM's
     // ?view=players table screen either), so a client that ignored the fog would still find nothing under it.
-    const fog = v.role === 'dm' ? [] : fogLayers(db, c.world.id, String(req.params.mapId));
+    const fog = v.role === 'gm' ? [] : fogLayers(db, c.world.id, String(req.params.mapId));
     res.json(rows
-      .filter((m) => canSee(v, m.visibility, m.author_id) && (v.role === 'dm' || !m.hidden_by_dm || m.author_id === v.accountId))
-      .map((m) => ({ ...m, data: JSON.parse(m.data), hidden_by_dm: !!m.hidden_by_dm }))
+      .filter((m) => canSee(v, m.visibility, m.author_id) && (v.role === 'gm' || !m.hidden_by_gm || m.author_id === v.accountId))
+      .map((m) => ({ ...m, data: JSON.parse(m.data), hidden_by_gm: !!m.hidden_by_gm }))
       .filter((m) => !markUnderFog(fog, m)));
   });
 
-  r.post('/:mapId/marks', requirePlayerOrDM, (req, res) => {
+  r.post('/:mapId/marks', requirePlayerOrGM, (req, res) => {
     const c = ctx(res);
     const s = settings(res);
     const b = req.body ?? {};
     const kind = oneOf(b.kind, 'kind', ['pin', 'note', 'route', 'stop', 'icon'] as const);
-    if (!isDM(res)) {
+    if (!isGM(res)) {
       if ((kind === 'pin' || kind === 'note' || kind === 'icon') && !s.mapPins) throw new HttpError(403, 'Pins and notes are off for this world');
       if (kind === 'route' && !s.mapDraw) throw new HttpError(403, 'Drawing routes is off for this world');
       if (kind === 'stop' && !s.mapStops) throw new HttpError(403, 'Numbered stops are off for this world');
     }
-    const visibility = oneOf(b.visibility, 'visibility', isDM(res) ? (['party', 'me', 'dm'] as const) : (['party', 'me'] as const), 'party');
+    const visibility = oneOf(b.visibility, 'visibility', isGM(res) ? (['party', 'me', 'gm'] as const) : (['party', 'me'] as const), 'party');
     let data: any;
     if (kind === 'route') {
       if (!Array.isArray(b.points) || b.points.length < 2 || b.points.length > 500) throw new HttpError(400, 'A route needs 2 to 500 points');
@@ -114,23 +114,23 @@ export default function mapRoutes(d: Deps) {
         data.n = n + 1;
       }
     }
-    const m = { id: id('mk_'), world_id: c.world.id, map_id: str(String(req.params.mapId), 'mapId', { max: 60 }), author_id: me(res), kind, data, visibility, hidden_by_dm: false, created_at: now() };
-    run(db, 'INSERT INTO map_marks (id, world_id, map_id, author_id, kind, data, visibility, hidden_by_dm, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)', m.id, m.world_id, m.map_id, m.author_id, m.kind, JSON.stringify(data), m.visibility, m.created_at);
+    const m = { id: id('mk_'), world_id: c.world.id, map_id: str(String(req.params.mapId), 'mapId', { max: 60 }), author_id: me(res), kind, data, visibility, hidden_by_gm: false, created_at: now() };
+    run(db, 'INSERT INTO map_marks (id, world_id, map_id, author_id, kind, data, visibility, hidden_by_gm, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)', m.id, m.world_id, m.map_id, m.author_id, m.kind, JSON.stringify(data), m.visibility, m.created_at);
     // Looked up per event, so fog turned on a moment ago still counts; players get nothing for a mark under fog.
     const fog = fogLayers(db, c.world.id, m.map_id);
     const covered = markUnderFog(fog, m);
-    d.hub.emit(c.world.id, 'map-mark', m, (v) => canSee(v, m.visibility, m.author_id) && (v.role === 'dm' || !covered));
+    d.hub.emit(c.world.id, 'map-mark', m, (v) => canSee(v, m.visibility, m.author_id) && (v.role === 'gm' || !covered));
     res.status(201).json(m);
   });
 
-  // DM: hide or show a mark. Authors keep seeing their own hidden marks.
+  // GM: hide or show a mark. Authors keep seeing their own hidden marks.
   r.patch('/:mapId/marks/:mid', (req, res) => {
     const c = ctx(res);
     const m = one<any>(db, 'SELECT * FROM map_marks WHERE id = ? AND world_id = ?', String(req.params.mid), c.world.id);
     if (!m || !canSee(c.viewer, m.visibility, m.author_id)) throw new HttpError(404, 'Mark not found');
     if (req.body?.hidden !== undefined) {
-      if (!isDM(res)) throw new HttpError(403, 'Only the DM can hide marks');
-      run(db, 'UPDATE map_marks SET hidden_by_dm = ? WHERE id = ?', req.body.hidden ? 1 : 0, m.id);
+      if (!isGM(res)) throw new HttpError(403, 'Only the GM can hide marks');
+      run(db, 'UPDATE map_marks SET hidden_by_gm = ? WHERE id = ?', req.body.hidden ? 1 : 0, m.id);
     }
     if (req.body?.text !== undefined || req.body?.label !== undefined) {
       if (m.author_id !== me(res)) throw new HttpError(403, 'Only the author can edit a mark');
@@ -146,7 +146,7 @@ export default function mapRoutes(d: Deps) {
     const c = ctx(res);
     const m = one<any>(db, 'SELECT * FROM map_marks WHERE id = ? AND world_id = ?', String(req.params.mid), c.world.id);
     if (!m || !canSee(c.viewer, m.visibility, m.author_id)) throw new HttpError(404, 'Mark not found');
-    if (m.author_id !== me(res) && !isDM(res)) throw new HttpError(403, 'You can only erase your own marks');
+    if (m.author_id !== me(res) && !isGM(res)) throw new HttpError(403, 'You can only erase your own marks');
     run(db, 'DELETE FROM map_marks WHERE id = ?', m.id);
     d.hub.emit(c.world.id, 'map-mark-removed', { id: m.id }, (v) => canSee(v, m.visibility, m.author_id));
     res.json({ ok: true });

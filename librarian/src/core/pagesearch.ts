@@ -1,4 +1,4 @@
-// Library page search: the FTS5 indexes (DM copy and party copy), the title
+// Library page search: the FTS5 indexes (GM copy and party copy), the title
 // and alias list used for exact matches and typo tolerance, query parsing
 // (words, "phrases", -exclusions), ranking and snippets.
 //
@@ -7,7 +7,7 @@
 //   party   player copies   (pages.player_body)   what players may search
 //   broker  broker copies   (pages.broker_body)   what the broker may use
 //   ai      AI copies       (pages.ai_body)       everything but classified: every model-facing search
-//   dm      DM copies       (pages.body)          only the DM's own screen
+//   gm      GM copies       (pages.body)          only the GM's own screen
 // A search reads the table and page_names scope of its own copy, and
 // snippets are cut from that copy's column, never from pages.body.
 //
@@ -18,19 +18,19 @@ import type { DatabaseSync } from 'node:sqlite';
 type DB = DatabaseSync;
 
 /** Bump when the index layout or what goes in it changes: the index is rebuilt on start. */
-export const SEARCH_INDEX_VERSION = 4;
+export const SEARCH_INDEX_VERSION = 5;
 
 const FTS_COLS = 'page_id UNINDEXED, world_id UNINDEXED, title, aliases, headings, body';
 const FTS_OPTS = `tokenize = 'unicode61 remove_diacritics 2', prefix = '2 3'`;
 /** bm25 weights per column: page_id, world_id, title, aliases, headings, body. */
 const WEIGHTS = '0, 0, 12, 10, 3, 1';
 
-export type Scope = 'dm' | 'party' | 'broker' | 'ai';
-const TABLES: Record<Scope, string> = { dm: 'fts_dm', party: 'fts_party', broker: 'fts_broker', ai: 'fts_ai' };
+export type Scope = 'gm' | 'party' | 'broker' | 'ai';
+const TABLES: Record<Scope, string> = { gm: 'fts_gm', party: 'fts_party', broker: 'fts_broker', ai: 'fts_ai' };
 const ftsTable = (scope: Scope) => TABLES[scope] ?? 'fts_party';
 /** The pages columns that hold a scope's copy: body and sidebar properties. */
 const COPY_COLS: Record<Scope, { body: string; props: string }> = {
-  dm: { body: 'body', props: 'properties' },
+  gm: { body: 'body', props: 'properties' },
   party: { body: 'player_body', props: 'player_properties' },
   broker: { body: 'broker_body', props: 'broker_properties' },
   ai: { body: 'ai_body', props: 'ai_properties' },
@@ -41,7 +41,7 @@ export const scopeGuard = (scope: Scope, alias = 'p'): string => {
   switch (scope) {
     case 'party': return `AND ${a}visibility = 'party' AND ${a}player_body IS NOT NULL`;
     case 'broker': return `AND ${a}visibility IN ('party', 'broker') AND ${a}broker_body IS NOT NULL`;
-    case 'ai': return `AND ${a}visibility IN ('party', 'broker', 'dm') AND ${a}ai_body IS NOT NULL`;
+    case 'ai': return `AND ${a}visibility IN ('party', 'broker', 'gm') AND ${a}ai_body IS NOT NULL`;
     default: return '';
   }
 };
@@ -263,15 +263,15 @@ export const allowedEdits = (len: number) => (len <= 3 ? 0 : len <= 5 ? 1 : 2);
 
 // ---- index -------------------------------------------------------------------
 
-const KEY_DM_ALIAS = /^(secret|secrets|dm|dm_.*|gm|gm_.*|private)$/i;
+const KEY_GM_ALIAS = /^(secret|secrets|dm|dm_.*|gm|gm_.*|private)$/i;
 
-/** Aliases written under DM-only keys (secret: { aliases }, dm_aliases ...). Only the DM index gets these. */
-export function dmOnlyAliases(fm: any): string[] {
+/** Aliases written under GM-only keys (secret: { aliases }, gm_aliases ...). Only the GM index gets these. */
+export function gmOnlyAliases(fm: any): string[] {
   const out: string[] = [];
   const take = (v: any) => { if (typeof v === 'string') out.push(v); else if (Array.isArray(v)) for (const x of v) if (typeof x === 'string') out.push(x); };
   if (!fm || typeof fm !== 'object') return out;
   for (const [k, v] of Object.entries(fm)) {
-    if (!KEY_DM_ALIAS.test(k)) continue;
+    if (!KEY_GM_ALIAS.test(k)) continue;
     if (/alias/i.test(k)) take(v);
     else if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k2, v2] of Object.entries(v as any)) if (/^aliases?$/i.test(k2)) take(v2);
   }
@@ -280,8 +280,8 @@ export function dmOnlyAliases(fm: any): string[] {
 
 /**
  * Aliases a player may search by. Markdown pages: the aliases left in the
- * player frontmatter (secret/dm keys are already gone). Imported pages: the
- * source's aliases, minus any that name a DM-only page.
+ * player frontmatter (secret/gm keys are already gone). Imported pages: the
+ * source's aliases, minus any that name a GM-only page.
  */
 export function playerAliases(origin: string, playerFm: any, pageAliases: string[], hiddenTitles: Set<string>): string[] {
   const src = origin === 'markdown' ? (Array.isArray(playerFm?.aliases) ? playerFm.aliases : typeof playerFm?.aliases === 'string' ? [playerFm.aliases] : []) : pageAliases;
@@ -353,7 +353,7 @@ export function unindexWorld(db: DB, scope: Scope, worldId: string) {
 }
 
 function createTables(db: DB) {
-  db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS fts_dm USING fts5(${FTS_COLS}, ${FTS_OPTS});
+  db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS fts_gm USING fts5(${FTS_COLS}, ${FTS_OPTS});
     CREATE VIRTUAL TABLE IF NOT EXISTS fts_party USING fts5(${FTS_COLS}, ${FTS_OPTS});
     CREATE VIRTUAL TABLE IF NOT EXISTS fts_broker USING fts5(${FTS_COLS}, ${FTS_OPTS});
     CREATE VIRTUAL TABLE IF NOT EXISTS fts_ai USING fts5(${FTS_COLS}, ${FTS_OPTS});
@@ -363,15 +363,15 @@ function createTables(db: DB) {
     CREATE TABLE IF NOT EXISTS search_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
 }
 
-/** Rebuild every index from the pages table (DM copy and the stored player, broker and AI copies). */
+/** Rebuild every index from the pages table (GM copy and the stored player, broker and AI copies). */
 export function rebuildAll(db: DB) {
   bump(db);
   db.exec('BEGIN');
   try {
-    db.exec('DELETE FROM fts_dm; DELETE FROM fts_party; DELETE FROM fts_broker; DELETE FROM fts_ai; DELETE FROM page_names;');
+    db.exec('DELETE FROM fts_gm; DELETE FROM fts_party; DELETE FROM fts_broker; DELETE FROM fts_ai; DELETE FROM page_names;');
     // Titles to hide from each copy's aliases: pages above the copy's level.
     const hidden: Record<'party' | 'broker' | 'ai', Map<string, Set<string>>> = { party: new Map(), broker: new Map(), ai: new Map() };
-    const cond: Record<'party' | 'broker' | 'ai', string> = { party: `visibility <> 'party'`, broker: `visibility NOT IN ('party', 'broker')`, ai: `visibility NOT IN ('party', 'broker', 'dm')` };
+    const cond: Record<'party' | 'broker' | 'ai', string> = { party: `visibility <> 'party'`, broker: `visibility NOT IN ('party', 'broker')`, ai: `visibility NOT IN ('party', 'broker', 'gm')` };
     for (const k of ['party', 'broker', 'ai'] as const) {
       for (const r of db.prepare(`SELECT world_id, lower(title) AS t FROM pages WHERE ${cond[k]}`).all() as any[]) {
         if (!hidden[k].has(r.world_id)) hidden[k].set(r.world_id, new Set());
@@ -381,8 +381,8 @@ export function rebuildAll(db: DB) {
     const parse = (s: string | null) => { try { return JSON.parse(s || 'null'); } catch { return null; } };
     for (const pg of db.prepare('SELECT * FROM pages').iterate() as Iterable<any>) {
       const al: string[] = (parse(pg.aliases) ?? []).map(String);
-      const dmAl = [...al, ...(pg.origin === 'markdown' ? dmOnlyAliases(parse(pg.frontmatter)) : [])];
-      indexPage(db, 'dm', pg.id, pg.world_id, pg.title, dmAl, pg.body, factsText(pg.properties));
+      const gmAl = [...al, ...(pg.origin === 'markdown' ? gmOnlyAliases(parse(pg.frontmatter)) : [])];
+      indexPage(db, 'gm', pg.id, pg.world_id, pg.title, gmAl, pg.body, factsText(pg.properties));
       for (const [scope, pre] of [['party', 'player_'], ['broker', 'broker_'], ['ai', 'ai_']] as const) {
         if (pg[`${pre}body`] === null || pg[`${pre}body`] === undefined) continue;
         indexPage(db, scope, pg.id, pg.world_id, pg.title, playerAliases(pg.origin, parse(pg[`${pre}frontmatter`]), al, hidden[scope].get(pg.world_id) ?? new Set()), pg[`${pre}body`], factsText(pg[`${pre}properties`]));
@@ -404,9 +404,9 @@ export function rebuildAll(db: DB) {
 export function ensureSearchIndex(db: DB) {
   const sqlOf = (n: string) => ((db.prepare(`SELECT sql FROM sqlite_master WHERE name = ?`).get(n) as any)?.sql as string | undefined) ?? '';
   const metaOk = sqlOf('search_meta') && (db.prepare(`SELECT value FROM search_meta WHERE key = 'index_version'`).get() as any)?.value === String(SEARCH_INDEX_VERSION);
-  const layoutOk = ['fts_dm', 'fts_party', 'fts_broker', 'fts_ai'].every((t) => sqlOf(t).includes('headings'));
+  const layoutOk = ['fts_gm', 'fts_party', 'fts_broker', 'fts_ai'].every((t) => sqlOf(t).includes('headings'));
   if (metaOk && layoutOk) { createTables(db); return; }
-  db.exec('DROP TABLE IF EXISTS fts_dm; DROP TABLE IF EXISTS fts_party; DROP TABLE IF EXISTS fts_broker; DROP TABLE IF EXISTS fts_ai; DROP TABLE IF EXISTS page_names;');
+  db.exec('DROP TABLE IF EXISTS fts_dm; DROP TABLE IF EXISTS fts_gm; DROP TABLE IF EXISTS fts_party; DROP TABLE IF EXISTS fts_broker; DROP TABLE IF EXISTS fts_ai; DROP TABLE IF EXISTS page_names;');
   createTables(db);
   rebuildAll(db);
 }
@@ -435,7 +435,7 @@ const recency = (iso: string, nowMs: number) => {
 };
 
 /**
- * Search the pages one viewer may see. `scope` is 'dm' only for a DM; every
+ * Search the pages one viewer may see. `scope` is 'gm' only for a GM; every
  * other viewer reads the party index and the player copy.
  */
 export function searchPages(db: DB, worldId: string, q: string, scope: Scope, limit = 20, nowMs = Date.now()): PageHit[] {

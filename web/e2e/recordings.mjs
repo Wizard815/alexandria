@@ -1,4 +1,4 @@
-// Recordings, end to end: the DM records a short session with Chromium's fake microphone, stops it, waits
+// Recordings, end to end: the GM records a short session with Chromium's fake microphone, stops it, waits
 // for the build, then plays the full recording and each mic track, clicks a transcript line to seek,
 // downloads files (one by one, and "Download all" as one .zip), shows where the session summary went, changes retention,
 // and a player sees only their own track and the players' transcript (and their zip holds nothing more).
@@ -44,11 +44,11 @@ const data = path.join(tmpDir('rec'), 'data');
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', data, '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tokDM = await login('dm', 'dungeon master 123');
+const tokGM = await login('gm', 'game master 123');
 const tokTom = await login('tom', 'player pass 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokDM } })).json())[0].id;
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokGM } })).json())[0].id;
 const api = async (tok, method, p, body) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
-const recs = async () => (await api(tokDM, 'GET', '/audio/recordings')).body.sessions;
+const recs = async () => (await api(tokGM, 'GET', '/audio/recordings')).body.sessions;
 const waitReady = async (name, ms = 60000) => {
   const end = Date.now() + ms;
   for (;;) {
@@ -77,9 +77,9 @@ async function signIn(user, pass, viewport = { width: 1280, height: 900 }) {
 }
 
 try {
-  // ---- 1. the DM records a short session with the fake microphone ----
-  const { ctx: dctx, page } = await signIn('dm', 'dungeon master 123');
-  await page.goto(`${base}/w/saltreach/dm/audio`);
+  // ---- 1. the GM records a short session with the fake microphone ----
+  const { ctx: dctx, page } = await signIn('gm', 'game master 123');
+  await page.goto(`${base}/w/saltreach/gm/audio`);
   await page.getByRole('button', { name: /allow the microphone|refresh the list/i }).click();
   const sw = page.getByRole('switch', { name: /^Use /i }).first();
   await sw.waitFor({ timeout: 10000 });
@@ -97,17 +97,17 @@ try {
   check(live.rawChunks === 0, 'the raw chunks were removed after the build');
   const folder = path.join(data, live.folder);
   const files = fs.existsSync(folder) ? fs.readdirSync(folder) : [];
-  check(files.includes('Full session.mp3') && files.includes('Transcript.md') && files.includes('session.json') && files.some((f) => / - dm\.mp3$/.test(f) || /\.mp3$/.test(f) && f !== 'Full session.mp3'), `the folder on disk is readable (${files.join(', ')})`);
+  check(files.includes('Full session.mp3') && files.includes('Transcript.md') && files.includes('session.json') && files.some((f) => / - gm\.mp3$/.test(f) || /\.mp3$/.test(f) && f !== 'Full session.mp3'), `the folder on disk is readable (${files.join(', ')})`);
 
-  // ---- 2. the DM's Recordings page ----
-  await page.goto(`${base}/w/saltreach/dm/recordings`);
+  // ---- 2. the GM's Recordings page ----
+  await page.goto(`${base}/w/saltreach/gm/recordings`);
   await page.getByRole('heading', { name: 'Recordings', level: 1 }).waitFor({ timeout: 10000 }).catch(() => {});
   await page.getByText('E2E live session').first().waitFor({ timeout: 10000 });
-  await page.screenshot({ path: path.join(SHOTS, 'dm-list.png'), fullPage: true });
+  await page.screenshot({ path: path.join(SHOTS, 'gm-list.png'), fullPage: true });
   // the demo's session, built from its tones
   const s21 = await waitReady('Session 21');
   check(s21.status === 'ready', `Session 21 (demo) was built (${s21.status}${s21.error ? ': ' + s21.error : ''})`);
-  const s21detail = (await api(tokDM, 'GET', `/audio/recordings/${s21.id}`)).body;
+  const s21detail = (await api(tokGM, 'GET', `/audio/recordings/${s21.id}`)).body;
   const detail0 = () => s21detail;
   await page.getByRole('button', { name: /Session 21/ }).click();
   await page.getByRole('heading', { name: /Session 21/ }).waitFor();
@@ -119,7 +119,7 @@ try {
   const tracks = await page.locator('.rec-track').count();
   check(tracks === 4, `the full recording and three mic tracks are listed (${tracks})`);
   const trackText = await page.locator('.rec-players').innerText();
-  check(/Tomas's phone/.test(trackText) && /DM headset/.test(trackText) && /Table/.test(trackText), 'each mic is labelled with its name');
+  check(/Tomas's phone/.test(trackText) && /GM headset/.test(trackText) && /Table/.test(trackText), 'each mic is labelled with its name');
   check(/Full session/.test(trackText) && /· (tom|Tom)/i.test(trackText), 'tracks name the person they belong to');
   // every track plays
   const durations = await page.locator('.rec-track audio').evaluateAll((els) => Promise.all(els.map((a) => new Promise((r) => { if (a.readyState >= 1) r(a.duration); else { a.addEventListener('loadedmetadata', () => r(a.duration), { once: true }); a.load(); setTimeout(() => r(0), 8000); } }))));
@@ -135,9 +135,9 @@ try {
   await page.locator('.rec-line', { hasText: /Fireball/i }).click();
   await sleep(500);
   check((await main.evaluate((a) => a.currentTime)) >= 15, 'a later line seeks later');
-  check(await page.getByText('DM only').first().isVisible(), 'DM-only lines are marked for the DM');
+  check(await page.getByText('GM only').first().isVisible(), 'GM-only lines are marked for the GM');
   await page.locator('.rec-track.main audio').evaluate((a) => a.pause());
-  await page.screenshot({ path: path.join(SHOTS, 'dm-session.png'), fullPage: true });
+  await page.screenshot({ path: path.join(SHOTS, 'gm-session.png'), fullPage: true });
 
   // downloads
   const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 15000 }), page.getByRole('link', { name: 'Download Full session' }).click()]);
@@ -147,15 +147,15 @@ try {
   check(/Tomas's phone - .*\.mp3$/.test(dl2.suggestedFilename()), `a mic track downloads (${dl2.suggestedFilename()})`);
   const [dl3] = await Promise.all([page.waitForEvent('download', { timeout: 15000 }), page.getByRole('button', { name: /\.md$/ }).click()]);
   const md = fs.readFileSync(await dl3.path(), 'utf8');
-  check(/Remember Velmira/.test(md) && /DM only/.test(md), 'the transcript downloads as Markdown, DM-only lines marked');
+  check(/Remember Velmira/.test(md) && /GM only/.test(md), 'the transcript downloads as Markdown, GM-only lines marked');
   // Download all: one zip with everything
   const [dz] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.getByTestId('rec-download-all').click()]);
-  const dmZip = unzip(fs.readFileSync(await dz.path()));
-  const dmNames = [...dmZip.keys()];
+  const gmZip = unzip(fs.readFileSync(await dz.path()));
+  const gmNames = [...gmZip.keys()];
   check(/Session 21\.zip$/.test(dz.suggestedFilename()), `Download all is one zip named for the session (${dz.suggestedFilename()})`);
-  check(dmNames.includes('Full session.mp3') && dmNames.filter((n) => n.endsWith('.mp3')).length === 4 && dmNames.includes('Transcript.md') && dmNames.includes('session.json'), `the DM's zip has the full session, every mic, Transcript.md and session.json (${dmNames.join(', ')})`);
-  check(/Remember Velmira/.test(dmZip.get('Transcript.md')?.toString() ?? ''), "the DM's zip transcript has the DM-only lines");
-  check(dmZip.get('Full session.mp3').length === detail0().tracks.find((x) => x.kind === 'full').bytes, 'the full session in the zip is the whole file');
+  check(gmNames.includes('Full session.mp3') && gmNames.filter((n) => n.endsWith('.mp3')).length === 4 && gmNames.includes('Transcript.md') && gmNames.includes('session.json'), `the GM's zip has the full session, every mic, Transcript.md and session.json (${gmNames.join(', ')})`);
+  check(/Remember Velmira/.test(gmZip.get('Transcript.md')?.toString() ?? ''), "the GM's zip transcript has the GM-only lines");
+  check(gmZip.get('Full session.mp3').length === detail0().tracks.find((x) => x.kind === 'full').bytes, 'the full session in the zip is the whole file');
   // where the session summary went
   const sumBox = page.getByTestId('rec-summary');
   await sumBox.waitFor({ timeout: 10000 });
@@ -173,7 +173,7 @@ try {
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('button', { name: /Session 21/ }).getByText('Kept forever').waitFor({ timeout: 8000 });
   check(true, 'keep forever shows on the list');
-  await page.screenshot({ path: path.join(SHOTS, 'dm-retention.png'), fullPage: true });
+  await page.screenshot({ path: path.join(SHOTS, 'gm-retention.png'), fullPage: true });
 
   // delete now, with a confirm, on the live session
   await page.getByRole('button', { name: /E2E live session/ }).click();
@@ -186,7 +186,7 @@ try {
   await page.getByRole('button', { name: 'Delete audio now' }).click();
   await page.getByRole('button', { name: /E2E live session/ }).getByText('Audio deleted').first().waitFor({ timeout: 8000 });
   check(!fs.existsSync(path.join(folder, 'Full session.mp3')) && fs.existsSync(path.join(folder, 'Transcript.md')), 'the audio files are gone from disk; the transcript stays');
-  await page.screenshot({ path: path.join(SHOTS, 'dm-deleted.png'), fullPage: true });
+  await page.screenshot({ path: path.join(SHOTS, 'gm-deleted.png'), fullPage: true });
   await dctx.close();
 
   // ---- 3. a player sees only their own track ----
@@ -196,8 +196,8 @@ try {
   await p.locator('.rec-track.main audio').waitFor({ timeout: 10000 });
   const ptext = await p.locator('.page').innerText();
   check(/Tomas's phone/.test(ptext), 'the player sees their own mic track');
-  check(!/Full session|DM headset|Table\b.*·/.test(await p.locator('.rec-players').innerText()), 'the player does not see the full mix or other mics');
-  check(!/Velmira|DM only/.test(ptext), 'the player sees no DM-only lines');
+  check(!/Full session|GM headset|Table\b.*·/.test(await p.locator('.rec-players').innerText()), 'the player does not see the full mix or other mics');
+  check(!/Velmira|GM only/.test(ptext), 'the player sees no GM-only lines');
   check((await p.locator('.rec-track').count()) === 1, 'exactly one track');
   await p.waitForFunction(() => { const a = document.querySelector('.rec-track audio'); return a && a.readyState >= 1 && a.duration > 0; }, null, { timeout: 15000 });
   await p.locator('.rec-line').first().click();
@@ -210,19 +210,19 @@ try {
   const pNames = [...pZip.keys()];
   check(pNames.filter((n) => n.endsWith('.mp3')).length === 1 && pNames.some((n) => /^Tomas's phone/.test(n)) && pNames.includes('Transcript (players).md') && !pNames.includes('session.json') && !pNames.includes('Summary.md') && !pNames.includes('Transcript.md'), `the player's zip has only their track and the players' side (${pNames.join(', ')})`);
   const pAll = [...pZip.values()].map((b) => b.toString('latin1')).join('\n');
-  check(!/Velmira|DM only|DM headset|Full session/.test(pAll), "the player's zip holds no DM-only line and no one else's audio");
+  check(!/Velmira|GM only|GM headset|Full session/.test(pAll), "the player's zip holds no GM-only line and no one else's audio");
   const pz2 = (await api(tokTom, 'GET', '/audio/recordings/mine')).body.sessions.find((x) => x.id === s21.id);
   const forged = pz2.zipUrl.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A'));
   check((await fetch(base + forged)).status === 404, 'a tampered zip ticket is refused');
   // the API agrees: the full mix and other mics are 403 for the player
-  const detail = (await api(tokDM, 'GET', `/audio/recordings/${s21.id}`)).body;
+  const detail = (await api(tokGM, 'GET', `/audio/recordings/${s21.id}`)).body;
   const full = detail.tracks.find((x) => x.kind === 'full');
-  const head = detail.tracks.find((x) => x.label === 'DM headset');
+  const head = detail.tracks.find((x) => x.label === 'GM headset');
   const mine = detail.tracks.find((x) => x.label === "Tomas's phone");
   check((await api(tokTom, 'GET', `/audio/recordings/tracks/${full.id}/file`)).status === 403, 'API: the full mix is 403 for a player');
   check((await api(tokTom, 'GET', `/audio/recordings/tracks/${head.id}/file`)).status === 403, "API: someone else's track is 403 for a player");
   check((await api(tokTom, 'GET', `/audio/recordings/tracks/${mine.id}/file`)).status === 200, 'API: their own track plays');
-  check((await api(tokTom, 'GET', '/audio/recordings')).status === 403, 'API: the DM list is 403 for a player');
+  check((await api(tokTom, 'GET', '/audio/recordings')).status === 403, 'API: the GM list is 403 for a player');
   await pctx.close();
 
   // a player who was not recorded has nothing to play

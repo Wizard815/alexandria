@@ -1,30 +1,31 @@
-// Templates & guides (DM only): the DM's reusable templates, made with the assistant. Six kinds: agent guides (how the
+// Templates & guides (GM only): the GM's reusable templates, made with the assistant. Six kinds: agent guides (how the
 // assistant does a kind of task: research steps, sources, sections, tone, exemplar pages), generator templates, macro
 // templates, assist panel templates, shop generation templates and library page templates. Versioned, per world,
 // each on or off. Guides are used by the assistant on their own when a request matches (guides.ts), and web research
-// (web.ts) is the DM's opt-in, off by default. See docs/TEMPLATES.md.
+// (web.ts) is the GM's opt-in, off by default. See docs/TEMPLATES.md.
 //
 //   GET/POST /templates, GET/PUT/DELETE /templates/:id, POST /templates/:id/restore
-//   POST /templates/draft      the assistant drafts a template from the DM's description (and asks a few questions)
+//   POST /templates/draft      the assistant drafts a template from the GM's description (and asks a few questions)
 //   POST /templates/derive     a guide from example library pages (their common structure)
 //   GET/PUT /templates/web, POST /templates/web/check, POST /templates/web/search
 //   POST /templates/:id/shop   a shop draft from the shop generator, with this template's guide
 //   GET /templates/starters, POST /templates/starters/add { pack, names? }   the starter templates (starters.ts)
 //   GET /templates/export?ids=a,b&kind=k   a package (.alxtemplates.json); POST /templates/import { file }  (share.ts)
-//   MCP  list_dm_templates, get_dm_template, create_dm_template, update_dm_template, web_research
+//   MCP  list_gm_templates, get_gm_template, create_gm_template, update_gm_template, web_research
 import { Router } from 'express';
 import type { Feature, McpTool } from '../types.ts';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { hasJob, wouldBeRefused } from '../../core/ai.ts';
 import { run } from '../../core/db.ts';
 import { HttpError, now, oneOf, str } from '../../core/util.ts';
 import { ctx, me } from '../../routes/_shared.ts';
-import { cleanTemplate, KIND_LABEL, KINDS, templateText, type Kind, type TemplateInput } from './spec.ts';
+import { cleanTemplate, guideText, KIND_LABEL, KINDS, templateText, type Kind, type TemplateInput } from './spec.ts';
 import { createTemplate, deleteTemplate, getTemplate, listTemplates, SCHEMA, setWebConfig, templateVersions, updateTemplate, webConfig } from './store.ts';
 import { deriveGuide, draftTemplate } from './draft.ts';
 import { blockedQuery, blockedText, cleanQueries, webSearch } from './web.ts';
 import { generateShopWithTemplate } from './shop.ts';
+import { draftSpell } from './spell.ts';
 import { importTemplates, makePackage, readPackage } from './share.ts';
 import { starterPacks } from './starters.ts';
 import { VERSION } from '../../version.ts';
@@ -41,7 +42,7 @@ const brief = (t: ReturnType<typeof listTemplates>[number]) => ({ id: t.id, kind
 
 function routes(d: Deps) {
   const r = Router({ mergeParams: true });
-  r.use(requireDM);
+  r.use(requireGM);
   const W = (res: any): string => ctx(res).world.id;
   const found = (res: any, tid: string) => { const t = getTemplate(d.db, W(res), tid); if (!t) throw new HttpError(404, 'Template not found'); return t; };
 
@@ -49,7 +50,6 @@ function routes(d: Deps) {
     const kind = typeof req.query.kind === 'string' && (KINDS as readonly string[]).includes(req.query.kind) ? req.query.kind as Kind : undefined;
     res.json({ templates: listTemplates(d.db, W(res), kind), kinds: KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] })), model: hasJob(d, 'chat') });
   });
-
   // ---- web research (before /:id) ----
   r.get('/web', async (_req, res) => {
     let providers: { id: string; name: string }[] = [];
@@ -104,7 +104,7 @@ function routes(d: Deps) {
     const names = Array.isArray(req.body?.names) ? new Set(req.body.names.map((n: unknown) => String(n).toLowerCase())) : null;
     const picked = pack.templates.filter((t) => !names || names.has(t.name.toLowerCase()));
     if (!picked.length) throw new HttpError(404, 'None of those templates are in the pack');
-    // One the world already has (perhaps changed by the DM) is left alone.
+    // One the world already has (perhaps changed by the GM) is left alone.
     const have = new Set(listTemplates(d.db, W(res)).map((t) => `${t.kind}:${t.name.toLowerCase()}`));
     const list = picked.filter((t) => !have.has(`${t.kind}:${t.name.toLowerCase()}`));
     const out = list.length ? importTemplates(d.db, W(res), list, me(res), (t) => refuseClassified(d, W(res), t)) : { created: [], updated: [], unchanged: [] };
@@ -165,6 +165,24 @@ function routes(d: Deps) {
     audit(d, W(res), me(res), 'templates.delete', `${cur.kind} ${cur.name}`);
     res.json({ ok: true });
   });
+  // A quick event drafted with this template's guide (nothing saved: the GM saves it on the Encounters page).
+  r.post('/:id/event', async (req, res) => {
+    const cur = found(res, String(req.params.id));
+    if (cur.kind !== 'event') throw new HttpError(400, 'Only a quick event template makes quick events');
+    const prompt = (typeof req.body?.prompt === 'string' ? req.body.prompt.trim().slice(0, 3000) : '') || (cur.spec as any).theme || cur.name;
+    const { draftEncounter } = await import('../encounters/draft.ts');
+    const { cleanPlaces } = await import('../encounters/script.ts');
+    const draft = await draftEncounter(d, prompt, ctx(res).world.name, { kind: 'event', guide: guideText(cur), places: cleanPlaces((cur.spec as any).places) });
+    res.json({ draft });
+  });
+  // A new spell drafted with this template (nothing saved: the GM saves it to the Codex).
+  r.post('/:id/spell', async (req, res) => {
+    const cur = found(res, String(req.params.id));
+    if (cur.kind !== 'spell') throw new HttpError(400, 'Only a spell template makes spells');
+    const prompt = str(req.body?.prompt, 'prompt', { max: 3000 }).trim();
+    if (!prompt) throw new HttpError(400, 'Describe the spell first');
+    res.json({ draft: await draftSpell(d, cur, prompt, ctx(res).world.name) });
+  });
   r.post('/:id/shop', async (req, res) => {
     const cur = found(res, String(req.params.id));
     if (cur.kind !== 'shop') throw new HttpError(400, 'Only a shop generation template makes shops');
@@ -181,22 +199,22 @@ const enc = encodeURIComponent;
 
 const tools: McpTool[] = [
   {
-    name: 'list_dm_templates', dmOnly: true,
-    description: "DM: the DM's templates and guides in this world (agent guides for a kind of task such as towns, generator, macro, assist panel, shop and library page templates): id, kind, name, triggers, on or off, version.",
+    name: 'list_gm_templates', gmOnly: true,
+    description: "GM: the GM's templates and guides in this world (agent guides for a kind of task such as towns, generator, macro, assist panel, shop, library page, quick event and spell templates): id, kind, name, triggers, on or off, version.",
     props: { kind: { type: 'string', enum: [...KINDS], description: 'Only this kind' } },
     call: (a) => ({ method: 'GET', path: `/templates${a?.kind ? `?kind=${enc(a.kind)}` : ''}` }),
   },
   {
-    name: 'get_dm_template', dmOnly: true,
-    description: 'DM: one template or guide in full (its steps, sections, tone, exemplar pages, triggers) and its earlier versions. Give its id or its name.',
+    name: 'get_gm_template', gmOnly: true,
+    description: 'GM: one template or guide in full (its steps, sections, tone, exemplar pages, triggers) and its earlier versions. Give its id or its name.',
     props: { id: S('Template id or name') }, required: ['id'],
     call: (a) => ({ method: 'GET', path: `/templates/${enc(String(a.id ?? ''))}` }),
   },
   {
-    name: 'create_dm_template', write: true,
-    description: 'DM: save a new template or guide. kind guide: spec {task, instructions, steps: [{kind: library|neighbours|exemplars|web|instruction, text, query}], sections: [...], tone, folder, exemplars: [page ids]}; a web step query may use {reference} for the real-world place a request names. triggers: words in a request that call for it (town, village, city).',
+    name: 'create_gm_template', write: true,
+    description: 'GM: save a new template or guide. kind guide: spec {task, instructions, steps: [{kind: library|neighbours|exemplars|web|instruction, text, query}], sections: [...], tone, folder, exemplars: [page ids]}; a web step query may use {reference} for the real-world place a request names. kind event (quick events): spec {places: [town|city|village|market|tavern|road|woods|cave|dungeon|ruins|coast|mountains|swamp], theme, instructions, tone, choices: 2-4, checks: true|false, maxRewardCp, consequences}. kind spell: spec {minLevel, maxLevel, schools, classes, lines (spell line names), balance, mana, naming, instructions, higherLevels}. triggers: words in a request that call for it (town, village, city).',
     props: {
-      kind: { type: 'string', enum: [...KINDS], description: 'guide, generator, macro, assist, shop or library' },
+      kind: { type: 'string', enum: [...KINDS], description: 'guide, generator, macro, assist, shop, library, event or spell' },
       name: S('Short name, e.g. Towns'), description: S('One sentence: what it is for'),
       triggers: { type: 'array', items: { type: 'string' }, description: 'Words that call for it' },
       spec: { type: 'object', description: 'The kind-specific content (see the description)' },
@@ -206,15 +224,30 @@ const tools: McpTool[] = [
     call: (a) => ({ method: 'POST', path: '/templates', body: { kind: a.kind, name: a.name, description: a.description, triggers: a.triggers, spec: a.spec, enabled: a.enabled } }),
   },
   {
-    name: 'update_dm_template', write: true,
-    description: 'DM: change a template or guide (a new version; the old one is kept). Give its id or name and only what changes: name, description, triggers, enabled, spec (the whole spec).',
+    name: 'update_gm_template', write: true,
+    description: 'GM: change a template or guide (a new version; the old one is kept). Give its id or name and only what changes: name, description, triggers, enabled, spec (the whole spec).',
     props: { id: S('Template id or name'), name: S('New name'), description: S('New description'), triggers: { type: 'array', items: { type: 'string' } }, enabled: { type: 'boolean' }, spec: { type: 'object' } },
     required: ['id'],
     call: (a) => ({ method: 'PUT', path: `/templates/${enc(String(a.id ?? ''))}`, body: { name: a.name, description: a.description, triggers: a.triggers, enabled: a.enabled, spec: a.spec } }),
   },
   {
+    name: 'save_homebrew_spell', write: true,
+    description: "GM: save a new spell to the world's Codex as homebrew (GM-only until the GM makes it public). Follow the GM's spell template when one matches. Fields as in read_spell: name, level 0-9, school, classes, castingTime, ritual, range, components (\"V, S, M (a feather)\"), duration, concentration, damageTypes, saves, attack, text (Markdown, ending with higher levels). lines: spell line names it belongs to (noted for the GM).",
+    props: {
+      name: S('Spell name'), level: { type: 'integer', description: '0 for a cantrip, up to 9' }, school: S('e.g. Evocation'), classes: { type: 'array', items: { type: 'string' } },
+      castingTime: S('e.g. 1 action'), ritual: { type: 'boolean' }, range: S('e.g. 60 feet'), components: S('e.g. V, S, M (a pinch of soot)'), duration: S('e.g. Instantaneous'),
+      concentration: { type: 'boolean' }, damageTypes: { type: 'array', items: { type: 'string' } }, saves: { type: 'array', items: { type: 'string' } }, attack: { type: 'string', enum: ['', 'melee', 'ranged'] },
+      text: S('What the spell does, in Markdown'), lines: { type: 'array', items: { type: 'string' }, description: 'Spell lines (Fire, Frost ...)' }, gmNotes: S('Notes for the GM only'),
+    },
+    required: ['name', 'level', 'text'],
+    call: (a) => {
+      const notes = [typeof a.gmNotes === 'string' ? a.gmNotes : '', Array.isArray(a.lines) && a.lines.length ? `Spell lines: ${a.lines.map(String).join(', ')}` : ''].filter(Boolean).join('\n');
+      return { method: 'POST', path: '/spells/s', body: { name: a.name, level: a.level, school: a.school, classes: a.classes, castingTime: a.castingTime, ritual: a.ritual, range: a.range, components: a.components, duration: a.duration, concentration: a.concentration, damageTypes: a.damageTypes, saves: a.saves, attack: a.attack, text: a.text, source: 'Homebrew', ...(notes ? { gmNotes: notes } : {}) } };
+    },
+  },
+  {
     name: 'web_research', write: true,
-    description: 'DM: search the web for a REAL-WORLD reference (a real town, a historical period, a real craft) to ground a draft. Only the query words leave Alexandria: never put names or facts from this world in a query (such a query is refused). Off unless the DM turned web research on. Results feed the draft; cite them as sources.',
+    description: 'GM: search the web for a REAL-WORLD reference (a real town, a historical period, a real craft) to ground a draft. Only the query words leave Alexandria: never put names or facts from this world in a query (such a query is refused). Off unless the GM turned web research on. Results feed the draft; cite them as sources.',
     props: { queries: { type: 'array', items: { type: 'string' }, description: 'One to three short searches' }, purpose: S('What the results are for'), guide: S('The guide id this research is for') },
     required: ['queries'],
     call: (a) => ({ method: 'POST', path: '/templates/web/search', body: { queries: a.queries ?? a.query, purpose: a.purpose, guide: a.guide } }),

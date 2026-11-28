@@ -1,5 +1,5 @@
 // The world mirror: library pages stored in SQLite, four copies of each page
-// (player, broker, AI and DM, see core/levels.ts) with a search index per copy,
+// (player, broker, AI and GM, see core/levels.ts) with a search index per copy,
 // relations read from frontmatter, and an on-disk Markdown vault per world that
 // Obsidian-style editors can open.
 import fs from 'node:fs';
@@ -17,22 +17,22 @@ import { createHash } from 'node:crypto';
 import { reconcile } from '../features/search/scopes.ts';
 import { jobsOf } from './jobs.ts';
 import { HttpError, id, now } from './util.ts';
-import { type PageHit, type Scope, dmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, indexGeneration, indexedPages, unindexPage, unindexRow, type IndexRow } from './pagesearch.ts';
+import { type PageHit, type Scope, gmOnlyAliases, factsText, indexPage, playerAliases, scopeGuard, searchPages, indexGeneration, indexedPages, unindexPage, unindexRow, type IndexRow } from './pagesearch.ts';
 
 const CLEAR_COPIES = ['player', 'broker', 'ai'].flatMap((p) => ['frontmatter', 'body', 'blocks', 'properties'].map((c) => `${p}_${c} = NULL`)).join(', ');
 const everythingOf = (opts: { only?: string[] }) => !opts.only?.length;
 const normClassifiedText = (s: string) => s.toLowerCase().replace(/[*_`>#\[\]()|~-]+/g, ' ').replace(/\s+/g, ' ').trim();
-const ALL_SCOPES: Scope[] = ['dm', 'party', 'broker', 'ai'];
+const ALL_SCOPES: Scope[] = ['gm', 'party', 'broker', 'ai'];
 
 /**
- * The level a page of a source gets. `auto`: what the source said. `dm`:
- * never lower than dm, whatever the source says. `party`: the page is
+ * The level a page of a source gets. `auto`: what the source said. `gm`:
+ * never lower than gm, whatever the source says. `party`: the page is
  * shareable unless it carries a broker or classified marker of its own
  * (secret blocks, broker and classified parts inside a page are still cut
  * from the player copy by the copy builders, so `party` never shows them).
  */
-export function levelForAudience(audience: 'auto' | 'dm' | 'party', sourceLevel: Level, markerLevel: Level): Level {
-  if (audience === 'dm') return maxLevel(sourceLevel, 'dm');
+export function levelForAudience(audience: 'auto' | 'gm' | 'party', sourceLevel: Level, markerLevel: Level): Level {
+  if (audience === 'gm') return maxLevel(sourceLevel, 'gm');
   if (audience === 'party') return markerLevel;
   return sourceLevel;
 }
@@ -76,13 +76,13 @@ function names(v: FMValue): string[] {
   return links.length ? links : s ? [s] : [];
 }
 
-/** Relations declared in frontmatter. Anything under secret: is DM-only. */
+/** Relations declared in frontmatter. Anything under secret: is GM-only. */
 export function relationsFromFrontmatter(title: string, fm: FM): { to: string; kind: string; secret: boolean }[] {
   const out: { to: string; kind: string; secret: boolean }[] = [];
   const scan = (obj: FM, secret: boolean) => {
     for (const [k, v] of Object.entries(obj)) {
       const key = k.toLowerCase();
-      if ((key === 'secret' || key === 'secrets' || key === 'dm') && v && typeof v === 'object' && !Array.isArray(v)) {
+      if ((key === 'secret' || key === 'secrets' || key === 'gm') && v && typeof v === 'object' && !Array.isArray(v)) {
         scan(v as FM, true);
         continue;
       }
@@ -91,7 +91,7 @@ export function relationsFromFrontmatter(title: string, fm: FM): { to: string; k
           if (r && typeof r === 'object' && !Array.isArray(r)) {
             const o = r as { [k: string]: FMValue };
             const to = names(o.to ?? o.target ?? null)[0];
-            if (to) out.push({ to, kind: String(o.kind ?? o.type ?? 'related to'), secret: secret || o.secret === true || o.visibility === 'dm' });
+            if (to) out.push({ to, kind: String(o.kind ?? o.type ?? 'related to'), secret: secret || o.secret === true || o.visibility === 'gm' });
           } else {
             const m = /^\s*([^:]+):\s*(.+)$/.exec(String(r));
             if (m) for (const to of names(m[2])) out.push({ to, kind: m[1].trim(), secret });
@@ -112,7 +112,7 @@ const COPY_AUDS = ['player', 'broker', 'ai'] as const;
 type CopyAud = (typeof COPY_AUDS)[number];
 const COPY_SCOPE: Record<CopyAud, Scope> = { player: 'party', broker: 'broker', ai: 'ai' };
 const COPY_PREFIX: Record<CopyAud, string> = { player: 'player_', broker: 'broker_', ai: 'ai_' };
-const scopeOf = (aud: Audience): Scope => (aud === 'player' ? 'party' : aud === 'dm' ? 'dm' : aud);
+const scopeOf = (aud: Audience): Scope => (aud === 'player' ? 'party' : aud === 'gm' ? 'gm' : aud);
 
 interface BuiltCopy { fm: FM; body: string; blocks: Block[]; properties: PropertyGroup[] }
 
@@ -176,8 +176,8 @@ export class Library {
     if (!this.migrationPending) return;
     for (const w of all<{ id: string }>(this.db, 'SELECT id FROM worlds')) await this.rebuildPlayerCopiesAsync(w.id);
     try {
-      run(this.db, `DELETE FROM search_chunks WHERE scope = 'dm'`);
-      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'dm'`);
+      run(this.db, `DELETE FROM search_chunks WHERE scope = 'gm'`);
+      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'gm'`);
     } catch { /* the search tables are made by the search feature: nothing to drop yet */ }
     this.stampLevels();
     this.migrationPending = false;
@@ -214,14 +214,14 @@ export class Library {
     } catch { return; }
     for (const w of all<{ id: string }>(this.db, 'SELECT id FROM worlds')) this.rebuildPlayerCopies(w.id);
     try {
-      run(this.db, `DELETE FROM search_chunks WHERE scope = 'dm'`);
-      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'dm'`);
+      run(this.db, `DELETE FROM search_chunks WHERE scope = 'gm'`);
+      run(this.db, `DELETE FROM search_chunk_state WHERE scope = 'gm'`);
     } catch { /* the search tables are made by the search feature: nothing to drop yet */ }
     run(this.db, `INSERT INTO search_meta (key, value) VALUES ('levels_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, LEVELS_VERSION);
   }
 
   /**
-   * Save a Markdown page (written by the DM, a request, or the MCP). In batch
+   * Save a Markdown page (written by the GM, a request, or the MCP). In batch
    * mode (imports) the other copies are left empty until rebuildPlayerCopies
    * runs, so players never see a half-scrubbed page during a sync.
    */
@@ -249,7 +249,7 @@ export class Library {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'markdown', ?, ?, ?, ?, ?, ?, ?)`,
           pid, worldId, p, title, visibility, JSON.stringify(fm), body, JSON.stringify(markdownToBlocks(body)), JSON.stringify(tags), JSON.stringify(aliases), ['common', 'local', 'deep'].includes(k) ? k : null, input.sourceId ?? null, JSON.stringify(p.split('/').slice(0, -1)), now(), by);
       }
-      this.reindexDm(worldId, pid, title, body, [...aliases, ...dmOnlyAliases(fm)], '');
+      this.reindexGm(worldId, pid, title, body, [...aliases, ...gmOnlyAliases(fm)], '');
       this.saveRelations(worldId, pid, title, fm, visibility);
     });
     this.changed(worldId, [pid]);
@@ -263,7 +263,7 @@ export class Library {
   }
 
   /**
-   * Change a page's level (party, broker, dm, classified). Only for pages that
+   * Change a page's level (party, broker, gm, classified). Only for pages that
    * live in Alexandria; imported pages take their level from their source (and
    * their tags, which can raise it, never lower it).
    */
@@ -272,7 +272,7 @@ export class Library {
     if (!pg) throw new HttpError(404, 'Page not found');
     if (pg.source_id || pg.origin !== 'markdown') throw new HttpError(409, 'This page comes from a source: change its level there (tag it broker or classified, or hide it)');
     const l = String(level ?? '').toLowerCase();
-    if (!isLevel(l)) throw new HttpError(400, 'level must be party, broker, dm or classified');
+    if (!isLevel(l)) throw new HttpError(400, 'level must be party, broker, gm or classified');
     const fm = { ...(JSON.parse(pg.frontmatter || '{}') as FM), visibility: l };
     // A level change ends the page's shares: a share made at one level must not come back on its own
     // when the page is later lowered again. Sharing it again is one click.
@@ -299,11 +299,11 @@ export class Library {
     const body = isMd ? e.markdown! : blocksToMarkdown(blocks);
     if (body.length > 2_000_000) throw new HttpError(413, `Page too large: ${title}`);
     const fm = e.frontmatter ?? {};
-    // A source says party or dm; a broker or classified tag (or level) raises it. The most secret wins.
+    // A source says party or gm; a broker or classified tag (or level) raises it. The most secret wins.
     const fmLevel = normLevel((fm as any).visibility);
     const marker = (l: unknown): Level | null => (l === 'broker' || l === 'classified' ? l : null);
     const sourceLevel: Level = pageLevel({ visibility: normLevel(e.visibility), tags: e.tags, frontmatter: fm, level: maxLevel(e.level, marker(fmLevel)) });
-    // Only what marks a page secret on its own (broker and classified tags or levels), not the source's party-or-dm flag.
+    // Only what marks a page secret on its own (broker and classified tags or levels), not the source's party-or-gm flag.
     const markerLevel: Level = pageLevel({ visibility: 'party', tags: e.tags, frontmatter: fm, level: maxLevel(marker(e.level), marker(fmLevel)) });
     // A page only listed so far (index depth) says nothing about who may read it: sharing a whole source does not share what was never read.
     const aud = this.audienceOf(sourceId);
@@ -325,7 +325,7 @@ export class Library {
         run(this.db, `INSERT INTO pages (title, visibility, frontmatter, body, blocks, origin, parent_external, folder, aliases, tags, kind, icon, banner, url, knowledge, properties, position, updated_at, updated_by, source_level, marker_level, id, world_id, path, source_id, external_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...vals, pid, worldId, p, sourceId, e.externalId);
       }
-      this.reindexDm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
+      this.reindexGm(worldId, pid, title, body, (e.aliases ?? []).map(String), factsText(e.properties ?? []));
       this.saveRelations(worldId, pid, title, fm as FM, vis);
     });
     // A sync saves many pages and then rebuilds the copies and reconciles once (rebuildPlayerCopies calls changed): per page it would be 30 statements each.
@@ -345,18 +345,18 @@ export class Library {
   }
 
   /** The audience a source is set to (auto when it has none, or its column is not there yet). */
-  private audienceOf(sourceId: string): 'auto' | 'dm' | 'party' {
+  private audienceOf(sourceId: string): 'auto' | 'gm' | 'party' {
     try {
       const a = one<any>(this.db, 'SELECT audience FROM sources WHERE id = ?', sourceId)?.audience;
-      return a === 'dm' || a === 'party' ? a : 'auto';
+      return a === 'gm' || a === 'party' ? a : 'auto';
     } catch { return 'auto'; }
   }
 
   /**
    * A source's audience changed: work every page's level out again from what
    * the source said (source_level) and what marks the page secret on its own
-   * (marker_level), then rebuild the copies. `dm` lifts everything to at
-   * least dm; `party` takes the page to party unless it carries a broker or
+   * (marker_level), then rebuild the copies. `gm` lifts everything to at
+   * least gm; `party` takes the page to party unless it carries a broker or
    * classified marker; `auto` goes back to the source's own level.
    */
   applyAudience(worldId: string, sourceId: string): { pages: number; changed: number } {
@@ -375,7 +375,7 @@ export class Library {
         const markers: Level = isLevel(r.marker_level) ? r.marker_level : maxLevel(pageLevel({ visibility: 'party', tags: JSON.parse(r.tags || '[]'), frontmatter: fm }), r.visibility === 'broker' || r.visibility === 'classified' ? r.visibility : null);
         // A page read in full remembers that the source itself called it shared: the source's default visibility lets that through, or not,
         // without reading the page again. Pages the source hid, and pages it said nothing about (only listed), keep the level they have.
-        if (r.source_shared === 1 && r.depth !== 'index') base = maxLevel(defaultParty ? 'party' : 'dm', markers);
+        if (r.source_shared === 1 && r.depth !== 'index') base = maxLevel(defaultParty ? 'party' : 'gm', markers);
         const idx = r.depth === 'index';
         const vis = idx && aud === 'party' ? base : levelForAudience(aud, base, markers);
         if (vis === r.visibility && isLevel(r.source_level) && isLevel(r.marker_level) && base === r.source_level) continue;
@@ -403,21 +403,21 @@ export class Library {
     return gone.length;
   }
 
-  /** The DM index follows every save. The other indexes are dropped until rebuildPlayerCopies re-adds the page. */
-  private reindexDm(worldId: string, pid: string, title: string, body: string, aliases: string[], facts: string) {
+  /** The GM index follows every save. The other indexes are dropped until rebuildPlayerCopies re-adds the page. */
+  private reindexGm(worldId: string, pid: string, title: string, body: string, aliases: string[], facts: string) {
     for (const s of ['party', 'broker', 'ai'] as Scope[]) unindexPage(this.db, s, pid);
-    indexPage(this.db, 'dm', pid, worldId, title, aliases, body, facts);
+    indexPage(this.db, 'gm', pid, worldId, title, aliases, body, facts);
   }
 
   private saveRelations(worldId: string, pid: string, title: string, fm: FM, visibility: string) {
     run(this.db, 'DELETE FROM relations WHERE page_id = ?', pid);
     for (const r of relationsFromFrontmatter(title, fm)) {
       run(this.db, 'INSERT INTO relations (id, world_id, from_title, to_title, kind, visibility, page_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        id('rel_'), worldId, title, r.to, r.kind, !r.secret && visibility === 'party' ? 'party' : 'dm', pid);
+        id('rel_'), worldId, title, r.to, r.kind, !r.secret && visibility === 'party' ? 'party' : 'gm', pid);
     }
   }
 
-  /** Shared pages whose player copy still reads like it has DM notes in it. */
+  /** Shared pages whose player copy still reads like it has GM notes in it. */
   lint(worldId: string) {
     return all<any>(this.db, `SELECT id, path, title, player_body FROM pages WHERE world_id = ? AND player_body IS NOT NULL`, worldId)
       .map((p) => ({ id: p.id, path: p.path, title: p.title, hints: secretHints(p.player_body) }))
@@ -440,7 +440,7 @@ export class Library {
    * Does this text repeat something that is classified (a classified page, or
    * a classified part of a page)? Used on text a person typed or selected
    * before it goes to a model. Matches whole text or a sentence of at least 8
-   * characters against what the DM copy has and the AI copy lacks.
+   * characters against what the GM copy has and the AI copy lacks.
    */
   containsClassified(worldId: string, text: string): boolean {
     const chunks = [normClassifiedText(text), ...text.split(/[.!?\n]+/).map(normClassifiedText)].filter((c) => c.length >= 8);
@@ -451,7 +451,7 @@ export class Library {
       const known = idx.memo.get(c);
       if (known !== undefined) { if (known) return true; continue; }
       let hit = false;
-      for (const p of idx.pages) if (p.dm.includes(c) && !p.ai.includes(c)) { hit = true; break; }
+      for (const p of idx.pages) if (p.gm.includes(c) && !p.ai.includes(c)) { hit = true; break; }
       if (idx.memo.size > 20_000) idx.memo.clear();
       idx.memo.set(c, hit);
       if (hit) return true;
@@ -460,21 +460,21 @@ export class Library {
   }
 
   /**
-   * The only pages that can make containsClassified true: those whose DM text
+   * The only pages that can make containsClassified true: those whose GM text
    * differs from their AI text (a page with nothing classified has the same
-   * words in both, so "in the DM copy and not in the AI copy" is never true).
+   * words in both, so "in the GM copy and not in the AI copy" is never true).
    * Built once per change of the library, not once per line of a transcript.
    */
-  private classifiedPagesCache = new Map<string, { version: number; pages: { dm: string; ai: string }[]; memo: Map<string, boolean> }>();
+  private classifiedPagesCache = new Map<string, { version: number; pages: { gm: string; ai: string }[]; memo: Map<string, boolean> }>();
   private classifiedPages(worldId: string) {
     const hit = this.classifiedPagesCache.get(worldId);
     if (hit && hit.version === this.cgVersion) return hit;
-    const pages: { dm: string; ai: string }[] = [];
+    const pages: { gm: string; ai: string }[] = [];
     for (const p of all<any>(this.db, 'SELECT visibility, body, blocks, properties, ai_body, ai_blocks, ai_properties FROM pages WHERE world_id = ?', worldId)) {
       const flat = (...xs: (string | null)[]) => normClassifiedText(xs.map((x) => (x ?? '').replace(/"[a-zA-Z]+":/g, ' ')).join(' '));
-      const dm = flat(p.body, p.blocks, p.properties);
+      const gm = flat(p.body, p.blocks, p.properties);
       const ai = normLevel(p.visibility) === 'classified' ? '' : flat(p.ai_body, p.ai_blocks, p.ai_properties);
-      if (dm !== ai) pages.push({ dm, ai });
+      if (gm !== ai) pages.push({ gm, ai });
     }
     const out = { version: this.cgVersion, pages, memo: new Map<string, boolean>() };
     this.classifiedPagesCache.set(worldId, out);
@@ -484,7 +484,7 @@ export class Library {
   // ---- the last line of defence: what text is classified -------------------------------
   //
   // core/ai.ts checks every model request against an index of the 8-word runs
-  // of classified text in every world. Classified text is whatever the DM copy
+  // of classified text in every world. Classified text is whatever the GM copy
   // of a page has that no AI copy has. The index is built on first use and
   // again after the pages change (touchClassified runs on every write here).
   /** A number that goes up with every change to the pages (cheap to compare: "has anything changed since I looked?"). */
@@ -508,7 +508,7 @@ export class Library {
   classifiedGrams(): ClassifiedIndex {
     if (this.cgBuilt === this.cgVersion) return this.cg;
     const built = this.cgVersion;
-    const dm = new Map<string, string>();
+    const gm = new Map<string, string>();
     const ai = new Set<string>();
     const leaves = (json: string | null, out: string[]) => {
       const walk = (v: unknown) => {
@@ -521,13 +521,13 @@ export class Library {
     for (const p of all<any>(this.db, 'SELECT id, world_id, body, properties, frontmatter, ai_body, ai_properties, ai_frontmatter FROM pages')) {
       const a: string[] = [p.body ?? ''];
       leaves(p.properties, a); leaves(p.frontmatter, a);
-      for (const g of levelWords(a.join('\n'))) if (!dm.has(g)) dm.set(g, `${p.world_id}|${p.id}`);
+      for (const g of levelWords(a.join('\n'))) if (!gm.has(g)) gm.set(g, `${p.world_id}|${p.id}`);
       const b: string[] = [p.ai_body ?? ''];
       leaves(p.ai_properties, b); leaves(p.ai_frontmatter, b);
       for (const g of levelWords(b.join('\n'))) ai.add(g);
     }
     const idx = new ClassifiedIndex();
-    for (const [g, where] of dm) if (!ai.has(g)) idx.put(g, where);
+    for (const [g, where] of gm) if (!ai.has(g)) idx.put(g, where);
     this.cg = idx;
     this.cgBuilt = built;
     return idx;
@@ -627,7 +627,7 @@ export class Library {
   /**
    * Recompute every page's player, broker and AI copies (and their search
    * indexes): drop what an audience may not read, drop unknown blocks, and
-   * replace links to pages it may not see. Runs after each sync and after DM
+   * replace links to pages it may not see. Runs after each sync and after GM
    * saves; `only` limits it to pages whose links didn't change.
    */
   rebuildPlayerCopies(worldId: string, only?: string[]) {
@@ -685,12 +685,12 @@ export class Library {
       if (aud === 'ai') aiBody = c ? c.body : null;
     }
     if (sets.length) run(this.db, `UPDATE pages SET ${sets.join(', ')} WHERE id = ?`, ...vals, pg.id);
-    // The semantic index of the DM scope is cut from the AI copy: when that changes, its chunks go and are made again.
+    // The semantic index of the GM scope is cut from the AI copy: when that changes, its chunks go and are made again.
     // A page with no AI copy (classified) or no player copy (no longer shared) keeps no chunks of either: they were cut from text those readers may no longer have.
     if (aiBody !== pg.ai_body || aiBody === null) {
       try {
-        run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'dm'`, pg.id);
-        run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'dm'`, pg.id);
+        run(this.db, `DELETE FROM search_chunks WHERE page_id = ? AND scope = 'gm'`, pg.id);
+        run(this.db, `DELETE FROM search_chunk_state WHERE page_id = ? AND scope = 'gm'`, pg.id);
       } catch { /* no search tables yet */ }
     }
     if (!playerBuilt) {
@@ -811,7 +811,7 @@ export class Library {
 
   /**
    * Delete shares that no longer hold, so they cannot come back on their own:
-   * the page is no longer DM-level, the sharer lost sight of it (unshared, a
+   * the page is no longer GM-level, the sharer lost sight of it (unshared, a
    * key revoked, left the world), or the recipient is no longer a player.
    * One person's loss ends what they shared onward, and so on down the chain.
    * Returns how many rows went.
@@ -824,9 +824,9 @@ export class Library {
         LEFT JOIN pages p ON p.id = s.page_id AND p.world_id = s.world_id WHERE s.world_id = ?`, worldId);
       for (const s of rows) {
         const role = (acc: string) => one<{ role: string }>(this.db, 'SELECT role FROM members WHERE world_id = ? AND account_id = ?', worldId, acc)?.role ?? null;
-        let ok = s.visibility !== null && normLevel(s.visibility) === 'dm' && (s.marker_level == null || s.marker_level === 'party');
+        let ok = s.visibility !== null && normLevel(s.visibility) === 'gm' && (s.marker_level == null || s.marker_level === 'party');
         if (ok && s.to_id !== '*' && role(s.to_id) !== 'player') ok = false;
-        if (ok) ok = s.kind === 'dm' ? role(s.from_id) === 'dm' : role(s.from_id) === 'player' && this.liftedInfo(worldId, s.from_id, s.page_id).has(s.page_id);
+        if (ok) ok = s.kind === 'gm' ? role(s.from_id) === 'gm' : role(s.from_id) === 'player' && this.liftedInfo(worldId, s.from_id, s.page_id).has(s.page_id);
         if (ok) continue;
         run(this.db, 'DELETE FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? AND from_id = ? AND to_id = ?', worldId, s.page_id, s.from_id, s.to_id);
         n++;
@@ -862,7 +862,7 @@ export class Library {
   /**
    * The file list for the Library browser. Each viewer sees only the pages
    * that have a copy for them: players the shared pages, a model or the
-   * broker the pages up to their level, the DM everything.
+   * broker the pages up to their level, the GM everything.
    */
   list(worldId: string, viewer: Viewer) {
     const aud = audienceOf(viewer);
@@ -900,7 +900,7 @@ export class Library {
   /**
    * One page, as the viewer's copy: players get the player copy of a shared
    * page, a model the AI copy (never classified), the broker the broker copy,
-   * and the DM everything. `links` maps each mention to the page it opens
+   * and the GM everything. `links` maps each mention to the page it opens
    * (only pages this viewer may open). Anything the viewer has no copy of is a 404.
    */
   get(worldId: string, pageId: string, viewer: Viewer, shared?: ReturnType<Library['resolver']>) {
@@ -940,16 +940,16 @@ export class Library {
       // Where the page came from and when it was last read from there.
       ...(pg.source_id ? { source_app: sourceApp(pg.source_kind), synced_at: pg.source_synced_at ?? null } : {}),
     };
-    if (aud === 'dm') return { ...base, visibility: pg.visibility, level, origin: pg.origin, knowledge: pg.knowledge, url: pg.url, position: pg.position ?? null, frontmatter: copy.frontmatter, body: pg.body };
-    // The source's own copy may hold more than the player copy, so players get the link only when the DM turned it on for the source.
+    if (aud === 'gm') return { ...base, visibility: pg.visibility, level, origin: pg.origin, knowledge: pg.knowledge, url: pg.url, position: pg.position ?? null, frontmatter: copy.frontmatter, body: pg.body };
+    // The source's own copy may hold more than the player copy, so players get the link only when the GM turned it on for the source.
     if (aud === 'player') return { ...base, ...(pg.url && playersMayOpen(pg.source_config) && !fromKey ? { url: pg.url } : {}), ...(fromKey ? { fromKey: true, via } : {}), frontmatter: copy.frontmatter, body: copy.markdown };
     return { ...base, visibility: pg.visibility, level, frontmatter: copy.frontmatter, body: copy.markdown };
   }
 
   /**
    * The page's own pictures, downloaded from its source (its portrait or banner, the generic API's images, Kanka and LegendKeeper maps): each
-   * a short-lived media address for this viewer, the first (primary) first. A viewer other than the DM gets a picture only while that picture
-   * may follow the page and the page has a player copy (imageVisibleTo): a DM-only second picture is never listed. When the page's banner
+   * a short-lived media address for this viewer, the first (primary) first. A viewer other than the GM gets a picture only while that picture
+   * may follow the page and the page has a player copy (imageVisibleTo): a GM-only second picture is never listed. When the page's banner
    * address was downloaded, that copy is the primary one. `local` maps each source address held here (banner, pictures in the text, maps) to
    * this viewer's media address, so the page is served with pictures from this server instead of the source's.
    */
@@ -958,7 +958,7 @@ export class Library {
     if (!viewer.accountId || !pg.source_id || !pg.external_id) return { list: [], local };
     const list: { id: string; name: string; url: string; map: boolean; primary: boolean }[] = [];
     for (const img of imagesForPage(this.db, worldId, pg.source_id, pg.external_id)) {
-      if (!imageVisibleTo(this.db, img, aud === 'dm' ? 'dm' : 'player')) continue;
+      if (!imageVisibleTo(this.db, img, aud === 'gm' ? 'gm' : 'player')) continue;
       const url = `/api/media/intake/${mintTicket({ w: worldId, k: 'intake', f: img.id, a: viewer.accountId })}`;
       const from = imageUrlOf(img);
       if (from && !local.has(from)) local.set(from, url);
@@ -976,15 +976,15 @@ export class Library {
 
   /**
    * Ids of pages this account may open as a player although their source
-   * marks them DM-only: the account holds a live, verified, per-user key with
+   * marks them GM-only: the account holds a live, verified, per-user key with
    * the `library` use that sees the page (features/sourcekeys keeps the access
    * sets). `levelForAccountKey` decides: it lifts the source's own marking and
    * never a broker or classified marker. A missing table, a revoked key, a key
    * that is not `per-user` (blanket and unsure keys never count) or an account
    * that is no longer a player gives nothing. `only` limits the check to one page.
    */
-  liftedInfo(worldId: string, accountId: string, only?: string, depth = 0): Map<string, 'key' | 'dm' | 'share'> {
-    const out = new Map<string, 'key' | 'dm' | 'share'>();
+  liftedInfo(worldId: string, accountId: string, only?: string, depth = 0): Map<string, 'key' | 'gm' | 'share'> {
+    const out = new Map<string, 'key' | 'gm' | 'share'>();
     let rows: any[];
     try {
       rows = all<any>(this.db, `SELECT DISTINCT p.id, p.visibility, p.source_level, p.marker_level, s.audience
@@ -1001,8 +1001,8 @@ export class Library {
       const level = levelForAccountKey({ visibility: r.visibility, sourceLevel: r.source_level, markerLevel: r.marker_level, audience: r.audience ?? 'auto' }, true);
       if (normLevel(r.visibility) !== 'party' && canSeeLevel(level, 'player')) out.set(r.id, 'key');
     }
-    // Pages the DM granted to this account (or the party), and pages another player shared with them. A grant is the same player copy:
-    // only a page whose own marking is DM-only or none is eligible (never broker or classified), and a share is live only while the sharer can still see the page.
+    // Pages the GM granted to this account (or the party), and pages another player shared with them. A grant is the same player copy:
+    // only a page whose own marking is GM-only or none is eligible (never broker or classified), and a share is live only while the sharer can still see the page.
     let grants: any[] = [];
     try {
       grants = all<any>(this.db, `SELECT s.page_id, s.from_id, s.kind, p.visibility, p.marker_level FROM sourcekeys_shares s
@@ -1011,13 +1011,13 @@ export class Library {
         WHERE s.world_id = ? ${only ? 'AND s.page_id = ?' : ''} AND (s.to_id = ? OR s.to_id = '*')`, accountId, worldId, ...(only ? [only] : []), accountId);
     } catch { return out; }
     for (const g of grants) {
-      if (out.has(g.page_id) || normLevel(g.visibility) !== 'dm' || (g.marker_level != null && g.marker_level !== 'party')) continue;
-      if (g.kind === 'dm') {
-        if (one(this.db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", worldId, g.from_id)) out.set(g.page_id, 'dm');
+      if (out.has(g.page_id) || normLevel(g.visibility) !== 'gm' || (g.marker_level != null && g.marker_level !== 'party')) continue;
+      if (g.kind === 'gm') {
+        if (one(this.db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'gm'", worldId, g.from_id)) out.set(g.page_id, 'gm');
       } else if (g.from_id !== accountId && depth < 3 && this.liftedInfo(worldId, g.from_id, g.page_id, depth + 1).has(g.page_id)) out.set(g.page_id, 'share');
     }
-    // Pages in a folder the DM shared (a rule that also covers pages added or moved in later).
-    for (const id of folderLifted(this.db, worldId, accountId, only)) if (!out.has(id)) out.set(id, 'dm');
+    // Pages in a folder the GM shared (a rule that also covers pages added or moved in later).
+    for (const id of folderLifted(this.db, worldId, accountId, only)) if (!out.has(id)) out.set(id, 'gm');
     return out;
   }
 
@@ -1028,7 +1028,7 @@ export class Library {
 
   /**
    * Ranked page search (see core/pagesearch.ts). Each viewer searches the
-   * index of their own copy: the DM the DM copy, a model the AI copy, the
+   * index of their own copy: the GM the GM copy, a model the AI copy, the
    * broker the broker copy, everyone else the player copies. Each hit has id,
    * path, title and snippet (plain text), plus snippetHtml (escaped HTML with
    * <mark>), titleHtml, score and matchedOn.
@@ -1040,7 +1040,7 @@ export class Library {
     return [...hits, ...extra].slice(0, Math.max(1, Math.min(limit, 200)));
   }
 
-  /** Search the pages lifted for one account (their key, a DM grant or a share) in their player copy, which is built now: they are in no index. */
+  /** Search the pages lifted for one account (their key, a GM grant or a share) in their player copy, which is built now: they are in no index. */
   private liftedHits(worldId: string, q: string, accountId: string): PageHit[] {
     const info = this.liftedInfo(worldId, accountId);
     if (!info.size) return [];
@@ -1066,7 +1066,7 @@ export class Library {
     const aud = audienceOf(viewer);
     // Relations a source gave (Kanka), shown with the ones from page frontmatter.
     const imported = () => { try { return importedRelations(this.db, worldId, viewer); } catch { return []; } };
-    if (aud === 'dm') return [...all(this.db, 'SELECT id, from_title, to_title, kind, visibility FROM relations WHERE world_id = ? ORDER BY from_title', worldId), ...imported()];
+    if (aud === 'gm') return [...all(this.db, 'SELECT id, from_title, to_title, kind, visibility FROM relations WHERE world_id = ? ORDER BY from_title', worldId), ...imported()];
     const hidden = this.hiddenTitles(worldId, aud);
     if (aud !== 'player') {
       // A model or the broker: relations of pages it may read, that name no page above its level.
@@ -1074,7 +1074,7 @@ export class Library {
       return [...all<any>(this.db, `SELECT r.id, r.from_title, r.to_title, r.kind, r.visibility FROM relations r JOIN pages p ON p.id = r.page_id WHERE r.world_id = ? ${guard} ORDER BY r.from_title`, worldId)
         .filter((r) => !hidden.has(String(r.to_title).toLowerCase()) && !hidden.has(String(r.from_title).toLowerCase())), ...imported()];
     }
-    // A shared relation that points at a DM-only page would leak that
+    // A shared relation that points at a GM-only page would leak that
     // page's name, so drop it.
     return [...all(this.db, `SELECT r.id, r.from_title, r.to_title, r.kind FROM relations r
       WHERE r.world_id = ? AND r.visibility = 'party'
@@ -1165,7 +1165,7 @@ export function sourceApp(kind: string | null): string {
   return 'other';
 }
 
-/** The DM's per-source setting "players may open source pages". Off unless it is exactly true. */
+/** The GM's per-source setting "players may open source pages". Off unless it is exactly true. */
 function playersMayOpen(config: string | null): boolean {
   try { return JSON.parse(config || '{}')?.playersMayOpen === true; } catch { return false; }
 }

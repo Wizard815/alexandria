@@ -2,7 +2,7 @@
 // a git repo of reference files, or any MCP server that can list and read
 // files (an Obsidian MCP, a filesystem MCP...). Frontmatter becomes tags,
 // aliases and sidebar facts; [[wiki links]] become links; > [!secret]
-// callouts, %% comments %%, <!-- dm --> blocks and DM headings stay DM-only.
+// callouts, %% comments %%, <!-- gm --> blocks and GM headings stay GM-only.
 // Levels (core/levels.ts): visibility: broker | classified, the tags broker and
 // classified, > [!broker] and > [!classified] callouts, Broker and Classified
 // headings, and broker_* / classified_* keys.
@@ -20,7 +20,7 @@ import { jsonOf } from '../../core/mcp.ts';
 
 const run = promisify(execFile);
 const RESERVED = new Set(['title', 'visibility', 'tags', 'tag', 'aliases', 'alias', 'knowledge', 'type', 'icon', 'banner', 'cssclass', 'cssclasses', 'publish', 'permalink', 'order', 'position']);
-const DM_KEY = /^(secret|secrets|dm|dm_.*|gm|gm_.*|private)$/i;
+const GM_KEY = /^(secret|secrets|dm|dm_.*|gm|gm_.*|private)$/i;
 
 function valueInline(v: FMValue): Inline[] {
   const s = Array.isArray(v) ? v.map((x) => String(x ?? '')).join(', ') : v && typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
@@ -35,7 +35,7 @@ function valueInline(v: FMValue): Inline[] {
   return out;
 }
 
-/** Frontmatter keys as sidebar facts. Nested secret:/dm: maps become DM-only groups. */
+/** Frontmatter keys as sidebar facts. Nested secret:/gm: maps become GM-only groups. */
 export function frontmatterGroups(fm: FM): PropertyGroup[] {
   const facts: PropertyGroup = { title: 'Facts', rows: [] };
   const groups: PropertyGroup[] = [];
@@ -43,7 +43,7 @@ export function frontmatterGroups(fm: FM): PropertyGroup[] {
     if (RESERVED.has(k.toLowerCase()) || /^(kanka|lk)_/.test(k)) continue;
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       const lv = keyLevel(k);
-      groups.push({ title: k, ...(DM_KEY.test(k) ? { dm: true } : {}), ...(lv === 'broker' || lv === 'classified' ? { level: lv } : {}), rows: Object.entries(v).map(([kk, vv]) => ({ key: kk, value: valueInline(vv) })) });
+      groups.push({ title: k, ...(GM_KEY.test(k) ? { gm: true } : {}), ...(lv === 'broker' || lv === 'classified' ? { level: lv } : {}), rows: Object.entries(v).map(([kk, vv]) => ({ key: kk, value: valueInline(vv) })) });
     } else facts.rows.push({ key: k.replace(/_/g, ' '), value: valueInline(v) });
   }
   return [...(facts.rows.length ? [facts] : []), ...groups];
@@ -86,7 +86,7 @@ export function setMarkdownPositions(entries: Entry[]) {
   keyed.forEach((k, i) => { k.e.position = i; });
 }
 
-export function markdownEntry(relPath: string, text: string, defaultVisibility: 'dm' | 'party', vault?: unknown): Entry {
+export function markdownEntry(relPath: string, text: string, defaultVisibility: 'gm' | 'party', vault?: unknown): Entry {
   const { fm, body } = splitFrontmatter(text);
   const parts = relPath.split('/');
   const file = parts.pop()!.replace(/\.md$/i, '');
@@ -107,7 +107,7 @@ export function markdownEntry(relPath: string, text: string, defaultVisibility: 
     blocks: [], // the library parses `markdown` itself so the Markdown leak guard runs first
     markdown: body,
     frontmatter: fm,
-    visibility: fm.visibility !== undefined && fm.visibility !== null ? (normVisibility(fm.visibility) === 'party' ? 'party' : 'dm') : defaultVisibility,
+    visibility: fm.visibility !== undefined && fm.visibility !== null ? (normVisibility(fm.visibility) === 'party' ? 'party' : 'gm') : defaultVisibility,
     ...(fm.visibility !== undefined && fm.visibility !== null && (named === 'broker' || named === 'classified') ? { level: named } : {}),
     knowledge: k === 'common' || k === 'local' || k === 'deep' ? k : null,
     url: obsidianUrl(vault, relPath),
@@ -132,7 +132,7 @@ export function vaultDir(vaultsDir: string | null, folder: string) {
   return full;
 }
 
-const vaultNameField = { key: 'vaultName', label: 'Obsidian vault name', type: 'text' as const, help: 'The name Obsidian shows for this vault. With it, each page gets an "Open file" button that opens the note in Obsidian on the DM’s computer. Empty: no button.' };
+const vaultNameField = { key: 'vaultName', label: 'Obsidian vault name', type: 'text' as const, help: 'The name Obsidian shows for this vault. With it, each page gets an "Open file" button that opens the note in Obsidian on the GM’s computer. Empty: no button.' };
 const shareField = { key: 'defaultShared', label: 'Pages without a visibility are shared', type: 'boolean' as const, help: 'Off (safer): only pages with visibility: party in their frontmatter are shared.' };
 
 export const markdownFolder: Connector = {
@@ -154,7 +154,7 @@ export const markdownFolder: Connector = {
   async *sync(cfg, ctx) {
     const dir = vaultDir(ctx.vaultsDir, cfg.folder);
     if (!fs.existsSync(dir)) throw new Error('Folder not found');
-    const entries = [...walk(dir)].map((rel) => markdownEntry(rel, fs.readFileSync(path.join(dir, rel), 'utf8'), cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm', cfg.vaultName));
+    const entries = [...walk(dir)].map((rel) => markdownEntry(rel, fs.readFileSync(path.join(dir, rel), 'utf8'), cfg.defaultShared && ctx.shareVisible ? 'party' : 'gm', cfg.vaultName));
     setMarkdownPositions(entries);
     yield* entries;
   },
@@ -166,7 +166,7 @@ export const gitRepo: Connector = {
   description: 'Clones a repository of Markdown reference files (read-only) and imports it. Pulls again on every sync.',
   capabilities: ['pages', 'properties', 'tags', 'relations'],
   fields: [
-    { key: 'url', label: 'Repository URL', type: 'url', required: true, placeholder: 'https://github.com/you/dnd-ref' },
+    { key: 'url', label: 'Repository URL', type: 'url', required: true, placeholder: 'https://github.com/you/ttrpg-ref' },
     { key: 'subdir', label: 'Subfolder', type: 'text', help: 'Only import this folder.' },
     { key: 'branch', label: 'Branch', type: 'text', placeholder: 'main' },
     shareField,
@@ -188,7 +188,7 @@ export const gitRepo: Connector = {
     else await run('git', ['clone', '--depth', '1', ...(cfg.branch ? ['--branch', cfg.branch] : []), '--', cfg.url, dir], { timeout: 180_000 });
     const sub = cfg.subdir ? path.resolve(dir, cfg.subdir) : dir;
     if (!sub.startsWith(dir)) throw new Error('Bad subfolder');
-    const entries = [...walk(sub)].map((rel) => markdownEntry(rel, fs.readFileSync(path.join(sub, rel), 'utf8'), cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm'));
+    const entries = [...walk(sub)].map((rel) => markdownEntry(rel, fs.readFileSync(path.join(sub, rel), 'utf8'), cfg.defaultShared && ctx.shareVisible ? 'party' : 'gm'));
     setMarkdownPositions(entries);
     yield* entries;
   },
@@ -248,7 +248,7 @@ export const mcpFiles: Connector = {
       if (ctx.signal.aborted) throw new Error('Sync stopped');
       const res = await mcp.call(p.read, { [p.readArg]: f });
       if (res.isError) { ctx.log(`Skipped ${f}: ${res.text.slice(0, 120)}`); continue; }
-      entries.push(markdownEntry(f.replace(/^\.?\//, ''), res.text, cfg.defaultShared && ctx.shareVisible ? 'party' : 'dm', cfg.vaultName));
+      entries.push(markdownEntry(f.replace(/^\.?\//, ''), res.text, cfg.defaultShared && ctx.shareVisible ? 'party' : 'gm', cfg.vaultName));
     }
     setMarkdownPositions(entries);
     yield* entries;

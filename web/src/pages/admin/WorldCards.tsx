@@ -1,6 +1,6 @@
 // The Worlds page's cards for one world: player source keys, shared pages, pages that are the same thing in two
 // sources, and which source wins when they disagree. All from /api/admin/gateway/worlds; an admin sees page titles
-// only where they may read the page (party pages, or any page of a world they are the DM of).
+// only where they may read the page (party pages, or any page of a world they are the GM of).
 import { useAuth } from '../../lib/auth.tsx';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
 import { Pill, Section } from './kit.tsx';
@@ -34,7 +34,7 @@ export function WorldCards({ world, card, onChange }: { world: { id: string; nam
               <span className="chip">{keys.unsure} unsure</span>
             </div>
           ) : <p className="muted small">No player keys yet.</p>}
-          <p className="small muted">Players {keys.playersMayAdd ? 'may' : 'may not'} add their own keys. The DM changes this in the world's settings.</p>
+          <p className="small muted">Players {keys.playersMayAdd ? 'may' : 'may not'} add their own keys. The GM changes this in the world's settings.</p>
         </Section>
         <Section title="Shared pages" lead="A share carries only the player view; secret, broker and classified parts never travel.">
           {shares.total ? (
@@ -58,7 +58,7 @@ export function WorldCards({ world, card, onChange }: { world: { id: string; nam
             </li>
           ))}</ul>
         ) : <p className="muted small">No two sources hold a page with the same name.</p>}
-        {sameThing.hidden > 0 && <p className="tiny faint">{sameThing.hidden} more pair{sameThing.hidden === 1 ? '' : 's'} involve pages only this world's DM may read, so they are not listed here.</p>}
+        {sameThing.hidden > 0 && <p className="tiny faint">{sameThing.hidden} more pair{sameThing.hidden === 1 ? '' : 's'} involve pages only this world's GM may read, so they are not listed here.</p>}
         <p className="tiny faint">The decision is stored for this world. Search does not yet treat linked pages as one.</p>
       </Section>
       <Section title="When sources disagree" lead="Which source to trust first for this world.">
@@ -70,7 +70,7 @@ export function WorldCards({ world, card, onChange }: { world: { id: string; nam
                 <option value="newest">The most recently edited page</option>
               </select>
             </label>
-            <label className="row"><input type="checkbox" checked={disagree.showBoth} disabled={a.busy} onChange={(e) => prefs({ showBoth: e.target.checked })} /> Show the DM both versions when they differ, instead of picking one</label>
+            <label className="row"><input type="checkbox" checked={disagree.showBoth} disabled={a.busy} onChange={(e) => prefs({ showBoth: e.target.checked })} /> Show the GM both versions when they differ, instead of picking one</label>
             <p className="tiny faint">Stored for this world. Today a sync keeps one page per path and does not compare sources, so nothing reads this yet.</p>
           </div>
         ) : <p className="muted small">This world has {disagree.sources.length ? 'one source' : 'no sources'}, so there is nothing to settle.</p>}

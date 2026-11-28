@@ -18,3 +18,5 @@
   .tpl-step select { grid-column: 1 / -1; }
   .tpl-step input[aria-label$="search words"] { grid-column: 1 / 2; }
 }
+.tpl-chat > summary { cursor: pointer; font-weight: 500; }
+.tpl-chat-box { height: 460px; display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-top: 8px; }

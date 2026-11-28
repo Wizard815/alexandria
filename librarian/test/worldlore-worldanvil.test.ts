@@ -89,13 +89,13 @@ async function boot(fetchImpl: typeof fetch) {
   };
   const ok = async (method: string, url: string, token?: string, body?: unknown) => { const r = await call(method, url, token, body); assert.ok(r.status < 300, `${method} ${url} -> ${r.status} ${JSON.stringify(r.body)}`); return r.body; };
   const admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dmId = (await ok('POST', '/api/admin/accounts', admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  const dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', admin, { name: 'Realm', dmAccountId: dmId })).id;
+  const gmId = (await ok('POST', '/api/admin/accounts', admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  const gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', admin, { name: 'Realm', gmAccountId: gmId })).id;
   const src = `src_${Math.random().toString(36).slice(2, 10)}`;
   run(made.deps.db, 'INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES (?, ?, ?, ?, ?, ?)', src, W, 'worldanvil-api', 'World Anvil', JSON.stringify(CFG), 'party');
-  const lore = (method: string, sub: string, body?: unknown) => call(method, `/api/worlds/${W}/worldlore${sub}`, dm, body);
-  return { deps: made.deps, W, src, dm, ok, call, lore, close: () => { server.close(); fs.rmSync(tmp, { recursive: true, force: true }); } };
+  const lore = (method: string, sub: string, body?: unknown) => call(method, `/api/worlds/${W}/worldlore${sub}`, gm, body);
+  return { deps: made.deps, W, src, gm, ok, call, lore, close: () => { server.close(); fs.rmSync(tmp, { recursive: true, force: true }); } };
 }
 
 test('TestWorldLoreWorldAnvil_CreateUpdateMoveDeleteInsideTheCategory', async () => {
@@ -103,11 +103,11 @@ test('TestWorldLoreWorldAnvil_CreateUpdateMoveDeleteInsideTheCategory', async ()
   const e = await boot(wa.fetch);
   try {
     // The options list the world's categories; the root is saved as wa:<id>.
-    const o = await e.ok('GET', `/api/worlds/${e.W}/worldlore/options`, e.dm);
+    const o = await e.ok('GET', `/api/worlds/${e.W}/worldlore/options`, e.gm);
     assert.ok(JSON.stringify(o).includes(`wa:${ROOT}`));
-    await e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.dm, { kind: 'source', sourceId: e.src, root: ROOT, defaultLevel: 'dm' });
+    await e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.gm, { kind: 'source', sourceId: e.src, root: ROOT, defaultLevel: 'gm' });
     // Create at the top of the workspace: an article in the root category, private, BBCode content.
-    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.dm, { title: 'Odda the Fence', markdown: `# Odda\n\nShe sells **maps** and knows [[@wa:${u(10)}|the inside page]].\n\n- one\n- two`, by: 'agent' });
+    const made = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.gm, { title: 'Odda the Fence', markdown: `# Odda\n\nShe sells **maps** and knows [[@wa:${u(10)}|the inside page]].\n\n- one\n- two`, by: 'agent' });
     assert.equal(made.created, true);
     const put = wa.writes.find((w) => w.method === 'PUT')!;
     assert.deepEqual([put.body.category, put.body.world, put.body.templateType, put.body.state], [{ id: ROOT }, { id: WORLD }, 'article', 'private']);
@@ -117,23 +117,23 @@ test('TestWorldLoreWorldAnvil_CreateUpdateMoveDeleteInsideTheCategory', async ()
     assert.match(put.body.content, /\[ul\]\[li\]one\[\/li\]\[li\]two\[\/li\]\[\/ul\]/);
     const row = one<any>(e.deps.db, 'SELECT * FROM pages WHERE world_id = ? AND external_id = ?', e.W, made.ref);
     assert.equal(row.title, 'Odda the Fence');
-    assert.equal(row.visibility, 'dm');
+    assert.equal(row.visibility, 'gm');
     assert.equal(row.parent_external, `wa:${ROOT}`);
 
     // Nested under an article inside the root (in a sub-category).
-    const deep = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.dm, { title: 'Under', markdown: 'Down here', parent: `wa:${u(11)}` });
+    const deep = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.gm, { title: 'Under', markdown: 'Down here', parent: `wa:${u(11)}` });
     const d = wa.arts.get(deep.ref.slice(3))!;
     assert.deepEqual([d.category, d.parent], [SUB, u(11)]);
 
     // Update, move under the inside page, move back to the top, delete.
     const id = made.ref.slice(3);
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.dm, { id: row.id, markdown: 'Now she sells **charts**.' });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.gm, { id: row.id, markdown: 'Now she sells **charts**.' });
     assert.match(wa.arts.get(id)!.content, /\[b\]charts\[\/b\]/);
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${row.id}/move`, e.dm, { to: `wa:${u(10)}` });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${row.id}/move`, e.gm, { to: `wa:${u(10)}` });
     assert.deepEqual([wa.arts.get(id)!.category, wa.arts.get(id)!.parent], [SUB, u(10)]);
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${row.id}/move`, e.dm, { to: null });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages/${row.id}/move`, e.gm, { to: null });
     assert.deepEqual([wa.arts.get(id)!.category, wa.arts.get(id)!.parent], [ROOT, null]);
-    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${row.id}`, e.dm);
+    await e.ok('DELETE', `/api/worlds/${e.W}/worldlore/pages/${row.id}`, e.gm);
     assert.equal(wa.arts.has(id), false);
     assert.ok(wa.arts.has(u(90)), 'the outside article is untouched');
   } finally { e.close(); }
@@ -144,10 +144,10 @@ test('TestWorldLoreWorldAnvil_GuardRefusesOutsideTheRootTheRootItselfAndCategori
   const e = await boot(wa.fetch);
   try {
     // An article is not a home: the root must be a category.
-    await e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.dm, { kind: 'source', sourceId: e.src, root: `wa:${u(10)}`, defaultLevel: 'dm' });
+    await e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.gm, { kind: 'source', sourceId: e.src, root: `wa:${u(10)}`, defaultLevel: 'gm' });
     assert.equal((await e.lore('POST', '/pages', { title: 'x', markdown: 'y' })).status, 403);
-    await e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.dm, { kind: 'source', sourceId: e.src, root: `wa:${ROOT}`, defaultLevel: 'dm' });
-    assert.equal((await e.call('PUT', `/api/worlds/${e.W}/worldlore/config`, e.dm, { kind: 'source', sourceId: e.src, root: 'not-an-id', defaultLevel: 'dm' })).status, 400);
+    await e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.gm, { kind: 'source', sourceId: e.src, root: `wa:${ROOT}`, defaultLevel: 'gm' });
+    assert.equal((await e.call('PUT', `/api/worlds/${e.W}/worldlore/config`, e.gm, { kind: 'source', sourceId: e.src, root: 'not-an-id', defaultLevel: 'gm' })).status, 400);
     const refuse = async (r: Promise<{ status: number; body: any }>, what: string) => { const x = await r; assert.equal(x.status, 403, `${what} -> ${JSON.stringify(x.body)}`); };
     await refuse(e.lore('POST', '/pages', { id: `wa:${u(90)}`, markdown: 'x' }), 'update outside');
     await refuse(e.lore('DELETE', `/pages/wa:${u(90)}`), 'delete outside');
@@ -167,14 +167,14 @@ test('TestWorldLoreWorldAnvil_LevelsSetStateAndTagsAndSecretTextStaysPrivate', a
   const wa = new FakeWA();
   const e = await boot(wa.fetch);
   try {
-    await e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.dm, { kind: 'source', sourceId: e.src, root: `wa:${ROOT}`, defaultLevel: 'party' });
-    const open = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.dm, { title: 'Open', markdown: 'players may read this' });
+    await e.ok('PUT', `/api/worlds/${e.W}/worldlore/config`, e.gm, { kind: 'source', sourceId: e.src, root: `wa:${ROOT}`, defaultLevel: 'party' });
+    const open = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.gm, { title: 'Open', markdown: 'players may read this' });
     assert.equal(wa.arts.get(open.ref.slice(3))!.state, 'public');
-    const twist = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.dm, { title: 'Half secret', markdown: 'Public line\n\n> [!secret]\n> the twist', level: 'party' });
+    const twist = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.gm, { title: 'Half secret', markdown: 'Public line\n\n> [!secret]\n> the twist', level: 'party' });
     assert.equal(wa.arts.get(twist.ref.slice(3))!.state, 'private', 'secret text makes the article private');
-    const br = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.dm, { title: 'For sale', markdown: 'x', level: 'broker' });
+    const br = await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.gm, { title: 'For sale', markdown: 'x', level: 'broker' });
     assert.deepEqual([wa.arts.get(br.ref.slice(3))!.state, wa.arts.get(br.ref.slice(3))!.tags], ['private', 'broker']);
-    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.dm, { id: br.ref, level: 'classified' });
+    await e.ok('POST', `/api/worlds/${e.W}/worldlore/pages`, e.gm, { id: br.ref, level: 'classified' });
     assert.equal(wa.arts.get(br.ref.slice(3))!.tags, 'classified');
   } finally { e.close(); }
 });
@@ -184,5 +184,5 @@ test('TestWorldLoreWorldAnvil_MarkdownToBbcodeNeutralisesTags', () => {
   assert.ok(!bb.includes('[secret:') && !bb.includes('[subcontainer'), bb);
   assert.ok(bb.includes('[url:https://example.com]site[/url]') && bb.includes('[h2]Two[/h2]') && bb.includes('[ol][li]a[/li][li]b[/li][/ol]') && bb.includes('[hr]'), bb);
   assert.deepEqual(levelTags(['lore', 'broker'], 'classified'), ['lore', 'classified']);
-  assert.deepEqual(levelTags(['lore', 'broker'], 'dm'), ['lore']);
+  assert.deepEqual(levelTags(['lore', 'broker'], 'gm'), ['lore']);
 });

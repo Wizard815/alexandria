@@ -43,7 +43,7 @@ function checkGroups(g: unknown, where: string): PropertyGroup[] {
       checkInlines(r.value ?? [], `${where} value`);
       return { key: r.key, value: (r.value ?? []) as Inline[] };
     });
-    return { title: x.title, rows, ...(x.dm === true ? { dm: true } : {}) };
+    return { title: x.title, rows, ...(x.gm === true ? { gm: true } : {}) };
   });
 }
 
@@ -88,7 +88,7 @@ export function cleanEntry(raw: unknown, sourceShares: boolean): Entry {
     properties: raw.properties === undefined ? [] : checkGroups(raw.properties, 'properties'),
     blocks,
     // Fail closed: shared only on an exact "party" and a source that shares.
-    visibility: raw.visibility === 'party' && sourceShares ? 'party' : 'dm',
+    visibility: raw.visibility === 'party' && sourceShares ? 'party' : 'gm',
     knowledge,
     url: url(raw.url, 'url'),
     position: typeof raw.position === 'number' && Number.isFinite(raw.position) ? raw.position : null,

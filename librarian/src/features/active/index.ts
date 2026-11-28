@@ -1,4 +1,4 @@
-// Active mode (docs/MINERVA.md, docs/AGENTS.md). Everything here is the DM's:
+// Active mode (docs/MINERVA.md, docs/AGENTS.md). Everything here is the GM's:
 // players never see these routes, the log, the cards or the word Minerva.
 //
 //   GET  /active                     mode now, settings, presets, waiting cards
@@ -11,18 +11,18 @@
 //   GET  /active/thoughts            Minerva's thoughts: the live feed of what she heard, did, asked and let go
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { HttpError, int, str } from '../../core/util.ts';
 import { ctx, me, settings } from '../../routes/_shared.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { hasJob } from '../../core/ai.ts';
 import { listSessions } from '../audio/api.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { CATEGORIES } from './cues.ts';
 import { SCHEMA, cleanCats, dropRule, effectiveMode, expireCards, getState, listLog, listRules, saveState, sessionOverride, setSessionMode, type Cats } from './store.ts';
 import { approveCard, dismissCard, flushActive, markWrong, statsOf, undoEntry } from './engine.ts';
 import { parseCommand, runCommand } from './commands.ts';
-import { setPort, dmAuth } from './exec.ts';
+import { setPort, gmAuth } from './exec.ts';
 import { runTask } from './task.ts';
 import { lastHeard, recentThoughts } from './thoughts.ts';
 
@@ -30,7 +30,7 @@ function routes(d: import('../../app.ts').Deps) {
   const r = Router({ mergeParams: true });
   const W = (res: any): string => ctx(res).world.id;
   r.use((req, _res, next) => { setPort(d, req.socket.localPort); next(); });
-  r.use(requireDM);
+  r.use(requireGM);
 
   const view = (res: any) => {
     const w = W(res);
@@ -62,11 +62,11 @@ function routes(d: import('../../app.ts').Deps) {
     }
     if (b.wakeWord !== undefined) { const ww = str(b.wakeWord, 'wakeWord', { max: 30 }).trim(); if (!/^[\p{L}][\p{L}\p{N} '-]{1,29}$/u.test(ww)) throw new HttpError(400, 'The wake word needs 2 to 30 letters'); patch.wakeWord = ww; }
     if (b.cats !== undefined) { if (!b.cats || typeof b.cats !== 'object') throw new HttpError(400, 'cats must be an object'); const cur = getState(d, w).cats; patch.cats = cleanCats(b.cats, cur) as Cats; patch.prev = null; }
-    if (b.listen !== undefined) { if (!b.listen || typeof b.listen !== 'object') throw new HttpError(400, 'listen must be an object'); patch.listen = { dm: b.listen.dm !== false, players: b.listen.players !== false, room: b.listen.room === true }; }
+    if (b.listen !== undefined) { if (!b.listen || typeof b.listen !== 'object') throw new HttpError(400, 'listen must be an object'); patch.listen = { gm: b.listen.gm !== false, players: b.listen.players !== false, room: b.listen.room === true }; }
     if (b.askTtlMin !== undefined) patch.askTtlMin = int(b.askTtlMin, 'askTtlMin', { min: 1, max: 240 });
     if (b.scan !== undefined) patch.scan = b.scan === true;
     saveState(d, w, patch);
-    d.hub.emit(w, 'active', { kind: 'mode' }, dmOnly);
+    d.hub.emit(w, 'active', { kind: 'mode' }, gmOnly);
     res.json(view(res));
   });
   r.post('/command', (req, res) => {
@@ -74,7 +74,7 @@ function routes(d: import('../../app.ts').Deps) {
     const c = parseCommand(text);
     if (!c) throw new HttpError(400, 'Not a command I know. Try /takeover, /takeover-1, /takeover-save 4 Name, /auto music on');
     const message = runCommand(d, W(res), c);
-    d.hub.emit(W(res), 'active', { kind: 'mode' }, dmOnly);
+    d.hub.emit(W(res), 'active', { kind: 'mode' }, gmOnly);
     res.json({ message, ...view(res) });
   });
 
@@ -107,7 +107,7 @@ function routes(d: import('../../app.ts').Deps) {
     const mode = req.body?.mode === 'propose' ? 'propose' : 'do';
     const tools = Array.isArray(req.body?.tools) ? req.body.tools.map(String).slice(0, 60) : undefined;
     const auth = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
-    void dmAuth;
+    void gmAuth;
     const out = await runTask(d, { worldId: W(res), accountId: me(res), token: auth, port: req.socket.localPort ?? 0 }, { prompt, mode, allow: tools, title: str(req.body?.title, 'title', { max: 80, optional: true }) || undefined });
     res.json(out);
   });

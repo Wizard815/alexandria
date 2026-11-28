@@ -8,7 +8,7 @@ import { boot, type Kit } from './audit-kit.ts';
 let k: Kit;
 before(async () => { k = await boot(); });
 after(() => k?.close());
-const put = (body: unknown) => k.call('PUT', k.w('/library/pages'), k.T.dm, body);
+const put = (body: unknown) => k.call('PUT', k.w('/library/pages'), k.T.gm, body);
 
 test('Audit_Paths: a page below another page\'s file name does not break saving every later page', async () => {
   assert.equal((await put({ path: 'clash/Dup.md', body: 'file first' })).status, 200);

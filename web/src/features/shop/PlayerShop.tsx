@@ -1,9 +1,9 @@
-// Player page: the shops the DM has put up (open or closed; hidden ones never
+// Player page: the shops the GM has put up (open or closed; hidden ones never
 // arrive), one shop's keeper and stock, buying with your own coin or the party
-// pouch, your requests waiting for the DM, and selling back when the DM allows.
-// Prices, stock and the shop list follow the DM live. Prices are this player's
+// pouch, your requests waiting for the GM, and selling back when the GM allows.
+// Prices, stock and the shop list follow the GM live. Prices are this player's
 // own: the town's price level, their reputation with the keeper and any deal
-// (from haggling, or given by the DM). Haggle asks the keeper for a percentage
+// (from haggling, or given by the GM). Haggle asks the keeper for a percentage
 // off one line.
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -15,7 +15,7 @@ import { rarityLabel, STATUS_LABEL, statusChip, type Line, type Order, type Shop
 import './shop.css';
 
 export default function PlayerShop() {
-  const { w, info, isDM } = useWorld();
+  const { w, info, isGM } = useWorld();
   const [sp, setSp] = useSearchParams();
   const list = useLoad<{ shops: Shop[]; config: ShopConfig }>(() => w.call('GET', '/shop/shops'), [w], ['shop', 'settings']);
   const sid = sp.get('shop') ?? '';
@@ -30,8 +30,8 @@ export default function PlayerShop() {
 
   return (
     <div className="page shop-page">
-      <PageHead title="Shop" lead={isDM ? 'What players see: open and closed shops, never hidden ones.' : 'Browse what is for sale and buy with your own coin or the party pouch.'} />
-      {!shops.length ? <Empty>No shop is open to you right now. Your DM opens shops when you reach one.</Empty> : (
+      <PageHead title="Shop" lead={isGM ? 'What players see: open and closed shops, never hidden ones.' : 'Browse what is for sale and buy with your own coin or the party pouch.'} />
+      {!shops.length ? <Empty>No shop is open to you right now. Your GM opens shops when you reach one.</Empty> : (
         <div className="cols">
           <nav className="col-1 stack" aria-label="Shops">
             {shops.map((s) => (
@@ -94,7 +94,7 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
       </section>
       {s.status !== 'open' ? <Empty>The shutters are down: this shop is closed for now.</Empty> : (
         <section className="card stack" aria-labelledby="stock-h">
-          <div className="card-head"><h2 id="stock-h">For sale</h2>{config.approval && <span className="chip">Your DM approves purchases</span>}</div>
+          <div className="card-head"><h2 id="stock-h">For sale</h2>{config.approval && <span className="chip">Your GM approves purchases</span>}</div>
           {!s.stock.length ? <Empty>The shelves are bare.</Empty> : (
             <ul className="shop-lines">
               {s.stock.map((l) => (
@@ -120,7 +120,7 @@ function ShopView({ id, config }: { id: string; config: ShopConfig }) {
                   </details>
                   <span className="stack tight">
                     <button type="button" className="btn small primary" data-testid="buy-btn" disabled={l.priceCp === null || l.qty === 0} onClick={() => setBuying(l)}>Buy</button>
-                    {s.haggles && info.role !== 'dm' && l.priceCp !== null && l.qty !== 0 && !l.dealPct && <button type="button" className="btn small ghost" data-testid="haggle-btn" onClick={() => setHaggling(l)}>Haggle</button>}
+                    {s.haggles && info.role !== 'gm' && l.priceCp !== null && l.qty !== 0 && !l.dealPct && <button type="button" className="btn small ghost" data-testid="haggle-btn" onClick={() => setHaggling(l)}>Haggle</button>}
                   </span>
                 </li>
               ))}
@@ -147,7 +147,7 @@ function BuyModal({ shop, line, opts, config, onClose, onDone }: { shop: Shop; l
   const max = line.unlimited ? 99 : Math.max(1, line.qty ?? 1);
   const buy = () => act.run(async () => {
     const r = await w.call<{ pending: boolean }>('POST', `/shop/shops/${encodeURIComponent(shop.id)}/buy`, { stockId: line.id, qty, from, to });
-    onDone(r.pending ? 'Asked: your DM approves the purchase. The coin is held until then.' : `Bought ${qty > 1 ? `${qty} × ` : ''}${line.name}.`);
+    onDone(r.pending ? 'Asked: your GM approves the purchase. The coin is held until then.' : `Bought ${qty > 1 ? `${qty} × ` : ''}${line.name}.`);
   });
   return (
     <Modal title={`Buy ${line.name}`} onClose={onClose}>
@@ -158,7 +158,7 @@ function BuyModal({ shop, line, opts, config, onClose, onDone }: { shop: Shop; l
         </Field>
         {total > 0 && <PayChoice cost={total} value={from} onChange={setFrom} opts={opts} />}
         <div className="row between"><span>Total</span><strong data-testid="buy-total">{coins(total, info.settings.coins)}</strong></div>
-        {config.approval && <span className="tiny faint">Your DM approves shop purchases: the coin is held until they do.</span>}
+        {config.approval && <span className="tiny faint">Your GM approves shop purchases: the coin is held until they do.</span>}
         <ErrorBox error={act.error} />
         <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
@@ -205,7 +205,7 @@ function SellModal({ shop, onClose, onDone }: { shop: Shop; onClose: () => void;
   const cur = items.find((i) => i.id === itemId);
   const sell = () => act.run(async () => {
     await w.call('POST', `/shop/shops/${encodeURIComponent(shop.id)}/sell`, { itemId, qty });
-    onDone('Offered: your DM decides, and the coin comes when they agree.');
+    onDone('Offered: your GM decides, and the coin comes when they agree.');
   });
   return (
     <Modal title={`Sell to ${shop.name}`} onClose={onClose}>
@@ -214,7 +214,7 @@ function SellModal({ shop, onClose, onDone }: { shop: Shop; onClose: () => void;
           <>
             <Field label="What"><select value={itemId} onChange={(e) => { setItemId(e.target.value); setQty(1); }} aria-label="What to sell"><option value="">Pick something…</option>{items.map((i) => <option key={i.id} value={i.id}>{i.name} ×{i.qty} ({i.where})</option>)}</select></Field>
             {cur && cur.qty > 1 && <Field label="How many"><input type="number" min={1} max={cur.qty} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(cur.qty, Math.floor(Number(e.target.value) || 1))))} /></Field>}
-            <span className="tiny faint">The shop offers {shop.sellPct}% of what it would charge. Your DM approves the sale.</span>
+            <span className="tiny faint">The shop offers {shop.sellPct}% of what it would charge. Your GM approves the sale.</span>
           </>
         )}
         <ErrorBox error={act.error} />
@@ -242,7 +242,7 @@ function MyOrders() {
       {!!pending.length && <ul className="stack tight" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {pending.map((o) => (
           <li key={o.id} className="row between">
-            <span className="small">{o.kind === 'buy' ? 'Buying' : 'Selling'} {o.itemName}{o.qty > 1 ? ` ×${o.qty}` : ''} · {coins(o.totalCp, info.settings.coins)} <span className="chip">Waiting for the DM</span></span>
+            <span className="small">{o.kind === 'buy' ? 'Buying' : 'Selling'} {o.itemName}{o.qty > 1 ? ` ×${o.qty}` : ''} · {coins(o.totalCp, info.settings.coins)} <span className="chip">Waiting for the GM</span></span>
             <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void act.run(async () => { await w.call('POST', `/shop/orders/${o.id}/cancel`); await list.reload(); })}>Take back</button>
           </li>
         ))}

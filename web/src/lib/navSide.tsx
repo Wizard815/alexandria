@@ -1,4 +1,4 @@
-// Where the tab panel sits on a phone or a foldable: the player's tab bar and the DM's area rail.
+// Where the tab panel sits on a phone or a foldable: the player's tab bar and the GM's area rail.
 // 'auto' keeps the default (bottom on a phone, left on a foldable opened up). Kept per device, in
 // this browser, because it is about the hand holding the screen. The choice is applied as
 // <html data-nav-side="..."> and fold.css does the rest; the height of the top bar is published as

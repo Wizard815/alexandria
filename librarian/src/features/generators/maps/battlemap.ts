@@ -182,9 +182,9 @@ export function genBattlemap(o: MapOpts = {}): MapResult {
   const hazards = [...T.hazard].sort(() => r() - 0.5).slice(0, 2);
   hazards.forEach((h, i) => {
     const x = rnd(r, 3, W - 3), y = rnd(r, 3, H - 3);
-    c.ops.push({ t: 'circle', x: X(x), y: Y(y), r: 10, fill: '#f2b8b0', stroke: '#8a2a20', sw: 1.2, dm: true });
-    c.ops.push({ t: 'text', x: X(x), y: Y(y) + 3.5, s: `H${i + 1}`, size: 9, fill: '#6b1a12', anchor: 'middle', bold: true, dm: true });
-    key.push({ n: `H${i + 1}`, name: 'Hazard', text: 'Nothing looks wrong here.', dm: `${cap(h)}.` });
+    c.ops.push({ t: 'circle', x: X(x), y: Y(y), r: 10, fill: '#f2b8b0', stroke: '#8a2a20', sw: 1.2, gm: true });
+    c.ops.push({ t: 'text', x: X(x), y: Y(y) + 3.5, s: `H${i + 1}`, size: 9, fill: '#6b1a12', anchor: 'middle', bold: true, gm: true });
+    key.push({ n: `H${i + 1}`, name: 'Hazard', text: 'Nothing looks wrong here.', gm: `${cap(h)}.` });
   });
   key.push({ n: '*', name: 'Terrain', text: notes.join(' ') });
   const title = `${cap(theme)} battle map`;
@@ -193,7 +193,7 @@ export function genBattlemap(o: MapOpts = {}): MapResult {
   void pick;
   return {
     kind: 'battlemap', seed, size, flavour: theme, title, ftPerCell: 5, canvas: c, key,
-    legend: ['Grid: one square is 5 ft', 'Numbers: spots in the key', 'DM view only: H = hazard'],
+    legend: ['Grid: one square is 5 ft', 'Numbers: spots in the key', 'GM view only: H = hazard'],
     stats: { total: 1, reached: 1, connected: true, spots: nspots, width: W, height: H },
   };
 }

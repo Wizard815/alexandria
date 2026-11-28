@@ -72,9 +72,9 @@ const press = async (page, id, n) => { for (let i = 0; i < n; i++) { await page.
   check(!/initial-scale=0\.8/.test(m2), `other device picked up the phone's zoom (${m2})`);
   await o.ctx.close();
 }
-// 3. DM on a desktop window: world menu, 90%; CSS zoom on html, rail still fills the height, no sideways scroll.
+// 3. GM on a desktop window: world menu, 90%; CSS zoom on html, rail still fills the height, no sideways scroll.
 {
-  const { ctx, page, errors } = await open({ width: 1280, height: 800 }, false, 'dm', 'dungeon master 123', /\/w\/saltreach\/dm/, 'dev_desktop03');
+  const { ctx, page, errors } = await open({ width: 1280, height: 800 }, false, 'gm', 'game master 123', /\/w\/saltreach\/gm/, 'dev_desktop03');
   await page.getByRole('button', { name: /worlds and account/ }).click();
   await page.getByTestId('ui-zoom').first().waitFor({ timeout: 5000 }).catch(() => {});
   if (await page.getByTestId('ui-zoom').count()) {
@@ -92,23 +92,23 @@ const press = async (page, id, n) => { for (let i = 0; i < n; i++) { await page.
   check(st.z === '0.9', `desktop: html zoom is ${st.z}`);
   check(st.railBottom == null || Math.abs(st.railBottom - st.h) < 4, `desktop: rail does not fill the window (${st.railBottom} of ${st.h})`);
   check(st.scroll <= 1, `desktop: sideways scroll ${st.scroll}`);
-  await shot(page, 'desktop-dm-90');
+  await shot(page, 'desktop-gm-90');
   check(!errors.length, `desktop: ${errors.join('; ')}`);
   await ctx.close();
 }
-// 4. DM phone assistant (Remote > This phone) has the picker too.
+// 4. GM phone assistant (Remote > This phone) has the picker too.
 {
-  const { ctx, page } = await open({ width: 390, height: 844 }, true, 'dm', 'dungeon master 123', /\/w\/saltreach\/dm/, 'dev_dmphone04');
-  await page.goto(page.url().replace(/\/dm.*$/, '/dm/phone'));
+  const { ctx, page } = await open({ width: 390, height: 844 }, true, 'gm', 'game master 123', /\/w\/saltreach\/gm/, 'dev_dmphone04');
+  await page.goto(page.url().replace(/\/gm.*$/, '/gm/phone'));
   await page.getByRole('tab', { name: /remote/i }).first().click().catch(() => {});
-  if (check(await page.getByTestId('ui-zoom').count() > 0, 'dm phone: no zoom picker on Remote')) {
+  if (check(await page.getByTestId('ui-zoom').count() > 0, 'gm phone: no zoom picker on Remote')) {
     await page.getByTestId('ui-zoom').first().scrollIntoViewIfNeeded();
     await press(page, 'zoom-out', 2);
     await page.getByRole('tab', { name: /table|now|live/i }).first().click().catch(() => {});
     await sleep(400);
     const scroll = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    check(scroll <= 1, `dm phone at 80%: sideways scroll ${scroll}px`);
-    await shot(page, 'dm-phone-80');
+    check(scroll <= 1, `gm phone at 80%: sideways scroll ${scroll}px`);
+    await shot(page, 'gm-phone-80');
   }
   await ctx.close();
 }

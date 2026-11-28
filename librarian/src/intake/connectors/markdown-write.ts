@@ -124,7 +124,7 @@ export const markdownWrite: ConnectorWrite = {
     const c = setup(cfg, ctx.vaultsDir, a.root);
     const full = pageFile(c, a.id);
     if (!fs.existsSync(full)) return null;
-    return markdownEntry(idOf(c, full), fs.readFileSync(full, 'utf8'), 'dm');
+    return markdownEntry(idOf(c, full), fs.readFileSync(full, 'utf8'), 'gm');
   },
 
   async roots(cfg, ctx) {

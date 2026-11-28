@@ -1,5 +1,5 @@
 /* The player app on a phone (<= 760px wide; fold.css builds the foldable layout on top). Everything here is scoped to .player
-   (the player layout), so the DM and admin screens keep their own look.
+   (the player layout), so the GM and admin screens keep their own look.
    Rules of thumb: text >= 14px (body 16px), touch targets >= 44px, inputs 16px
    (iOS zooms the page on anything smaller), nothing wider than the screen,
    sheets for pop-ups, and the tab bar plus safe areas always accounted for. */

@@ -1,5 +1,5 @@
-// What the DM should know about a world's sources right now, in plain words: why players may see nothing, a key the site refuses for
-// page content, and a wait for the site. Counts and names only; DM routes and the admin overview use it, players never get it.
+// What the GM should know about a world's sources right now, in plain words: why players may see nothing, a key the site refuses for
+// page content, and a wait for the site. Counts and names only; GM routes and the admin overview use it, players never get it.
 import type { DB } from '../../core/db.ts';
 import { all } from '../../core/db.ts';
 import { effectiveConfig, normAudience } from '../../intake/connections.ts';
@@ -7,12 +7,12 @@ import { limitKeyOf, limiterState } from '../../intake/ratelimit.ts';
 import { refusalOf } from '../../intake/detail.ts';
 import { ensureTierSchema, queueLength, tieredOf } from '../../intake/tiers.ts';
 
-export interface DmOnlyReason { sourceId: string; source: string; kind: 'audience' | 'unread' | 'hidden' | 'default' | 'refused'; count: number; text: string }
+export interface GmOnlyReason { sourceId: string; source: string; kind: 'audience' | 'unread' | 'hidden' | 'default' | 'refused'; count: number; text: string }
 export interface WorldStatus {
   pages: number;
-  levels: { party: number; broker: number; dm: number; classified: number };
+  levels: { party: number; broker: number; gm: number; classified: number };
   /** Set when pages exist and players can see none of them. */
-  dmOnly: null | { pages: number; reasons: DmOnlyReason[]; actions: string[] };
+  gmOnly: null | { pages: number; reasons: GmOnlyReason[]; actions: string[] };
   /** Sources whose key is refused for page content (lists work, content does not). */
   refused: { sourceId: string; source: string; message: string }[];
   /** The site is holding calls back: seconds to wait, and why. */
@@ -23,13 +23,13 @@ const plural = (n: number, one_: string, many: string) => `${n.toLocaleString()}
 
 export function worldStatus(d: { db: DB }, worldId: string): WorldStatus {
   ensureTierSchema(d.db);
-  const levels = { party: 0, broker: 0, dm: 0, classified: 0 };
+  const levels = { party: 0, broker: 0, gm: 0, classified: 0 };
   for (const r of all<any>(d.db, 'SELECT visibility, COUNT(*) AS n FROM pages WHERE world_id = ? GROUP BY visibility', worldId)) {
-    if (r.visibility in levels) (levels as any)[r.visibility] = r.n; else levels.dm += r.n;
+    if (r.visibility in levels) (levels as any)[r.visibility] = r.n; else levels.gm += r.n;
   }
-  const pages = levels.party + levels.broker + levels.dm + levels.classified;
+  const pages = levels.party + levels.broker + levels.gm + levels.classified;
   const sources = all<any>(d.db, 'SELECT * FROM sources WHERE world_id = ? ORDER BY name', worldId);
-  const reasons: DmOnlyReason[] = [];
+  const reasons: GmOnlyReason[] = [];
   const refused: WorldStatus['refused'] = [];
   let waiting: WorldStatus['waiting'] = null;
   const actions: string[] = [];
@@ -46,18 +46,18 @@ export function worldStatus(d: { db: DB }, worldId: string): WorldStatus {
     const seen = n(`SELECT COUNT(*) AS n FROM pages WHERE source_id = ? AND visibility = 'party'`);
     if (seen === total) continue;
     const audience = normAudience(s.audience);
-    if (audience === 'dm') { reasons.push({ sourceId: s.id, source: s.name, kind: 'audience', count: total, text: `${s.name}: its audience is "DM only", so all ${plural(total, 'page', 'pages')} stay with you.` }); continue; }
+    if (audience === 'gm') { reasons.push({ sourceId: s.id, source: s.name, kind: 'audience', count: total, text: `${s.name}: its audience is "GM only", so all ${plural(total, 'page', 'pages')} stay with you.` }); continue; }
     const unread = n(`SELECT COUNT(*) AS n FROM pages WHERE source_id = ? AND depth = 'index'`);
     if (unread) reasons.push({ sourceId: s.id, source: s.name, kind: 'unread', count: unread, text: `${s.name}: ${plural(unread, 'page is', 'pages are')} only listed so far. The source has not said who may read them until their details are read.` });
     const hidden = n(`SELECT COUNT(*) AS n FROM pages WHERE source_id = ? AND depth <> 'index' AND source_shared = 0`);
-    if (hidden) reasons.push({ sourceId: s.id, source: s.name, kind: 'hidden', count: hidden, text: `${s.name}: ${plural(hidden, 'page is', 'pages are')} hidden at the source, so they stay DM-only.` });
+    if (hidden) reasons.push({ sourceId: s.id, source: s.name, kind: 'hidden', count: hidden, text: `${s.name}: ${plural(hidden, 'page is', 'pages are')} hidden at the source, so they stay GM-only.` });
     if (s.default_visibility !== 'party' && audience === 'auto') {
       const shared = n(`SELECT COUNT(*) AS n FROM pages WHERE source_id = ? AND depth <> 'index' AND source_shared = 1 AND visibility <> 'party'`);
-      if (shared) reasons.push({ sourceId: s.id, source: s.name, kind: 'default', count: shared, text: `${s.name}: ${plural(shared, 'page is', 'pages are')} shared at the source, but its default visibility is "DM only".` });
+      if (shared) reasons.push({ sourceId: s.id, source: s.name, kind: 'default', count: shared, text: `${s.name}: ${plural(shared, 'page is', 'pages are')} shared at the source, but its default visibility is "GM only".` });
     }
     if (msg) reasons.push({ sourceId: s.id, source: s.name, kind: 'refused', count: 0, text: `${s.name}: ${msg}` });
   }
-  let dmOnly: WorldStatus['dmOnly'] = null;
+  let gmOnly: WorldStatus['gmOnly'] = null;
   if (pages > 0 && levels.party === 0 && sources.length > 0) {
     if (reasons.some((r) => r.kind === 'audience' || r.kind === 'default')) actions.push('Set the source\'s audience (or its default visibility) to share with players: it applies at once, including to pages already read.');
     if (reasons.some((r) => r.kind === 'unread')) {
@@ -66,7 +66,7 @@ export function worldStatus(d: { db: DB }, worldId: string): WorldStatus {
     }
     if (refused.length) actions.push('Check the key\'s role: this key lists pages but is refused their content.');
     if (!reasons.length) actions.push('Nothing marks these pages as shared yet. Pages are shared only when their source says so.');
-    dmOnly = { pages, reasons, actions };
+    gmOnly = { pages, reasons, actions };
   }
-  return { pages, levels, dmOnly, refused, waiting };
+  return { pages, levels, gmOnly, refused, waiting };
 }

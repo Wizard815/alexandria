@@ -13,7 +13,7 @@ Words: plain terms only (mana, fire, frost, lightning, earth, air, light, shadow
 | Group | Spells | Shown by default |
 |---|---|---|
 | 2024 Player's Handbook | 391 (339 of them in SRD 5.2.1) | yes |
-| Other 2024-rules books (Heroes of Faerûn, Forge of the Artificer, Arcana Unleashed, D&D Beyond Drops) | 65 | yes |
+| Other 2024-rules books (Heroes of Faerûn, Forge of the Artificer, Arcana Unleashed, online-only drops) | 65 | yes |
 | 2014 books, only spells with no 2024 version (Xanathar's, Tasha's, Wildemount, Acquisitions Inc., Fizban's, Strixhaven …) | 135 | yes |
 | World of Warcraft (2024-rules crossover) | 69 | 21 kept, the rest hidden |
 | Unearthed Arcana, 2024 era | 20 | 10 kept |
@@ -25,7 +25,7 @@ Words: plain terms only (mana, fire, frost, lightning, earth, air, light, shadow
 - **World of Warcraft spells kept:** Arcane Pulse, Frost Nova, Chains of Ice, Living Flame, Moonfire, Consecration, Eruption, Flurry, Rain of Fire, Remorseless Winter, Regrowth, Prayer of Mending, Emberstorm, Upheaval, Holy Nova, Starfall, Divine Shield, Innervate, Tranquility, Combustion, and Mass Polymorph (its only 2024 version).
 - **Fields per spell:** name, source, group, era, level, school, classes, casting time, ritual, range, targets, V/S/M, material and its gold cost (consumed or not), duration, concentration, damage types, save, attack, types, hidden + reason, notes, verified, supersedes.
 - **Types:** damage, control, debuff, buff, heal, defense, utility, movement, summon, divination, social, trickery. To add: restoration, revival, counter-magic, transformation, terrain, creation, communication, planar. Plus a **line** tag (below) and an area / single-target filter.
-- **Copyright:** the repo is public, so it only ships the SRD 5.2.1 spells (CC-BY-4.0). Every other spell is metadata only (no rules text) and is imported by each DM on their own server as a JSON file; it is never committed here. The import format is the field list above.
+- **Copyright:** the repo is public, so it only ships the SRD 5.2.1 spells (CC-BY-4.0). Every other spell is metadata only (no rules text) and is imported by each GM on their own server as a JSON file; it is never committed here. The import format is the field list above.
 
 ## 2. Mana
 
@@ -79,7 +79,7 @@ From character level 5, once per short rest, using action + bonus action.
 
 ## 5. Spell lines and trees
 
-- The DM defines **lines** (name, colour, theme): e.g. Fire, Frost, Lightning, Earth, Air, Light, Shadow, Mind, Healing. A spell can be in more than one.
+- The GM defines **lines** (name, colour, theme): e.g. Fire, Frost, Lightning, Earth, Air, Light, Shadow, Mind, Healing. A spell can be in more than one.
 - **Line mastery** = how many spells you know in that line.
 - **Hybrid spells** (in two lines, like fire + air) need mastery 2 in both and take ×1.25 study. This is the Divinity: Original Sin 2 skillbook-crafting idea.
 - The tree shows tiers (cantrip → 9th) with links from each recipe's spells. Each spell is shown as known, gift, can learn, in progress (with a bar), locked or hidden ("???"). Hover or tap for the cost to cast and upcast, every requirement with ✓/✗ for the chosen character, the learning cost per method and progress.
@@ -91,7 +91,7 @@ From character level 5, once per short rest, using action + bonus action.
 | Requirement | Default |
 |---|---|
 | Known spells | "all of" and/or "any N of", 1–5 spells |
-| Tier gate | 1st: 2 related cantrips · 2nd–3rd: 2 from the level below · 4th–5th: + Arcana check · 6th–7th: 3 + mentor or text · 8th–9th: research or DM gift only |
+| Tier gate | 1st: 2 related cantrips · 2nd–3rd: 2 from the level below · 4th–5th: + Arcana check · 6th–7th: 3 + mentor or text · 8th–9th: research or GM gift only |
 | Ability minimum (casting ability) | 12 for 1st–2nd, 13 for 3rd–4th, 15 for 5th–6th, 17 for 7th–8th, 18 for 9th |
 | Character level | when your caster type reaches that spell level |
 | Mana pool | at least 2 × the cast cost |
@@ -101,7 +101,7 @@ From character level 5, once per short rest, using action + bonus action.
 
 ### Time and cost
 
-Built from Morrowind's spellmaking (cost follows power), Oblivion (you only build from what you know), Ars Magica (banked progress, a discount for related spells), Pathfinder 2e (graded checks) and D&D 2024 (scroll scribing times as the yardstick).
+Built from Morrowind's spellmaking (cost follows power), Oblivion (you only build from what you know), Ars Magica (banked progress, a discount for related spells), Pathfinder 2e (graded checks) and 5e 2024 (scroll scribing times as the yardstick).
 
 - **Complexity** C = the spell's mana cost (a cantrip counts as 1).
 - **Study points needed** = ceil(C² ÷ 2) × 1.25 if hybrid × (1 − 10% per recipe spell beyond the tier minimum, at most 20%).
@@ -130,7 +130,7 @@ Built from Morrowind's spellmaking (cost follows power), Oblivion (you only buil
 | 8th | research only: 29–43 | 1,690 |
 | 9th | research only: 38–57 | 2,250 |
 
-Compared with an earlier draft (3 days per spell level alone): low spells get a little faster, high spells become real projects (2–4× longer), in line with D&D 2024 scroll scribing (120 days for 9th) and Pathfinder.
+Compared with an earlier draft (3 days per spell level alone): low spells get a little faster, high spells become real projects (2–4× longer), in line with 5e 2024 scroll scribing (120 days for 9th) and Pathfinder.
 
 **Shortcuts**
 - **Level-up insight:** a free attempt when you level up; a failure banks half the study.
@@ -139,10 +139,10 @@ Compared with an earlier draft (3 days per spell level alone): low spells get a 
 
 ### Flow
 1. The player picks a spell they can learn and a method, and starts studying.
-2. They log downtime days; the DM approves them (or a setting approves them automatically).
-3. When the study is complete, the player rolls the final check (or lets the app roll); the DM confirms.
-4. The DM can add days or progress, adjust anything, or **gift** any spell to any character, magic user or not, with a reason ("Gift of a fire elemental"). A gift skips every requirement and costs nothing.
-5. Non-casters with gifts: cantrips at will; a leveled spell once per long rest (setting). The DM picks the casting ability.
+2. They log downtime days; the GM approves them (or a setting approves them automatically).
+3. When the study is complete, the player rolls the final check (or lets the app roll); the GM confirms.
+4. The GM can add days or progress, adjust anything, or **gift** any spell to any character, magic user or not, with a reason ("Gift of a fire elemental"). A gift skips every requirement and costs nothing.
+5. Non-casters with gifts: cantrips at will; a leveled spell once per long rest (setting). The GM picks the casting ability.
 6. Everything is in an audit log.
 
 ## 7. Build plan
@@ -150,10 +150,10 @@ Compared with an earlier draft (3 days per spell level alone): low spells get a 
 1. **Rules engine (server):** the settings above with defaults; formulas for pools, highest level, multiclass, upcast, study points, discounts, hybrids, graded checks, banked progress, dual cast, echo strain, overchannel, surge, gates. Unit tests for every formula.
 2. **Spell rules profile:** import/export of all settings, lines, recipes and spell→line tags as JSON, with a preview.
 3. **Spell list import:** the JSON field list in section 1, hidden spells stay hidden; the new types.
-4. **Tree view and cards** in the Codex, the player Study panel, the DM queue (day approvals, final checks, requests, gifts), a cast panel applying all the limits with clear costs. Must work at phone width.
+4. **Tree view and cards** in the Codex, the player Study panel, the GM queue (day approvals, final checks, requests, gifts), a cast panel applying all the limits with clear costs. Must work at phone width.
 5. **Settings → Spell rules** with a live preview table (pool per level per caster type; time and cost per spell level per method).
-6. **Assistant tools:** read rules, list lines and recipes, check a character's eligibility and costs, suggest recipes (drafts the DM approves).
-7. **Security:** players never see DM notes, hidden recipes, other characters' progress or DM-only spells (fail closed); seeds in the leak tests.
+6. **Assistant tools:** read rules, list lines and recipes, check a character's eligibility and costs, suggest recipes (drafts the GM approves).
+7. **Security:** players never see GM notes, hidden recipes, other characters' progress or GM-only spells (fail closed); seeds in the leak tests.
 8. **Tests and docs:** unit tests, an e2e that studies → checks → learns on a phone, a dual cast revealing a recipe, a gift to a non-caster and a settings import; update docs/SPELLS.md.
 
 ## 8. Open questions

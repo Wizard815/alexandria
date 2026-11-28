@@ -18,7 +18,7 @@ export interface ConnStatus {
 }
 
 export interface MirrorWorld {
-  id: string; name: string; slug: string; view: 'dm' | 'counts'; folder: string | null; exists: boolean; pages: number; shared: number;
+  id: string; name: string; slug: string; view: 'gm' | 'counts'; folder: string | null; exists: boolean; pages: number; shared: number;
   copies: Record<'vault' | 'party' | 'api', { files: number; bytes: number }>;
   lastWrittenAt: string | null; failures: number;
   failed: { copy: string; path: string; error: string; at: string; attempts: number }[] | null;
@@ -27,7 +27,7 @@ export interface Mirror { enabled: boolean; worlds: MirrorWorld[]; totals: { fil
 
 export interface FileRow { id: string; name: string | null; kind: string; size: number; at: string; level: string; hidden: boolean }
 export interface SourceFilesWorld {
-  id: string; name: string; view: 'dm' | 'counts';
+  id: string; name: string; view: 'gm' | 'counts';
   sources: { id: string; name: string; kind: string; connector: string; enabled: boolean; lastSyncAt: string | null; lastStatus: string | null; lastFetchedAt: string | null; canSync: boolean; count: number; bytes: number; byKind: { kind: string; count: number }[]; hiddenCount: number; files: FileRow[]; truncated: boolean }[];
   library: { count: number; bytes: number; files: FileRow[]; truncated: boolean; hiddenCount: number };
 }
@@ -36,7 +36,7 @@ export interface SourceFiles { totals: { pictures: { count: number; bytes: numbe
 export interface SearchStats {
   days: number; since: string; retentionDays: number;
   totals: { searches: number; nothing: number; hiddenQueries: number };
-  worlds: { id: string; name: string; view: 'dm' | 'counts'; searches: number; nothing: number }[];
+  worlds: { id: string; name: string; view: 'gm' | 'counts'; searches: number; nothing: number }[];
   popular: { world: { id: string; name: string }; q: string; count: number; lastAt: string; avgResults: number }[];
   nothing: { world: { id: string; name: string }; q: string; count: number; lastAt: string; drafted: boolean }[];
   bySource: { name: string; count: number }[]; byOrigin: { origin: string; count: number }[]; byDay: { day: string; searches: number; nothing: number }[];

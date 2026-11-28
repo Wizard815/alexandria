@@ -1,4 +1,4 @@
-/* The DM workspace: a toolbar and a grid of panes. The DM layout gives this page the whole window height (.main-ws). */
+/* The GM workspace: a toolbar and a grid of panes. The GM layout gives this page the whole window height (.main-ws). */
 .ws { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); }
 .ws-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 6px 12px; border-bottom: 1px solid var(--line-strong); background: var(--side); flex: 0 0 auto; }
 .ws-tb-title { color: var(--accent); font-family: var(--font-head); letter-spacing: 0.04em; margin-right: 4px; }
@@ -36,9 +36,9 @@
 .ws-body .page h1 { font-size: 22px; }
 .ws-body .page-head .lead p { display: none; }
 .ws-body .lib-tree { height: min(70vh, 520px); }
-/* A page drawn as a full-screen overlay (the DM phone page) is held inside its pane. */
+/* A page drawn as a full-screen overlay (the GM phone page) is held inside its pane. */
 .ws-body[data-page=phone] { transform: translateZ(0); }
-.ws-body[data-page=phone] .dmp { position: absolute; }
+.ws-body[data-page=phone] .gmp { position: absolute; }
 .ws-body .ag-ask { height: auto; min-height: 300px; }
 
 .ws-divider { background: var(--side); display: flex; align-items: center; justify-content: center; touch-action: none; z-index: 5; }
@@ -50,12 +50,12 @@
 .ws-divider:hover span, .ws-divider:focus-visible span { background: var(--accent); }
 .ws-divider:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* The DM layout gives the workspace the whole window. */
+/* The GM layout gives the workspace the whole window. */
 .main.main-ws { display: flex; flex-direction: column; height: var(--vh100, 100vh); overflow: hidden; }
 .main.main-ws > .ws { flex: 1 1 auto; }
 .main.main-ws .feature-topbar { padding: 4px 12px 0; }
 
-/* On a phone the DM layout is one pane: the focused one, with no toolbar and no pane buttons.
+/* On a phone the GM layout is one pane: the focused one, with no toolbar and no pane buttons.
    A foldable opened up (near-square, 600px and wider) keeps the panes: see fold.css. */
 @media (max-width: 599.98px), (max-width: 760px) and (max-aspect-ratio: 2/3), (max-width: 760px) and (min-aspect-ratio: 3/2) {
   .ws-toolbar, .ws-divider, .ws-act { display: none; }

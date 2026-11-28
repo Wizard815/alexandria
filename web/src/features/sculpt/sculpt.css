@@ -1,5 +1,5 @@
-/* Sculpting: the DM-only preview, the output checklist, the template library and the side sheet. */
-.sculpt-dm { border-left: 3px solid var(--danger); background: var(--panel-2); padding: 2px 10px; border-radius: 4px; }
+/* Sculpting: the GM-only preview, the output checklist, the template library and the side sheet. */
+.sculpt-gm { border-left: 3px solid var(--danger); background: var(--panel-2); padding: 2px 10px; border-radius: 4px; }
 .sculpt-count { width: 3.2em; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; text-align: center; }
 .sculpt-outs { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sculpt-out { align-items: baseline; flex-wrap: wrap; }

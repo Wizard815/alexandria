@@ -1,4 +1,4 @@
-// Scenes on the DM's Table: one press sets the TV, sound, lights and the table map.
+// Scenes on the GM's Table: one press sets the TV, sound, lights and the table map.
 import { TableCard } from '../../ui/TableCard.tsx';
 import { SceneButtons } from './ScenePanel.tsx';
 import { useScenes } from './useScenes.ts';

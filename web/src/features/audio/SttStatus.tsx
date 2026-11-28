@@ -1,4 +1,4 @@
-// What this device's own speech to text is doing, for the DM's setup page and the player's mic page.
+// What this device's own speech to text is doing, for the GM's setup page and the player's mic page.
 import type { SttView } from './stt.ts';
 
 const speed = (rtf: number | null) => (rtf === null ? '' : rtf <= 0 ? '' : `${(1 / Math.max(0.01, rtf)).toFixed(rtf > 0.5 ? 1 : 0)}× faster than real time`);

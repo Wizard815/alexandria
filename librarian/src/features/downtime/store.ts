@@ -1,11 +1,11 @@
 // Downtime's data: the world's activities (the shipped ones merged with the
 // world's own), each character's tasks with their progress, downtime rounds
-// (the DM's Downtime button) with each player's pick, and a log of every
+// (the GM's Downtime button) with each player's pick, and a log of every
 // change with the real time and the in-world date it happened.
 import type { DB } from '../../core/db.ts';
 import { all, one, run, tx as begin } from '../../core/db.ts';
 import type { EventHub } from '../../core/events.ts';
-import { dmAnd } from '../../core/events.ts';
+import { gmAnd } from '../../core/events.ts';
 import { DEFAULT_SETTINGS, featureSetting, type WorldSettings } from '../../core/policy.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import { getClock } from '../clock/api.ts';
@@ -20,8 +20,8 @@ export const SCHEMA = `
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
     id TEXT NOT NULL,
     json TEXT NOT NULL,
-    source TEXT NOT NULL,            -- premade (a changed copy of a shipped one) | dm | player
-    status TEXT NOT NULL DEFAULT 'ok', -- ok | proposed (a player's, waiting for the DM) | hidden
+    source TEXT NOT NULL,            -- premade (a changed copy of a shipped one) | gm | player
+    status TEXT NOT NULL DEFAULT 'ok', -- ok | proposed (a player's, waiting for the GM) | hidden
     created_by TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -44,7 +44,7 @@ export const SCHEMA = `
     reward TEXT NOT NULL DEFAULT '{}',
     reward_given_at TEXT,
     link TEXT,
-    dm_note TEXT NOT NULL DEFAULT '',
+    gm_note TEXT NOT NULL DEFAULT '',
     created_by TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -126,7 +126,7 @@ export function span(minutes: number, hoursPerDay: number): string {
 
 // ---- activities --------------------------------------------------------------------------------------------------------
 
-export interface ActivityRow extends Activity { source: 'premade' | 'dm' | 'player'; status: 'ok' | 'proposed' | 'hidden'; createdBy: string | null; changed: boolean }
+export interface ActivityRow extends Activity { source: 'premade' | 'gm' | 'player'; status: 'ok' | 'proposed' | 'hidden'; createdBy: string | null; changed: boolean }
 
 /** Every activity of the world: shipped ones (or the world's changed copy), then the world's own. */
 export function activities(db: DB, worldId: string): ActivityRow[] {
@@ -149,7 +149,7 @@ export function activity(db: DB, worldId: string, aid: string): ActivityRow {
   return a;
 }
 
-export function saveActivity(db: DB, worldId: string, raw: any, by: string, source: 'dm' | 'player', status: 'ok' | 'proposed'): ActivityRow {
+export function saveActivity(db: DB, worldId: string, raw: any, by: string, source: 'gm' | 'player', status: 'ok' | 'proposed'): ActivityRow {
   const aid = id('dta_');
   const a = checkActivity(raw, aid);
   if (one<any>(db, "SELECT COUNT(*) AS n FROM downtime_activities WHERE world_id = ?", worldId)!.n >= 500) throw new HttpError(409, 'This world has 500 activities; remove some first');
@@ -157,7 +157,7 @@ export function saveActivity(db: DB, worldId: string, raw: any, by: string, sour
   return activity(db, worldId, aid);
 }
 
-/** The DM changes an activity. A shipped one gets a world copy (its id stays). */
+/** The GM changes an activity. A shipped one gets a world copy (its id stays). */
 export function updateActivity(db: DB, worldId: string, aid: string, patch: any): ActivityRow {
   const cur = activity(db, worldId, aid);
   const { source, status, createdBy, changed, ...base } = cur;
@@ -184,7 +184,7 @@ export interface Task {
   reward: Reward | { hidden: true }; rewardGivenAt: string | null; rewardWaiting: boolean;
   link: Link | null; createdBy: string | null; createdAt: string; updatedAt: string;
   startedWorld: number | null; finishedWorld: number | null; finishedAt: string | null;
-  dmNote?: string;
+  gmNote?: string;
   scope: 'personal' | 'group';
   /** A group task: who joined, and how much each has put in. */
   members: string[];
@@ -195,7 +195,7 @@ export const PARTY = 'party';
 export const isGroup = (r: any) => r?.scope === 'group';
 export const membersOf = (r: any): string[] => parseJson<string[]>(r?.members, []);
 
-export function taskOut(db: DB, s: WorldSettings, r: any, dm: boolean): Task {
+export function taskOut(db: DB, s: WorldSettings, r: any, gm: boolean): Task {
   const reward = checkReward(parseJson(r.reward, {}));
   const left = Math.max(0, r.need_min - r.done_min);
   return {
@@ -204,11 +204,11 @@ export function taskOut(db: DB, s: WorldSettings, r: any, dm: boolean): Task {
     percent: r.need_min ? Math.min(100, Math.round((r.done_min / r.need_min) * 100)) : 100,
     needLabel: span(r.need_min, r.per_day_min / 60), doneLabel: span(r.done_min, r.per_day_min / 60), leftLabel: span(left, r.per_day_min / 60),
     daysLeft: Math.ceil(left / r.per_day_min),
-    reward: dm || !reward.hidden || r.reward_given_at ? reward : { hidden: true },
+    reward: gm || !reward.hidden || r.reward_given_at ? reward : { hidden: true },
     rewardGivenAt: r.reward_given_at ?? null, rewardWaiting: r.status === 'done' && !r.reward_given_at && hasReward(reward),
     link: parseJson<Link | null>(r.link, null), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
     startedWorld: r.started_world ?? null, finishedWorld: r.finished_world ?? null, finishedAt: r.finished_at ?? null,
-    ...(dm ? { dmNote: r.dm_note } : {}),
+    ...(gm ? { gmNote: r.gm_note } : {}),
     scope: isGroup(r) ? 'group' : 'personal',
     members: membersOf(r),
     contributions: isGroup(r) ? all<any>(db, "SELECT account_id, SUM(minutes) AS m FROM downtime_log WHERE world_id = ? AND task_id = ? AND kind = 'work' AND undone = 0 AND account_id != 'party' GROUP BY account_id ORDER BY m DESC", r.world_id, r.id)
@@ -217,9 +217,9 @@ export function taskOut(db: DB, s: WorldSettings, r: any, dm: boolean): Task {
 }
 
 export const taskRow = (db: DB, worldId: string, tid: string) => one<any>(db, 'SELECT * FROM downtime_tasks WHERE world_id = ? AND id = ?', worldId, tid);
-export function mustTask(db: DB, worldId: string, tid: string, viewer: { accountId: string; dm: boolean }) {
+export function mustTask(db: DB, worldId: string, tid: string, viewer: { accountId: string; gm: boolean }) {
   const r = taskRow(db, worldId, tid);
-  if (!r || (!viewer.dm && r.account_id !== viewer.accountId && !isGroup(r))) throw new HttpError(404, 'Task not found');
+  if (!r || (!viewer.gm && r.account_id !== viewer.accountId && !isGroup(r))) throw new HttpError(404, 'Task not found');
   return r;
 }
 
@@ -242,7 +242,7 @@ export function writeLog(db: DB, worldId: string, e: LogIn): string {
   return lid;
 }
 
-export interface NewTask { activity: Activity; accountId: string; group?: boolean; status?: Status; reward?: Reward; dmNote?: string; by: string; note?: string }
+export interface NewTask { activity: Activity; accountId: string; group?: boolean; status?: Status; reward?: Reward; gmNote?: string; by: string; note?: string }
 export function startTask(db: DB, worldId: string, t: NewTask): any {
   const s = worldSettings(db, worldId);
   const perDay = Math.min(t.activity.hoursPerDay, dayHours(s)) * 60;
@@ -258,10 +258,10 @@ export function startTask(db: DB, worldId: string, t: NewTask): any {
   }
   const tid = id('dtt_');
   const c = getClock(db, worldId);
-  run(db, `INSERT INTO downtime_tasks (id, world_id, account_id, scope, members, activity_id, name, summary, tier, need_min, done_min, per_day_min, status, reward, link, dm_note, created_by, created_at, updated_at, started_world)
+  run(db, `INSERT INTO downtime_tasks (id, world_id, account_id, scope, members, activity_id, name, summary, tier, need_min, done_min, per_day_min, status, reward, link, gm_note, created_by, created_at, updated_at, started_world)
     VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?)`,
     tid, worldId, owner, group ? 'group' : 'personal', JSON.stringify(members), t.activity.id || null, t.activity.name, t.activity.summary, t.activity.tier, need, perDay, t.status ?? 'active',
-    JSON.stringify(t.reward ?? t.activity.reward), t.activity.link ? JSON.stringify(t.activity.link) : null, (t.dmNote ?? '').slice(0, 1000), t.by, now(), now(), c.minutes);
+    JSON.stringify(t.reward ?? t.activity.reward), t.activity.link ? JSON.stringify(t.activity.link) : null, (t.gmNote ?? '').slice(0, 1000), t.by, now(), now(), c.minutes);
   writeLog(db, worldId, { accountId: owner, taskId: tid, taskName: t.activity.name, kind: 'start', by: t.by, note: t.note ?? `${group ? 'Group, ' : ''}${TIER_LABEL[t.activity.tier]}, ${span(need, perDay / 60)}` });
   return taskRow(db, worldId, tid);
 }
@@ -286,7 +286,7 @@ export interface Progress { row: any; finished: boolean; logId: string }
 
 /**
  * Add (or take away, minutes < 0) work on a task. Logged; a task that reaches its time is done (unless it is still a
- * proposal waiting for the DM), and its link's onComplete runs.
+ * proposal waiting for the GM), and its link's onComplete runs.
  */
 export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: string, minutes: number, e: { kind: 'work' | 'time'; by: string | null; roundId?: string | null; note?: string; worker?: string }): Progress {
   const { db } = d;
@@ -298,7 +298,7 @@ export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: stri
     const done = Math.max(0, r.done_min + Math.round(minutes));
     const delta = done - r.done_min;
     run(db, 'UPDATE downtime_tasks SET done_min = ?, updated_at = ? WHERE id = ?', done, now(), tid);
-    // On a group task the log row names the character who did the work (the party when the DM changes the time).
+    // On a group task the log row names the character who did the work (the party when the GM changes the time).
     const who = e.worker ?? r.account_id;
     const logId = writeLog(db, worldId, { accountId: who, taskId: tid, taskName: r.name, kind: e.kind, minutes: delta, roundId: e.roundId, by: e.by, note: e.note });
     let finished = false;
@@ -308,7 +308,7 @@ export function addWork(d: { db: DB; hub: EventHub }, worldId: string, tid: stri
       writeLog(db, worldId, { accountId: r.account_id, taskId: tid, taskName: r.name, kind: 'resume', by: e.by, note: 'Not finished after all' });
     }
     finished = maybeFinish(d, worldId, tid, e.by);
-    if (delta > 0) d.hub.emit(worldId, 'downtime-day', { accountId: who, taskId: tid, minutes: delta, link: parseJson(r.link, null), activityId: r.activity_id, group: isGroup(r) }, dmAnd(who));
+    if (delta > 0) d.hub.emit(worldId, 'downtime-day', { accountId: who, taskId: tid, minutes: delta, link: parseJson(r.link, null), activityId: r.activity_id, group: isGroup(r) }, gmAnd(who));
     return { row: taskRow(db, worldId, tid), finished, logId };
   });
 }
@@ -340,7 +340,7 @@ export function setStatus(d: { db: DB; hub: EventHub }, worldId: string, tid: st
     if (r.status === status) return r;
     if (r.status === 'removed') throw new HttpError(409, 'That task was removed');
     if (r.status === 'done' && status !== 'removed') throw new HttpError(409, `${r.name} is already finished`);
-    if (r.status === 'proposed' && status === 'active') throw new HttpError(409, 'The DM has not approved this activity yet');
+    if (r.status === 'proposed' && status === 'active') throw new HttpError(409, 'The GM has not approved this activity yet');
     run(db, 'UPDATE downtime_tasks SET status = ?, updated_at = ? WHERE id = ?', status, now(), tid);
     const kind = status === 'removed' ? 'remove' : status === 'paused' ? 'pause' : 'resume';
     writeLog(db, worldId, { accountId: r.account_id, taskId: tid, taskName: r.name, kind, by, note: note || (status === 'removed' ? `Stopped with ${span(r.done_min, r.per_day_min / 60)} done` : '') });
@@ -349,7 +349,7 @@ export function setStatus(d: { db: DB; hub: EventHub }, worldId: string, tid: st
   });
 }
 
-/** The DM edits a task: name, tier, length (in days), hours a day, reward, private note. Approves a proposal. */
+/** The GM edits a task: name, tier, length (in days), hours a day, reward, private note. Approves a proposal. */
 export function editTask(d: { db: DB; hub: EventHub }, worldId: string, tid: string, b: any, by: string): any {
   const { db } = d;
   return tx(db, () => {
@@ -372,10 +372,10 @@ export function editTask(d: { db: DB; hub: EventHub }, worldId: string, tid: str
     else days = Math.max(1, Math.round(r.need_min / r.per_day_min));
     const need = days * perDay;
     const reward = b.reward === undefined ? parseJson(r.reward, {}) : checkReward(b.reward);
-    const dmNote = b.dmNote === undefined ? r.dm_note : String(b.dmNote).slice(0, 1000);
+    const gmNote = b.gmNote === undefined ? r.gm_note : String(b.gmNote).slice(0, 1000);
     const approve = r.status === 'proposed' && b.approve === true;
-    run(db, 'UPDATE downtime_tasks SET name = ?, summary = ?, tier = ?, per_day_min = ?, need_min = ?, reward = ?, dm_note = ?, status = ?, updated_at = ? WHERE id = ?',
-      name, summary, tier, perDay, need, JSON.stringify(reward), dmNote, approve ? 'active' : r.status, now(), tid);
+    run(db, 'UPDATE downtime_tasks SET name = ?, summary = ?, tier = ?, per_day_min = ?, need_min = ?, reward = ?, gm_note = ?, status = ?, updated_at = ? WHERE id = ?',
+      name, summary, tier, perDay, need, JSON.stringify(reward), gmNote, approve ? 'active' : r.status, now(), tid);
     const changes = [name !== r.name && `name ${name}`, tier !== r.tier && `tier ${TIER_LABEL[tier as Tier]}`, need !== r.need_min && `length ${span(need, perDay / 60)}`, perDay !== r.per_day_min && `${hpd} hours a day`, b.reward !== undefined && 'reward'].filter(Boolean);
     if (changes.length || approve) writeLog(db, worldId, { accountId: r.account_id, taskId: tid, taskName: name, kind: approve ? 'approve' : 'edit', by, note: changes.join(', ') });
     if (approve && r.activity_id) run(db, "UPDATE downtime_activities SET status = 'ok', json = json_set(json, '$.tier', ?, '$.days', ?, '$.hoursPerDay', ?), updated_at = ? WHERE world_id = ? AND id = ? AND status = 'proposed'", tier, days, hpd, now(), worldId, r.activity_id);
@@ -384,7 +384,7 @@ export function editTask(d: { db: DB; hub: EventHub }, worldId: string, tid: str
   });
 }
 
-// ---- rounds: the DM's Downtime button ----------------------------------------------------------------------------------
+// ---- rounds: the GM's Downtime button ----------------------------------------------------------------------------------
 
 export interface DayPick { taskId: string; days: number }
 export const openRound = (db: DB, worldId: string) => one<any>(db, "SELECT * FROM downtime_rounds WHERE world_id = ? AND status = 'open' ORDER BY created_at DESC LIMIT 1", worldId);
@@ -429,7 +429,7 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
       seen.add(p.taskId);
       const r = taskRow(db, worldId, p.taskId);
       if (!r || (r.account_id !== aid && !isGroup(r))) throw new HttpError(404, 'Task not found');
-      if (isGroup(r) && r.status === 'paused') throw new HttpError(409, `The DM paused ${r.name}`);
+      if (isGroup(r) && r.status === 'paused') throw new HttpError(409, `The GM paused ${r.name}`);
       if (!['active', 'proposed', 'paused'].includes(r.status)) throw new HttpError(409, `${r.name} is ${r.status}`);
       if (!Number.isInteger(p.days) || p.days < 1 || p.days > round.days) throw new HttpError(400, `days must be from 1 to ${round.days}`);
       used += p.days * r.per_day_min;
@@ -454,7 +454,7 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
   });
 }
 
-export function roundOut(db: DB, worldId: string, round: any, viewer: { accountId: string; dm: boolean }, names: Record<string, string>, players: string[]) {
+export function roundOut(db: DB, worldId: string, round: any, viewer: { accountId: string; gm: boolean }, names: Record<string, string>, players: string[]) {
   const picks = all<any>(db, 'SELECT * FROM downtime_picks WHERE round_id = ?', round.id);
   const s = worldSettings(db, worldId);
   const base = { id: round.id, days: round.days, status: round.status, note: round.note, worldLabel: round.world_label, createdAt: round.created_at, closedAt: round.closed_at, hours: round.days * dayHours(s) };
@@ -462,7 +462,7 @@ export function roundOut(db: DB, worldId: string, round: any, viewer: { accountI
     const list = parseJson<DayPick[]>(p.picks, []).map((x) => { const t = taskRow(db, worldId, x.taskId); return { ...x, name: t?.name ?? 'removed task' }; });
     return { accountId: p.account_id, name: names[p.account_id] ?? '', skipped: !!p.skipped, picks: list, at: p.at };
   };
-  if (viewer.dm) {
+  if (viewer.gm) {
     const by = new Map(picks.map((p) => [p.account_id, p]));
     return { ...base, answers: players.map((aid) => (by.has(aid) ? view(by.get(aid)) : { accountId: aid, name: names[aid] ?? '', waiting: true })) };
   }

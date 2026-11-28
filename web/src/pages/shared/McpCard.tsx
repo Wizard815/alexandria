@@ -22,7 +22,7 @@ export function McpCard({ mcp }: { mcp: McpConnection }) {
       <p className="small muted">
         {mcp.access === 'read'
           ? 'Your AI app can look things up in this world: lore, people, the calendar, your inventory. It sees only what you can see, and it cannot change anything.'
-          : 'This key lets your AI app make changes as the DM. Keep it to yourself.'}{' '}
+          : 'This key lets your AI app make changes as the GM. Keep it to yourself.'}{' '}
         This is the only time the key is shown. You can make a new one any time under “Connect an AI”.
       </p>
       <div className="stack tight">

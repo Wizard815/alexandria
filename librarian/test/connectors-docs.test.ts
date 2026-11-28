@@ -14,7 +14,7 @@ import { blocksToMarkdown } from '../src/intake/model.ts';
 const P = (t: string) => ({ kind: 'paragraph', content: [{ text: t }] });
 const nothingHidden = () => false;
 const player = { accountId: 'p', role: 'player' as const };
-const dm = { accountId: 'a', role: 'dm' as const };
+const gm = { accountId: 'a', role: 'gm' as const };
 
 function world(kind: string, config: Record<string, unknown>) {
   const db = openDb(':memory:');
@@ -68,7 +68,7 @@ test('TestConnectorsDocs_LegendKeeperHiddenPropertiesNeverReachPlayers', () => {
     { kind: 'image', title: 'Portrait', isHidden: false, url: 'https://x/y.png' },
     { kind: 'unsupported', id: 'u', isHidden: false },
   ]);
-  assert.deepEqual(groups.map((g) => [g.title, !!g.dm]), [['Facts', false], ['Motives', true], ['No flag', true], ['Bio', false], ['Allies', false]]);
+  assert.deepEqual(groups.map((g) => [g.title, !!g.gm]), [['Facts', false], ['Motives', true], ['No flag', true], ['Bio', false], ['Allies', false]]);
   const infobox = lkBlocks([{ kind: 'infobox', rows: [{ kind: 'keyValue', title: 'Secret stats', isHidden: true, rows: [{ key: 'True name', content: [{ text: 'Vex' }] }] }, { kind: 'keyValue', title: 'Stats', isHidden: false, rows: [{ key: 'Age', content: [{ text: '40' }] }] }] }]);
   const out = JSON.stringify([playerProperties(groups, nothingHidden), playerBlocks(infobox, nothingHidden)]);
   for (const leak of ['the throne', 'owes the guild', 'kraken', 'Vex', 'Secret stats']) assert.ok(!out.includes(leak), leak);
@@ -113,12 +113,12 @@ test('TestConnectorsDocs_LegendKeeperRestSyncPermissionsAndRetry', async () => {
   assert.equal(out.status, 'ok', out.error);
   assert.ok(seen.includes('/api/v3/projects/proj1/resources?limit=100&cursor=opaque'), 'cursor paging');
   assert.ok(limited, '429 was retried after Retry-After');
-  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Port Town', 'World'], 'No Access on an ancestor or for one player keeps a page DM-only');
-  assert.equal(lib.list('w', dm).length, 4);
+  assert.deepEqual(lib.list('w', player).map((p: any) => p.title).sort(), ['Port Town', 'World'], 'No Access on an ancestor or for one player keeps a page GM-only');
+  assert.equal(lib.list('w', gm).length, 4);
   const town = lib.list('w', player).find((p: any) => p.title === 'Port Town') as any;
   const pg = JSON.stringify(lib.get('w', town.id, player));
-  assert.ok(pg.includes('deep') && !pg.includes('Old Mags') && !pg.includes('Smuggling'), 'hidden sidebar property stays DM-only');
-  assert.ok(JSON.stringify(lib.get('w', town.id, dm)).includes('Old Mags'), 'the DM still sees it');
+  assert.ok(pg.includes('deep') && !pg.includes('Old Mags') && !pg.includes('Smuggling'), 'hidden sidebar property stays GM-only');
+  assert.ok(JSON.stringify(lib.get('w', town.id, gm)).includes('Old Mags'), 'the GM still sees it');
 });
 
 // ---------- Kanka ----------
@@ -142,11 +142,11 @@ test('TestConnectorsDocs_KankaAttributesTraitsAndPrivateLinks', () => {
   const pp = JSON.stringify(playerProperties(shared, () => false));
   for (const kept of ['Captain', 'kanka:30', 'kanka:340', 'Red', 'STR']) assert.ok(pp.includes(kept), kept);
   for (const leak of ['kanka:20', 'Drowning', '500gp', 'Section']) assert.ok(!pp.includes(leak), leak);
-  // is_attributes_private (or no flag at all) makes every attribute DM-only.
+  // is_attributes_private (or no flag at all) makes every attribute GM-only.
   for (const flag of [true, undefined]) {
     const props = kankaProperties({ ...base, is_attributes_private: flag }, 'character', lookup);
     assert.ok(!JSON.stringify(playerProperties(props, () => false)).includes('14'), `is_attributes_private=${flag}`);
-    assert.ok(JSON.stringify(props).includes('14'), 'kept for the DM');
+    assert.ok(JSON.stringify(props).includes('14'), 'kept for the GM');
   }
 });
 
@@ -196,8 +196,8 @@ test('TestConnectorsDocs_KankaApiSyncFollowsDocs', async () => {
   assert.ok(!urls.some((u) => u.includes('evil')), 'links.next is not followed off-host');
   const titles = lib.list('w', player).map((p: any) => p.title).sort();
   assert.ok(titles.includes('Mira') && titles.includes('Harbour') && !titles.includes('Template Guy'), 'templates are skipped');
-  const harbour = lib.list('w', dm).find((p: any) => p.title === 'Harbour') as any;
-  const coast = lib.list('w', dm).find((p: any) => p.title === 'Coast') as any;
+  const harbour = lib.list('w', gm).find((p: any) => p.title === 'Harbour') as any;
+  const coast = lib.list('w', gm).find((p: any) => p.title === 'Coast') as any;
   assert.equal(harbour.parent_id ?? harbour.parentId, coast.id, 'parent_id is the parent entity id');
   const mira = lib.list('w', player).find((p: any) => p.title === 'Mira') as any;
   const pg = lib.get('w', mira.id, player) as any;
@@ -205,6 +205,6 @@ test('TestConnectorsDocs_KankaApiSyncFollowsDocs', async () => {
   for (const kept of ['Known to all', 'Members know', '[[Harbour]]']) assert.ok(all.includes(kept), kept);
   for (const leak of ['Admin only', 'Self admin', 'Just me', 'New value', 'No visibility', 'Denied to a role', 'Traitor', 'Gold']) assert.ok(!all.includes(leak), leak);
   assert.deepEqual(pg.tags, ['Sailor'], 'private tag names are not shown');
-  const dmAll = JSON.stringify(lib.get('w', mira.id, dm));
-  assert.ok(dmAll.includes('Admin only') && dmAll.includes('Gold'), 'the DM sees posts and attributes');
+  const gmAll = JSON.stringify(lib.get('w', mira.id, gm));
+  assert.ok(gmAll.includes('Admin only') && gmAll.includes('Gold'), 'the GM sees posts and attributes');
 });

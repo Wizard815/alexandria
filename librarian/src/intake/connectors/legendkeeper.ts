@@ -100,7 +100,7 @@ function lkLinkRef(uri: string): string | null {
   return m ? mentionRef(m[1], m[2]) : null;
 }
 
-/** Image properties (a portrait in the sidebar or an infobox) as image blocks; a hidden one is wrapped as a DM-only secret. */
+/** Image properties (a portrait in the sidebar or an infobox) as image blocks; a hidden one is wrapped as a GM-only secret. */
 export function lkImageBlocks(props: any[] = []): Block[] {
   const out: Block[] = [];
   for (const g of Array.isArray(props) ? props : []) {
@@ -143,7 +143,7 @@ function propertyRows(g: any) {
 
 /**
  * LegendKeeper PropertyBlocks (sidebar `properties`, infobox `rows`) to groups.
- * `isHidden` marks a GM-only property; anything but an explicit false is DM-only.
+ * `isHidden` marks a GM-only property; anything but an explicit false is GM-only.
  */
 export function lkGroups(props: any[] = []): PropertyGroup[] {
   const out: PropertyGroup[] = [];
@@ -151,7 +151,7 @@ export function lkGroups(props: any[] = []): PropertyGroup[] {
     const rows = propertyRows(g);
     if (!rows.length) continue;
     const group: PropertyGroup = { title: String(g.title ?? (g.kind === 'textField' ? 'Text' : 'Facts')), rows };
-    if (g.isHidden !== false) group.dm = true;
+    if (g.isHidden !== false) group.gm = true;
     // A group titled Broker or Classified carries that level (it is also found by its title).
     const named = levelOfWord(group.title);
     if (named) group.level = named;
@@ -160,7 +160,7 @@ export function lkGroups(props: any[] = []): PropertyGroup[] {
   return out;
 }
 
-/** A secret block: dm level, or broker / classified when its first words say so. */
+/** A secret block: gm level, or broker / classified when its first words say so. */
 function secretBlock(children: Block[]): Block {
   const first = children[0];
   if (first && (first.kind === 'paragraph' || first.kind === 'heading')) {
@@ -494,7 +494,7 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
         blocks,
         position: positions.has(String(r.id)) ? positions.get(String(r.id))! + (idn.first ? 0 : (1 + tabOrder.indexOf(String(d.id))) / (pages.length + 1)) : null,
         url: lkUrl(cfg, String(r.id), String(d.id)),
-        visibility: !isHidden && ctx.shareVisible ? 'party' : 'dm', sourceShared: !isHidden,
+        visibility: !isHidden && ctx.shareVisible ? 'party' : 'gm', sourceShared: !isHidden,
         updatedAt: dd.updatedAt ?? r.updatedAt ?? null,
         sourceUpdatedAt: r.updatedAt ?? detail.updatedAt ?? null,
         depth: 'full',
@@ -522,12 +522,12 @@ function lkSession(t: Transport, ctx: ConnectorContext, cfg: Record<string, any>
 }
 
 async function* lkCalendars(t: Transport, ctx: ConnectorContext): AsyncIterable<SyncItem> {
-  // Calendars belong to the project. LegendKeeper has no hidden flag for them, so they stay DM-only.
+  // Calendars belong to the project. LegendKeeper has no hidden flag for them, so they stay GM-only.
   try {
     const j = await t.get('/calendars');
     for (const c of Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : []) {
       if (!c?.id || !c?.name) continue;
-      yield { kind: 'calendar', externalId: String(c.id), name: String(c.name), visibility: 'dm', definition: lkCalendar(c), current: null } satisfies SyncRecord;
+      yield { kind: 'calendar', externalId: String(c.id), name: String(c.name), visibility: 'gm', definition: lkCalendar(c), current: null } satisfies SyncRecord;
     }
   } catch (err: any) {
     if (ctx.signal.aborted) throw err;
@@ -549,7 +549,7 @@ async function* lkSync(t: Transport, ctx: ConnectorContext, cfg: Record<string, 
  * Tier 1: the resource list (100 a call), the calendars, and the timelines.
  * Every page of the tree exists at once with its title, type, tags, parent,
  * folder path and updated time. Permissions are in the resource detail only,
- * so a page at index depth is DM-only until its details are read (fail closed).
+ * so a page at index depth is GM-only until its details are read (fail closed).
  */
 async function* lkIndex(t: Transport, ctx: ConnectorContext, cfg: Record<string, any> = {}): AsyncIterable<SyncItem> {
   const all = await lkListResources(t, ctx);
@@ -581,8 +581,8 @@ async function* lkIndex(t: Transport, ctx: ConnectorContext, cfg: Record<string,
         blocks: indexBlocks({ title: idn.title, type, tags, folder }),
         position: positions.has(String(r.id)) ? positions.get(String(r.id))! + (idn.first ? 0 : 0.5) : null,
         url: lkUrl(cfg, String(r.id), String(d.id)),
-        // Who may read it is in the detail (permissions): until it is read, DM only.
-        visibility: 'dm', restricted,
+        // Who may read it is in the detail (permissions): until it is read, GM only.
+        visibility: 'gm', restricted,
         updatedAt: r.updatedAt ?? null, sourceUpdatedAt: r.updatedAt ?? null, depth: 'index',
       };
     }
@@ -651,7 +651,7 @@ async function lkList(t: Transport, path: string, paged = true): Promise<any[]> 
   return out;
 }
 
-/** A map document as one block: its image and its pins. Hidden pins, and pins under hidden folders or on hidden pages, are marked DM-only. */
+/** A map document as one block: its image and its pins. Hidden pins, and pins under hidden folders or on hidden pages, are marked GM-only. */
 /** [[minLat, minLng], [maxLat, maxLng]] when it is four finite numbers that span something. */
 function lkBounds(b: any): [[number, number], [number, number]] | null {
   const n = Array.isArray(b) ? b.flat().map(Number) : [];
@@ -667,8 +667,8 @@ async function lkMapBlock(t: Transport, ctx: ConnectorContext, r: any, doc: any,
     return {
       name: String(f.name ?? ref ?? 'Pin'), lat: Number(f.pos[0]), lng: Number(f.pos[1]),
       ...(f.iconGlyph ? { type: String(f.iconGlyph) } : {}), ...(/^#[0-9a-f]{6}$/i.test(String(f.iconColor ?? '')) ? { color: String(f.iconColor) } : {}), ...(ref ? { ref } : {}),
-      // Hidden pin, or a pin for a page that is hidden: DM-only. Unknown stays DM-only.
-      ...(hiddenFeature(f) || (ref && hiddenResource(ref)) ? { dm: true } : {}),
+      // Hidden pin, or a pin for a page that is hidden: GM-only. Unknown stays GM-only.
+      ...(hiddenFeature(f) || (ref && hiddenResource(ref)) ? { gm: true } : {}),
     };
   });
   const img = doc.mapImage;
@@ -689,10 +689,10 @@ async function lkTimeline(t: Transport, r: any, d: any, dd: any, multi: boolean,
       id: String(e.id), name: String(e.name ?? 'Event'),
       date: e.formattedStart ? `${e.formattedStart}${e.formattedEnd ? ` – ${e.formattedEnd}` : ''}` : null,
       color: typeof e.color === 'string' ? e.color : null, ref: lkRef(e.uri),
-      visibility: shared && e.isHidden === false ? 'party' as const : 'dm' as const,
+      visibility: shared && e.isHidden === false ? 'party' as const : 'gm' as const,
     })),
   }));
-  return { kind: 'timeline', externalId: `${r.id}#${d.id}`, name: multi && d.name && d.name !== 'Main' ? `${r.name} · ${d.name}` : String(r.name), visibility: shared ? 'party' : 'dm', groups };
+  return { kind: 'timeline', externalId: `${r.id}#${d.id}`, name: multi && d.name && d.name !== 'Main' ? `${r.name} · ${d.name}` : String(r.name), visibility: shared ? 'party' : 'gm', groups };
 }
 
 // The v3 API (OpenAPI description, "Rate limits"): per key 300 requests a minute, 6,000 an hour, 60,000 a day; writes 120 a minute and 3,000 an hour;

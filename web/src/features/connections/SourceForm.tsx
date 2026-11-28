@@ -51,7 +51,7 @@ export async function saveDraft(client: AlexandriaClient, worldId: string, d: Dr
   }
   if (!c.hasConnection) own = pickConfig(c, { ...d.connValues, ...d.values }, 'source');
   return client.request<Source>('POST', `/api/admin/worlds/${worldId}/sources`, {
-    ...(connectionId ? { connectionId } : { kind: c.id }), name: d.name.trim(), config: own, defaultVisibility: d.audience === 'auto' && d.share ? 'party' : 'dm',
+    ...(connectionId ? { connectionId } : { kind: c.id }), name: d.name.trim(), config: own, defaultVisibility: d.audience === 'auto' && d.share ? 'party' : 'gm',
     scheduleMinutes: d.schedule ? Number(d.schedule) : null, audience: d.audience, ...(d.audience === 'party' ? { confirmParty: true } : {}),
   });
 }
@@ -94,7 +94,7 @@ export function SourceFields({ d, set, connectors, connections, parts = ['kind',
       {parts.includes('audience') && c && (
         <div className="stack">
           <AudiencePicker value={d.audience} onChange={(a) => up({ audience: a, confirm: false })} confirmed={d.confirm} onConfirm={(v) => up({ confirm: v })} />
-          {d.audience === 'auto' && <label className="row small"><Switch checked={d.share} onChange={(v) => up({ share: v })} label="Share what the source shares" /> Let players see what the source itself shows its players. Off: everything stays DM-only until a page is marked shared.</label>}
+          {d.audience === 'auto' && <label className="row small"><Switch checked={d.share} onChange={(v) => up({ share: v })} label="Share what the source shares" /> Let players see what the source itself shows its players. Off: everything stays GM-only until a page is marked shared.</label>}
         </div>
       )}
     </>

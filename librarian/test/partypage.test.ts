@@ -1,4 +1,4 @@
-// The DM's Players page data (a card per player, then the party) and the player's Mine / Party summary.
+// The GM's Players page data (a card per player, then the party) and the player's Mine / Party summary.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -28,11 +28,11 @@ async function boot() {
   const T: Record<string, string> = {};
   const ID: Record<string, string> = {};
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Packland', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Packland', gmAccountId: ID.gm })).id;
   for (const [u, c] of [['jess', 'Jess'], ['tom', 'Tom']]) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: u, password: 'player pass 123', characterName: c });
     T[u] = j.token; ID[u] = j.account.id;
   }
@@ -43,17 +43,17 @@ async function boot() {
 test('TestPartyPage_OverviewHasACardPerPlayerThenTheParty', async () => {
   const e = await boot();
   try {
-    await e.ok('POST', `${e.api}/live/ledger`, e.T.dm, { owner: e.ID.jess, amountCp: 2500, note: 'Reward' });
-    await e.ok('POST', `${e.api}/live/ledger`, e.T.dm, { owner: 'party', amountCp: 10000, note: 'Hoard' });
-    await e.ok('POST', `${e.api}/inventory`, e.T.dm, { owner: e.ID.jess, name: 'Rope', qty: 3, dmNote: 'frayed', reason: 'Found' });
-    await e.ok('POST', `${e.api}/inventory`, e.T.dm, { owner: e.ID.tom, name: 'Torch', qty: 5, reason: 'x' });
-    await e.ok('POST', `${e.api}/inventory`, e.T.dm, { owner: 'party', name: 'Tent', qty: 1 });
-    const o = await e.ok('GET', `${e.api}/inventory/overview`, e.T.dm);
+    await e.ok('POST', `${e.api}/live/ledger`, e.T.gm, { owner: e.ID.jess, amountCp: 2500, note: 'Reward' });
+    await e.ok('POST', `${e.api}/live/ledger`, e.T.gm, { owner: 'party', amountCp: 10000, note: 'Hoard' });
+    await e.ok('POST', `${e.api}/inventory`, e.T.gm, { owner: e.ID.jess, name: 'Rope', qty: 3, gmNote: 'frayed', reason: 'Found' });
+    await e.ok('POST', `${e.api}/inventory`, e.T.gm, { owner: e.ID.tom, name: 'Torch', qty: 5, reason: 'x' });
+    await e.ok('POST', `${e.api}/inventory`, e.T.gm, { owner: 'party', name: 'Tent', qty: 1 });
+    const o = await e.ok('GET', `${e.api}/inventory/overview`, e.T.gm);
     assert.equal(o.players.length, 2);
     const jess = o.players.find((p: any) => p.id === e.ID.jess);
     assert.equal(jess.character, 'Jess');
     assert.equal(jess.cp, 2500);
-    assert.deepEqual(jess.items.map((i: any) => [i.name, i.qty, i.dm_note]), [['Rope', 3, 'frayed']]);
+    assert.deepEqual(jess.items.map((i: any) => [i.name, i.qty, i.gm_note]), [['Rope', 3, 'frayed']]);
     assert.equal(o.players.find((p: any) => p.id === e.ID.tom).cp, 0);
     assert.equal(o.party.cp, 10000);
     assert.deepEqual(o.party.items.map((i: any) => i.name), ['Tent']);
@@ -61,10 +61,10 @@ test('TestPartyPage_OverviewHasACardPerPlayerThenTheParty', async () => {
   } finally { e.close(); }
 });
 
-test('TestPartyPage_OverviewIsForTheDmOnlyAndKeepsDmNotesAway', async () => {
+test('TestPartyPage_OverviewIsForTheGmOnlyAndKeepsGmNotesAway', async () => {
   const e = await boot();
   try {
-    await e.ok('POST', `${e.api}/inventory`, e.T.dm, { owner: e.ID.jess, name: 'Ring', qty: 1, dmNote: 'CURSEDNOTE', reason: 'x' });
+    await e.ok('POST', `${e.api}/inventory`, e.T.gm, { owner: e.ID.jess, name: 'Ring', qty: 1, gmNote: 'CURSEDNOTE', reason: 'x' });
     assert.equal((await e.call('GET', `${e.api}/inventory/overview`, e.T.jess)).status, 403);
     assert.equal((await e.call('GET', `${e.api}/inventory/overview`)).status, 401);
     const s = await e.ok('GET', `${e.api}/inventory/summary`, e.T.jess);
@@ -75,11 +75,11 @@ test('TestPartyPage_OverviewIsForTheDmOnlyAndKeepsDmNotesAway', async () => {
 test('TestPartyPage_SummaryShowsMineAndPartySeparately', async () => {
   const e = await boot();
   try {
-    await e.ok('POST', `${e.api}/live/ledger`, e.T.dm, { owner: e.ID.jess, amountCp: 700 });
-    await e.ok('POST', `${e.api}/live/ledger`, e.T.dm, { owner: e.ID.tom, amountCp: 900 });
-    await e.ok('POST', `${e.api}/live/ledger`, e.T.dm, { owner: 'party', amountCp: 5000 });
-    await e.ok('POST', `${e.api}/inventory`, e.T.dm, { owner: e.ID.jess, name: 'Dagger', qty: 2, reason: 'x' });
-    await e.ok('POST', `${e.api}/inventory`, e.T.dm, { owner: 'party', name: 'Map', qty: 1 });
+    await e.ok('POST', `${e.api}/live/ledger`, e.T.gm, { owner: e.ID.jess, amountCp: 700 });
+    await e.ok('POST', `${e.api}/live/ledger`, e.T.gm, { owner: e.ID.tom, amountCp: 900 });
+    await e.ok('POST', `${e.api}/live/ledger`, e.T.gm, { owner: 'party', amountCp: 5000 });
+    await e.ok('POST', `${e.api}/inventory`, e.T.gm, { owner: e.ID.jess, name: 'Dagger', qty: 2, reason: 'x' });
+    await e.ok('POST', `${e.api}/inventory`, e.T.gm, { owner: 'party', name: 'Map', qty: 1 });
     const s = await e.ok('GET', `${e.api}/inventory/summary`, e.T.jess);
     assert.equal(s.mine.cp, 700, 'only my own coin');
     assert.equal(s.mine.qty, 2);
@@ -94,8 +94,8 @@ test('TestPartyPage_SummaryShowsMineAndPartySeparately', async () => {
 test('TestPartyPage_PartyPurseOffHidesTheBalance', async () => {
   const e = await boot();
   try {
-    await e.ok('PATCH', `${e.api}/settings`, e.T.dm, { partyPurse: false });
-    const o = await e.ok('GET', `${e.api}/inventory/overview`, e.T.dm);
+    await e.ok('PATCH', `${e.api}/settings`, e.T.gm, { partyPurse: false });
+    const o = await e.ok('GET', `${e.api}/inventory/overview`, e.T.gm);
     assert.equal(o.party.cp, null);
     assert.equal((await e.ok('GET', `${e.api}/inventory/summary`, e.T.jess)).party.cp, null);
   } finally { e.close(); }

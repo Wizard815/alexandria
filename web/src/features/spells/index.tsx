@@ -3,14 +3,14 @@
 import { Link } from 'react-router-dom';
 import type { WebFeature } from '../registry.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
-import DMCodex from './DMCodex.tsx';
+import GMCodex from './GMCodex.tsx';
 import PlayerCodex from './PlayerCodex.tsx';
 import SpellSettings from './Settings.tsx';
 import { CSS, ManaBar } from './shared.tsx';
 
 function CodexPage() {
-  const { isDM } = useWorld();
-  return <><style>{CSS}</style>{isDM ? <DMCodex /> : <PlayerCodex />}</>;
+  const { isGM } = useWorld();
+  return <><style>{CSS}</style>{isGM ? <GMCodex /> : <PlayerCodex />}</>;
 }
 
 /** On the player's home page: their mana, when the world uses it. */
@@ -30,9 +30,9 @@ function ManaCard() {
 
 const feature: WebFeature = {
   id: 'spells',
-  dmRoutes: [{ path: 'codex', element: <CodexPage /> }],
+  gmRoutes: [{ path: 'codex', element: <CodexPage /> }],
   playerRoutes: [{ path: 'codex', element: <CodexPage /> }],
-  dmNav: [{ to: 'codex' }],
+  gmNav: [{ to: 'codex' }],
   playerNav: [{ to: 'codex', label: 'Codex', icon: 'fa-book-journal-whills' }],
   settings: { title: 'Spells & mana', component: SpellSettings },
   playerHome: [ManaCard],

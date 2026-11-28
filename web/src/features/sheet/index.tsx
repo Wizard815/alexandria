@@ -1,5 +1,5 @@
 // The player sheet: a small, modular companion to the paper character sheet
-// that each player arranges and fills in, and the DM's status bar with every
+// that each player arranges and fills in, and the GM's status bar with every
 // player's health and mana. See librarian/src/features/sheet.
 import { useSearchParams } from 'react-router-dom';
 import type { WebFeature } from '../registry.ts';
@@ -19,7 +19,7 @@ function PlayerSheetPage() {
   );
 }
 
-function DMSheetsPage() {
+function GMSheetsPage() {
   const { members } = useWorld();
   const [q, setQ] = useSearchParams();
   const players = members.filter((m) => m.role === 'player');
@@ -45,10 +45,10 @@ function Band() {
 const feature: WebFeature = {
   id: 'sheet',
   playerRoutes: [{ path: 'sheet', element: <PlayerSheetPage /> }],
-  dmRoutes: [{ path: 'sheets', element: <DMSheetsPage /> }],
+  gmRoutes: [{ path: 'sheets', element: <GMSheetsPage /> }],
   playerNav: [{ to: 'sheet', label: 'Sheet', icon: 'fa-id-card' }],
-  dmNav: [{ to: 'sheets' }],
-  dmBand: Band,
+  gmNav: [{ to: 'sheets' }],
+  gmBand: Band,
   settings: { title: 'Player sheets', component: SheetSettings },
 };
 export default feature;

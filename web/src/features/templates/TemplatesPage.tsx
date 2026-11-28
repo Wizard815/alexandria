@@ -1,16 +1,19 @@
-// DM page: Templates & guides. Guides the assistant follows for a kind of task (towns: research steps, sources,
+// GM page: Templates & guides. Guides the assistant follows for a kind of task (towns: research steps, sources,
 // sections, tone, exemplar pages), and templates for generators, macros, assist panels, shops and library pages.
 // Made with the assistant: "New with the assistant" (describe it, answer a few questions, edit, save) or "From
 // examples" (pick library pages; their common structure becomes a guide). Versioned, per world, each on or off.
 // Web research (the assistant searching the web for a real-world reference) is turned on here, and is off by default.
+// Quick event templates steer the story events the assistant drafts (Encounters → Story events); spell templates
+// steer new homebrew spells for the Codex.
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Empty, ErrorBox, Field, Loading, Modal, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { askAssistant } from '../agent/prefill.ts';
+import Chat from '../agent/Chat.tsx';
 import './templates.css';
 
-type Kind = 'guide' | 'generator' | 'macro' | 'assist' | 'shop' | 'library';
+type Kind = 'guide' | 'generator' | 'macro' | 'assist' | 'shop' | 'library' | 'event' | 'spell';
 const KINDS: [Kind, string, string][] = [
   ['guide', 'Agent guide', 'How the assistant does a kind of task: research steps, sources, sections, tone, example pages.'],
   ['generator', 'Generator template', 'The structure and fields of a generated town, NPC, tavern, shop…'],
@@ -18,7 +21,11 @@ const KINDS: [Kind, string, string][] = [
   ['assist', 'Assist panel', 'A saved workspace of panes and a request for the assistant.'],
   ['shop', 'Shop generation', 'A guide the shop generator follows.'],
   ['library', 'Library page', 'A page skeleton for new library pages.'],
+  ['event', 'Quick event', 'How the assistant makes story events: small things that happen to a player (a thief, a find, a hazard), by place.'],
+  ['spell', 'Spell', 'How the assistant designs a new spell: levels, schools, classes, spell lines, balance and mana.'],
 ];
+const PLACES: [string, string][] = [['town', 'Town'], ['city', 'City'], ['village', 'Village'], ['market', 'Market'], ['tavern', 'Tavern'], ['road', 'Open road'], ['woods', 'Woods'], ['cave', 'Cave'], ['dungeon', 'Dungeon'], ['ruins', 'Ruins'], ['coast', 'Coast'], ['mountains', 'Mountains'], ['swamp', 'Swamp']];
+const SCHOOLS = ['Abjuration', 'Conjuration', 'Divination', 'Enchantment', 'Evocation', 'Illusion', 'Necromancy', 'Transmutation'];
 const KIND_LABEL = Object.fromEntries(KINDS.map(([k, l]) => [k, l])) as Record<Kind, string>;
 const STEP_KINDS: [string, string][] = [['library', 'Search the library'], ['neighbours', 'Neighbouring places'], ['exemplars', 'Read example pages'], ['web', 'Web research'], ['instruction', 'Instruction']];
 const PANES = ['assistant', 'library', 'combat', 'sound', 'inbox', 'scenes', 'clock', 'stage', 'generators', 'minerva', 'transcript'];
@@ -30,19 +37,24 @@ interface WebCfg { enabled: boolean; provider: 'openrouter' | 'searxng'; searxUr
 interface PageLite { id: string; title: string; path: string; tags?: string[] }
 
 const lines = (s: string) => s.split(/\n|,/).map((x) => x.trim()).filter(Boolean);
-const blank = (kind: Kind): Tpl => ({ kind, name: '', description: '', triggers: [], enabled: true, spec: kind === 'guide' ? { steps: [], sections: [], exemplars: [] } : kind === 'macro' ? { params: [], mode: 'propose' } : kind === 'assist' ? { layout: 'cols', panes: ['library', 'assistant'] } : {} });
+const blank = (kind: Kind): Tpl => ({
+  kind, name: '', description: '', triggers: kind === 'event' ? ['quick event'] : kind === 'spell' ? ['spell'] : [], enabled: true,
+  spec: kind === 'guide' ? { steps: [], sections: [], exemplars: [] } : kind === 'macro' ? { params: [], mode: 'propose' } : kind === 'assist' ? { layout: 'cols', panes: ['library', 'assistant'] }
+    : kind === 'event' ? { places: [], choices: 3, checks: true, maxRewardCp: 100 } : kind === 'spell' ? { minLevel: 0, maxLevel: 9, schools: [], classes: [], lines: [], higherLevels: true } : {},
+});
 
 export default function TemplatesPage() {
   const { w } = useWorld();
-  const [tab, setTab] = useState<'list' | 'starters' | 'new' | 'examples' | 'web'>('list');
+  const [tab, setTab] = useState<'list' | 'starters' | 'chats' | 'new' | 'examples' | 'web'>('list');
   const [editing, setEditing] = useState<Tpl | null>(null);
   const list = useLoad(() => w.call<{ templates: Tpl[]; model: boolean }>('GET', '/templates'), [w]);
   const web = useLoad(() => w.call<{ config: WebCfg; providers: { id: string; name: string }[]; shop: boolean }>('GET', '/templates/web'), [w]);
   const open = (t: Tpl) => { setEditing(t); setTab('list'); };
   return (
     <div className="stack tpl-page">
-      <PageHead title="Templates & guides" lead="Guides the assistant follows for a kind of task, and templates for generators, macros, panels, shops and pages. Make them with the assistant." />
-      <Tabs label="Templates" value={tab} onChange={(v) => { setTab(v); setEditing(null); }} items={[['list', 'Templates'], ['starters', 'Starters'], ['new', 'New with the assistant'], ['examples', 'From examples'], ['web', 'Web research']]} />
+      <PageHead title="Templates & guides" lead="Guides the assistant follows for a kind of task, and templates for generators, macros, panels, shops, pages, quick events and spells. Make them with the assistant." />
+      <Tabs label="Templates" value={tab} onChange={(v) => { setTab(v); setEditing(null); }} items={[['list', 'Templates'], ['starters', 'Starters'], ['chats', 'Template chats'], ['new', 'New with the assistant'], ['examples', 'From examples'], ['web', 'Web research']]} />
+      {tab === 'chats' && <TemplateChats templates={list.data?.templates ?? []} onOpen={open} />}
       {tab === 'list' && (editing
         ? <Editor initial={editing} shop={!!web.data?.shop} onDone={() => { setEditing(null); void list.reload(); }} />
         : <TemplateList data={list.data?.templates ?? null} error={list.error} reload={list.reload} onEdit={open} onNew={(k) => open(blank(k))} shop={!!web.data?.shop} />)}
@@ -203,6 +215,7 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
   const [ask, setAsk] = useState<null | 'page' | 'macro' | 'shop'>(null);
   const [name, setName] = useState('');
   const [out, setOut] = useState('');
+  const [make, setMake] = useState(false);
   const slug = info.slug;
   const btn = (label: string, onClick: () => void, title?: string) => <button type="button" className="btn small" title={title} onClick={onClick} disabled={busy}>{label}</button>;
   let main: React.ReactNode = null;
@@ -211,31 +224,35 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
   if (t.kind === 'macro') main = btn('Make a macro', () => { setName(t.name); setAsk('macro'); });
   if (t.kind === 'assist') main = btn('Open', () => {
     const panes = (t.spec.panes ?? []).filter(Boolean);
-    navigate(`/w/${slug}/dm/ws?l=${encodeURIComponent(panes.length > 1 ? t.spec.layout || 'cols' : 'one')}&p=${encodeURIComponent(panes.join(','))}`);
+    navigate(`/w/${slug}/gm/ws?l=${encodeURIComponent(panes.length > 1 ? t.spec.layout || 'cols' : 'one')}&p=${encodeURIComponent(panes.join(','))}`);
     if (t.spec.prompt) setTimeout(() => askAssistant(t.spec.prompt), 300);
   });
   if (t.kind === 'shop') main = shop ? btn('Make a shop', () => { setOut(''); setAsk('shop'); }, 'A shop draft from the shop generator, following this guide') : null;
+  if (t.kind === 'event') main = <>{btn('Make a story event', () => setMake(true), 'Draft one with this template; you check it and save it')}{btn('Ask the assistant', () => askAssistant(`Use guide ${t.name}: make a quick event where `))}</>;
+  if (t.kind === 'spell') main = <>{btn('Make a spell', () => setMake(true), 'Draft one with this template; you check it and save it to the Codex')}{btn('Ask the assistant', () => askAssistant(`Use guide ${t.name}: make a new spell that `))}</>;
   return (
     <>
       {main}
+      {make && t.kind === 'event' && <MakeEvent t={t} onClose={() => setMake(false)} />}
+      {make && t.kind === 'spell' && <MakeSpell t={t} onClose={() => setMake(false)} />}
       {toastNode}
       {ask && (
         <Modal title={ask === 'page' ? 'New page from the template' : ask === 'macro' ? 'Make a macro' : 'Make a shop'} onClose={() => setAsk(null)}>
           <ErrorBox error={error} />
           {ask !== 'shop' && <Field label={ask === 'page' ? 'Page name' : 'Macro name'}><input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus /></Field>}
-          {ask === 'page' && <p className="tiny muted">Saved DM only in {t.spec.folder || 'the library root'}; share it when it is ready.</p>}
+          {ask === 'page' && <p className="tiny muted">Saved GM only in {t.spec.folder || 'the library root'}; share it when it is ready.</p>}
           {ask === 'macro' && <p className="tiny muted">The macro asks for {(t.spec.params ?? []).map((p: any) => p.label || p.name).join(', ') || 'nothing'} each time it runs, and {t.spec.mode === 'do' ? 'does it at once' : 'proposes each change for you to approve'}.</p>}
           {out && <pre className="tpl-out" data-testid="tpl-shop-draft">{out}</pre>}
-          {out && <p className="tiny muted">A draft only: make and stock a shop on the <a href={`/w/${slug}/dm/shops`} onClick={(e) => { e.preventDefault(); setAsk(null); navigate(`/w/${slug}/dm/shops`); }}>Shops</a> page.</p>}
+          {out && <p className="tiny muted">A draft only: make and stock a shop on the <a href={`/w/${slug}/gm/shops`} onClick={(e) => { e.preventDefault(); setAsk(null); navigate(`/w/${slug}/gm/shops`); }}>Shops</a> page.</p>}
           <div className="row">
             <button type="button" className="btn primary" disabled={busy || (ask !== 'shop' && !name.trim())} onClick={() => void run(async () => {
               if (ask === 'page') {
                 const title = name.trim();
                 const md = String(t.spec.body || `# {name}\n\n${(t.spec.sections ?? []).map((s: string) => `## ${s}\n\n`).join('')}`).replace(/\{name\}/g, title);
                 const tags = (t.spec.tags ?? []).length ? `---\ntags: [${t.spec.tags.join(', ')}]\n---\n` : '';
-                const p = await w.call<any>('PUT', '/library/pages', { path: `${t.spec.folder ? `${t.spec.folder}/` : ''}${String(t.spec.titlePattern || '{name}').replace(/\{name\}/g, title)}`, visibility: 'dm', markdown: tags + md });
+                const p = await w.call<any>('PUT', '/library/pages', { path: `${t.spec.folder ? `${t.spec.folder}/` : ''}${String(t.spec.titlePattern || '{name}').replace(/\{name\}/g, title)}`, visibility: 'gm', markdown: tags + md });
                 setAsk(null);
-                navigate(`/w/${slug}/dm/library?page=${encodeURIComponent(p.id)}`);
+                navigate(`/w/${slug}/gm/library?page=${encodeURIComponent(p.id)}`);
               } else if (ask === 'macro') {
                 await w.call('POST', '/actions/macros', {
                   name: name.trim(), description: t.description,
@@ -259,7 +276,104 @@ function UseButton({ t, shop }: { t: Tpl; shop: boolean }) {
   );
 }
 
-// ---- the editor ----
+/** A story event drafted with a quick event template: look it over, then save it to Encounters → Story events. */
+function MakeEvent({ t, onClose }: { t: Tpl; onClose: () => void }) {
+  const { w, info } = useWorld();
+  const navigate = useNavigate();
+  const { busy, error, run } = useAction();
+  const [prompt, setPrompt] = useState('');
+  const [d, setD] = useState<any>(null);
+  const [saved, setSaved] = useState(false);
+  const label = (p: string) => PLACES.find(([k]) => k === p)?.[1] ?? p;
+  return (
+    <Modal title={`Make a story event: ${t.name}`} onClose={onClose}>
+      <ErrorBox error={error} />
+      <Field label="What happens (optional)" help="Empty: the template's theme."><textarea rows={3} value={prompt} maxLength={3000} onChange={(e) => setPrompt(e.target.value)} placeholder="A street kid steals their purse; if caught, the kid has a second purse that isn't theirs." autoFocus data-testid="tpl-event-prompt" /></Field>
+      {d && (
+        <div className="card stack tight" data-testid="tpl-event-draft">
+          <strong>{d.name}</strong>
+          <span className="tiny muted">{(d.places ?? []).map(label).join(' · ') || 'Anywhere'} · {d.script.nodes.length} step{d.script.nodes.length === 1 ? '' : 's'}</span>
+          {d.script.nodes.map((n: any) => <div key={n.id} className="tiny"><b>{n.id}</b>: {n.text}{n.game ? ` [${n.game.skill || n.game.kind} check DC ${n.game.dc ?? '?'}]` : ''}{n.options.length ? ` → ${n.options.map((o: any) => `“${o.label}”`).join(', ')}` : ''}</div>)}
+          {d.note && <span className="tiny faint">{d.note}</span>}
+        </div>
+      )}
+      {saved && <p className="tiny">Saved. Send it from <a href={`/w/${info.slug}/gm/encounters?tab=events`} onClick={(e) => { e.preventDefault(); navigate(`/w/${info.slug}/gm/encounters?tab=events`); }}>Encounters → Story events</a>, or change it under Saved.</p>}
+      <div className="row">
+        <button type="button" className="btn" disabled={busy} onClick={() => void run(async () => { const r = await w.call<any>('POST', `/templates/${t.id}/event`, { prompt }); setD(r.draft); setSaved(false); })} data-testid="tpl-event-go">{busy ? 'Drafting…' : d ? 'Draft again' : 'Draft'}</button>
+        {d && !saved && <button type="button" className="btn primary" disabled={busy} onClick={() => void run(async () => { await w.call('POST', '/encounters/templates/all', { kind: 'event', name: d.name, npcName: d.npcName, npcBlurb: d.npcBlurb, places: d.places, script: d.script }); setSaved(true); })} data-testid="tpl-event-save">Save as a story event</button>}
+        <button type="button" className="btn ghost" onClick={onClose}>Close</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** A new spell drafted with a spell template: look it over, then save it to the Codex as homebrew (GM only until shared). */
+function MakeSpell({ t, onClose }: { t: Tpl; onClose: () => void }) {
+  const { w, info } = useWorld();
+  const navigate = useNavigate();
+  const { busy, error, run } = useAction();
+  const [prompt, setPrompt] = useState('');
+  const [d, setD] = useState<any>(null);
+  const [saved, setSaved] = useState(false);
+  const sp = d?.spell;
+  const comps = sp ? [sp.components.v && 'V', sp.components.s && 'S', sp.components.m && `M${sp.material ? ` (${sp.material})` : ''}`].filter(Boolean).join(', ') : '';
+  return (
+    <Modal title={`Make a spell: ${t.name}`} onClose={onClose}>
+      <ErrorBox error={error} />
+      <Field label="Describe the spell"><textarea rows={3} value={prompt} maxLength={3000} onChange={(e) => setPrompt(e.target.value)} placeholder="A frost spell that pins one enemy's feet to the ground." autoFocus data-testid="tpl-spell-prompt" /></Field>
+      {sp && (
+        <div className="card stack tight" data-testid="tpl-spell-draft">
+          <strong>{sp.name}</strong>
+          <span className="tiny muted">{sp.level === 0 ? `${sp.school} cantrip` : `Level ${sp.level} ${String(sp.school).toLowerCase()}`}{sp.concentration ? ', concentration' : ''}{sp.ritual ? ', ritual' : ''}{sp.classes?.length ? ` · ${sp.classes.join(', ')}` : ''}</span>
+          <span className="tiny">{[sp.castingTime, sp.range, comps, sp.duration].filter(Boolean).join(' · ')}</span>
+          <div className="tiny" style={{ whiteSpace: 'pre-wrap' }}>{sp.text}</div>
+          {d.lines?.length > 0 && <span className="tiny muted">Spell lines: {d.lines.join(', ')}</span>}
+          {d.note && <span className="tiny faint">{d.note}</span>}
+        </div>
+      )}
+      {saved && <p className="tiny">Saved to the Codex as homebrew, GM only. Change it or share it on the <a href={`/w/${info.slug}/gm/codex`} onClick={(e) => { e.preventDefault(); navigate(`/w/${info.slug}/gm/codex`); }}>Codex</a> page.</p>}
+      <div className="row">
+        <button type="button" className="btn" disabled={busy || !prompt.trim()} onClick={() => void run(async () => { const r = await w.call<any>('POST', `/templates/${t.id}/spell`, { prompt }); setD(r.draft); setSaved(false); })} data-testid="tpl-spell-go">{busy ? 'Drafting…' : d ? 'Draft again' : 'Draft'}</button>
+        {sp && !saved && <button type="button" className="btn primary" disabled={busy} onClick={() => void run(async () => { await w.call('POST', '/spells/s', { ...sp, ...(d.lines?.length ? { gmNotes: `Spell lines: ${d.lines.join(', ')}` } : {}) }); setSaved(true); })} data-testid="tpl-spell-save">Save to the Codex</button>}
+        <button type="button" className="btn ghost" onClick={onClose}>Close</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ---- template chats ----
+
+interface ChatRowLite { id: string; title: string; template?: string; updatedAt: string }
+/** Every chat started from a template, by template: never mixed in with the main chat. */
+function TemplateChats({ templates, onOpen }: { templates: Tpl[]; onOpen: (t: Tpl) => void }) {
+  const { w } = useWorld();
+  const chats = useLoad(() => w.call<{ chats: ChatRowLite[] }>('GET', '/agent/chats', undefined, { template: 'only' }), [w], ['agent']);
+  if (!chats.data) return <>{chats.error ? <ErrorBox error={chats.error} /> : <Loading what="template chats" />}</>;
+  const byTpl = new Map<string, ChatRowLite[]>();
+  for (const c of chats.data.chats ?? []) if (c.template) byTpl.set(c.template, [...(byTpl.get(c.template) ?? []), c]);
+  const find = (id: string) => templates.find((t) => t.id === id) ?? null;
+  return (
+    <div className="stack" data-testid="tpl-chats">
+      <p className="tiny muted">Chats you had about a template. Open a template and use <b>Chat with the assistant about this template</b> to start one.</p>
+      {!byTpl.size && <Empty>No template chats yet.</Empty>}
+      <ul className="tpl-list">
+        {[...byTpl.entries()].map(([tid, list]) => {
+          const t = find(tid);
+          const name = t?.name ?? 'A deleted template';
+          return (
+            <li key={tid} className="card tpl-item">
+              <div className="row between">
+                <strong>{name} {t && <span className="chip">{KIND_LABEL[t.kind]}</span>}</strong>
+                {t && <button type="button" className="btn small" onClick={() => onOpen(t)}>Open</button>}
+              </div>
+              <ul className="tiny">{list.slice(0, 8).map((c) => <li key={c.id}>{c.title || 'New chat'} <span className="muted">· {new Date(c.updatedAt).toLocaleDateString()}</span></li>)}</ul>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 function Editor({ initial, onDone, shop }: { initial: Tpl; onDone: () => void; shop: boolean }) {
   const { w } = useWorld();
@@ -295,6 +409,13 @@ function Editor({ initial, onDone, shop }: { initial: Tpl; onDone: () => void; s
         {t.id && !confirmDel && <button type="button" className="btn small ghost" onClick={() => setConfirmDel(true)}>Delete…</button>}
         {t.id && confirmDel && <><span className="tiny">Delete “{t.name}” and its versions?</span><button type="button" className="btn small danger" disabled={busy} onClick={() => void run(async () => { await w.call('DELETE', `/templates/${t.id}`); onDone(); })}>Delete</button><button type="button" className="btn small" onClick={() => setConfirmDel(false)}>Keep</button></>}
       </div>
+      {t.id && (
+        <details className="tpl-chat" data-testid="tpl-chat">
+          <summary><i className="fa-solid fa-comments" aria-hidden="true" /> Chat with the assistant about this template</summary>
+          <p className="tiny muted">Its own chats, kept apart from your main chat. Ask it to change the template (“add a step that…”) or to use it (“make one where…”). They are also under Templates in the assistant’s chat list.</p>
+          <div className="tpl-chat-box"><Chat harness="gm" template={t.id} placeholder={t.kind === 'event' ? 'Make a quick event where… or: change this template so…' : t.kind === 'spell' ? 'Make a spell that… or: change this template so…' : 'Ask about this template, or use it…'} /></div>
+        </details>
+      )}
       {versions.length > 1 && (
         <details className="tiny">
           <summary>Earlier versions ({versions.length - 1})</summary>
@@ -314,7 +435,12 @@ function Editor({ initial, onDone, shop }: { initial: Tpl; onDone: () => void; s
 
 function TemplateFields({ t, setT, sp }: { t: Tpl; setT: (t: Tpl) => void; sp: (patch: any) => void }) {
   const s = t.spec ?? {};
-  const usesTriggers = t.kind === 'guide' || t.kind === 'generator' || t.kind === 'library' || t.kind === 'shop';
+  const usesTriggers = t.kind === 'guide' || t.kind === 'generator' || t.kind === 'library' || t.kind === 'shop' || t.kind === 'event' || t.kind === 'spell';
+  const chips = (all: string[], have: string[], key: string, label?: (x: string) => string) => (
+    <div className="row wrap" role="group">
+      {all.map((x) => <button key={x} type="button" className={`btn small${have.includes(x) ? ' on' : ''}`} aria-pressed={have.includes(x)} onClick={() => sp({ [key]: have.includes(x) ? have.filter((y) => y !== x) : [...have, x] })}>{label ? label(x) : x}</button>)}
+    </div>
+  );
   return (
     <div className="stack">
       <div className="tpl-grid">
@@ -372,7 +498,37 @@ function TemplateFields({ t, setT, sp }: { t: Tpl; setT: (t: Tpl) => void; sp: (
         </div>
         <Field label="Tags"><input value={(s.tags ?? []).join(', ')} onChange={(e) => sp({ tags: lines(e.target.value) })} /></Field>
         <Field label="Sections" help="One per line."><textarea rows={3} value={(s.sections ?? []).join('\n')} onChange={(e) => sp({ sections: lines(e.target.value) })} /></Field>
-        <Field label="Page skeleton (Markdown)" help="DM-only parts go in a > [!secret] block."><textarea rows={8} className="mono" value={s.body ?? ''} onChange={(e) => sp({ body: e.target.value })} /></Field>
+        <Field label="Page skeleton (Markdown)" help="GM-only parts go in a > [!secret] block."><textarea rows={8} className="mono" value={s.body ?? ''} onChange={(e) => sp({ body: e.target.value })} /></Field>
+      </>}
+      {t.kind === 'event' && <>
+        <Field label="Places these events fit" help="None picked: anywhere.">{chips(PLACES.map(([k]) => k), s.places ?? [], 'places', (k) => PLACES.find(([x]) => x === k)?.[1] ?? k)}</Field>
+        <Field label="Theme"><input value={s.theme ?? ''} maxLength={200} onChange={(e) => sp({ theme: e.target.value })} placeholder="petty crime, honest or greedy choices" /></Field>
+        <Field label="Instructions"><textarea rows={3} value={s.instructions ?? ''} onChange={(e) => sp({ instructions: e.target.value })} placeholder="One moment, one choice. The greedy choice pays a little more now; the honest one earns a friend." /></Field>
+        <div className="tpl-grid">
+          <Field label="Choices a step"><select value={String(s.choices ?? 3)} onChange={(e) => sp({ choices: Number(e.target.value) })}>{[2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select></Field>
+          <Field label="Most coin one event gives (copper)"><input inputMode="numeric" value={String(s.maxRewardCp ?? 100)} onChange={(e) => sp({ maxRewardCp: Number(e.target.value.replace(/\D/g, '')) || 0 })} /></Field>
+        </div>
+        <label className="row tight"><input type="checkbox" checked={s.checks !== false} onChange={(e) => sp({ checks: e.target.checked })} /> Use a skill check where it fits</label>
+        <Field label="Consequences" help="How the GM is told what a choice leads to (a note only you see)."><input value={s.consequences ?? ''} maxLength={500} onChange={(e) => sp({ consequences: e.target.value })} /></Field>
+        <Field label="Tone"><input value={s.tone ?? ''} onChange={(e) => sp({ tone: e.target.value })} /></Field>
+      </>}
+      {t.kind === 'spell' && <>
+        <div className="tpl-grid">
+          <Field label="Lowest level" help="0 is a cantrip."><select value={String(s.minLevel ?? 0)} onChange={(e) => sp({ minLevel: Number(e.target.value) })}>{[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>{n}</option>)}</select></Field>
+          <Field label="Highest level"><select value={String(s.maxLevel ?? 9)} onChange={(e) => sp({ maxLevel: Number(e.target.value) })}>{[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>{n}</option>)}</select></Field>
+        </div>
+        <Field label="Schools" help="None picked: any.">{chips(SCHOOLS, s.schools ?? [], 'schools')}</Field>
+        <div className="tpl-grid">
+          <Field label="Classes" help="Comma-separated."><input value={(s.classes ?? []).join(', ')} onChange={(e) => sp({ classes: lines(e.target.value) })} placeholder="Wizard, Sorcerer" /></Field>
+          <Field label="Spell lines" help="Comma-separated (Fire, Frost…), for worlds with spell lines."><input value={(s.lines ?? []).join(', ')} onChange={(e) => sp({ lines: lines(e.target.value) })} /></Field>
+        </div>
+        <Field label="Balance"><textarea rows={2} value={s.balance ?? ''} onChange={(e) => sp({ balance: e.target.value })} placeholder="Match SRD spells of the same level; a rider costs a damage die." /></Field>
+        <div className="tpl-grid">
+          <Field label="Mana" help="Empty: the world's mana table."><input value={s.mana ?? ''} onChange={(e) => sp({ mana: e.target.value })} /></Field>
+          <Field label="Naming"><input value={s.naming ?? ''} onChange={(e) => sp({ naming: e.target.value })} /></Field>
+        </div>
+        <Field label="Instructions"><textarea rows={3} value={s.instructions ?? ''} onChange={(e) => sp({ instructions: e.target.value })} /></Field>
+        <label className="row tight"><input type="checkbox" checked={s.higherLevels !== false} onChange={(e) => sp({ higherLevels: e.target.checked })} /> Always say what happens at higher levels</label>
       </>}
     </div>
   );
@@ -514,7 +670,7 @@ function WebSettings({ data, reload }: { data: { config: WebCfg; providers: { id
     <div className="card stack" data-testid="tpl-web">
       {toastNode}
       <label className="row tight"><input type="checkbox" checked={c.enabled} onChange={(e) => setC({ ...c, enabled: e.target.checked })} data-testid="tpl-web-on" /> <strong>Let the assistant search the web</strong></label>
-      <p className="tiny muted">Off by default. Only the search words leave Alexandria, never your pages. A search that holds a DM-only name of this world is refused before anything is sent, and classified words can never be searched. Without Auto each search is a card you approve, with the words on it. Results only feed a draft; nothing is published without you.</p>
+      <p className="tiny muted">Off by default. Only the search words leave Alexandria, never your pages. A search that holds a GM-only name of this world is refused before anything is sent, and classified words can never be searched. Without Auto each search is a card you approve, with the words on it. Results only feed a draft; nothing is published without you.</p>
       <div className="tpl-grid">
         <Field label="Search with">
           <select value={c.provider} onChange={(e) => setC({ ...c, provider: e.target.value as WebCfg['provider'] })} data-testid="tpl-web-provider"><option value="openrouter">OpenRouter web search</option><option value="searxng">A SearXNG instance</option></select>
@@ -529,7 +685,7 @@ function WebSettings({ data, reload }: { data: { config: WebCfg; providers: { id
           </>}
       </div>
       {c.provider === 'openrouter' && !data.providers.length && <p className="tiny muted">No OpenRouter provider is set up on this server.</p>}
-      <Field label="DM-only words you allow in searches" help="Comma-separated. Classified words are never allowed."><input value={allow} onChange={(e) => setAllow(e.target.value)} /></Field>
+      <Field label="GM-only words you allow in searches" help="Comma-separated. Classified words are never allowed."><input value={allow} onChange={(e) => setAllow(e.target.value)} /></Field>
       <ErrorBox error={error} />
       <div className="row"><button type="button" className="btn primary" disabled={busy} onClick={() => void save()} data-testid="tpl-web-save">Save</button></div>
       <hr />

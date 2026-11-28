@@ -1,6 +1,6 @@
 // Sits on every page (no visible UI unless the browser blocked autoplay). It
 // follows `sound` events:
-//   DM:      plays what is aimed at the table, on the chosen speaker group.
+//   GM:      plays what is aimed at the table, on the chosen speaker group.
 //   players: plays what is aimed at players, on the channels they switched on.
 import { useEffect, useRef, useState } from 'react';
 import { useWorld } from '../../lib/world.tsx';
@@ -11,16 +11,16 @@ import { getSwitches, loadSwitches } from './switches.ts';
 const switchFor = (c: Channel): 'music' | 'ambience' | 'sfx' => (c === 'voice' ? 'sfx' : c);
 
 export default function SoundOverlay() {
-  const { w, on, isDM, info } = useWorld();
+  const { w, on, isGM, info } = useWorld();
   const [blocked, setBlocked] = useState(false);
   const eng = useRef<Engine | null>(null);
 
   useEffect(() => {
     const e = new Engine({
       w,
-      master: (c) => (isDM ? 1 : getSwitches().volumes[switchFor(c)] ?? 1),
+      master: (c) => (isGM ? 1 : getSwitches().volumes[switchFor(c)] ?? 1),
       sinks: (c) => {
-        if (!isDM) return [];
+        if (!isGM) return [];
         const s = loadSpeakers();
         const g = s.assign[c];
         return g ? s.groups[g] ?? [] : [];
@@ -30,7 +30,7 @@ export default function SoundOverlay() {
     eng.current = e;
 
     const wanted = (ev: SoundEvent) => {
-      if (isDM) return loadSpeakers().tableOn && ev.target !== 'players';
+      if (isGM) return loadSpeakers().tableOn && ev.target !== 'players';
       return ev.target !== 'table' && getSwitches()[switchFor(ev.channel)];
     };
     const off = on(['sound'], (m) => { const ev = m.data as SoundEvent; if (wanted(ev)) void e.handle(ev); });
@@ -63,10 +63,10 @@ export default function SoundOverlay() {
     const speakersChanged = () => e.refresh();
     window.addEventListener('alx-speakers', speakersChanged);
 
-    if (!isDM) void loadSwitches(w); // turning a switch on catches up with what is playing
+    if (!isGM) void loadSwitches(w); // turning a switch on catches up with what is playing
     else void catchUp();
     return () => { off(); unsub(); window.removeEventListener('alx-speakers', speakersChanged); e.stopAll(); };
-  }, [w, on, isDM, info.id]);
+  }, [w, on, isGM, info.id]);
 
   if (!blocked) return null;
   return <DockButton order={5} primary icon="fa-volume-high" label="Tap to allow sound" text="Allow sound" onClick={() => { setBlocked(false); eng.current?.refresh(); }} testId="dock-sound" />;

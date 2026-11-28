@@ -4,7 +4,7 @@
   "name": "Lingering injuries",
   "version": "1.0.0",
   "author": "Alexandria",
-  "summary": "A critical hit or a drop to 0 HP can leave a lasting injury the DM records, until it heals or is healed by magic.",
+  "summary": "A critical hit or a drop to 0 HP can leave a lasting injury the GM records, until it heals or is healed by magic.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": [
@@ -54,7 +54,7 @@
     {
       "id": "injure",
       "label": "Give an injury",
-      "by": "dm",
+      "by": "gm",
       "record": "injury",
       "do": "create",
       "ask": [
@@ -69,7 +69,7 @@
     {
       "id": "heal",
       "label": "Heal it",
-      "by": "dm",
+      "by": "gm",
       "record": "injury",
       "do": "set",
       "set": {
@@ -85,7 +85,7 @@
     {
       "id": "rest-days",
       "label": "Add or take rest days",
-      "by": "dm",
+      "by": "gm",
       "record": "injury",
       "do": "add",
       "field": "healed",
@@ -131,10 +131,10 @@
       }
     },
     {
-      "id": "dm",
+      "id": "gm",
       "title": "Injuries",
       "record": "injury",
-      "place": "dm",
+      "place": "gm",
       "columns": [
         "name",
         "effect",
@@ -152,7 +152,7 @@
   "rules": [
     {
       "term": "Lingering injuries (house rule)",
-      "text": "When a creature takes a **critical hit** or **drops to 0 hit points**, the DM may give it a lingering injury (a lost eye, a limp, a broken rib) with its effect. It heals after its days of long rests, or with magic such as *regenerate*. An injury of 0 days heals only with magic."
+      "text": "When a creature takes a **critical hit** or **drops to 0 hit points**, the GM may give it a lingering injury (a lost eye, a limp, a broken rib) with its effect. It heals after its days of long rests, or with magic such as *regenerate*. An injury of 0 days heals only with magic."
     }
   ],
   "assistant": {
@@ -162,7 +162,7 @@
       "injured",
       "lingering"
     ],
-    "dm": "When a creature takes a critical hit or drops to 0 HP you may give a lingering injury with the injure action: a short name, its effect in play, and days of long rests to heal (0 means only magic heals it). Suggest one that fits the blow, for example Broken ribs: disadvantage on Constitution saves, 7 days.",
-    "player": "Explain their lingering injuries: the effect in play and how many long rests are left before it heals. Only the DM gives or heals injuries; magic like regenerate heals any."
+    "gm": "When a creature takes a critical hit or drops to 0 HP you may give a lingering injury with the injure action: a short name, its effect in play, and days of long rests to heal (0 means only magic heals it). Suggest one that fits the blow, for example Broken ribs: disadvantage on Constitution saves, 7 days.",
+    "player": "Explain their lingering injuries: the effect in play and how many long rests are left before it heals. Only the GM gives or heals injuries; magic like regenerate heals any."
   }
 }

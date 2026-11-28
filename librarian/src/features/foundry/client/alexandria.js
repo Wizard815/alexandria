@@ -63,18 +63,18 @@ function drawFog() {
     const scene = canvas?.scene;
     const f = scene?.getFlag?.(ID, 'fog');
     if (!scene || !f?.enabled) return;
-    const dm = canvas.dimensions;
+    const gm = canvas.dimensions;
     const w = 256;
-    const h = Math.max(1, Math.round((w * dm.sceneHeight) / dm.sceneWidth));
+    const h = Math.max(1, Math.round((w * gm.sceneHeight) / gm.sceneWidth));
     const el = document.createElement('canvas');
     el.width = w; el.height = h;
     const g = el.getContext('2d');
     // The GM sees it as a tint, players as solid fog.
     g.putImageData(new ImageData(fogPixels(f, w, h, game.user.isGM ? 0.45 : 1), w, h), 0, 0);
     fogSprite = new PIXI.Sprite(PIXI.Texture.from(el));
-    fogSprite.position.set(dm.sceneX, dm.sceneY);
-    fogSprite.width = dm.sceneWidth;
-    fogSprite.height = dm.sceneHeight;
+    fogSprite.position.set(gm.sceneX, gm.sceneY);
+    fogSprite.width = gm.sceneWidth;
+    fogSprite.height = gm.sceneHeight;
     fogSprite.eventMode = 'none';
     fogSprite.name = 'alexandria-fog';
     canvas.stage.addChild(fogSprite);
@@ -285,7 +285,7 @@ export class Bridge {
       return;
     }
     if (it.kind === 'fetchScene') {
-      // A scene's picture to Alexandria (the DM asked to bring it in).
+      // A scene's picture to Alexandria (the GM asked to bring it in).
       const sc = game.scenes.get(it.sceneId);
       const src = sc?.background?.src;
       if (!src) return;
@@ -364,8 +364,8 @@ function startBridge() {
 if (typeof Hooks !== 'undefined') {
   Hooks.once('init', () => {
     const restart = () => { if (game.ready) void startBridge(); };
-    game.settings.register(ID, 'url', { name: 'Alexandria address', hint: 'Where your Alexandria server is, e.g. http://192.168.1.20:8787 (from DM → Setup → Foundry in Alexandria).', scope: 'client', config: true, type: String, default: '', onChange: restart });
-    game.settings.register(ID, 'key', { name: 'Bridge key', hint: 'The key from DM → Setup → Foundry in Alexandria. It stays in this browser; players never get it.', scope: 'client', config: true, type: String, default: '', onChange: restart });
+    game.settings.register(ID, 'url', { name: 'Alexandria address', hint: 'Where your Alexandria server is, e.g. http://192.168.1.20:8787 (from GM → Setup → Foundry in Alexandria).', scope: 'client', config: true, type: String, default: '', onChange: restart });
+    game.settings.register(ID, 'key', { name: 'Bridge key', hint: 'The key from GM → Setup → Foundry in Alexandria. It stays in this browser; players never get it.', scope: 'client', config: true, type: String, default: '', onChange: restart });
   });
   Hooks.once('ready', () => {
     void startBridge();

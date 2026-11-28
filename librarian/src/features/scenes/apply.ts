@@ -1,5 +1,5 @@
 // Activating a scene, undoing it, and capturing the room as a scene. Each part is applied through the same world API the
-// DM's own controls use (so every check and live event is the ordinary one), one after the other, each in its own
+// GM's own controls use (so every check and live event is the ordinary one), one after the other, each in its own
 // try/catch: a part that fails (a track that was deleted, no lights set up) is reported and the rest still happen.
 // Before a part changes anything, what it is about to change is read, so "undo scene" can put it back.
 import type { MediaState, Parts, PartKey, SoundPart, TablePart, TvPart } from './parts.ts';
@@ -256,7 +256,7 @@ export async function captureParts(call: Call, include: PartKey[]): Promise<{ pa
         const mapId = t.mapId ?? 'world', pic = t.pic ?? 'none';
         const f = await call('GET', `/fog/map/${enc(mapId)}?pic=${enc(pic)}`);
         parts.table = { mapId, pic, fog: f.enabled ? { enabled: true, base: f.base, ops: f.ops } : 'keep' };
-      } else notes.push('Table: the DM has not chosen a table map yet');
+      } else notes.push('Table: the GM has not chosen a table map yet');
     } catch (e) { notes.push(`Table: ${msg(e)}`); }
   }
   return { parts, notes };

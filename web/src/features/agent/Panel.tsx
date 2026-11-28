@@ -1,4 +1,4 @@
-// The DM's assistant: docked to the right edge on every DM page, collapsible.
+// The GM's assistant: docked to the right edge on every GM page, collapsible.
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
@@ -14,13 +14,13 @@ const KEY = 'alx-agent-open';
 const wasOpen = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
 
 export default function AgentPanel() {
-  const { isDM } = useWorld();
+  const { isGM } = useWorld();
   const [main] = useMainPrefs();
   // With the assistant on the side screen the main monitor keeps its full width.
-  return isDM && !main.hideAssistant ? <Panel /> : null;
+  return isGM && !main.hideAssistant ? <Panel /> : null;
 }
 
-/** How many of the assistant's changes wait for the DM: shown on the folded assistant's dock button. */
+/** How many of the assistant's changes wait for the GM: shown on the folded assistant's dock button. */
 function usePendingCount(): number {
   const { w, on } = useWorld();
   const [n, setN] = useState(0);
@@ -77,7 +77,7 @@ function Panel() {
         <button type="button" className="btn small ghost" aria-label="Collapse the assistant" onClick={() => set(false)}><i className="fa-solid fa-chevron-right" aria-hidden="true" /></button>
       </header>
       <div className="ag-body">
-        <div style={{ display: tab === 'chat' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><Chat harness="dm" page={page} placeholder="Ask, or tell it what to do…" /></div>
+        <div style={{ display: tab === 'chat' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><Chat harness="gm" page={page} placeholder="Ask, or tell it what to do…" /></div>
         {tab === 'statblock' && <Statblock page={page} />}
       </div>
     </aside></>

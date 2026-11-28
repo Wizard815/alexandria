@@ -7,13 +7,13 @@ import { useKeyboardInset } from '../lib/viewport.ts';
 import { useNavSide, useTopHeight } from '../lib/navSide.tsx';
 import QuickPrompt from '../pages/player/QuickPrompt.tsx';
 import { OfflineBanner } from '../ui/index.tsx';
-import './dmmenu.css';
+import './gmmenu.css';
 import { MoreSheet } from './MoreSheet.tsx';
 import * as F from '../features/registry.ts';
 import { useTrades, waitingForMe } from '../features/sessionchat/TradeDialog.tsx';
 
 export function PlayerLayout() {
-  const { info, isDM, connected, w, me: meId } = useWorld();
+  const { info, isGM, connected, w, me: meId } = useWorld();
   const { me, signOut } = useAuth();
   const [menu, setMenu] = useState(false);
   const [pinned, setPinned] = useState<string[] | null>(() => loadPinned(info.slug));
@@ -26,7 +26,7 @@ export function PlayerLayout() {
   useEffect(() => setPinned(loadPinned(info.slug)), [info.slug]);
   const update = (next: string[] | null) => { setPinned(next); savePinned(info.slug, next); };
   // Broker offers waiting for this player: a badge on the Broker link.
-  const brokerOn = !isDM && (info.settings as { brokerEnabled?: boolean }).brokerEnabled !== false;
+  const brokerOn = !isGM && (info.settings as { brokerEnabled?: boolean }).brokerEnabled !== false;
   const offers = useLoad(() => (brokerOn ? w.call<{ status: string }[]>('GET', '/broker/offers') : Promise.resolve([])), [w, brokerOn], ['broker-offer']);
   const offerCount = (offers.data ?? []).filter((o) => o.status === 'open').length;
   // Trade offers waiting for this player: a badge on the Inventory link.
@@ -39,7 +39,7 @@ export function PlayerLayout() {
   };
   // Badges for pages that are not on the bottom bar go on More.
   const hidden = (ids: string[]) => Object.keys(counts).filter((k) => !ids.includes(k)).reduce((n, k) => n + counts[k][0], 0);
-  if (isDM) return <Navigate to={`/w/${info.slug}/dm`} replace />;
+  if (isGM) return <Navigate to={`/w/${info.slug}/gm`} replace />;
   const base = `/w/${info.slug}`;
   const links = availableLinks(info.settings);
   const tabIds = tabsFor(pinned, info.settings);

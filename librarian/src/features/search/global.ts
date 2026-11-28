@@ -27,7 +27,7 @@ export interface GlobalHit {
   snippet: string;
   /** The same passage as escaped HTML with <mark> around matches. Safe for innerHTML. */
   snippetHtml: string;
-  /** Path under /w/:world/ (the DM's pages are under dm/). */
+  /** Path under /w/:world/ (the GM's pages are under gm/). */
   link: string;
   /** Larger is better; comparable across kinds. */
   score: number;
@@ -69,14 +69,14 @@ const clipText = (s: string, n = 160) => (s.length > n ? s.slice(0, n - 1) + '‚Ä
 
 // ---- kinds -------------------------------------------------------------------
 
-/** The index a viewer searches: players the party index, a model the AI copy, the DM their own screen. */
-export const scopeFor = (v: Viewer): 'dm' | 'party' | 'ai' | 'broker' => (v.role !== 'dm' ? 'party' : v.audience === 'ai' ? 'ai' : v.audience === 'broker' ? 'broker' : 'dm');
+/** The index a viewer searches: players the party index, a model the AI copy, the GM their own screen. */
+export const scopeFor = (v: Viewer): 'gm' | 'party' | 'ai' | 'broker' => (v.role !== 'gm' ? 'party' : v.audience === 'ai' ? 'ai' : v.audience === 'broker' ? 'broker' : 'gm');
 
 async function pages(d: Deps, worldId: string, v: Viewer, q: string, limit: number, semantic: boolean): Promise<GlobalHit[]> {
   const scope = scopeFor(v);
   const hits = semantic ? await hybridPages(d, worldId, q, scope, limit, v) : (d.library.search(worldId, q, v, limit) as any[]);
   logSearch(d.db, { worldId, role: roleOf(v), origin: 'global', q, hitIds: hits.map((h: any) => h.id) });
-  const base = v.role === 'dm' ? 'dm/library' : 'library';
+  const base = v.role === 'gm' ? 'gm/library' : 'library';
   return finish('page', hits.map((h: any) => ({
     hit: { id: h.id, title: h.title, snippet: h.snippet, snippetHtml: h.snippetHtml, titleHtml: h.titleHtml, link: `${base}?page=${encodeURIComponent(h.id)}`, meta: { path: h.path, matchedOn: h.matchedOn } },
     rel: h.relevance || 0.001, exact: h.tier >= 2 || (h.tier === 1 && false), fuzzy: h.matchedOn === 'fuzzy',
@@ -94,7 +94,7 @@ function people(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[
     if (!rel) continue;
     const sn = makeSnippet(detail || r.name, p);
     out.push({
-      hit: { id: r.id, title: r.name, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(r.name, p), link: `${v.role === 'dm' ? 'dm/' : ''}people`, meta: { role: r.role, attitude: r.attitude, pageId: r.page_id } },
+      hit: { id: r.id, title: r.name, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(r.name, p), link: `${v.role === 'gm' ? 'gm/' : ''}people`, meta: { role: r.role, attitude: r.attitude, pageId: r.page_id } },
       rel, exact: wordsOf(r.name).join(' ') === p.norm,
     });
   }
@@ -104,7 +104,7 @@ function people(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[
 function terms(d: Deps, worldId: string, v: Viewer, q: string, p: ParsedQuery): GlobalHit[] {
   const seen = new Set<string>();
   const out: { hit: Omit<GlobalHit, 'score' | 'kind'>; rel: number; exact?: boolean }[] = [];
-  const base = `${v.role === 'dm' ? 'dm/' : ''}rules`;
+  const base = `${v.role === 'gm' ? 'gm/' : ''}rules`;
   const add = (id: string, term: string, kind: string, summary: string, module: string, rel: number, exact: boolean) => {
     if (seen.has(id)) return;
     seen.add(id);
@@ -119,12 +119,12 @@ function terms(d: Deps, worldId: string, v: Viewer, q: string, p: ParsedQuery): 
 }
 
 function transcript(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[] {
-  const dm = v.role === 'dm';
+  const gm = v.role === 'gm';
   // No SQL text prefilter: LIKE can't fold accents ("cafe" vs "caf√©"), and the
   // matcher below folds them. Newest lines first, so the cap keeps recent sessions.
   const rows = all<any>(d.db, `SELECT l.id, l.session_id, l.start_ms, l.speaker_account, l.speaker_label, l.text, s.name AS session_name
     FROM audio_lines l LEFT JOIN audio_sessions s ON s.id = l.session_id
-    WHERE l.world_id = ? ${dm ? '' : "AND l.audience = 'players'"} ORDER BY l.rowid DESC LIMIT 5000`, worldId);
+    WHERE l.world_id = ? ${gm ? '' : "AND l.audience = 'players'"} ORDER BY l.rowid DESC LIMIT 5000`, worldId);
   if (!rows.length) return [];
   const nm = names(d.db, worldId);
   const out: { hit: Omit<GlobalHit, 'score' | 'kind'>; rel: number }[] = [];
@@ -136,7 +136,7 @@ function transcript(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): Global
     const min = Math.floor(r.start_ms / 60000);
     const sec = String(Math.floor((r.start_ms % 60000) / 1000)).padStart(2, '0');
     out.push({
-      hit: { id: r.id, title: `${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`, snippet: sn.text, snippetHtml: sn.html, titleHtml: escapeHtml(`${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`), link: `${dm ? 'dm/' : ''}audio?line=${encodeURIComponent(r.id)}&session=${encodeURIComponent(r.session_id)}`, meta: { sessionId: r.session_id, startMs: r.start_ms, speaker } },
+      hit: { id: r.id, title: `${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`, snippet: sn.text, snippetHtml: sn.html, titleHtml: escapeHtml(`${speaker} (${r.session_name ?? 'Session'}, ${min}:${sec})`), link: `${gm ? 'gm/' : ''}audio?line=${encodeURIComponent(r.id)}&session=${encodeURIComponent(r.session_id)}`, meta: { sessionId: r.session_id, startMs: r.start_ms, speaker } },
       rel,
     });
   }
@@ -145,34 +145,34 @@ function transcript(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): Global
 }
 
 function log(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[] {
-  const dm = v.role === 'dm';
-  const rows = all<any>(d.db, `SELECT id, number, title, summary, unpublished_at FROM sessionlog_entries WHERE world_id = ? ${dm ? '' : 'AND unpublished_at IS NULL'} ORDER BY number DESC`, worldId);
+  const gm = v.role === 'gm';
+  const rows = all<any>(d.db, `SELECT id, number, title, summary, unpublished_at FROM sessionlog_entries WHERE world_id = ? ${gm ? '' : 'AND unpublished_at IS NULL'} ORDER BY number DESC`, worldId);
   const out: { hit: Omit<GlobalHit, 'score' | 'kind'>; rel: number }[] = [];
   for (const r of rows) {
     const rel = scoreFields(p, [{ text: r.title, weight: 8, fuzzy: true }, { text: r.summary, weight: 1 }]);
     if (!rel) continue;
     const sn = makeSnippet(r.summary, p);
     const title = /^session\b/i.test(String(r.title).trim()) ? r.title : `Session ${r.number}: ${r.title}`;
-    out.push({ hit: { id: r.id, title, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(title, p), link: `${dm ? 'dm/sessionlog' : 'log'}?entry=${encodeURIComponent(r.id)}`, meta: { number: r.number, published: !r.unpublished_at } }, rel });
+    out.push({ hit: { id: r.id, title, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(title, p), link: `${gm ? 'gm/sessionlog' : 'log'}?entry=${encodeURIComponent(r.id)}`, meta: { number: r.number, published: !r.unpublished_at } }, rel });
   }
   return finish('log', out);
 }
 
 function items(d: Deps, worldId: string, v: Viewer, p: ParsedQuery): GlobalHit[] {
-  const dm = v.role === 'dm';
-  const rows = dm
+  const gm = v.role === 'gm';
+  const rows = gm
     ? all<any>(d.db, `SELECT * FROM items WHERE world_id = ? AND status IN ('approved', 'pending')`, worldId)
     : all<any>(d.db, `SELECT * FROM items WHERE world_id = ? AND status = 'approved' AND owner IN (?, 'party')`, worldId, v.accountId);
   const nm = names(d.db, worldId);
   const out: { hit: Omit<GlobalHit, 'score' | 'kind'>; rel: number; exact?: boolean }[] = [];
   for (const r of rows) {
-    // dm_note is the DM's: it is only ever read for the DM.
-    const rel = scoreFields(p, [{ text: r.name, weight: 10, fuzzy: true }, { text: r.note ?? '', weight: 2 }, { text: dm ? r.dm_note ?? '' : '', weight: 1 }]);
+    // gm_note is the GM's: it is only ever read for the GM.
+    const rel = scoreFields(p, [{ text: r.name, weight: 10, fuzzy: true }, { text: r.note ?? '', weight: 2 }, { text: gm ? r.gm_note ?? '' : '', weight: 1 }]);
     if (!rel) continue;
     const owner = r.owner === 'party' ? 'Party stash' : nm[r.owner] ?? 'Someone';
-    const sn = makeSnippet(`${r.note || ''}${dm && r.dm_note ? ` ${r.dm_note}` : ''}` || `Held by ${owner}`, p);
+    const sn = makeSnippet(`${r.note || ''}${gm && r.gm_note ? ` ${r.gm_note}` : ''}` || `Held by ${owner}`, p);
     out.push({
-      hit: { id: r.id, title: r.name, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(r.name, p), link: dm ? 'dm/party' : 'inventory', meta: { owner, qty: r.qty } },
+      hit: { id: r.id, title: r.name, snippet: sn.text, snippetHtml: sn.html, titleHtml: markHtml(r.name, p), link: gm ? 'gm/party' : 'inventory', meta: { owner, qty: r.qty } },
       rel, exact: wordsOf(r.name).join(' ') === p.norm,
     });
   }

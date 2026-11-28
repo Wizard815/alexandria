@@ -5,9 +5,9 @@
 // module with the same shape as transformers.js (pipeline + env) that "hears" a fixed sentence per five seconds of
 // wall clock. So the real path runs: the worker, the audio decode, the text upload and the server's handling.
 //
-//   1. fallback: the world asks for on-device speech to text, the library does not load: the DM's page says the
+//   1. fallback: the world asks for on-device speech to text, the library does not load: the GM's page says the
 //      server transcribes, every chunk is done by the server, none is left waiting.
-//   2. device: the DM's computer and a player's phone both transcribe on the device; the phone says so; the DM sees
+//   2. device: the GM's computer and a player's phone both transcribe on the device; the phone says so; the GM sees
 //      each mic on the device and its speed; lines come from the devices; after Stop the final pass syncs both mics
 //      into one transcript (no sentence twice), shown on Recordings, and Transcript.md / session.json say so.
 //   3. (E2E_REAL_STT=1 only) the real library and the smallest Whisper model, fetched through the librarian. Chromium's
@@ -73,9 +73,9 @@ const data = path.join(tmpDir('dstt'), 'data');
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', data, '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tokDM = await login('dm', 'dungeon master 123');
+const tokGM = await login('gm', 'game master 123');
 const tokTom = await login('tom', 'player pass 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokDM } })).json())[0].id;
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tokGM } })).json())[0].id;
 const api = async (tok, method, p, body) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
 
 const WAV = REAL && process.env.DSTT_WAV ? path.resolve(process.env.DSTT_WAV) : '';
@@ -95,11 +95,11 @@ async function signIn(user, pass, viewport = { width: 1280, height: 900 }, mobil
   await page.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
   return { ctx, page };
 }
-const micsDM = async () => (await api(tokDM, 'GET', '/audio/mics')).body;
+const micsGM = async () => (await api(tokGM, 'GET', '/audio/mics')).body;
 
-/** The DM turns on this computer's (fake) mic and starts a session. */
-async function dmStart(page, name) {
-  await page.goto(`${base}/w/saltreach/dm/audio`);
+/** The GM turns on this computer's (fake) mic and starts a session. */
+async function gmStart(page, name) {
+  await page.goto(`${base}/w/saltreach/gm/audio`);
   await page.getByRole('button', { name: /allow the microphone|refresh the list/i }).click();
   const sw = page.getByRole('switch', { name: /^Use /i }).first();
   await sw.waitFor({ timeout: 10000 });
@@ -108,57 +108,57 @@ async function dmStart(page, name) {
   await page.getByRole('button', { name: /start recording/i }).click();
   await page.getByRole('button', { name: /stop recording/i }).waitFor({ timeout: 15000 });
 }
-async function dmStop(page) {
+async function gmStop(page) {
   await page.getByRole('button', { name: /stop recording/i }).click();
   await page.getByRole('button', { name: /start recording/i }).waitFor({ timeout: 30000 });
 }
 async function setMode(page, label) {
-  await page.goto(`${base}/w/saltreach/dm/audio`);
+  await page.goto(`${base}/w/saltreach/gm/audio`);
   await page.getByRole('radio', { name: label }).check();
   await page.getByText('Saved').first().waitFor({ timeout: 5000 }).catch(() => {});
-  for (let i = 0; i < 20; i++) { if ((await api(tokDM, 'GET', '/audio/status')).body.transcription.stt) break; await sleep(100); }
+  for (let i = 0; i < 20; i++) { if ((await api(tokGM, 'GET', '/audio/status')).body.transcription.stt) break; await sleep(100); }
 }
-const sessionByName = async (name) => (await api(tokDM, 'GET', '/audio/recordings')).body.sessions.find((x) => x.name === name);
+const sessionByName = async (name) => (await api(tokGM, 'GET', '/audio/recordings')).body.sessions.find((x) => x.name === name);
 async function waitFor(fn, ms, what) {
   const end = Date.now() + ms;
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out: ${what}`); await sleep(500); }
 }
 
 try {
-  const { page: dm } = await signIn('dm', 'dungeon master 123');
+  const { page: gm } = await signIn('gm', 'game master 123');
 
   // ---- 1. the library cannot load: the server transcribes everything ---------------------------------------------
   if (!REAL) {
     console.log('1. on-device speech to text that cannot load falls back to the server');
-    await setMode(dm, /On each device/);
-    check((await api(tokDM, 'GET', '/audio/status')).body.transcription.stt === 'device', 'the DM set "On each device"');
+    await setMode(gm, /On each device/);
+    check((await api(tokGM, 'GET', '/audio/status')).body.transcription.stt === 'device', 'the GM set "On each device"');
     check((await api(tokTom, 'GET', '/audio/status')).body.transcription.stt === 'device', 'players read the mode too');
-    await dmStart(dm, 'E2E fallback');
-    const note = dm.locator('.au-stt-note.server');
+    await gmStart(gm, 'E2E fallback');
+    const note = gm.locator('.au-stt-note.server');
     await note.waitFor({ timeout: 20000 });
     const text = await note.innerText();
-    check(/server transcribes/i.test(text) && /did not load|cannot|not serve/i.test(text), `the DM's page says the server transcribes this mic ("${text.replace(/\s+/g, ' ').slice(0, 120)}")`);
+    check(/server transcribes/i.test(text) && /did not load|cannot|not serve/i.test(text), `the GM's page says the server transcribes this mic ("${text.replace(/\s+/g, ' ').slice(0, 120)}")`);
     await sleep(11000);
-    const m1 = (await micsDM()).find((m) => m.stt?.device);
+    const m1 = (await micsGM()).find((m) => m.stt?.device);
     check(m1 && ['error', 'unsupported'].includes(m1.stt.device.state), `the device told the server it cannot transcribe (${m1?.stt?.device?.state})`);
-    await dm.screenshot({ path: path.join(SHOTS, '1-fallback-setup.png'), fullPage: true });
-    await dmStop(dm);
+    await gm.screenshot({ path: path.join(SHOTS, '1-fallback-setup.png'), fullPage: true });
+    await gmStop(gm);
     const s1 = await sessionByName('E2E fallback');
-    const counts = await waitFor(async () => { const m = (await micsDM()).find((x) => x.stt?.chunks?.server > 0); return m && m.stt.chunks.awaiting === 0 ? m.stt.chunks : null; }, 30000, 'server-transcribed chunks');
+    const counts = await waitFor(async () => { const m = (await micsGM()).find((x) => x.stt?.chunks?.server > 0); return m && m.stt.chunks.awaiting === 0 ? m.stt.chunks : null; }, 30000, 'server-transcribed chunks');
     check(counts.server >= 2 && counts.device === 0 && counts.awaiting === 0, `every chunk was transcribed by the server, none waits (${JSON.stringify(counts)})`);
     check(!!s1, 'the session is listed on Recordings');
   }
 
   // ---- 2. two devices transcribe; the final pass syncs them ------------------------------------------------------
-  console.log('2. the DM computer and a player phone transcribe on the device');
+  console.log('2. the GM computer and a player phone transcribe on the device');
   libUp = true;
-  await setMode(dm, /On each device/);
+  await setMode(gm, /On each device/);
   const { page: tom } = await signIn('tom', 'player pass 123', { width: 390, height: 844 }, true);
   await tom.goto(`${base}/w/saltreach/audio`);
   const allow = tom.getByRole('button', { name: 'Allow the microphone' });
   if (await allow.isVisible().catch(() => false)) await allow.click();
   await tom.getByText(/Speech to text on this device/).first().waitFor({ timeout: 10000 });
-  check(true, 'the player sees that the DM asked devices to transcribe');
+  check(true, 'the player sees that the GM asked devices to transcribe');
   const micSelect = tom.getByRole('combobox').first();
   await tom.waitForFunction(() => [...document.querySelectorAll('select option')].some((o) => o.value), null, { timeout: 10000 });
   const firstDevice = await micSelect.evaluate((s) => [...s.options].find((o) => o.value)?.value);
@@ -166,7 +166,7 @@ try {
   const use = tom.getByRole('switch', { name: 'Use my microphone' });
   if ((await use.getAttribute('aria-checked')) !== 'true') await use.click();
 
-  await dmStart(dm, 'E2E device session');
+  await gmStart(gm, 'E2E device session');
   await tom.reload();
   const on = tom.locator('.au-stt-note.on');
   await on.waitFor({ timeout: REAL ? 240000 : 30000 });
@@ -174,53 +174,53 @@ try {
   check(/Transcribing on this device/.test(tomNote), `the phone shows "Transcribing on this device" (${tomNote.replace(/\s+/g, ' ').slice(0, 100)})`);
   await tom.locator('.au-badge-stt').waitFor({ timeout: 10000 });
   check(true, 'the recording badge on the phone says "transcribing on this device"');
-  await dm.locator('.au-stt-note.on').waitFor({ timeout: 30000 });
-  check(true, 'the DM computer transcribes its own mic too');
+  await gm.locator('.au-stt-note.on').waitFor({ timeout: 30000 });
+  check(true, 'the GM computer transcribes its own mic too');
   console.log('  recording for 22 s with two fake mics...');
   await sleep(22000);
   await tom.screenshot({ path: path.join(SHOTS, '2-phone-transcribing.png'), fullPage: true });
-  const ms = await micsDM();
+  const ms = await micsGM();
   const devMics = ms.filter((m) => m.stt?.chunks?.device > 0);
   check(devMics.length >= 2, `two mics have chunks transcribed on their device (${ms.map((m) => `${m.label}: ${JSON.stringify(m.stt?.chunks)}`).join('; ')})`);
   const tomMic = ms.find((m) => m.owner && /tom/i.test(m.owner) && m.stt?.device);
-  check(tomMic && tomMic.stt.device.backend && tomMic.stt.device.rtf !== null, `the DM sees the phone's engine and speed (${tomMic?.stt?.device?.backend}, rtf ${tomMic?.stt?.device?.rtf})`);
-  await dm.getByRole('heading', { name: 'Mics in this world' }).scrollIntoViewIfNeeded();
-  await dm.waitForFunction(() => [...document.querySelectorAll('[data-stt="device"]')].length >= 1, null, { timeout: 12000 }).catch(async (e) => { console.log(await dm.locator('.au-stt').allInnerTexts()); throw e; });
-  const rowText = await dm.locator('[data-stt="device"]').first().innerText();
-  check(/Device · (CPU|GPU)/.test(rowText) && /real time/.test(rowText), `each mic shows on-device and its speed on the DM's page ("${rowText.trim()}")`);
-  await dm.screenshot({ path: path.join(SHOTS, '2-dm-setup.png'), fullPage: true });
-  const sid = (await api(tokDM, 'GET', '/audio/status')).body.session?.id;
-  const liveLines = (await api(tokDM, 'GET', `/audio/sessions/${sid}/lines`)).body.lines;
+  check(tomMic && tomMic.stt.device.backend && tomMic.stt.device.rtf !== null, `the GM sees the phone's engine and speed (${tomMic?.stt?.device?.backend}, rtf ${tomMic?.stt?.device?.rtf})`);
+  await gm.getByRole('heading', { name: 'Mics in this world' }).scrollIntoViewIfNeeded();
+  await gm.waitForFunction(() => [...document.querySelectorAll('[data-stt="device"]')].length >= 1, null, { timeout: 12000 }).catch(async (e) => { console.log(await gm.locator('.au-stt').allInnerTexts()); throw e; });
+  const rowText = await gm.locator('[data-stt="device"]').first().innerText();
+  check(/Device · (CPU|GPU)/.test(rowText) && /real time/.test(rowText), `each mic shows on-device and its speed on the GM's page ("${rowText.trim()}")`);
+  await gm.screenshot({ path: path.join(SHOTS, '2-gm-setup.png'), fullPage: true });
+  const sid = (await api(tokGM, 'GET', '/audio/status')).body.session?.id;
+  const liveLines = (await api(tokGM, 'GET', `/audio/sessions/${sid}/lines`)).body.lines;
   if (!REAL) check(liveLines.some((l) => SENTENCES.some((s) => l.text.includes(s.split(' ').slice(1, 4).join(' ')))), `lines come from the devices' text (${liveLines.length} lines)`);
   else if (WAV) check(liveLines.some((l) => /\w+\s+\w+/.test(l.text) && l.end > l.start), `the real model's words reach the transcript (${liveLines.length} lines: "${(liveLines[0]?.text ?? '').slice(0, 60)}")`);
   else console.log(`  (real model, tone only: ${liveLines.length} lines; set DSTT_WAV to check real words)`);
 
   // A mode change reaches the recording phone live: no reload, no restart of the recording.
   const tomUrl = tom.url();
-  check((await api(tokDM, 'PATCH', '/settings', { speechToText: 'server' })).status === 200, 'the DM switches speech to text to the server mid-session');
+  check((await api(tokGM, 'PATCH', '/settings', { speechToText: 'server' })).status === 200, 'the GM switches speech to text to the server mid-session');
   await tom.locator('.au-stt-note.on').waitFor({ state: 'detached', timeout: 15000 }).then(() => check(true, 'the phone stops transcribing on the device at once'), () => check(false, 'the phone still transcribes on the device after the switch to the server'));
-  const offMic = await waitFor(async () => { const m = (await micsDM()).find((x) => x.owner && /tom/i.test(x.owner)); return m && (!m.stt?.device || m.stt.device.state === 'off') ? m : null; }, 15000, 'the phone reports off').catch(() => null);
+  const offMic = await waitFor(async () => { const m = (await micsGM()).find((x) => x.owner && /tom/i.test(x.owner)); return m && (!m.stt?.device || m.stt.device.state === 'off') ? m : null; }, 15000, 'the phone reports off').catch(() => null);
   check(!!offMic, 'the phone told the server it stopped transcribing');
-  check((await api(tokDM, 'PATCH', '/settings', { speechToText: 'device' })).status === 200, 'and back to "On each device"');
+  check((await api(tokGM, 'PATCH', '/settings', { speechToText: 'device' })).status === 200, 'and back to "On each device"');
   await tom.locator('.au-stt-note.on').waitFor({ timeout: REAL ? 240000 : 30000 }).then(() => check(true, 'the phone transcribes on the device again without a restart'), () => check(false, 'the phone did not switch back to the device'));
-  check(tom.url() === tomUrl && (await api(tokDM, 'GET', '/audio/status')).body.session?.id === sid, 'the same page and the same recording session throughout');
+  check(tom.url() === tomUrl && (await api(tokGM, 'GET', '/audio/status')).body.session?.id === sid, 'the same page and the same recording session throughout');
   await sleep(6000);
 
-  await dmStop(dm);
+  await gmStop(gm);
   const fin = await waitFor(async () => { const s = await sessionByName('E2E device session'); return s?.final?.status === 'done' ? s : null; }, 90000, 'the final transcript');
   check(fin.final.stats.mics >= 2, `the final pass synced ${fin.final.stats.mics} mics`);
-  const finalLines = (await api(tokDM, 'GET', `/audio/sessions/${sid}/lines`)).body.lines;
+  const finalLines = (await api(tokGM, 'GET', `/audio/sessions/${sid}/lines`)).body.lines;
   // The same sentence from two mics at the same moment must be one line now.
   const dupes = finalLines.filter((a, i) => finalLines.some((b, j) => j > i && a.text === b.text && Math.min(a.end, b.end) - Math.max(a.start, b.start) > 0));
-  check(dupes.length === 0, `no sentence is in the final transcript twice at the same time (${finalLines.length} lines, live had ${(await api(tokDM, 'GET', `/audio/sessions/${sid}/lines?version=live`)).body.lines.length})`);
+  check(dupes.length === 0, `no sentence is in the final transcript twice at the same time (${finalLines.length} lines, live had ${(await api(tokGM, 'GET', `/audio/sessions/${sid}/lines?version=live`)).body.lines.length})`);
   check((await api(tokTom, 'GET', `/audio/sessions/${sid}/lines?version=live`)).status === 403, 'a player cannot read the live version');
 
-  await dm.goto(`${base}/w/saltreach/dm/recordings`);
-  await dm.getByRole('button', { name: /E2E device session/ }).click();
-  const box = dm.getByRole('region', { name: 'Final transcript' });
+  await gm.goto(`${base}/w/saltreach/gm/recordings`);
+  await gm.getByRole('button', { name: /E2E device session/ }).click();
+  const box = gm.getByRole('region', { name: 'Final transcript' });
   await box.locator('[data-final="done"]').waitFor({ timeout: 15000 });
   check(/Synced [2-9] mics onto one timeline/.test(await box.innerText()), 'Recordings shows the final transcript and the sync per mic');
-  await dm.screenshot({ path: path.join(SHOTS, '2-dm-recordings.png'), fullPage: true });
+  await gm.screenshot({ path: path.join(SHOTS, '2-gm-recordings.png'), fullPage: true });
   if (ffmpeg) {
     const rec = await waitFor(async () => { const s = await sessionByName('E2E device session'); return s?.status === 'ready' || s?.status === 'failed' ? s : null; }, 60000, 'the build');
     const dir = path.join(data, rec.folder ?? '');

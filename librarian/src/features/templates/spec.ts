@@ -1,8 +1,8 @@
-// What a DM template is: its kind, the shape of each kind's spec, and how a spec is cleaned (every write goes through
+// What a GM template is: its kind, the shape of each kind's spec, and how a spec is cleaned (every write goes through
 // cleanTemplate, so the store only ever holds a valid template). Pure: no database, no model.
 import { HttpError } from '../../core/util.ts';
 
-export const KINDS = ['guide', 'generator', 'macro', 'assist', 'shop', 'library'] as const;
+export const KINDS = ['guide', 'generator', 'macro', 'assist', 'shop', 'library', 'event', 'spell'] as const;
 export type Kind = (typeof KINDS)[number];
 
 export const KIND_LABEL: Record<Kind, string> = {
@@ -12,10 +12,16 @@ export const KIND_LABEL: Record<Kind, string> = {
   assist: 'Assist panel template',
   shop: 'Shop generation template',
   library: 'Library template',
+  event: 'Quick event template',
+  spell: 'Spell template',
 };
 
 /** Kinds the assistant reads when a request matches their triggers. */
-export const GUIDE_KINDS: readonly Kind[] = ['guide', 'generator', 'library', 'shop'];
+export const GUIDE_KINDS: readonly Kind[] = ['guide', 'generator', 'library', 'shop', 'event', 'spell'];
+
+/** Where quick events happen (the same list as features/encounters/script.ts PLACES; kept here so this file stays pure). */
+export const EVENT_PLACES = ['town', 'city', 'village', 'market', 'tavern', 'road', 'woods', 'cave', 'dungeon', 'ruins', 'coast', 'mountains', 'swamp'] as const;
+export const SPELL_SCHOOLS = ['Abjuration', 'Conjuration', 'Divination', 'Enchantment', 'Evocation', 'Illusion', 'Necromancy', 'Transmutation'] as const;
 
 export const STEP_KINDS = ['library', 'neighbours', 'exemplars', 'web', 'instruction'] as const;
 export type StepKind = (typeof STEP_KINDS)[number];
@@ -42,7 +48,46 @@ export interface MacroSpec { prompt: string; params: { name: string; label: stri
 export interface AssistSpec { layout: 'one' | 'cols' | 'rows' | 'grid' | 'side'; panes: string[]; prompt: string }
 export interface ShopSpec { guide: string; stock: string[]; priceNotes: string; shopType: string }
 export interface LibrarySpec { folder: string; titlePattern: string; sections: string[]; tags: string[]; body: string }
-export type Spec = GuideSpec | GeneratorSpec | MacroSpec | AssistSpec | ShopSpec | LibrarySpec;
+/** How the assistant makes quick events (small things that happen to a player) for this world. */
+export interface EventSpec {
+  /** Places these events fit (town, road, cave ...); empty for anywhere. */
+  places: string[];
+  /** What kind of moment: "petty crime and temptations", "wilderness hazards". */
+  theme: string;
+  instructions: string;
+  tone: string;
+  /** How many answers a step offers (2 to 4). */
+  choices: number;
+  /** Include a skill check. */
+  checks: boolean;
+  /** Most coin one event may give, in copper (the world's encounter cap still applies). */
+  maxRewardCp: number;
+  /** How consequences are noted for the GM ("always say who might remember"). */
+  consequences: string;
+}
+/**
+ * How the assistant designs a new spell. The result is a spell in the Codex format (features/spells/format.ts: name,
+ * level, school, classes, casting time, range, components, duration, text...), so it saves like any homebrew spell.
+ * lines are MANA spell lines by name (Fire, Frost...): kept as names so a world without them loses nothing.
+ */
+export interface SpellSpec {
+  /** Lowest and highest spell level, 0 (cantrip) to 9. */
+  minLevel: number;
+  maxLevel: number;
+  schools: string[];
+  classes: string[];
+  lines: string[];
+  /** Damage dice, saves, area: how strong a spell of a level is ("match the SRD spells of the same level"). */
+  balance: string;
+  /** A mana cost rule or note ("the world's table", "+1 for a rider"). */
+  mana: string;
+  /** Naming style ("an archmage's name in front", "plain English"). */
+  naming: string;
+  instructions: string;
+  /** Always end the text with what happens at higher levels. */
+  higherLevels: boolean;
+}
+export type Spec = GuideSpec | GeneratorSpec | MacroSpec | AssistSpec | ShopSpec | LibrarySpec | EventSpec | SpellSpec;
 
 export interface TemplateInput { kind: Kind; name: string; description: string; triggers: string[]; enabled: boolean; spec: Spec }
 
@@ -99,6 +144,23 @@ export function cleanSpec(kind: Kind, v: any): Spec {
       folder: s(o.folder, 120).replace(/^\/+|\/+$/g, ''), titlePattern: s(o.titlePattern, 120), sections: list(o.sections, 20, 80),
       tags: list(o.tags, 12, 40), body: s(o.body, 8000),
     };
+    case 'event': {
+      const n = (v: unknown, min: number, max: number, dflt: number) => { const x = Number(v); return Number.isFinite(x) ? Math.max(min, Math.min(max, Math.round(x))) : dflt; };
+      const want = new Set(list(o.places, 13, 20).map((p) => p.toLowerCase()));
+      return {
+        places: EVENT_PLACES.filter((p) => want.has(p)), theme: s(o.theme, 200), instructions: s(o.instructions, 3000), tone: s(o.tone, 300),
+        choices: n(o.choices, 2, 4, 3), checks: o.checks !== false, maxRewardCp: n(o.maxRewardCp, 0, 100_000, 100), consequences: s(o.consequences, 500),
+      };
+    }
+    case 'spell': {
+      const lvl = (v: unknown, dflt: number) => { const x = Number(v); return Number.isInteger(x) && x >= 0 && x <= 9 ? x : dflt; };
+      const lo = lvl(o.minLevel, 0), hi = lvl(o.maxLevel, 9);
+      const schools = list(o.schools, 8, 20).map((x) => SPELL_SCHOOLS.find((k) => k.toLowerCase() === x.toLowerCase())).filter((x): x is (typeof SPELL_SCHOOLS)[number] => !!x);
+      return {
+        minLevel: Math.min(lo, hi), maxLevel: Math.max(lo, hi), schools: [...new Set(schools)], classes: list(o.classes, 20, 40), lines: list(o.lines, 10, 40),
+        balance: s(o.balance, 1000), mana: s(o.mana, 300), naming: s(o.naming, 200), instructions: s(o.instructions, 3000), higherLevels: o.higherLevels !== false,
+      };
+    }
   }
 }
 
@@ -128,7 +190,7 @@ export const templateText = (t: TemplateInput): string[] => {
 
 /** The guide as the assistant reads it (context for the model). */
 export function guideText(t: { name: string; kind: Kind; description: string; spec: Spec }): string {
-  const L: string[] = [`Guide "${t.name}" (${KIND_LABEL[t.kind]}). The DM wrote it for this kind of request: follow it.`];
+  const L: string[] = [`Guide "${t.name}" (${KIND_LABEL[t.kind]}). The GM wrote it for this kind of request: follow it.`];
   if (t.description) L.push(t.description);
   const sp: any = t.spec;
   if (t.kind === 'guide') {
@@ -154,6 +216,25 @@ export function guideText(t: { name: string; kind: Kind; description: string; sp
     if (sp.guide) L.push(sp.guide);
     if (sp.stock.length) L.push(`Typical stock: ${sp.stock.join(', ')}.`);
     if (sp.priceNotes) L.push(`Prices: ${sp.priceNotes}`);
+  } else if (t.kind === 'event') {
+    L.push('This is for quick events: something small that happens to one player (save them with save_encounter_template, kind event).');
+    if (sp.places.length) L.push(`Places: ${sp.places.join(', ')}.`);
+    if (sp.theme) L.push(`Theme: ${sp.theme}.`);
+    if (sp.instructions) L.push(sp.instructions);
+    L.push(`Offer ${sp.choices} choices a step${sp.checks ? ', with a skill check where it fits' : ', no skill checks'}; at most ${sp.maxRewardCp} copper in rewards.`);
+    if (sp.consequences) L.push(`Consequences: ${sp.consequences}`);
+    if (sp.tone) L.push(`Tone: ${sp.tone}`);
+  } else if (t.kind === 'spell') {
+    L.push('This is for new spells, in the Codex format: name, level, school, classes, casting time, range, components (V, S, M and the material), duration, concentration, ritual, damage types, saves, attack and the text.');
+    L.push(`Level ${sp.minLevel === sp.maxLevel ? sp.minLevel : `${sp.minLevel} to ${sp.maxLevel}`} (0 is a cantrip).`);
+    if (sp.schools.length) L.push(`Schools: ${sp.schools.join(', ')}.`);
+    if (sp.classes.length) L.push(`Classes: ${sp.classes.join(', ')}.`);
+    if (sp.lines.length) L.push(`Spell lines: ${sp.lines.join(', ')}.`);
+    if (sp.balance) L.push(`Balance: ${sp.balance}`);
+    if (sp.mana) L.push(`Mana: ${sp.mana}`);
+    if (sp.naming) L.push(`Naming: ${sp.naming}`);
+    if (sp.instructions) L.push(sp.instructions);
+    if (sp.higherLevels) L.push('End the text with what happens when it is cast at a higher level (or, for a cantrip, how it grows).');
   }
   return L.join('\n');
 }

@@ -1,5 +1,5 @@
 // DownTime in the app: types, the tier chip, the progress bar and the data
-// hooks the DM page, the player page, the popup and the sheet module share.
+// hooks the GM page, the player page, the popup and the sheet module share.
 import { useLoad, useWorld } from '../../lib/world.tsx';
 
 export type Tier = 'common' | 'uncommon' | 'rare' | 'very-rare' | 'legendary';
@@ -7,14 +7,14 @@ export interface Reward { text: string; cp: number; item: string; qty: number; h
 export interface Activity {
   id: string; name: string; summary: string; tier: Tier; tierLabel: string; days: number | null; daysNeeded: number; hoursPerDay: number;
   repeatable: boolean; group: boolean; reward: Reward | { hidden: true }; link: { kind: string; ref?: string } | null; tags: string[];
-  source: 'premade' | 'dm' | 'player'; status: 'ok' | 'proposed' | 'hidden'; createdBy: string | null; changed: boolean;
+  source: 'premade' | 'gm' | 'player'; status: 'ok' | 'proposed' | 'hidden'; createdBy: string | null; changed: boolean;
 }
 export interface Task {
   id: string; accountId: string; player?: string; activityId: string | null; name: string; summary: string; tier: Tier; tierLabel: string;
   needMin: number; doneMin: number; perDayMin: number; status: 'active' | 'paused' | 'proposed' | 'done' | 'removed'; percent: number;
   needLabel: string; doneLabel: string; leftLabel: string; daysLeft: number;
   reward: Reward | { hidden: true }; rewardGivenAt: string | null; rewardWaiting: boolean; link: { kind: string; ref?: string } | null;
-  createdAt: string; finishedAt: string | null; dmNote?: string;
+  createdAt: string; finishedAt: string | null; gmNote?: string;
   /** personal: one character's. group: the party's, shared; members joined it, contributions are what each put in. */
   scope: 'personal' | 'group'; members: string[]; memberNames?: string[];
   contributions: { accountId: string; name?: string; minutes: number; label: string }[];

@@ -1,4 +1,4 @@
-// A library of agent macros the DM can copy and edit. Each is one Minerva step:
+// A library of agent macros the GM can copy and edit. Each is one Minerva step:
 // a prompt with {{parameters}}, an allowlist of tools, and a mode (do it).
 // Prompts never ask her to show players anything that is not party-level.
 import type { ArgSpec } from './catalog.ts';
@@ -30,7 +30,7 @@ export const TEMPLATES: MacroTemplate[] = [
   { id: 'boss-entrance', name: 'Boss entrance', description: 'Boss music, a sting, the boss joins the tracker.', params: [P('boss', 'Boss name'), P('place', 'Where', 'the chamber')],
     steps: step('{{boss}} makes an entrance in {{place}}: play combat music, play a dramatic sound effect, and add {{boss}} to the combat tracker with a rolled initiative (make_statblock from the rules module if one is found). Start combat if it is not running.', [...COMBAT, ...SOUND, 'search_library']) },
   { id: 'session-start-recap', name: 'Session start recap', description: 'A short recap for the table from what the party already knows.', params: [],
-    steps: step('Prepare the session start: read the latest session log (list_session_log) and, from party-level information only, post a three-sentence "previously on" recap to the table chat (send_table_chat), then play calm music. Never include DM-only notes or secrets.', ['list_session_log', 'send_table_chat', 'read_page', ...SOUND]) },
+    steps: step('Prepare the session start: read the latest session log (list_session_log) and, from party-level information only, post a three-sentence "previously on" recap to the table chat (send_table_chat), then play calm music. Never include GM-only notes or secrets.', ['list_session_log', 'send_table_chat', 'read_page', ...SOUND]) },
   { id: 'session-end-wrap', name: 'Session end wrap-up', description: 'Stop the sound, draft the session summary and update the status.', params: [P('notes', 'Anything to remember')],
-    steps: step('Wrap up the session: stop the music and ambience, draft the session summary (draft_session_summary), and add a status update (status_update) with what changed. Extra notes from the DM: {{notes}}.', ['stop_music', 'play_ambience', 'draft_session_summary', 'status_update', 'memory_log'], 'do') },
+    steps: step('Wrap up the session: stop the music and ambience, draft the session summary (draft_session_summary), and add a status update (status_update) with what changed. Extra notes from the GM: {{notes}}.', ['stop_music', 'play_ambience', 'draft_session_summary', 'status_update', 'memory_log'], 'do') },
 ];

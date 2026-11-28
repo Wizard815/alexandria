@@ -10,7 +10,7 @@ export interface NavItem { to: string; label: string; icon: string }
 const CORE: NavItem[] = ([
   ['', 'Home', 'fa-house'], ['live', 'Live', 'fa-tower-broadcast'], ['library', 'Library', 'fa-book'], ['broker', 'Broker', 'fa-scale-balanced'],
   ['inventory', 'Inventory', 'fa-sack-dollar'], ['people', 'People', 'fa-users'], ['me', 'Me', 'fa-user'], ['map', 'Map', 'fa-map'],
-  ['messages', 'Messages', 'fa-envelope'], ['calendar', 'Calendar', 'fa-calendar'], ['ask', 'Ask the DM', 'fa-circle-question'], ['whiteboard', 'Whiteboard', 'fa-chalkboard'],
+  ['messages', 'Messages', 'fa-envelope'], ['calendar', 'Calendar', 'fa-calendar'], ['ask', 'Ask the GM', 'fa-circle-question'], ['whiteboard', 'Whiteboard', 'fa-chalkboard'],
 ] as [string, string, string][]).map(([to, label, icon]) => ({ to, label, icon }));
 
 /** Every page, core first and then the features' (the desktop top bar shows this list as is). */
@@ -43,7 +43,7 @@ export const availableLinks = (settings: unknown): NavItem[] => allLinks().filte
 
 /**
  * The default tabs, in order of how much a player at the table needs them:
- * Home (what is on tonight), Live (initiative, HP, the DM's cards and events),
+ * Home (what is on tonight), Live (initiative, HP, the GM's cards and events),
  * Ask (the broker and the table helper) and Inventory (coins and items). Me and
  * the rest are one tap away under More; Me takes a slot when Ask is switched off.
  */

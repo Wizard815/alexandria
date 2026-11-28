@@ -1,6 +1,6 @@
 # Alexandria Embeddings
 
-The Embeddings service stores and searches vector representations of D&D content.
+The Embeddings service stores and searches vector representations of TTRPG content.
 
 ## Setup
 

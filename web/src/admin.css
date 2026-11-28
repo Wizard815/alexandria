@@ -157,7 +157,7 @@
 .t-admin .in-tab .page-head { margin-top: 0; }
 .t-admin .hub > .tabs { margin-bottom: -4px; }
 
-/* The admin menu reuses the DM menu rules on the dark sidebar. */
+/* The admin menu reuses the GM menu rules on the dark sidebar. */
 .t-admin .nav-find input { color: #FFFFFF; border-color: #3A4856; }
 .t-admin .nav-find input::placeholder { color: var(--adm-side-faint); }
 .t-admin .nav-find > i, .t-admin .nav-kbd, .t-admin .nav-head .nav-chev, .t-admin .nav-head .nav-ico, .t-admin .nav-link .nav-ico { color: var(--adm-side-faint); }

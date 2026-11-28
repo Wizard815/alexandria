@@ -33,11 +33,11 @@ jobs:
           npx playwright install --with-deps chromium
           node e2e/smoke.mjs
           node e2e/offline.mjs
-          node e2e/dm.mjs
+          node e2e/gm.mjs
           node e2e/houserules.mjs
           node e2e/downtime.mjs
           node e2e/table.mjs
-          node e2e/dmphone.mjs
+          node e2e/gmphone.mjs
           node e2e/fold.mjs
           node e2e/zoom.mjs
           node e2e/sculpt.mjs
@@ -45,6 +45,7 @@ jobs:
           node e2e/leaks.mjs
           node e2e/thoughts.mjs
           node e2e/sheet.mjs
+          node e2e/ddb.mjs
           node e2e/foundry.mjs
           node e2e/roll20.mjs
           node e2e/trades.mjs

@@ -6,7 +6,7 @@
 //   - a window of recent calls caps calls a minute (never more than `perMinute` in any 60 seconds) and a second (never more than `perSecond` in any 1000 ms)
 //   - the site's own answers slow us further: `Retry-After`, `X-RateLimit-*` and `RateLimit-*` headers
 //   - a 429 waits (Retry-After, or exponential back-off with jitter) and asks again a few times, never hammering
-//   - a scan can be paced: the index tier's calls are spread across a window the DM chooses
+//   - a scan can be paced: the index tier's calls are spread across a window the GM chooses
 //
 // Time is injected (`setClock`) so tests can run minutes in milliseconds.
 import type { ConfigField } from './connector.ts';
@@ -58,7 +58,7 @@ export const DEFAULT_LIMITS: Record<string, { perMinute: number; perSecond: numb
 const FALLBACK = { perMinute: 60, perSecond: 0, perHour: 0 };
 
 /**
- * LegendKeeper also caps a whole project at 12,000 calls an hour, shared by every key that reads it (the DM's and each player's).
+ * LegendKeeper also caps a whole project at 12,000 calls an hour, shared by every key that reads it (the GM's and each player's).
  * `projectOf` names the project a connection's settings point at, or null (other connectors have no such cap).
  */
 export const LK_PROJECT_PER_HOUR = 12_000;

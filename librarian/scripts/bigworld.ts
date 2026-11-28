@@ -7,7 +7,7 @@
 // build   ~3000 library pages with links and pictures, 700 LegendKeeper resources read through the
 //         intake path (a fake LegendKeeper), 20 000 transcript lines, 50 MB of uploads, a game module.
 // bench   starts the real server on that data (with the fake services), measures the time to /health,
-//         then the latency of the calls players and the DM make all the time, first on an idle server
+//         then the latency of the calls players and the GM make all the time, first on an idle server
 //         and then while each heavy admin job runs: a full crawl, a re-index, a module import, a big
 //         upload, the session summary and rules check. Also the event loop delay and memory.
 //
@@ -72,7 +72,7 @@ async function build() {
   console.log(`building a world in ${dataDir}`, N);
   const setup = await call('POST', '/api/setup', null, { username: 'wizard', password: 'correct horse battery' });
   const admin = setup.token as string;
-  const wid = (await call('POST', '/api/admin/worlds', admin, { name: 'Big World', dmAccountId: setup.account.id })).id as string;
+  const wid = (await call('POST', '/api/admin/worlds', admin, { name: 'Big World', gmAccountId: setup.account.id })).id as string;
   const inv = await call('POST', `/api/worlds/${wid}/invites`, admin, { role: 'player' });
   const joined = await call('POST', '/api/join', null, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' });
 
@@ -85,7 +85,7 @@ async function build() {
     const links = Array.from({ length: 4 + Math.floor(r() * 6) }, () => `[[${titles[Math.floor(r() * N.pages)]}]]`);
     const body = [`# ${titles[i]}`, paragraph(r, 6), `![map](https://img.example/maps/${i}.png)`, paragraph(r, 5), `See also ${links.join(', ')}.`, paragraph(r, 7), `![portrait](https://img.example/people/${i}.jpg)`, paragraph(r, 6), paragraph(r, 5)].join('\n\n');
     const roll = r();
-    const visibility = roll < 0.3 ? 'party' : roll < 0.9 ? 'dm' : roll < 0.95 ? 'broker' : 'classified';
+    const visibility = roll < 0.3 ? 'party' : roll < 0.9 ? 'gm' : roll < 0.95 ? 'broker' : 'classified';
     deps.library.save(wid, { path: `Atlas/Region ${i % 40}/Area ${i % 7}/${titles[i]}.md`, title: titles[i], body, frontmatter: { tags: [i % 2 ? 'place' : 'person'], aliases: [`Alias ${i}`], ...(i % 5 === 0 ? { related: [`[[${titles[(i + 1) % N.pages]}]]`] } : {}) }, visibility }, null, { batch: true });
   }
   t(`${N.pages} pages saved`, t0);
@@ -110,18 +110,18 @@ async function build() {
   t0 = performance.now();
   const sessions = 8;
   const per = Math.ceil(N.lines / sessions);
-  const speakers = ['Dungeon Master', 'Jess', 'Ari', 'Bo', 'Cass'];
+  const speakers = ['Game Master', 'Jess', 'Ari', 'Bo', 'Cass'];
   const words = ['Fireball', 'grappled', 'the warden', 'opportunity attack', 'roll initiative', 'the gate', 'a shield', 'counterspell', 'the oath', 'prone'];
-  const dmAcct = setup.account.id as string;
+  const gmAcct = setup.account.id as string;
   deps.db.exec('BEGIN');
   for (let s = 0; s < sessions; s++) {
     const sid = `bws_${s}`;
     const started = new Date(Date.now() - (sessions - s) * 86400_000).toISOString();
-    run(deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by, stopped_at) VALUES (?, ?, ?, ?, ?, ?)', sid, wid, `Session ${s + 1}`, started, dmAcct, s === sessions - 1 ? null : new Date(Date.parse(started) + 3 * 3600_000).toISOString());
+    run(deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by, stopped_at) VALUES (?, ?, ?, ?, ?, ?)', sid, wid, `Session ${s + 1}`, started, gmAcct, s === sessions - 1 ? null : new Date(Date.parse(started) + 3 * 3600_000).toISOString());
     for (let i = 0; i < per; i++) {
       const text = `${sentence(r, 6 + Math.floor(r() * 10)).replace('.', '')} ${words[Math.floor(r() * words.length)]} ${sentence(r, 4)}`;
       run(deps.db, 'INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_account, speaker_label, text, words, sources, audience, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        `bwl_${s}_${i}`, sid, wid, i * 4000, i * 4000 + 3000, i % 5 === 0 ? dmAcct : null, speakers[i % 5], text, '[]', '[]', i % 4 === 0 ? 'dm' : 'party', new Date(Date.parse(started) + i * 4000).toISOString());
+        `bwl_${s}_${i}`, sid, wid, i * 4000, i * 4000 + 3000, i % 5 === 0 ? gmAcct : null, speakers[i % 5], text, '[]', '[]', i % 4 === 0 ? 'gm' : 'party', new Date(Date.parse(started) + i * 4000).toISOString());
     }
   }
   deps.db.exec('COMMIT');
@@ -131,7 +131,7 @@ async function build() {
   t0 = performance.now();
   const chunk = 2 * 1024 * 1024;
   for (let i = 0; i < Math.ceil((N.uploadMb * 1024 * 1024) / chunk); i++) {
-    run(deps.db, 'INSERT INTO uploads (id, world_id, mime, size, data, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)', `bwu_${i}`, wid, 'image/png', chunk, Buffer.alloc(chunk, i % 251), dmAcct, new Date().toISOString());
+    run(deps.db, 'INSERT INTO uploads (id, world_id, mime, size, data, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)', `bwu_${i}`, wid, 'image/png', chunk, Buffer.alloc(chunk, i % 251), gmAcct, new Date().toISOString());
   }
   t(`${N.uploadMb} MB of uploads`, t0);
 
@@ -203,15 +203,15 @@ async function bench() {
     const ids = pages.filter((_, i) => i % Math.max(1, Math.floor(pages.length / 60)) === 0).map((p) => p.id);
     const playerPages: any[] = await (await fetch(`${base}${w}/library/pages`, { headers: A(player) })).json();
     const pids = playerPages.slice(0, 40).map((p) => p.id);
-    results.pageCounts = { dm: pages.length, player: playerPages.length };
+    results.pageCounts = { gm: pages.length, player: playerPages.length };
 
     // The calls a table makes all the time.
     const probes: { name: string; run: () => Promise<number> }[] = [
       { name: 'health', run: () => timed(() => get('/health', admin)) },
       { name: 'world info', run: () => timed(() => get(w, player)) },
-      { name: 'library tree (DM)', run: () => timed(() => get(`${w}/library/pages`, admin)) },
+      { name: 'library tree (GM)', run: () => timed(() => get(`${w}/library/pages`, admin)) },
       { name: 'library tree (player)', run: () => timed(() => get(`${w}/library/pages`, player)) },
-      { name: 'page read (DM)', run: () => timed(() => get(`${w}/library/pages/${ids[Math.floor(Math.random() * ids.length)]}`, admin)) },
+      { name: 'page read (GM)', run: () => timed(() => get(`${w}/library/pages/${ids[Math.floor(Math.random() * ids.length)]}`, admin)) },
       { name: 'page read (player)', run: () => timed(() => get(`${w}/library/pages/${pids[Math.floor(Math.random() * pids.length)]}`, player)) },
       { name: 'search', run: () => timed(() => get(`${w}/search?q=${['warden', 'ember crown', 'river', 'oath'][Math.floor(Math.random() * 4)]}&limit=20`, player)) },
       { name: 'library search', run: () => timed(() => get(`${w}/library/search?q=lantern`, admin)) },
@@ -316,7 +316,7 @@ async function bench() {
     await scenario(`big upload (${Math.min(45, meta.N.uploadMb)} MB document)`, async () => {
       const bytes = Buffer.alloc(Math.min(45, meta.N.uploadMb) * 1024 * 1024, 'x');
       let finished = false;
-      void fetch(`${base}${w}/files?name=bigscan.pdf&kind=other&level=dm&title=Big+Scan`, { method: 'POST', headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/pdf' }, body: Buffer.concat([Buffer.from('%PDF-1.4\n'), bytes]) }).then(async (r) => { const t = await r.text(); if (r.status >= 300) console.log('  upload answered', r.status, t.slice(0, 200)); finished = true; });
+      void fetch(`${base}${w}/files?name=bigscan.pdf&kind=other&level=gm&title=Big+Scan`, { method: 'POST', headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/pdf' }, body: Buffer.concat([Buffer.from('%PDF-1.4\n'), bytes]) }).then(async (r) => { const t = await r.text(); if (r.status >= 300) console.log('  upload answered', r.status, t.slice(0, 200)); finished = true; });
       return () => finished;
     });
 
@@ -329,7 +329,7 @@ async function bench() {
     });
 
     await post(`/__perf/session?open=0&id=${meta.session}`, admin);
-    await scenario('DM overview + embedding status polled (admin page open)', async () => {
+    await scenario('GM overview + embedding status polled (admin page open)', async () => {
       let n = 0;
       let finished = false;
       void (async () => { while (n++ < 12) { await get(`/api/admin/worlds/${wid}/overview`, admin); await get(`${w}/search/status`, admin); await sleep(250); } finished = true; })();
@@ -343,7 +343,7 @@ async function bench() {
     fs.rmSync(work, { recursive: true, force: true });
   }
   if (outFile) fs.writeFileSync(outFile, JSON.stringify(results, null, 2));
-  console.log('\nsummary (api = player and DM calls made while the job ran)');
+  console.log('\nsummary (api = player and GM calls made while the job ran)');
   console.log('scenario'.padEnd(58), 'job ms'.padStart(8), 'p50'.padStart(7), 'p95'.padStart(8), 'max'.padStart(8), 'loop p99'.padStart(9), 'loop max'.padStart(9), 'rss MB'.padStart(7));
   for (const [k, s] of Object.entries<any>(results.scenarios)) console.log(k.padEnd(58), String(s.jobMs).padStart(8), String(s.api.p50).padStart(7), String(s.api.p95).padStart(8), String(s.api.max).padStart(8), String(s.loop.p99).padStart(9), String(s.loop.max).padStart(9), String(s.mem.peakRssMb).padStart(7));
   console.log('startup', JSON.stringify(results.startup));

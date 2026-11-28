@@ -99,7 +99,7 @@ Notes where the Kanka docs disagree with themselves or are silent:
 - **Visibility numbers.** `misc/visibilities` lists 1 all, 2 admin, 3 admin-self,
   4 self, 5 members, but the `entity_assets`, `map_markers` and posts pages say
   "1 all, 2 self, 3 admin, 4 self-admin, 5 members". Only 1 and 5 reach players in
-  our reading, so every other value stays DM-only. For the file write-back we send
+  our reading, so every other value stays GM-only. For the file write-back we send
   2 for a non-party file: under either table it is not visible to ordinary members.
 - A map marker example shows `shape_id: 5`; the create page lists only 1 to 4.
   Unknown shapes are drawn as a plain marker.

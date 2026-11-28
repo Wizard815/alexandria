@@ -1,7 +1,7 @@
 // The admin's own reads: searching across worlds, and what Alexandria's MCP server offers and to whom.
 //
 // Search is the same ranked page search players and scribes use, read as the admin: the party copy of each world,
-// unless the admin is that world's DM (an admin is not a DM by being an admin). Nothing here returns a key.
+// unless the admin is that world's GM (an admin is not a GM by being an admin). Nothing here returns a key.
 import type { Deps } from '../../app.ts';
 import { all, one } from '../../core/db.ts';
 import { HttpError, str } from '../../core/util.ts';
@@ -17,11 +17,11 @@ export function adminSearch(d: Deps, accountId: string, query: Record<string, un
   const sourceOf = (id: string) => one<{ name: string | null }>(d.db, 'SELECT s.name FROM pages p LEFT JOIN sources s ON s.id = p.source_id WHERE p.id = ?', id)?.name ?? null;
   const results: any[] = [];
   const bySource = new Map<string, number>();
-  const perWorld: { id: string; name: string; copy: 'dm' | 'party'; count: number }[] = [];
+  const perWorld: { id: string; name: string; copy: 'gm' | 'party'; count: number }[] = [];
   for (const w of worlds) {
     const v = adminViewer(d.db, w.id, accountId);
     const hits = d.library.search(w.id, q, v, 25);
-    perWorld.push({ id: w.id, name: w.name, copy: v.role === 'dm' ? 'dm' : 'party', count: hits.length });
+    perWorld.push({ id: w.id, name: w.name, copy: v.role === 'gm' ? 'gm' : 'party', count: hits.length });
     logSearch(d.db, { worldId: w.id, role: 'admin', origin: 'admin', q, hitIds: hits.map((h) => h.id) });
     for (const h of hits) {
       const source = sourceOf(h.id);
@@ -43,7 +43,7 @@ export async function mcpAccess(d: Deps) {
     FROM api_keys k JOIN accounts a ON a.id = k.account_id LEFT JOIN worlds w ON w.id = k.world_id WHERE k.revoked = 0 ORDER BY k.created_at DESC`);
   return {
     url: base ? `${base}/mcp` : null,
-    tools: allTools().map((t) => ({ name: t.name, description: t.description, write: !!t.write, dmOnly: !!t.dmOnly, playerOnly: !!t.playerOnly })),
+    tools: allTools().map((t) => ({ name: t.name, description: t.description, write: !!t.write, gmOnly: !!t.gmOnly, playerOnly: !!t.playerOnly })),
     keys: {
       scribe: keys.filter((k) => k.scope === 'scribe').length,
       write: keys.filter((k) => k.scope === 'scribe' && k.access === 'write').length,

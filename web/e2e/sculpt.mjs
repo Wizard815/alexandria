@@ -31,12 +31,12 @@ try {
     const page = await ctx.newPage();
     page.on('pageerror', (e) => problems.push(`${label} page error: ${e.message}`));
     await page.goto(base + '/login');
-    await page.getByLabel(/username/i).fill('dm');
-    await page.getByLabel(/password/i).fill('dungeon master 123');
+    await page.getByLabel(/username/i).fill('gm');
+    await page.getByLabel(/password/i).fill('game master 123');
     await page.getByRole('button', { name: /sign in|log in/i }).click();
     await page.waitForURL(/\/w\//, { timeout: 15000 });
 
-    await page.goto(`${W}/dm/sculpt`);
+    await page.goto(`${W}/gm/sculpt`);
     await page.getByRole('tab', { name: 'Combat' }).click();
     await page.getByText('Encounter', { exact: true }).first().waitFor();
     if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) problems.push(`${label}: the library scrolls sideways`);
@@ -44,7 +44,7 @@ try {
     await page.getByLabel('Search templates').fill('trap');
     if ((await page.locator('.sculpt-card').count()) < 1) problems.push(`${label}: search found nothing`);
 
-    await page.goto(`${W}/dm/combat`);
+    await page.goto(`${W}/gm/combat`);
     const rows = () => page.locator('[aria-label="Initiative order"] .cb-row').count();
     await page.waitForTimeout(500);
     const before = await rows();

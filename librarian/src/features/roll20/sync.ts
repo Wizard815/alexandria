@@ -5,7 +5,7 @@
 //   other. Each link remembers the last numbers both sides agreed on
 //   (last_*); Alexandria pushes only what changed here since then, so a
 //   change that came from Roll20 is never sent back to it.
-// - Conditions ↔ token status markers, through a name map the DM can edit.
+// - Conditions ↔ token status markers, through a name map the GM can edit.
 //   Conditions with no marker, and markers with no condition, are left alone.
 // - Rolls made in Roll20 land in the table chat (and the other way, if on).
 import { type DB, all, one, run } from '../../core/db.ts';
@@ -33,7 +33,7 @@ export const DEFAULT_MARKERS: Record<string, string> = {
   Dead: 'dead',
 };
 
-/** The DM's map (setting roll20Markers) over the defaults; an empty marker turns a default off. */
+/** The GM's map (setting roll20Markers) over the defaults; an empty marker turns a default off. */
 export function markerMap(custom: unknown): Record<string, string> {
   const out: Record<string, string> = { ...DEFAULT_MARKERS };
   if (custom && typeof custom === 'object') {
@@ -145,7 +145,7 @@ export function guessAccount(db: DB, worldId: string, name: string, controlledBy
   return null;
 }
 
-/** One line in the DM's Roll20 activity list (newest 100 kept). */
+/** One line in the GM's Roll20 activity list (newest 100 kept). */
 export function activity(db: DB, worldId: string, dir: 'in' | 'out', text: string) {
   run(db, 'INSERT INTO roll20_activity (world_id, dir, text, at) VALUES (?, ?, ?, ?)', worldId, dir, text.slice(0, 300), now());
   run(db, 'DELETE FROM roll20_activity WHERE world_id = ? AND id NOT IN (SELECT id FROM roll20_activity WHERE world_id = ? ORDER BY id DESC LIMIT 100)', worldId, worldId);
