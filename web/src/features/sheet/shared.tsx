@@ -4,7 +4,7 @@ import { timeShort, dateLong } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, Loading } from '../../ui/index.tsx';
 
-export type ModuleType = 'character' | 'stats' | 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list' | 'downtime';
+export type ModuleType = 'character' | 'stats' | 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'dm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list' | 'downtime' | 'minimods';
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 export interface Mana { on: boolean; now?: number | null; max?: number | null }
 export interface Sheet {
@@ -32,8 +32,9 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'counters', label: 'Counters', desc: 'Inspiration, hit dice, ammo, anything you count', icon: 'fa-hashtag' },
   { type: 'list', label: 'Checklist', desc: 'Goals, errands, things to remember', icon: 'fa-list-check' },
   { type: 'downtime', label: 'Downtime', desc: 'Your downtime tasks and how far along they are (DownTime house rule)', icon: 'fa-hourglass-half' },
+  { type: 'minimods', label: 'Mini-mods', desc: 'Roll buttons from your table\'s mini-mods (homebrew rules)', icon: 'fa-dice-d20' },
 ];
-export const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent', 'downtime'];
+export const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent', 'downtime', 'minimods'];
 export const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 export const CONDITIONS = ['Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened', 'Grappled', 'Incapacitated', 'Invisible', 'Paralyzed', 'Petrified', 'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Concentrating', 'Blessed', 'Hasted'];
 

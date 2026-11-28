@@ -38,9 +38,13 @@ try {
   const WID = (await j('GET', '/api/worlds', gm)).x[0].id;
   const P = `/api/worlds/${WID}`;
   await j('PATCH', `${P}/settings`, gm, { agentPlayerHelper: true });
-  const add = await j('POST', `${P}/mods/homebrew`, gm, { name: 'Bonus action strike', text: 'You can make one weapon attack with your bonus action, at disadvantage. You do not add your ability modifier to its damage.', roll: { label: 'Bonus action attack', kind: 'attack', mode: 'disadvantage' } });
+  const add = await j('POST', `${P}/mods/homebrew`, gm, { name: 'Bonus action strike', text: 'You can make one weapon attack with your bonus action, at disadvantage. You do not add your ability modifier to its damage.', });
   if (add.s >= 300) throw new Error('homebrew: ' + JSON.stringify(add.x));
 
+  // Suggest extras: the assistant reads the saved mini-mod and proposes what could go with it.
+  const sug = await j('POST', `${P}/mods/homebrew/hb-bonus-action-strike/suggest`, gm);
+  console.log(`suggest extras (${GM_MODEL}): ${JSON.stringify(sug.x).slice(0, 500)}`);
+  if (sug.x.source !== 'model') problems.push('Suggest extras did not use the model');
   const spent = async () => { const s = await usage(); return s !== null && spend0 !== null && s - spend0 > CAP; };
   // Minerva, with a question that never says "bonus action".
   let t0 = Date.now();
@@ -66,7 +70,9 @@ try {
     if (!RULE.test(String(q.x.answer ?? ''))) problems.push('Squire did not use the homebrew rule');
   }
 
-  // The sheet button.
+  // The sheet button (added after the suggestion, as the Game Master would).
+  const cur = (await j('GET', `${P}/mods`, gm)).x.mods.find((m) => m.id === 'hb-bonus-action-strike');
+  await j('POST', `${P}/mods/homebrew`, gm, { id: cur.id, ...cur.form, roll: { label: 'Bonus action attack', kind: 'attack', mode: 'disadvantage', places: ['sheet'], word: 'bastrike' } });
   await j('POST', `${P}/sessionchat/sessions/start`, gm, { title: 'Homebrew night' });
   const roll = await j('POST', `${P}/mods/hb-bonus-action-strike/rolls/roll`, jess, { bonus: 5 });
   console.log(`roll button: ${roll.s} ${roll.x.expr} = ${roll.x.total} · ${roll.x.note}`);

@@ -9,8 +9,8 @@ rules**, one page with three tabs:
   Take back, and the log of every change with its reason.
 - **Rules**: every rule this world has, the spell systems included, with its
   switch, options and Export.
-- **Homebrew**: change one 5e rule in a sentence, no file (see
-  [Homebrew rules](#homebrew-rules)).
+- **Mini-mods**: change one 5e rule in a sentence, no file, and pick where it
+  shows up (see [Mini-mods](#mini-mods-homebrew-rules)).
 - **Make or add one**: describe a rule and the assistant writes it, open or
   paste a file someone shared, and how to go further with code.
 
@@ -34,45 +34,44 @@ every world.
 
 ![World settings, House rules](screenshots/house-rules/1-world-settings-house-rules.png)
 
-## Homebrew rules
+## Mini-mods (homebrew rules)
 
-For a small change to the 5e rules ("you can make one weapon attack with your
-bonus action, at disadvantage"), open **House rules → Homebrew**:
+A mini-mod is a small change to the 5e rules at your table ("you can make one
+weapon attack with your bonus action, at disadvantage"). Open **House rules →
+Mini-mods**:
 
-1. Give it a name and write the rule the way players should read it. **Start
-   from** fills in a few examples.
-2. Optionally, under **For the assistants**, add a note only your assistant
-   sees ("only with a light weapon") and extra words that bring it up. 5e
-   terms in the rule, such as *bonus action*, *reaction*, *short rest* or
-   *potion*, are found for you.
-3. Optionally, turn on **Add a roll button to the players' sheets**: a weapon
-   attack or a check/save, at disadvantage, with advantage or a plain d20.
-4. Press **Save and turn on**.
+1. **New mini-mod**: a name and the rule, the way players should read it,
+   then **Save and turn on**. **Start from** fills in an example.
+2. Open it under **Your mini-mods** and press **Suggest extras**. The Game
+   Master's assistant reads the rule and suggests what could go with it: a
+   roll button, a note only Minerva sees, words players might use. Each one
+   has its own **Add**. With no assistant model set up, the rule's words
+   suggest a roll button (an attack, check or save with advantage or
+   disadvantage).
+3. **Shows up in** sets where players meet it, with a live **What players
+   see** preview next to it:
+   - the players' House rules page, with a *Mini-mod* badge (always);
+   - Minerva, the player's table helper, Squire and the Broker, on every
+     question, not only when a message uses the rule's words (always);
+   - a roll button (a weapon attack, or a check or save) on the player sheet
+     as a **Mini-mods** module, on the player's home page, or both;
+   - a chat word, such as `/bastrike` (a plain roll), `/bastrike 5` (plus 5)
+     or `/bastrike longsword` (that weapon's attack bonus).
 
-What it does while it is on:
+The roll button and chat word roll on the server (`2d20kl1` at disadvantage,
+`2d20kh1` with advantage, plus the bonus) and post in table chat with the
+mini-mod's name. For a weapon attack the player picks a weapon from their
+Character module, or types a bonus. The Mini-mods module is added to every
+sheet while a roll is placed there.
 
-- Players see it on their **House rules** page with a *Homebrew* badge, and
-  its text joins the rules glossary.
-- Every assistant keeps it in mind on every message, not only when a message
-  uses its words: Minerva, the player's table helper, Squire (in the quick
-  helper's brief, ahead of the rules passages) and the Broker (its rules
-  answer puts a matching homebrew rule before the rules book). Your note goes
-  to your assistant only.
-- The roll button shows on the player's home page under **Homebrew rolls**.
-  For a weapon attack the player picks a weapon from their Character module
-  (its attack bonus is added) or types a bonus. Alexandria rolls on the server
-  (`2d20kl1+6` at disadvantage, `2d20kh1` with advantage) and posts it in
-  table chat with the rule's name. It needs a running session.
+A mini-mod is an ordinary rule file underneath (`homebrew: true`,
+`assistant.always: true`, optionally `rolls`), so the Rules tab, Export and
+sharing work as usual. Editing keeps its id and raises the version.
 
-**Your homebrew rules**, under the form, has each one's switch, Edit (the id
-stays the same and the version goes up) and Remove. A homebrew rule is an
-ordinary rule file underneath (`homebrew: true`, `assistant.always: true`,
-optionally `rolls`), so Export and sharing work as usual.
-
-What goes wrong: the roll button says *No session is running* until you start
-one. A weapon only shows up in the list after the player imports a character
-(the Character module). Without one they type their bonus. A rule that is off
-is left out of every assistant's context.
+What goes wrong: a roll says *No session is running* until you start one. A
+chat word another rule already uses (like `/reroll`) is refused. Weapons only
+show up after the player imports a character, so without one they type
+their bonus. A mini-mod that is off is left out of every assistant's context.
 
 ## What comes with Alexandria
 
@@ -202,8 +201,8 @@ A file holds one rule, or a **package** of several (see Sharing).
 | `conflicts` | Kit 2: ids of rules that cannot be on at the same time. Turning this one on turns them off, like a `group`. |
 | `permissions` | Kit 2: what it touches beyond what its parts already say (`records`, `net`, ...). The DM sees the full list under Options and details. |
 | `assistant` | Kit 2: how the DM's assistant and the player helper work with the rule (see below). `always: true` keeps it in every assistant's context while it is on. |
-| `rolls` | Up to 6 roll buttons on the player's sheet: `{ id, label, kind: attack \| d20, mode: normal \| advantage \| disadvantage, note? }`. The server rolls and posts in table chat. |
-| `homebrew` | `true` for a rule made with the Homebrew form (it is listed there to edit). |
+| `rolls` | Up to 6 roll buttons: `{ id, label, kind: attack \| d20, mode: normal \| advantage \| disadvantage, note?, places?: [sheet, home], word? }`. The server rolls and posts in table chat; `word` is a chat word that rolls it. |
+| `homebrew` | `true` for a mini-mod (it is listed under Mini-mods to edit). |
 | `api` | Kit 2: the mod API version a code mod was written against (data rules leave it out). |
 
 Limits: 128 KB per file, 12 resources, 24 actions, 12 triggers, 8 commands, 16
@@ -390,10 +389,10 @@ only those on), `GET /rules`, `GET /counters`, `GET /log`, `POST /check`,
 those rules, or of every rule that is on), `GET /:id/export` (a package of one), `PUT /:id/enabled { on }`,
 `PUT /:id/options { options }`, `DELETE /:id` (DM only, except the reads), and
 `POST /:id/act { action, player?, resource?, note?, rollId?, channel?, atTable? }`.
-Homebrew: `POST /homebrew { id?, name, text, gm?, words?, roll?: { label, kind, mode }, on? }`
+Mini-mods: `POST /homebrew { id?, name, text, gm?, words?, roll?: { label, kind, mode, places, word }, on? }`
 (Game Master; no `id` makes a new rule `hb-<name>` and turns it on),
 `POST /:id/rolls/:roll { attack? (index into the Character module's attacks), bonus? }`
-and `GET /attacks` (my Character module's attacks).
+`POST /homebrew/:id/suggest` (Game Master; suggested extras) and `GET /attacks` (my Character module's attacks).
 Mod studio: `GET /guide?part=start|counters|data|presets|manifest` and
 `GET /:id/file` (a rule or an example as its file), both DM only; `POST /check`
 also returns `preview` (lines) and `draft`, and `POST /import { draft }` saves

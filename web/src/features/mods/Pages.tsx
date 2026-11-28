@@ -36,7 +36,7 @@ export function DMHouseRules() {
       <Tabs<Tab> label="House rules" value={shown} onChange={setTab} items={[
         ['play', 'In play'],
         ['rules', rules.data ? `Rules (${on} on of ${list.length})` : 'Rules'],
-        ['homebrew', 'Homebrew'],
+        ['homebrew', 'Mini-mods'],
         ...extra.map((t) => [t.key, t.title] as [Tab, string]),
         ['make', 'Make or add one'],
       ]} />
@@ -167,7 +167,7 @@ export function PlayerHouseRules() {
       <ViewsFor place="player" />
       {!rules.data ? <Loading /> : list.length === 0 ? <Empty>Your DM has no house rules on.</Empty> : list.map((r) => (
         <section key={r.id} className="card stack">
-          <h2 style={{ margin: 0 }}>{r.name}{r.homebrew && <span className="chip teal tiny" style={{ marginLeft: 8 }}>Homebrew</span>}</h2>
+          <h2 style={{ margin: 0 }}>{r.name}{r.homebrew && <span className="chip teal tiny" style={{ marginLeft: 8 }}>Mini-mod</span>}</h2>
           {!r.homebrew && <div className="small">{r.summary}</div>}
           {r.rules.map((x) => <div key={x.term} className="small"><strong>{x.term}.</strong> {x.text}</div>)}
           {r.commands.length > 0 && <div className="tiny muted">In chat: {r.commands.map((c) => <code key={c} style={{ marginRight: 6 }}>{c}</code>)}</div>}

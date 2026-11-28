@@ -64,7 +64,11 @@ export interface Rule { term: string; text: string }
  *  and posts it in table chat with the rule's name, so everyone sees the house rule was used. */
 export type RollKind = 'attack' | 'd20';
 export type RollMode = 'normal' | 'advantage' | 'disadvantage';
-export interface SheetRoll { id: string; label: string; kind: RollKind; mode: RollMode; note: string }
+export type RollPlace = 'sheet' | 'home';
+export const ROLL_PLACES: readonly RollPlace[] = ['sheet', 'home'];
+/** places: where players get the button (a Mini-mods module on their sheet, a card on their home page); word: a chat
+ *  word that rolls it ("/bastrike 5" or "/bastrike longsword"), '' for none. */
+export interface SheetRoll { id: string; label: string; kind: RollKind; mode: RollMode; note: string; places: RollPlace[]; word: string }
 export const ROLL_KINDS: readonly RollKind[] = ['attack', 'd20'];
 export const ROLL_MODES: readonly RollMode[] = ['normal', 'advantage', 'disadvantage'];
 export interface Requires { settings: string[]; /** Other house rules it builds on: id → version range. */ mods: Record<string, string> }
@@ -310,7 +314,14 @@ export function checkMod(raw: unknown): Checked {
     rollIds.add(rid);
     const kind = r.kind === undefined ? 'attack' : ROLL_KINDS.includes(r.kind) ? r.kind as RollKind : (err(`${at}.kind must be one of ${ROLL_KINDS.join(', ')}`), 'attack' as RollKind);
     const mode = r.mode === undefined ? 'normal' : ROLL_MODES.includes(r.mode) ? r.mode as RollMode : (err(`${at}.mode must be one of ${ROLL_MODES.join(', ')}`), 'normal' as RollMode);
-    mod.rolls.push({ id: rid, label: text(r.label, `${at}.label`, 40, true), kind, mode, note: text(r.note, `${at}.note`, 120) });
+    const places = r.places === undefined ? ['sheet'] as RollPlace[] : list(r.places, `${at}.places`, 2).filter((x: unknown, j: number) => ROLL_PLACES.includes(x as RollPlace) ? true : (err(`${at}.places[${j}] must be one of ${ROLL_PLACES.join(', ')}`), false)) as RollPlace[];
+    let word = '';
+    if (r.word !== undefined && r.word !== '') {
+      if (typeof r.word !== 'string' || !/^[a-z][a-z0-9]{1,19}$/.test(r.word)) err(`${at}.word must be a short lowercase word, like "bastrike"`);
+      else if (['roll', 'me', 'help'].includes(r.word)) err(`${at}.word "${r.word}" belongs to the chat itself`);
+      else word = r.word;
+    }
+    mod.rolls.push({ id: rid, label: text(r.label, `${at}.label`, 40, true), kind, mode, note: text(r.note, `${at}.note`, 120), places: [...new Set(places)], word });
   });
   if (o.homebrew !== undefined && typeof o.homebrew !== 'boolean') err('homebrew must be true or false');
 

@@ -11,6 +11,8 @@ import { ConditionChip, useConditions } from './conditions.tsx';
 import { RerollMod } from './rerolls.tsx';
 import { CharacterMod, ImportModal } from './ddb.tsx';
 import { DowntimeModule } from '../downtime/Player.tsx';
+import { MiniModRolls } from '../mods/Homebrew.tsx';
+import { useHouseRules } from '../mods/shared.tsx';
 import { TradeOffers } from '../sessionchat/TradeDialog.tsx';
 import { CAN_BE_PRIVATE, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
 
@@ -60,8 +62,11 @@ const withRerolls = (list: Module[], on: boolean): Module[] => {
   const at = list.findIndex((m) => m.type === 'mana') + 1 || 1;
   return [...list.slice(0, at), { id: 'rerolls', type: 'rerolls', title: 'Re-rolls', wide: false, private: false, collapsed: false }, ...list.slice(at)];
 };
+/** With a mini-mod roll placed on the sheet, every sheet has the Mini-mods module (at the end; the player can move it). */
+const withMiniMods = (list: Module[], on: boolean): Module[] => (!on || list.some((m) => m.type === 'minimods') ? list
+  : [...list, { id: 'minimods', type: 'minimods', title: 'Mini-mods', wide: false, private: false, collapsed: false }]);
 /** The default order, most used first; "Sort like the default" puts a player's own modules in it (their data stays). */
-const RANK: ModuleType[] = ['character', 'vitals', 'mana', 'stats', 'rerolls', 'counters', 'dm', 'notes', 'list', 'downtime', 'inventory', 'contacts', 'text', 'recent'];
+const RANK: ModuleType[] = ['character', 'vitals', 'mana', 'stats', 'rerolls', 'minimods', 'counters', 'dm', 'notes', 'list', 'downtime', 'inventory', 'contacts', 'text', 'recent'];
 const byRank = (list: Module[]) => [...list].sort((a, b) => RANK.indexOf(a.type) - RANK.indexOf(b.type));
 
 /** `page`: the player's own page, where the character's name is the page title. */
@@ -88,6 +93,10 @@ export default function Sheet({ account, page = false }: { account: string; page
   useEffect(() => { if (sheet.data && (!own || mods === null)) setMods(withRerolls(withDm(sheet.data.modules), sheet.data.rerolls?.on === true)); }, [sheet.data]); // eslint-disable-line react-hooks/exhaustive-deps
   // The DM turns re-rolls on while the sheet is open: the module shows up.
   useEffect(() => { if (mods && sheet.data?.rerolls?.on && !mods.some((m) => m.type === 'rerolls')) setMods(withRerolls(mods, true)); }, [sheet.data, mods]);
+  // A mini-mod with a sheet roll is on: the Mini-mods module shows up.
+  const houseRules = useHouseRules();
+  const miniOn = houseRules.list.some((r) => r.enabled && r.rolls?.some((x) => (x.places ?? ['sheet']).includes('sheet')));
+  useEffect(() => { if (mods && miniOn && !mods.some((m) => m.type === 'minimods')) setMods(withMiniMods(mods, true)); }, [mods, miniOn]);
   // A note or goal the DM adds while the player has the sheet open: say so.
   const dmIds = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -178,6 +187,7 @@ export default function Sheet({ account, page = false }: { account: string; page
               : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} name={pool} /> : <p className="tiny muted">{pool} is off in this world.</p>)
               : m.type === 'inventory' ? <Inventory account={account} own={own} />
               : m.type === 'downtime' ? <DowntimeModule account={own ? 'me' : account} />
+              : m.type === 'minimods' ? (own ? <MiniModRolls place="sheet" framed={false} /> : <p className="tiny muted">The player rolls their mini-mods here.</p>)
               : m.type === 'recent' ? <RecentMod account={account} onAdd={own ? (x) => setAdding1(x) : undefined} onAsk={own && canAsk ? setAsking : undefined} />
               : m.type === 'contacts' ? <PeopleMod entries={m.data?.entries ?? []} readOnly={!own} onChange={(entries) => update(m.id, { data: { entries } }, 0)} onAsk={own && canAsk ? setAsking : undefined} />
               : <Editable m={m} readOnly={!own} onData={(data, wait) => update(m.id, { data }, wait)} />

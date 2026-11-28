@@ -44,44 +44,55 @@ async function signIn(user, pass, opts) {
 
 try {
   const scale = SHOTS ? 2 : 1;
-  // 1. The Game Master adds the rule from the example.
+  // 1. The Game Master makes a mini-mod in two fields, asks for extras, adds the roll button and picks its places.
   const { page: gm } = await signIn('dm', 'dungeon master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: scale });
   await gm.goto(`${W}/dm/house-rules`);
-  await gm.getByRole('tab', { name: 'Homebrew' }).click();
+  await gm.getByRole('tab', { name: 'Mini-mods' }).click();
   await gm.getByRole('button', { name: 'Bonus action strike' }).click();
-  check((await gm.getByLabel('Name').inputValue()) === 'Bonus action strike', 'the example fills the name');
-  await shot(gm, '1-gm-homebrew-form');
+  check((await gm.getByLabel('Name').inputValue()) === 'Bonus action strike', 'the starter fills the name');
+  await shot(gm, '1-gm-new-minimod');
   await gm.getByRole('button', { name: 'Save and turn on' }).click();
   await gm.getByRole('switch', { name: 'Bonus action strike on' }).and(gm.locator('[aria-checked=true]')).waitFor({ timeout: 8000 });
-  await shot(gm, '2-gm-homebrew-saved');
+  await gm.getByRole('button', { name: /Suggest extras/ }).click();
+  await gm.getByLabel('Suggested extras').waitFor({ timeout: 15000 });
+  await shot(gm, '2-gm-suggested-extras');
+  await gm.getByLabel('Suggested extras').getByRole('button', { name: 'Add' }).first().click();
+  await gm.getByRole('checkbox', { name: /home page/ }).waitFor({ timeout: 8000 });
+  await gm.getByRole('checkbox', { name: /home page/ }).check();
+  await gm.getByLabel('Chat word').fill('bastrike');
+  await gm.getByRole('button', { name: 'Save changes' }).click();
+  await gm.getByText(/shows in .*\/bastrike/).waitFor({ timeout: 8000 });
+  await shot(gm, '3-gm-shows-up-in-and-preview');
   const rule = (await api(gmLogin.token, 'GET', '/mods')).mods.find((m) => m.id === 'hb-bonus-action-strike');
-  check(rule?.enabled && rule.rolls?.[0]?.mode === 'disadvantage', 'the rule is on with its roll button');
-  note('gm: homebrew rule saved and on');
+  check(rule?.enabled && rule.rolls?.[0]?.mode === 'disadvantage' && rule.rolls[0].places.includes('home') && rule.rolls[0].word === 'bastrike', `the rule is on with its roll button in both places (${JSON.stringify(rule?.rolls)})`);
+  note('gm: mini-mod made, extras added, places picked');
 
   // 2. Jess sees it and rolls it.
   await api(gmLogin.token, 'POST', '/sessionchat/sessions/start', { title: 'Homebrew night' }).catch(() => {});
   const { page: pl } = await signIn('jess', 'player pass 123', { viewport: { width: 390, height: 844 }, deviceScaleFactor: scale, isMobile: true, hasTouch: true });
   await pl.goto(`${W}/house-rules`);
   await pl.getByRole('heading', { name: /Bonus action strike/ }).waitFor({ timeout: 8000 });
-  await pl.getByText('Homebrew', { exact: true }).first().waitFor({ timeout: 5000 });
+  await pl.getByText('Mini-mod', { exact: true }).first().waitFor({ timeout: 5000 });
   await shot(pl, '3-player-house-rules-page');
   await pl.goto(`${W}`);
-  await pl.getByRole('heading', { name: 'Homebrew rolls' }).waitFor({ timeout: 8000 });
-  await pl.getByLabel('Bonus for Bonus action strike').fill('5').catch(async () => { await pl.locator('input[aria-label^="Bonus for"]').first().fill('5'); });
+  await pl.getByRole('heading', { name: 'Mini-mods' }).waitFor({ timeout: 8000 });
+  await pl.getByLabel('Bonus for Bonus action attack').first().fill('5');
   await pl.getByRole('button', { name: 'Roll' }).first().click();
   await pl.getByText(/Rolled 2d20kl1\+5: \d+/).waitFor({ timeout: 8000 });
   await shot(pl, '4-player-homebrew-roll');
   await pl.goto(`${W}/chat`);
   await pl.getByText(/Bonus action strike at disadvantage \(Bonus action strike\)|at disadvantage \(Bonus action strike\)/).first().waitFor({ timeout: 8000 });
+  await pl.getByLabel('Message').fill('/bastrike 2');
+  await pl.getByLabel('Message').press('Enter');
+  await pl.getByText(/2d20kl1\+2/).first().waitFor({ timeout: 8000 });
   await shot(pl, '5-player-roll-in-chat');
+  await pl.goto(`${W}/sheet`);
+  await pl.getByRole('heading', { name: 'Mini-mods' }).first().waitFor({ timeout: 8000 });
+  await pl.getByRole('heading', { name: 'Mini-mods' }).first().scrollIntoViewIfNeeded();
+  await pl.getByRole('heading', { name: 'Mini-mods' }).first().evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await shot(pl, '6-player-sheet-module');
   note('player: saw the rule and rolled it at disadvantage');
 
-  // 3. The Game Master edits it.
-  await gm.getByRole('button', { name: 'Edit' }).first().click();
-  await gm.getByLabel('The rule, as players read it').fill('You can make one light weapon attack with your bonus action, at disadvantage.');
-  await gm.getByRole('button', { name: 'Save changes' }).click();
-  await gm.getByText('v1.0.1').waitFor({ timeout: 8000 });
-  note('gm: edited the rule (v1.0.1)');
 } catch (e) { problems.push('run failed: ' + e.message); } finally { await browser.close(); srv.kill(); }
 if (problems.length) { console.log('PROBLEMS:\n' + problems.map((p) => ' - ' + p).join('\n')); process.exit(1); }
 console.log('homebrew ok');

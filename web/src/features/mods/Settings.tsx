@@ -95,7 +95,7 @@ export function MakeHouseRule() {
           <button type="button" className="btn small primary" disabled={!idea.trim()} onClick={ask}>Ask the assistant</button>
         </div>
       </section>
-      <p className="small muted">Just changing one 5e rule, like a bonus action attack at disadvantage? Use the <strong>Homebrew</strong> tab on the House rules page: a name and a sentence, no file, and it is on at once.</p>
+      <p className="small muted">Just changing one 5e rule, like a bonus action attack at disadvantage? Make a <strong>Mini-mod</strong> (its tab on the House rules page): a name and a sentence, no file, and it is on at once.</p>
       <ImportBox onDone={(t) => { toast(t); void rules.reload(); }} />
       <section className="card stack">
         <h3>Bigger than a rule file</h3>

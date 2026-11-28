@@ -3,7 +3,7 @@
 // sentence into an ordinary house rule (kit 2) that is marked `homebrew`, carries the text for players, a note for
 // the assistants with `always` on (so Minerva, Squire and the Broker keep it in mind on every message, not only
 // when the words match), and optionally a roll button on the player's sheet. Pure: no database. See docs/MODS.md.
-import { ROLL_KINDS, ROLL_MODES, type ModFile, type RollKind, type RollMode, type SheetRoll } from './format.ts';
+import { ROLL_KINDS, ROLL_MODES, ROLL_PLACES, type ModFile, type RollKind, type RollMode, type RollPlace, type SheetRoll } from './format.ts';
 import { parseVer } from './semver.ts';
 
 export interface HomebrewInput {
@@ -14,7 +14,7 @@ export interface HomebrewInput {
   gm?: string;
   /** Words or phrases that bring it up, on top of the ones found in the text. */
   words?: string[];
-  roll?: { label: string; kind?: RollKind; mode?: RollMode } | null;
+  roll?: { label: string; kind?: RollKind; mode?: RollMode; places?: RollPlace[]; word?: string } | null;
 }
 
 /** 5e phrases worth matching on when they appear in a homebrew rule's name or text. */
@@ -49,6 +49,8 @@ export function homebrewFile(id: string, input: HomebrewInput, version = '1.0.0'
     id: 'roll', label: String(roll.label).trim().slice(0, 40),
     kind: ROLL_KINDS.includes(roll.kind as RollKind) ? roll.kind as RollKind : 'attack',
     mode: ROLL_MODES.includes(roll.mode as RollMode) ? roll.mode as RollMode : 'normal', note: '',
+    places: Array.isArray(roll.places) ? roll.places.filter((x) => ROLL_PLACES.includes(x)) : ['sheet'],
+    word: typeof roll.word === 'string' ? roll.word.trim().toLowerCase().replace(/^\//, '') : '',
   }] : [];
   return {
     kit: 2, id, name, version, author: 'Game Master', summary: firstSentence(text), homebrew: true,
@@ -84,4 +86,50 @@ export function alwaysNote(mods: ModFile[], gm: boolean, max = 1600): string {
 export function rollExpr(mode: RollMode, bonus: number): string {
   const d = mode === 'advantage' ? '2d20kh1' : mode === 'disadvantage' ? '2d20kl1' : '1d20';
   return bonus ? `${d}${bonus < 0 ? '-' : '+'}${Math.abs(bonus)}` : d;
+}
+
+// ---- suggested extras: what the assistant (or, without a model, word rules) offers to add to a saved rule ----------
+
+export interface Suggestions {
+  source: 'model' | 'rules';
+  roll: { label: string; kind: RollKind; mode: RollMode; why: string } | null;
+  gm: { text: string; why: string } | null;
+  words: { list: string[]; why: string } | null;
+}
+
+export const SUGGEST_SYSTEM = [
+  'You help a Game Master of a 5e tabletop role-playing game set up a homebrew rule in an app called Alexandria.',
+  'For a rule, Alexandria can add three extras. Suggest only the ones that really help this rule:',
+  '1. roll: a roll button on the players\' sheets, only when the rule changes a specific roll a player makes. kind "attack" is a d20 plus a weapon\'s attack bonus; kind "d20" is a d20 plus a bonus the player types (a check or save). mode is "normal", "advantage" or "disadvantage". label is the button text, at most 30 letters.',
+  '2. gm: a short private note (at most 300 letters) for the Game Master\'s assistant: how to rule the edge cases, what to remind players of.',
+  '3. words: up to 6 words or short phrases players might use when asking about the rule that are not already in it.',
+  'Each extra has "why": one short sentence a Game Master reads.',
+  'Reply with JSON only: {"roll": null or {"label","kind","mode","why"}, "gm": null or {"text","why"}, "words": null or {"list": [...], "why"}}',
+].join('\n');
+
+/** Clean what a model said into Suggestions, dropping anything malformed. */
+export function cleanSuggestions(raw: any, source: Suggestions['source']): Suggestions {
+  const s = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : '');
+  const r = raw?.roll;
+  const roll = r && typeof r === 'object' && s(r.label, 40) ? {
+    label: s(r.label, 40), kind: ROLL_KINDS.includes(r.kind) ? r.kind as RollKind : 'attack' as RollKind,
+    mode: ROLL_MODES.includes(r.mode) ? r.mode as RollMode : 'normal' as RollMode, why: s(r.why, 200),
+  } : null;
+  const gm = raw?.gm && s(raw.gm.text, 300) ? { text: s(raw.gm.text, 300), why: s(raw.gm.why, 200) } : null;
+  const list = Array.isArray(raw?.words?.list) ? raw.words.list.map((w: unknown) => s(w, 40).toLowerCase()).filter((w: string) => w.length >= 3).slice(0, 6) : [];
+  return { source, roll, gm, words: list.length ? { list, why: s(raw.words.why, 200) } : null };
+}
+
+/** Without a model: a roll button when the rule names an attack, check or save with advantage or disadvantage. */
+export function ruleSuggestions(name: string, text: string): Suggestions {
+  const t = ` ${name} ${text} `.toLowerCase();
+  const mode: RollMode | null = /disadvantage/.test(t) ? 'disadvantage' : /(^|[^s])advantage/.test(t) ? 'advantage' : null;
+  const attack = /\battack/.test(t);
+  const check = /\b(checks?|saving throws?|saves?)\b/.test(t);
+  let roll: Suggestions['roll'] = null;
+  if (mode && (attack || check)) {
+    const label = attack ? (/bonus action/.test(t) ? 'Bonus action attack' : /reaction/.test(t) ? 'Reaction attack' : `${name}`.slice(0, 30)) : `${name}`.slice(0, 30);
+    roll = { label, kind: attack ? 'attack' : 'd20', mode, why: `The rule changes ${attack ? 'an attack roll' : 'a check or save'} to ${mode}, so players can roll it from their sheet.` };
+  }
+  return { source: 'rules', roll, gm: null, words: null };
 }

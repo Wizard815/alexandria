@@ -8,7 +8,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { checkMod } from '../src/features/mods/format.ts';
-import { alwaysNote, homebrewFile, homebrewWords, nextVersion, rollExpr } from '../src/features/mods/homebrew.ts';
+import { alwaysNote, cleanSuggestions, homebrewFile, homebrewWords, nextVersion, rollExpr, ruleSuggestions } from '../src/features/mods/homebrew.ts';
 import { quickBrief } from '../src/features/playerhelp/quick.ts';
 import { rulesAnswer } from '../src/features/broker2/other.ts';
 import { enabledModFiles } from '../src/features/mods/store.ts';
@@ -62,7 +62,9 @@ test('TestHomebrew_FileIsAValidRuleWithWordsFromTheText', () => {
   const { mod, errors } = checkMod(f);
   assert.deepEqual(errors, []);
   assert.ok(mod!.homebrew && mod!.assistant!.always);
-  assert.deepEqual(mod!.rolls, [{ id: 'roll', label: 'Bonus action attack', kind: 'attack', mode: 'disadvantage', note: '' }]);
+  assert.deepEqual(mod!.rolls, [{ id: 'roll', label: 'Bonus action attack', kind: 'attack', mode: 'disadvantage', note: '', places: ['sheet'], word: '' }]);
+  assert.match(checkMod({ ...f, rolls: [{ id: 'r', label: 'x', word: 'roll' }] }).errors.join(' '), /belongs to the chat/);
+  assert.match(checkMod({ ...f, rolls: [{ id: 'r', label: 'x', places: ['fridge'] }] }).errors.join(' '), /places\[0\]/);
   assert.ok(homebrewWords('Bonus action strike', BONUS).includes('bonus action'));
   assert.ok(!homebrewWords('x', 'You gain disadvantage').includes('advantage'), 'advantage is not found inside disadvantage');
   assert.equal(nextVersion('1.0.0'), '1.0.1');
@@ -139,4 +141,39 @@ test('TestHomebrew_SheetRollButtonRollsOnTheServer', async () => {
   assert.equal((await call('POST', `${M()}/hb-bonus-action-strike/rolls/roll`, T.jess, { bonus: 99 })).status, 400);
   assert.equal((await call('POST', `${M()}/hb-bonus-action-strike/rolls/nope`, T.jess, {})).status, 404);
   assert.equal((await call('POST', `${M()}/hb-bonus-action-strike-2/rolls/roll`, T.jess, {})).status, 409);
+});
+
+test('TestHomebrew_SuggestExtrasWithoutAModelUsesTheRuleWords', async () => {
+  const r = ruleSuggestions('Bonus action strike', BONUS);
+  assert.deepEqual(r.roll && { label: r.roll.label, kind: r.roll.kind, mode: r.roll.mode }, { label: 'Bonus action attack', kind: 'attack', mode: 'disadvantage' });
+  assert.equal(ruleSuggestions('Quick potions', 'Drinking a potion is a bonus action.').roll, null);
+  assert.equal(ruleSuggestions('Lucky saves', 'You have advantage on saving throws against fear.').roll?.kind, 'd20');
+  const c = cleanSuggestions({ roll: { label: 'Off-hand jab', kind: 'weird', mode: 'disadvantage', why: 'x' }, gm: { text: '  Only light weapons. ' }, words: { list: ['off-hand', 'x'] } }, 'model');
+  assert.equal(c.roll!.kind, 'attack');
+  assert.equal(c.gm!.text, 'Only light weapons.');
+  assert.deepEqual(c.words!.list, ['off-hand']);
+  // The route: no model is set up in this test server, so the word rules answer; a rule that has a roll gets none.
+  const fresh = await ok('POST', `${M()}/homebrew`, T.gm, { name: 'Shove strike', text: 'After a shove you can make one attack at disadvantage.' });
+  const s1 = await ok('POST', `${M()}/homebrew/${fresh.id}/suggest`, T.gm);
+  assert.equal(s1.source, 'rules');
+  assert.equal(s1.roll.mode, 'disadvantage');
+  const s2 = await ok('POST', `${M()}/homebrew/hb-bonus-action-strike/suggest`, T.gm);
+  assert.equal(s2.roll, null);
+  assert.equal((await call('POST', `${M()}/homebrew/inspiration-rerolls/suggest`, T.gm)).status, 404);
+  await ok('DELETE', `${M()}/${fresh.id}`, T.gm);
+});
+
+test('TestHomebrew_ChatWordAndPlacesShowUpForPlayers', async () => {
+  const cur = (await ok('GET', M(), T.gm)).mods.find((m: any) => m.id === 'hb-bonus-action-strike');
+  const ed = await ok('POST', `${M()}/homebrew`, T.gm, { id: cur.id, ...cur.form, roll: { ...cur.form.roll, places: ['sheet', 'home'], word: 'bastrike' } });
+  assert.deepEqual(ed.rolls[0].places, ['sheet', 'home']);
+  assert.equal(ed.form.roll.word, 'bastrike');
+  const said = await ok('POST', `/api/worlds/${W}/sessionchat/chat/table`, T.jess, { body: '/bastrike short' });
+  assert.match(JSON.stringify(said), /Shortsword: Bonus action attack at disadvantage/);
+  assert.ok(said.roll);
+  const said2 = await ok('POST', `/api/worlds/${W}/sessionchat/chat/table`, T.jess, { body: '/bastrike 3' });
+  assert.match(JSON.stringify(said2), /2d20kl1\+3/);
+  // A chat word another rule already uses is refused.
+  await ok('PUT', `${M()}/inspiration-rerolls/enabled`, T.gm, { on: true });
+  assert.equal((await call('POST', `${M()}/homebrew`, T.gm, { name: 'Other', text: 'x', roll: { label: 'x', word: 'reroll' } })).status, 409);
 });
