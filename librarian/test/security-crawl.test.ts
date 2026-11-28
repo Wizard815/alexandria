@@ -718,7 +718,7 @@ const PLAYER_ROUTES = [
   'POST /inventory/', 'POST /inventory/:iid/move', 'POST /inventory/coin-requests', 'POST /inventory/images', 'POST /inventory/coin/transfer', 'POST /inventory/transfers/seen',
   'POST /inventory/coin-requests/:rid/give', 'POST /inventory/coin-requests/:rid/decline', 'POST /inventory/coin-requests/:rid/cancel',
   'POST /library/pages/bulk', 'POST /live/ledger', 'POST /map/:mapId/marks', 'POST /messages/', 'POST /messages/:tid', 'POST /messages/:tid/keep', 'POST /messages/:tid/members',
-  'POST /modules/match', 'POST /quick-events/:eid/respond', 'POST /requests/', 'POST /sessionchat/chat/:channel', 'POST /sessionchat/messages/:mid/react', 'POST /sessionchat/read',
+  'POST /modules/match', 'POST /quick-events/:eid/respond', 'POST /requests/', 'POST /biblio/suggestions', 'POST /sessionchat/chat/:channel', 'POST /sessionchat/messages/:mid/react', 'POST /sessionchat/read',
   'POST /sessionchat/trades', 'POST /sessionchat/trades/:tid/accept', 'POST /sessionchat/trades/:tid/decline', 'POST /sessionchat/trades/:tid/cancel',
   'PUT /clock/prefs', 'PUT /itemcards/:itemId/page', 'PUT /live/presence', 'PUT /people/:pid/note', 'PUT /profiles/me/blocks', 'PUT /sound/me/switches', 'PUT /whiteboard/', 'POST /whiteboard/wipe',
   'POST /stage/cards/:cid/buy', 'POST /screen/media/ended',

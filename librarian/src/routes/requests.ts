@@ -44,7 +44,7 @@ export default function requestRoutes(d: Deps) {
   });
 
   // DM decides. body: { decision: 'accepted'|'rejected', reply?, apply?: { mode: 'append'|'replace'|'create', path?, visibility? } }
-  r.post('/:id/decide', requireDM, (req, res) => {
+  r.post('/:id/decide', requireDM, async (req, res) => {
     const c = ctx(res);
     const row = one<any>(db, 'SELECT * FROM requests WHERE id = ? AND world_id = ?', String(req.params.id), c.world.id);
     if (!row) throw new HttpError(404, 'Request not found');
@@ -61,8 +61,17 @@ export default function requestRoutes(d: Deps) {
         applied = d.library.save(c.world.id, { path: str(apply.path, 'apply.path', { max: 300 }), title: row.title, body: text, visibility: oneOf(apply.visibility, 'apply.visibility', ['dm', 'party'] as const, 'dm') }, me(res));
       } else {
         if (!row.page_id) throw new HttpError(400, 'This request is not about a page');
-        const pg = d.library.get(c.world.id, row.page_id, { accountId: c.viewer.accountId, role: c.viewer.role }) as any;
-        applied = d.library.save(c.world.id, { path: pg.path, title: pg.title, frontmatter: pg.frontmatter, visibility: pg.visibility, body: mode === 'append' ? `${pg.body.trimEnd()}\n\n${text}\n` : text }, me(res));
+        // A Biblio article is changed through Biblio, so it keeps its infobox, its versions and its place.
+        const art = one<any>(db, 'SELECT id FROM biblio_articles WHERE world_id = ? AND page_id = ? AND deleted_at IS NULL', c.world.id, row.page_id);
+        if (art) {
+          // Loaded here, not at the top: features load after the routes (a static import would be a cycle with the feature registry).
+          const { readerOf, saveArticle } = await import('../features/biblio/store.ts');
+          const a = saveArticle(d, c.world.id, art.id, mode === 'append' ? { append: text, note: 'From a request' } : { body: text, note: 'From a request' }, { by: me(res), reader: readerOf(c.viewer) });
+          applied = { id: a.pageId, path: a.title, title: a.title, visibility: a.level, articleId: a.id };
+        } else {
+          const pg = d.library.get(c.world.id, row.page_id, { accountId: c.viewer.accountId, role: c.viewer.role }) as any;
+          applied = d.library.save(c.world.id, { path: pg.path, title: pg.title, frontmatter: pg.frontmatter, visibility: pg.visibility, body: mode === 'append' ? `${pg.body.trimEnd()}\n\n${text}\n` : text }, me(res));
+        }
       }
     }
     run(db, 'UPDATE requests SET status = ?, reply = ?, decided_at = ?, decided_by = ? WHERE id = ?', decision, reply, now(), me(res), row.id);

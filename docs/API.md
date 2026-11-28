@@ -59,6 +59,7 @@ plus an MCP endpoint for AI apps. Base URL: your server, e.g.
 |---|---|
 | World | `GET /` (name, role, settings), `GET /members`, `GET/PATCH /settings` (DM), `POST /invites` (DM), `GET /audit` (DM), `GET /events` |
 | Library | `GET /library/pages` (tree list), `GET /library/pages/:id` (blocks, properties, links, children; players get the player copy), `GET /library/pages/:id/markdown` (download), `POST /library/pages/bulk` `{ids}` (offline saves), `PUT /library/pages` (DM, Markdown), `DELETE /library/pages/:id` (DM), `GET /library/search?q=[&semantic=1]` (ranked; hits have `id, path, title, snippet` plus `snippetHtml` with `<mark>`, `titleHtml`, `score`, `matchedOn`; quote "phrases", `-exclude`), `GET /library/relations`, `GET /library/lint` (DM) |
+| Biblio | `/biblio/*`: the world library Alexandria hosts itself (articles, templates, history, trash, timeline, suggestions, import and export); see [BIBLIO.md](BIBLIO.md) |
 | Requests | `GET/POST /requests`, `POST /requests/:id/decide` (DM, can apply to the page) |
 | Messages | `GET/POST /messages`, `GET/POST /messages/:tid`, `POST /messages/:tid/members`, `POST /messages/:tid/keep` |
 | Quick events | `GET/POST /quick-events`, `POST /quick-events/:id/respond`, `/resolve`, `/cancel` |

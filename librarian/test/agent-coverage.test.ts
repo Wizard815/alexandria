@@ -198,6 +198,7 @@ const combatant = (n: string) => once(`cb-${n}`, async () => (await dm('POST', '
 const draft = () => once('draft', async () => (await dm('POST', '/sessionlog/drafts', { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), title: 'Session 1: Coverage' })).id as string);
 const encounter = (n: string) => once(`enc-${n}`, async () => (await dm('POST', '/encounters', { accountIds: [ID.tom], npcName: `Stranger ${n}`, line: 'Hello there.' }))[0].id as string);
 const quickEvent = (n: string) => once(`qe-${n}`, async () => (await dm('POST', '/quick-events', { kind: 'recall', title: `Recall ${n}`, prompt: 'What do you remember?', timerS: 60 })).id as string);
+const bibArticle = (n: string) => once(`bib-${n}`, async () => (await dm('POST', '/biblio/articles', { title: `Biblio ${n}`, level: 'party', body: 'A Biblio article for the test.' })).id as string);
 const lorePage = (n: string) => once(`lore-${n}`, async () => (await dm('POST', '/worldlore/pages', { path: `Test/${n}`, title: n, markdown: `# ${n}\nA page for the test.\n`, level: 'party', by: 'the DM' })).id as string);
 const card = () => once('card', async () => (await dm('POST', '/stage/cards', { kind: 'text', title: 'Shown card', text: 'On the stage.', show: true })).id as string);
 const mark = (n: string) => once(`mark-${n}`, async () => (await dm('POST', '/map/world/marks', { kind: 'pin', x: 20, y: 30, label: n })).id as string);
@@ -324,6 +325,11 @@ const ARGS: Record<string, Maker> = {
   end_encounter: async () => ({ id: await encounter('end') }),
   save_encounter_template: () => ({ kind: 'event', name: 'Thieving crow', places: ['woods'], script: { start: 'a', nodes: [{ id: 'a', text: 'A crow steals a button.', options: [{ label: 'Shoo it', next: null }] }] } }),
   lore_read: async () => ({ id: await lorePage('Read') }),
+  biblio_read: async () => ({ id: await bibArticle('Read') }),
+  biblio_write: () => ({ title: 'Biblio Written', template: 'location', body: 'By the agent.', level: 'party' }),
+  biblio_move: async () => ({ id: await bibArticle('Move'), parentId: await bibArticle('Parent') }),
+  biblio_trash: async () => ({ id: await bibArticle('Trash') }),
+  biblio_suggest: async () => ({ articleId: await bibArticle('Suggest'), body: 'A player adds a detail.' }),
   lore_write: () => ({ path: 'Test/Written', title: 'Written', markdown: '# Written\nBy the agent.', level: 'party' }),
   create_dm_template: () => ({ kind: 'guide', name: 'Coverage towns', triggers: ['town'], spec: { sections: ['Overview'] } }),
   get_dm_template: async () => ({ id: await dmTemplate() }),

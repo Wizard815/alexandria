@@ -553,7 +553,7 @@ export class Library {
    * that is not stored falls back to the resource's first page.
    */
   private resolverCache = new Map<string, { rev: number; R: ReturnType<Library['buildResolver']> }>();
-  private resolver(worldId: string) {
+  resolver(worldId: string) {
     const hit = this.resolverCache.get(worldId);
     if (hit && hit.rev === this.pagesRev) return hit.R;
     const R = this.buildResolver(worldId);
@@ -1159,6 +1159,7 @@ export function sourceApp(kind: string | null): string {
   if (k.startsWith('kanka') || k === 'mcp:kanka') return 'kanka';
   if (k.startsWith('worldanvil')) return 'worldanvil';
   if (k.startsWith('notion')) return 'notion';
+  if (k === 'biblio') return 'biblio';
   if (k === 'obsidian-publish') return 'obsidian-publish';
   if (k === 'obsidian-portal') return 'obsidian-portal';
   if (['markdown-folder', 'vault', 'git', 'mcp-files', 'obsidian-sync', 'obsidian-rest'].includes(k)) return 'markdown';

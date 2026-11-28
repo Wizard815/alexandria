@@ -51,6 +51,7 @@ export function App() {
       <Route path="/join" element={<Join />} />
       <Route path="/reset" element={<Reset />} />
       <Route path="/" element={<Worlds />} />
+      <Route path="/biblio" element={<BiblioHome />} />
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<AdminOverview />} />
         <Route path="accounts" element={<AdminAccounts />} />
@@ -114,6 +115,27 @@ export function App() {
 }
 
 import { Outlet } from 'react-router-dom';
+
+/** /biblio (or /Biblio): your world's Biblio, as its GM (to edit) or as a player. With several worlds, pick one. */
+function BiblioHome() {
+  const { me, needsSetup } = useAuth();
+  if (needsSetup) return <Navigate to="/setup" replace />;
+  if (!me) return <Navigate to="/login" replace />;
+  const to = (w: { slug: string; role: string }) => (w.role === 'dm' ? `/w/${w.slug}/dm/biblio` : `/w/${w.slug}/biblio`);
+  if (me.worlds.length === 1) return <Navigate to={to(me.worlds[0])} replace />;
+  return (
+    <div className="t-fantasy">
+      <div className="page" style={{ maxWidth: 720 }}>
+        <h1><i className="fa-solid fa-book-atlas" aria-hidden="true" /> Biblio</h1>
+        <p className="muted">{me.worlds.length ? 'Which world’s library?' : 'You are not in a world yet.'}</p>
+        <div className="card flush"><div className="list">
+          {me.worlds.map((w) => <Link key={w.id} className="list-item" to={to(w)}><span className="grow"><strong>{w.name}</strong></span><span className="chip">{w.role === 'dm' ? 'Game Master: edit' : 'Read'}</span></Link>)}
+        </div></div>
+      </div>
+    </div>
+  );
+}
+
 function WorldOutlet() {
   return <Outlet />;
 }

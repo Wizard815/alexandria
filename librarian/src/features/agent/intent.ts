@@ -89,6 +89,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(rules?|spell|spells|how (does|do|many|much)|dc \d|advantage|disadvantage|grapple|opportunity attack|saving throw|cast|concentration|cover|rest rules?|feat|class feature)\b/i, tools: ['lookup_rule', 'lookup_term', 'read_term'] },
   { re: /\b(session (log|summary|recap)|summary of the (last )?session|draft (a |the )?(summary|title)|the draft|published|publish|the log|date change)\b/i, tools: ['list_session_log', 'publish_session_log', 'draft_session_summary', 'list_session_log_drafts', 'read_session_log_draft', 'edit_session_log_draft', 'decide_session_date', 'publish_session_log'] },
   { re: /\b(session|last (time|session|game)|recap|happened|said|told|heard|remember|earlier|yesterday|we (met|found|fought|saw|decided))\b/i, tools: ['search_transcript', 'list_session_log'] },
+  { re: /\b(biblio|world library|our (own )?library|articles?|infobox|timeline)\b/i, tools: ['biblio_find', 'biblio_read', 'biblio_list', 'biblio_write', 'biblio_timeline', 'biblio_templates', 'biblio_move', 'biblio_trash', 'biblio_suggest'] },
   { re: /\b(world ?lore|llm wiki|your (own )?wiki|workspace)\b/i, tools: ['lore_write', 'lore_list', 'lore_read', 'lore_move', 'lore_delete'] },
   { re: /\b(my (goals?|journal|notes?|knowledge|clues?|bonds?)|write (this |that )?down|jot|remember (this|that)|what do i know|what have i (learned|found))\b/i, tools: ['my_context', 'my_goal_update', 'my_memory_log', 'my_memory_capture', 'my_who_is'] },
   { re: /\b(who is|who was)\b/i, tools: ['who_is', 'context_for', 'story_bible'] },
