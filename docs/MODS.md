@@ -41,6 +41,7 @@ every world.
 | Simple mana pool | magic | Alexandria's own mana numbers (4 per level plus the casting modifier). |
 | MANA spell system | magic | Wizard's MANA rules. Needs the MANA engine (`spellRulesOn`); until it is on this server the rule shows but cannot be turned on. |
 | Spell crafting (Codex) | | Learn new spells by combining known ones, with the DM's approval or automatically. |
+| D&D Beyond import | | Import on the player sheet reads a public D&D Beyond character into the Character and Stats modules, HP, counters and Inventory (`sheetDdbImport`). Unofficial: D&D Beyond has no official API, so it can break without notice; it never writes back. |
 | DownTime | | Downtime activities from common to legendary: the DM presses Downtime when days pass and each player picks what to work on. See [DOWNTIME.md](DOWNTIME.md). |
 
 Table rules, the house rules D&D tables use most (from house-rule surveys and
@@ -311,6 +312,11 @@ taken, and a package with one of them is refused whole.
 
 To make a rule built in for everyone on a server, put the file (rule or
 package) in `mods/` instead.
+
+Mods are free to share. You can link to a donation page such as Ko-fi, but a
+mod shared through Alexandria can't be paid-only or locked. The built-in rules
+in `mods/` are MIT, so you can copy them as a start. See
+[LICENSING.md](LICENSING.md#mods).
 
 ## API
 

@@ -9,10 +9,13 @@ import { Empty, ErrorBox, Loading, Modal, PageHead, useAction, useToast } from '
 import { AskModal, FromDm, PeopleMod, PersonModal, useCanAsk, type Person, type Subject } from './people.tsx';
 import { ConditionChip, useConditions } from './conditions.tsx';
 import { RerollMod } from './rerolls.tsx';
+import { CharacterMod, ImportModal } from './ddb.tsx';
 import { DowntimeModule } from '../downtime/Player.tsx';
 import { TradeOffers } from '../sessionchat/TradeDialog.tsx';
 import { CAN_BE_PRIVATE, ChangeLog, HpBar, KINDS, ManaMeter, SINGLE, type Module, type ModuleType, type Sheet as SheetT } from './shared.tsx';
 
+/** The Stats module's rows on a new module (the server's statEntries; the D&D Beyond import fills the same labels). */
+const STAT_LABELS = ['AC', 'Initiative', 'Speed', 'Proficiency', 'Passive Perception', 'Passive Insight', 'Passive Investigation', 'Spell save DC', 'Spell attack'];
 const uid = () => Math.random().toString(36).slice(2, 10);
 const EVENTS = ['sheet', 'spells-char', 'combat', 'settings'];
 
@@ -58,7 +61,7 @@ const withRerolls = (list: Module[], on: boolean): Module[] => {
   return [...list.slice(0, at), { id: 'rerolls', type: 'rerolls', title: 'Re-rolls', wide: false, private: false, collapsed: false }, ...list.slice(at)];
 };
 /** The default order, most used first; "Sort like the default" puts a player's own modules in it (their data stays). */
-const RANK: ModuleType[] = ['vitals', 'mana', 'rerolls', 'counters', 'dm', 'notes', 'list', 'downtime', 'inventory', 'contacts', 'text', 'recent'];
+const RANK: ModuleType[] = ['character', 'vitals', 'mana', 'stats', 'rerolls', 'counters', 'dm', 'notes', 'list', 'downtime', 'inventory', 'contacts', 'text', 'recent'];
 const byRank = (list: Module[]) => [...list].sort((a, b) => RANK.indexOf(a.type) - RANK.indexOf(b.type));
 
 /** `page`: the player's own page, where the character's name is the page title. */
@@ -71,6 +74,7 @@ export default function Sheet({ account, page = false }: { account: string; page
   const [showLog, setShowLog] = useState(false);
   const [asking, setAsking] = useState<Subject | null>(null);
   const [adding1, setAdding1] = useState<Partial<Person> | null>(null);
+  const [importing, setImporting] = useState<{ url: string } | null>(null);
   const canAsk = useCanAsk();
   const act = useAction();
   const { toast, toastNode } = useToast();
@@ -112,7 +116,7 @@ export default function Sheet({ account, page = false }: { account: string; page
   const remove = (m: Module) => { if (window.confirm(`Remove “${m.title}” from your sheet?`)) persist(mods.filter((x) => x.id !== m.id), 0); };
   const add = (type: ModuleType) => {
     const k = KINDS.find((x) => x.type === type)!;
-    const data = type === 'notes' || type === 'text' ? { text: '' } : ['contacts', 'counters', 'list'].includes(type) ? { entries: [] } : undefined;
+    const data = type === 'notes' || type === 'text' ? { text: '' } : type === 'stats' ? { entries: STAT_LABELS.map((label) => ({ id: uid(), label, value: '' })) } : ['contacts', 'counters', 'list'].includes(type) ? { entries: [] } : undefined;
     persist([...mods, { id: `${type}-${uid()}`, type, title: k.label, wide: false, private: false, collapsed: false, ...(data ? { data } : {}) }], 0);
     setAdding(false);
   };
@@ -135,10 +139,13 @@ export default function Sheet({ account, page = false }: { account: string; page
     toast(`${p.name} added`);
   };
   const manaOn = (info.settings as any).spellMana === true;
+  /** The "D&D Beyond import" house rule. */
+  const ddbOn = (info.settings as any).sheetDdbImport === true;
   const pool = poolName(info.settings);
   const buttons = (
     <span className="row" style={{ gap: 6 }}>
       <button type="button" className={`btn small${showLog ? ' on' : ''}`} onClick={() => setShowLog((v) => !v)} title={isDM ? 'Every HP and mana change for this player' : 'Every change to your HP and mana (the DM sees these too)'}><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Log</button>
+      {ddbOn && (own || isDM) && <button type="button" className="btn small" onClick={() => setImporting({ url: '' })} title="Import a character from D&D Beyond (unofficial: it can break without notice)" data-testid="sheet-import"><i className="fa-solid fa-file-import" aria-hidden="true" /> Import</button>}
       {own && <button type="button" className={`btn small${editing ? ' on' : ''}`} data-testid="sheet-edit" onClick={() => { setEditing((v) => !v); setAdding(false); }}>{editing ? 'Done' : 'Arrange'}</button>}
     </span>
   );
@@ -162,7 +169,10 @@ export default function Sheet({ account, page = false }: { account: string; page
               </div>
             )}
             {!editing && !m.collapsed && (
-              m.type === 'dm' ? <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
+              m.type === 'character' ? (m.data?.name ? <CharacterMod c={m.data} onUpdate={ddbOn && (own || isDM) ? () => setImporting({ url: m.data.url ?? '' }) : undefined} />
+                : <span className="tiny muted">{!ddbOn ? 'The DM turns on the D&D Beyond import under House rules.' : own ? <button type="button" className="btn small" onClick={() => setImporting({ url: '' })}>Import from D&amp;D Beyond</button> : 'No character imported yet.'}</span>)
+              : m.type === 'stats' ? <StatsMod entries={m.data?.entries ?? []} readOnly={!own} onChange={(entries, wait) => update(m.id, { data: { entries } }, wait)} />
+              : m.type === 'dm' ? <FromDm account={own ? me : account} notes={s.fromDm ?? []} dm={isDM && !own} onChanged={() => void sheet.reload()} />
               : m.type === 'rerolls' ? <RerollMod account={own ? 'me' : account} r={s.rerolls ?? { on: false }} dm={isDM && !own} onChanged={() => void sheet.reload()} />
               : m.type === 'vitals' ? <Vitals s={s} onChange={vitals} busy={act.busy} />
               : m.type === 'mana' ? (manaOn ? <ManaMod s={s} onChange={mana} busy={act.busy} name={pool} /> : <p className="tiny muted">{pool} is off in this world.</p>)
@@ -198,10 +208,36 @@ export default function Sheet({ account, page = false }: { account: string; page
             <button type="button" className="btn grow" onClick={() => setAdding(true)} data-testid="sheet-add">＋ Add a module</button>
             <button type="button" className="btn" onClick={() => persist(byRank(mods), 0)} title="Health and mana first, then what you use most">Sort like the default</button>
           </div>)}
+      {importing && <ImportModal account={account} own={own} dm={isDM} url={importing.url} onClose={() => setImporting(null)}
+        onDone={(msg) => { setImporting(null); setMods(null); void sheet.reload(); toast(msg); }} />}
       {asking && <AskModal subject={asking} onClose={() => setAsking(null)} />}
       {adding1 && <PersonModal person={adding1} onClose={() => setAdding1(null)} onSave={(p) => { saveContact(p); setAdding1(null); }} />}
       {!mods.length && <Empty>This sheet has no modules. {own ? 'Tap Arrange to add some.' : ''}</Empty>}
       {toastNode}
+    </div>
+  );
+}
+
+// ---- stats: the numbers a player looks up all game ----
+
+function StatsMod({ entries, readOnly, onChange }: { entries: { id: string; label: string; value: string }[]; readOnly: boolean; onChange: (e: { id: string; label: string; value: string }[], wait?: number) => void }) {
+  const [tweak, setTweak] = useState(false);
+  const [draft, setDraft] = useState('');
+  const shown = readOnly ? entries.filter((e) => e.value) : entries;
+  const addOne = () => { const n = draft.trim(); if (!n || entries.some((e) => e.label.toLowerCase() === n.toLowerCase())) return; onChange([...entries, { id: uid(), label: n, value: '' }], 0); setDraft(''); };
+  return (
+    <div className="stack tight" data-testid="stats">
+      {!shown.length && <span className="tiny muted">{readOnly ? 'Nothing filled in yet.' : 'No stats yet.'}</span>}
+      <div className="sht-kv">{shown.map((e) => (
+        <div key={e.id}>
+          <span className="tiny faint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.label}>{e.label}</span>
+          {readOnly ? <strong>{e.value}</strong>
+            : <input className="sht-in" aria-label={e.label} value={e.value} maxLength={24} placeholder="—" onChange={(ev) => onChange(entries.map((x) => (x.id === e.id ? { ...x, value: ev.target.value } : x)), 800)} />}
+          {!readOnly && tweak && <button type="button" className="btn small ghost" aria-label={`Remove ${e.label}`} onClick={() => onChange(entries.filter((x) => x.id !== e.id), 0)}>✕</button>}
+        </div>
+      ))}</div>
+      {!readOnly && <button type="button" className={`btn small ghost${tweak ? ' on' : ''}`} style={{ alignSelf: 'flex-end' }} aria-pressed={tweak} onClick={() => setTweak((v) => !v)}><i className="fa-solid fa-sliders" aria-hidden="true" /> {tweak ? 'Done' : 'Edit rows'}</button>}
+      {!readOnly && tweak && <div className="row" style={{ gap: 4 }}><input className="sht-in" style={{ flex: 1 }} placeholder="Add a row (Jump distance, Ki save DC…)" aria-label="New stat" value={draft} maxLength={30} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addOne(); }} /><button type="button" className="btn small" disabled={!draft.trim()} onClick={addOne}>Add</button></div>}
     </div>
   );
 }
