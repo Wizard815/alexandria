@@ -174,6 +174,8 @@ function ImportModal({ onClose }: { onClose: () => void }) {
   const [done, setDone] = useState<any>(null);
   const mods = useLoad<any>(() => w.call('GET', '/modules'), [w]);
   const body = () => ({ type, ...(type === 'json' ? { json: text } : type === 'csv' ? { csv: text } : type === 'module' ? { moduleId } : { folder }), ...(source.trim() ? { source: source.trim() } : {}), replace, public: makePublic });
+  // Nothing to read yet (no text, module or folder): Preview waits instead of asking the server for an error.
+  const ready = type === 'json' || type === 'csv' ? text.trim() !== '' : type === 'module' ? moduleId !== '' : folder.trim() !== '';
   const file = async (fl: File | undefined) => { if (fl) { setText(await fl.text()); if (!source) setSource(fl.name.replace(/\.(json|csv)$/i, '')); setPreview(null); } };
   return (
     <Modal title="Import spells" onClose={onClose}>
@@ -197,7 +199,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
         <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Replace spells with the same name and source</label>
         <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={makePublic} onChange={(e) => setMakePublic(e.target.checked)} /> Players may read them</label>
         <div className="row end">
-          <button type="button" className="btn" disabled={act.busy} onClick={() => void act.run(async () => setPreview(await w.call('POST', '/spells/import/preview', body())))}>Preview</button>
+          <button type="button" className="btn" disabled={act.busy || !ready} onClick={() => void act.run(async () => setPreview(await w.call('POST', '/spells/import/preview', body())))}>Preview</button>
           <button type="button" className="btn primary" disabled={act.busy || !preview} onClick={() => void act.run(async () => setDone(await w.call('POST', '/spells/import', body())))}>Import</button>
         </div>
         {preview && <div className="note"><strong>{preview.count} spells</strong> from {preview.source}{preview.duplicates ? `, ${preview.duplicates} already here` : ''}. {preview.sample.map((s: any) => s.name).join(', ')}{preview.warnings.length ? <ul>{preview.warnings.slice(0, 8).map((x: string, i: number) => <li key={i} className="tiny">{x}</li>)}</ul> : null}</div>}

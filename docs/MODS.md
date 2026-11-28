@@ -41,6 +41,7 @@ every world.
 | Simple mana pool | magic | Alexandria's own mana numbers (4 per level plus the casting modifier). |
 | MANA spell system | magic | Wizard's MANA rules. Needs the MANA engine (`spellRulesOn`); until it is on this server the rule shows but cannot be turned on. |
 | Spell crafting (Codex) | | Learn new spells by combining known ones, with the GM's approval or automatically. |
+| D&D Beyond import | | Import on the player sheet reads a public D&D Beyond character into the Character and Stats modules, HP, counters and Inventory (`sheetDdbImport`). Unofficial: D&D Beyond has no official API, so it can break without notice; it never writes back. |
 | DownTime | | Downtime activities from common to legendary: the GM presses Downtime when days pass and each player picks what to work on. See [DOWNTIME.md](DOWNTIME.md). |
 
 Table rules, the house rules 5e tables use most (from house-rule surveys and
@@ -204,6 +205,10 @@ its `assistant` part), they get a short note with:
 
 - the rule's summary and the guidance written for them. The GM's text is
   only for the GM, and the player's text only for players.
+- the rule text itself (its `rules` entries, in plain words). So a rule with
+  no `assistant` part, such as one downloaded or written by hand, still
+  explains itself: asked "what happens if my corruption keeps going up?", the
+  player helper answers from the rule's own text.
 - the exact calls they can make with it, such as
   `house_rule_my_record {"mod":"downtime-lite","action":"start","values":{"activity":...}}`.
 - what they may see now. The GM sees every record and counter. A player sees
@@ -239,6 +244,22 @@ proposed opening the Downtime day (`web/e2e/houserule-helpers-real.mjs`).
 What goes wrong: a word that is too common (`day`, `rest`) brings the rule
 into messages that are not about it. Use phrases. At most three rules are
 added to one message.
+
+The `house_rules` tool gives the assistant a short list: the rules that are
+on, the GM's own and imported ones first, and only the names of the rest.
+The full list runs to tens of kilobytes with thirty rules, and a tool result
+is cut long before that, which used to hide a new rule at the end.
+
+### New things piling up
+
+`web/e2e/buildup-real.mjs` (real models, about half a cent) turns on most
+shipped rules, then over four sessions adds a new rule with no `assistant`
+part, a new item, and a templates pack. After each one, a fresh chat must use
+it, and the last session asks for all of them at once and asks "what have I
+added lately?". The `whats_new` tool answers that from the audit log: house
+rules added or turned on, items, templates and guides, game modules and
+spells. A new item the GM names in a message comes with its item database
+entry (see SHOPS.md).
 
 ## Making one with the assistant (the Mod studio)
 

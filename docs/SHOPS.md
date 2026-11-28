@@ -233,6 +233,16 @@ write tool; `set_shop_status` and `present_shop` always ask, even in Auto
 mode). Players' agents only
 get `list_shops` and `read_shop`, with the player view.
 
+New items reach the assistant without new words in its tool picker. When a
+GM's message names an item in the database (a whole name of six letters or
+more, such as "Emberglass Lantern"), the assistant gets that item's entry
+(price, properties, description, GM notes, id), the item tools, and the
+players' account ids for `add_item`. A player's table helper gets the
+database entry for each item the player or the party holds: type, rarity,
+properties and description, never the GM notes or the price. To keep an item
+a mystery, give it under another name ("smoky red lantern") until the party
+learns what it is.
+
 ## Encounters
 
 An NPC encounter can end with "show me your wares" and open a shop for the

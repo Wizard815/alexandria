@@ -41,6 +41,7 @@ for the format.
 | `faction-renown.alxmod.json` | Faction renown | The party's renown and rank with each faction. (data system) |
 | `training.alxmod.json` | Training | Learn a language or a tool over days of training. (data system) |
 | `hirelings.alxmod.json` | Hirelings | The party's hirelings with their job, wage and loyalty. (data system) |
+| `dndbeyond-import.alxmod.json` | D&D Beyond import | Import on the player sheet: Character and Stats modules, HP, counters, items (sheet feature; unofficial) |
 
 `examples/` holds rules that are not built in. The assistant reads them as
 patterns when it makes a rule for you (`house_rule_file`), and you can paste

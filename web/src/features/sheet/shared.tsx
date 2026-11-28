@@ -4,7 +4,7 @@ import { timeShort, dateLong } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, Loading } from '../../ui/index.tsx';
 
-export type ModuleType = 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'gm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list' | 'downtime';
+export type ModuleType = 'character' | 'stats' | 'vitals' | 'mana' | 'rerolls' | 'inventory' | 'gm' | 'contacts' | 'notes' | 'recent' | 'text' | 'counters' | 'list' | 'downtime';
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 export interface Mana { on: boolean; now?: number | null; max?: number | null }
 export interface Sheet {
@@ -18,6 +18,8 @@ export interface LogLine { id: string; accountId: string; kind: string; before: 
 
 /** The kinds of module a player can add, with what each is for. */
 export const KINDS: { type: ModuleType; label: string; desc: string; icon: string }[] = [
+  { type: 'character', label: 'Character', desc: 'Your character imported from D&D Beyond (house rule, unofficial)', icon: 'fa-id-card' },
+  { type: 'stats', label: 'Stats', desc: 'AC, initiative, speed, passive Perception, spell DC and your own numbers', icon: 'fa-shield-halved' },
   { type: 'vitals', label: 'Health', desc: 'HP, temporary HP and conditions', icon: 'fa-heart-pulse' },
   { type: 'mana', label: 'Mana', desc: 'Your mana pool, when the world uses it', icon: 'fa-droplet' },
   { type: 'rerolls', label: 'Re-rolls', desc: 'Re-roll tokens the GM gives for good role play (house rule)', icon: 'fa-dice' },
@@ -31,7 +33,7 @@ export const KINDS: { type: ModuleType; label: string; desc: string; icon: strin
   { type: 'list', label: 'Checklist', desc: 'Goals, errands, things to remember', icon: 'fa-list-check' },
   { type: 'downtime', label: 'Downtime', desc: 'Your downtime tasks and how far along they are (DownTime house rule)', icon: 'fa-hourglass-half' },
 ];
-export const SINGLE: ModuleType[] = ['vitals', 'mana', 'rerolls', 'inventory', 'gm', 'recent', 'downtime'];
+export const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'gm', 'recent', 'downtime'];
 export const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 export const CONDITIONS = ['Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened', 'Grappled', 'Incapacitated', 'Invisible', 'Paralyzed', 'Petrified', 'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Concentrating', 'Blessed', 'Hasted'];
 
@@ -58,7 +60,7 @@ export function ManaMeter({ mana, small = false }: { mana: Mana; small?: boolean
 }
 
 const KIND_LABEL: Record<string, string> = { hp: 'HP', temp: 'Temp HP', max: 'Max HP', conditions: 'Conditions', mana: 'Mana', reroll: 'Re-roll' };
-const SOURCE_LABEL: Record<string, string> = { sheet: 'sheet', combat: 'combat tracker', gm: 'GM', foundry: 'Foundry', roll20: 'Roll20', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
+const SOURCE_LABEL: Record<string, string> = { import: 'D&D Beyond import', sheet: 'sheet', combat: 'combat tracker', gm: 'GM', foundry: 'Foundry', roll20: 'Roll20', cast: 'cast', adjust: 'adjusted', rest: 'rest', learn: 'learned' };
 
 /** Every HP and mana change, newest first. `account` null: the whole party (GM). */
 export function ChangeLog({ account, limit = 40 }: { account: string | null; limit?: number }) {
@@ -148,6 +150,20 @@ export const CSS = `
 .sht-pname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sht-pnote { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A long list scrolls inside its card instead of stretching the column. */
+.sht-warn { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-bg); color: var(--text); font-size: 13px; line-height: 1.4; }
+.sht-warn i { color: var(--accent); margin-top: 2px; }
+.sht-mod .sht-warn { font-size: 11px; padding: 4px 8px; }
+.sht-mod details > summary { cursor: pointer; color: var(--accent); min-height: 26px; display: flex; align-items: center; gap: 4px; list-style: none; }
+.sht-mod details > summary::-webkit-details-marker { display: none; }
+.sht-mod details > summary::before { content: '▸'; transition: transform .15s; }
+.sht-mod details[open] > summary::before { transform: rotate(90deg); }
+.sht-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 4px; }
+.sht-kv > div { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); min-width: 0; }
+.sht-kv strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+.sht-kv input.sht-in { width: 100%; min-height: 28px; font-weight: 700; }
+.sht-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.sht-stats > div { display: flex; flex-direction: column; align-items: center; padding: 4px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-variant-numeric: tabular-nums; }
+.sht-stats > div.save { border-color: var(--accent); }
 .sht-scroll { max-height: 330px; overflow-y: auto; padding-right: 4px; }
 .sht-gm { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
 .sht-status { display: flex; gap: 8px; overflow-x: auto; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); scrollbar-width: thin; }

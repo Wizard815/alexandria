@@ -98,7 +98,8 @@ const feature: Feature = {
     const viewer = (res: Response): Viewer => ctx(res).viewer;
     const roles = (worldId: string) => all<any>(db, 'SELECT account_id, role FROM members WHERE world_id = ?', worldId).map((m) => ({ accountId: m.account_id as string, role: m.role as Viewer['role'] }));
 
-    const fanout = (worldId: string, channel: Channel, type: string, row: any) => fanoutChat(d, worldId, channel, type, row);
+    /** Send each reader their own view of a message; only readers of the channel get it. */
+    const fanout = (worldId: string, channel: Channel, type: string, row: any) => fanoutTo(d, worldId, channel, type, row);
     const channelOf = (res: Response, raw: unknown, write = false): Channel => {
       if (!isChannel(raw)) throw new HttpError(404, 'No such chat');
       const v = viewer(res);

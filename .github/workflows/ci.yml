@@ -43,6 +43,7 @@ jobs:
           node e2e/leaks.mjs
           node e2e/thoughts.mjs
           node e2e/sheet.mjs
+          node e2e/ddb.mjs
           node e2e/foundry.mjs
           node e2e/roll20.mjs
           node e2e/trades.mjs
