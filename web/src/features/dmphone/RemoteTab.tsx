@@ -11,6 +11,7 @@ import { START_KEY, buzz, lsSet, startsInPhone, useFlash } from './hooks.ts';
 import { useScenes } from '../scenes/useScenes.ts';
 import { OutcomeView } from '../scenes/ScenePanel.tsx';
 import { NavSidePicker } from '../../lib/navSide.tsx';
+import { ZoomPicker } from '../../lib/uiZoom.tsx';
 
 const safe = <T,>(p: Promise<T>, d: T): Promise<T> => p.catch(() => d);
 
@@ -150,6 +151,7 @@ export default function RemoteTab() {
         <span className="tiny">Pads and music play where the desktop is. Turn this on only if this phone is the table speaker.</span>
         <button type="button" className={`b${startPhone ? ' on' : ''}`} aria-pressed={startPhone} data-testid="start-phone" onClick={() => { lsSet(START_KEY, startPhone ? '' : '1'); setStartPhone(!startPhone); }}>{startPhone ? 'This device opens in phone mode' : 'This device opens in the full DM view'}</button>
         <span className="tiny">Where the app lands when it starts here. Switch any time: Full DM at the top left, Phone mode in the DM's top bar.</span>
+        <ZoomPicker />
         <span className="sub">Where the tabs sit</span>
         <NavSidePicker />
       </section>

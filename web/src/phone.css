@@ -6,7 +6,7 @@
 :root { --nav-h: 58px; }
 
 /* The tab bar and More sheet (all widths: the bar itself only shows on phones). */
-.sheet.more { max-height: min(88dvh, calc(100dvh - 24px)); padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; }
+.sheet.more { max-height: min(88dvh, calc(var(--dvh100, 100dvh) - 24px)); padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; }
 .sheet-handle { width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); align-self: center; flex: 0 0 auto; margin: 2px 0 4px; }
 .sheet-top { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
 .sheet-top .input { flex: 1 1 auto; min-width: 0; }
@@ -105,7 +105,7 @@
 
   /* ---- pop-ups become bottom sheets ---- */
   .player .modal-back { align-items: flex-end; padding: 0; overflow: hidden; }
-  .player .modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; max-height: calc(100dvh - 24px - var(--safe-top)); overflow-y: auto; overscroll-behavior: contain; padding: 6px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transition: transform 0.1s; animation: sheet-up 0.18s ease-out; }
+  .player .modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; max-height: calc(var(--dvh100, 100dvh) - 24px - var(--safe-top)); overflow-y: auto; overscroll-behavior: contain; padding: 6px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transition: transform 0.1s; animation: sheet-up 0.18s ease-out; }
   .player .modal-grip { display: block; width: 56px; height: 24px; margin: 0 auto -6px; touch-action: none; cursor: grab; position: sticky; top: 0; z-index: 1; background: transparent; }
   .player .modal-grip::after { content: ''; display: block; width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); margin: 10px auto 0; }
   @keyframes sheet-up { from { transform: translateY(40px); opacity: 0.6; } to { transform: none; opacity: 1; } }

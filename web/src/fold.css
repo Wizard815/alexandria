@@ -75,7 +75,7 @@
   .dmx-brand { max-width: 34vw; }
   .dmx-search, .dmx-session, .dmx-end .btn, .dmx-end .icon-btn, .dmx-brand { min-height: 44px; min-width: 44px; }
   .dmx-search { height: 44px; }
-  .dmx-rail { position: sticky; top: calc(56px + var(--safe-top)); left: auto; right: auto; bottom: auto; height: calc(100dvh - 56px - var(--safe-top)); flex: 0 0 var(--rail-w); flex-direction: column; gap: 6px; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 0; border-right: 1px solid var(--line); z-index: 25; }
+  .dmx-rail { position: sticky; top: calc(56px + var(--safe-top)); left: auto; right: auto; bottom: auto; height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top)); flex: 0 0 var(--rail-w); flex-direction: column; gap: 6px; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 0; border-right: 1px solid var(--line); z-index: 25; }
   .dmx-area { flex: 0 0 auto; min-height: 64px; justify-content: center; padding: 6px 2px; font-size: 12.5px; border-radius: 12px; }
   .dmx-area i { font-size: 20px; }
   .dmx-tabs { position: sticky; top: calc(56px + var(--safe-top)); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 4px 12px; }
@@ -86,13 +86,13 @@
   html body:has(.dmx-rail) .dock-panel { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
   .dmx .page { padding: 14px 18px var(--dock-reserve); }
   .dmx .cols > .col-2 { flex: 2 1 340px; } .dmx .cols > .col-3 { flex: 3 1 440px; }
-  .dmx .lib-tree { height: calc(100dvh - 260px); }
+  .dmx .lib-tree { height: calc(var(--dvh100, 100dvh) - 260px); }
   .dmx-end .dmx-phone-btn { display: inline-flex; }
   .dmx-phone-btn span { display: inline; }
   /* Workspace layouts (panes side by side) work here, unlike on a phone. */
   .dmx-ws { display: inline-flex; }
-  .dmx .main.main-ws { height: calc(100dvh - 56px - var(--safe-top) - 53px); min-height: 0; }
-  :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx .main.main-ws { height: calc(100dvh - 56px - var(--safe-top) - 53px - 57px); }
+  .dmx .main.main-ws { height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top) - 53px); min-height: 0; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .dmx .main.main-ws { height: calc(var(--dvh100, 100dvh) - 56px - var(--safe-top) - 53px - 57px); }
   .set-shell { grid-template-columns: 180px minmax(0, 1fr); } .set-nav { position: sticky; top: 120px; } .set-list { flex-direction: column; } .set-link { min-height: 44px; }
 }
 
@@ -132,7 +132,7 @@
   :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav.bottomnav > :is(a, button) { flex: 1 1 0; min-height: var(--nav-h); width: auto; min-width: 0; margin: 0; justify-content: center; gap: 2px; padding: 4px 2px; border-radius: 0; font: 500 12px var(--font); white-space: nowrap; flex-direction: column; }
   :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav :is(a.active, button.active) { background: none; }
   :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .bottomnav .icon { font-size: 19px; line-height: 22px; }
-  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .sheet-backdrop .sheet.more { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: min(88dvh, calc(100dvh - 24px)); border: 0; border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0; padding-top: 8px; }
+  :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .sheet-backdrop .sheet.more { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: min(88dvh, calc(var(--dvh100, 100dvh) - 24px)); border: 0; border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0; padding-top: 8px; }
   :root:is([data-nav-side=top], [data-nav-side=bottom]) .player .sheet.more .sheet-handle { display: block; }
   :root[data-nav-side=bottom] .player .bottomnav { top: auto; bottom: 0; border-top: 1px solid var(--line-strong); border-bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
   :root[data-nav-side=bottom] .player .bottomnav.kb-open { transform: translateY(100%); }
@@ -151,7 +151,7 @@
   :root[data-nav-side=top] { scroll-padding-top: calc(var(--top-h, 52px) + var(--nav-h) + 16px); }
 
   /* -- DM: the area rail (left or right) -- */
-  :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-rail { position: sticky; top: var(--top-h, 48px); left: auto; right: auto; bottom: auto; height: calc(100dvh - var(--top-h, 48px)); width: auto; flex: 0 0 var(--rail-w); flex-direction: column; gap: 6px; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 0; border-bottom: 0; z-index: 25; }
+  :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-rail { position: sticky; top: var(--top-h, 48px); left: auto; right: auto; bottom: auto; height: calc(var(--dvh100, 100dvh) - var(--top-h, 48px)); width: auto; flex: 0 0 var(--rail-w); flex-direction: column; gap: 6px; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 0; border-bottom: 0; z-index: 25; }
   :root:is([data-nav-side=left], [data-nav-side=right]) .dmx-area { flex: 0 0 auto; min-height: 64px; justify-content: center; padding: 6px 2px; font-size: 12.5px; border-radius: 12px; }
   :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) { --dock-reserve: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
   :root:is([data-nav-side=left], [data-nav-side=right]) body:has(.dmx-rail) .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
@@ -182,3 +182,11 @@
 .nav-side .btn { flex: 1 1 auto; }
 .dmx-menu .nav-side { padding: 0 8px 6px; }
 .dmx-menu-h { padding: 6px 8px 0; }
+
+/* Screen size (lib/uiZoom.tsx): this device's zoom, in the More sheet, the DM's world menu and the phone assistant. */
+.ui-zoom { display: flex; flex-direction: column; gap: 6px; }
+.ui-zoom-label { font-size: 14px; }
+.ui-zoom-row { display: flex; align-items: center; gap: 6px; }
+.ui-zoom-val { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent-strong); }
+.dmx-menu .ui-zoom { padding: 6px 8px; }
+.dmp .ui-zoom .btn { min-height: 48px; min-width: 48px; }

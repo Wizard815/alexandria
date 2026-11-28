@@ -10,6 +10,7 @@ import { ShareHost, openShare } from '../features/sourcekeys/ShareButton.tsx';
 import { setWorkspaceHidden, workspaceHidden } from '../lib/workspace.ts';
 import { DMRail, DMTabs } from './DMMenu.tsx';
 import { NavSidePicker, useNavSide, useTopHeight } from '../lib/navSide.tsx';
+import { ZoomPicker } from '../lib/uiZoom.tsx';
 import { SessionButton } from './SessionButton.tsx';
 
 // Search has its own wide box in this bar, so its small button is left out.
@@ -93,6 +94,7 @@ function AccountMenu({ connected }: { connected: boolean }) {
           <Link role="menuitem" to="/">Your worlds</Link>
           {me?.account.is_admin && <Link role="menuitem" to="/admin">Library admin</Link>}
           <button type="button" role="menuitem" data-testid="ws-toggle" onClick={() => { setWorkspaceHidden(!workspaceHidden()); setOpen(false); }}>{workspaceHidden() ? 'Show workspaces' : 'Hide workspaces'}</button>
+          <ZoomPicker />
           <span className="tiny faint dmx-menu-h">Menu on a phone or foldable</span>
           <NavSidePicker />
           <button type="button" role="menuitem" onClick={() => void signOut()}>Sign out</button>
