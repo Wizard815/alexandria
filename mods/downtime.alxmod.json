@@ -7,8 +7,16 @@
   "summary": "Downtime activities from common to legendary. The DM presses Downtime when days pass and each player picks what to spend them on, skips, or makes a new activity. Progress, rewards and a log of what was done, when and for how long.",
   "alexandria": ">=0.1",
   "targets": {
-    "builtFor": ["clock"],
-    "worksWith": ["sheet", "table", "codex", "assistant", "inventory"]
+    "builtFor": [
+      "clock"
+    ],
+    "worksWith": [
+      "sheet",
+      "table",
+      "codex",
+      "assistant",
+      "inventory"
+    ]
   },
   "options": {
     "dayHours": {
@@ -41,6 +49,21 @@
       "default": false,
       "label": "Give rewards as soon as a task is done",
       "help": "Off: the DM presses Give reward."
+    },
+    "eventChance": {
+      "type": "int",
+      "label": "Chance of a random event per downtime day (percent, 0 turns them off)",
+      "default": 10,
+      "min": 0,
+      "max": 100
+    },
+    "travelHours": {
+      "type": "int",
+      "default": 2,
+      "min": 0,
+      "max": 8,
+      "label": "Hours a day for downtime on travel days",
+      "help": "On the road a character has only a little time to read, practise or pray. 0: no downtime while travelling."
     }
   },
   "presets": {
@@ -98,6 +121,21 @@
         },
         "tags": [
           "craft"
+        ]
+      },
+      {
+        "id": "pre-cellar",
+        "name": "Clean out a cellar",
+        "tier": "common",
+        "summary": "Odd jobs: clear out a cellar, a stable or a storeroom for coin. Things live down there.",
+        "reward": {
+          "text": "Pay for the job",
+          "gp": 1
+        },
+        "tags": [
+          "money",
+          "work",
+          "chores"
         ]
       },
       {
@@ -331,12 +369,14 @@
           "group"
         ]
       }
-    ]
+    ],
+    "downtimeEventChance": "$eventChance",
+    "downtimeTravelHours": "$travelHours"
   },
   "rules": [
     {
       "term": "Downtime (house rule)",
-      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the DM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the DM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The DM can add or take away time, stop a task midway, and set a reward for finishing. **Personal** activities are one character's own; **group** activities (a stronghold, a business, party training) are shared: anyone in the party can put days into them, their progress is pooled, and the reward goes to the party."
+      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the DM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the DM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The DM can add or take away time, stop a task midway, and set a reward for finishing. **Travel days** give only a couple of hours a day to downtime (reading, practice, prayer by the campfire). **Random events** can happen on a downtime day (about 1 in 10 by default): a quick-time check with a bonus on a success and a cost on a failure. **Personal** activities are one character's own; **group** activities (a stronghold, a business, party training) are shared: anyone in the party can put days into them, their progress is pooled, and the reward goes to the party."
     }
   ]
 }

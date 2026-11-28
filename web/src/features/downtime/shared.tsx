@@ -6,7 +6,7 @@ export type Tier = 'common' | 'uncommon' | 'rare' | 'very-rare' | 'legendary';
 export interface Reward { text: string; cp: number; item: string; qty: number; hidden: boolean }
 export interface Activity {
   id: string; name: string; summary: string; tier: Tier; tierLabel: string; days: number | null; daysNeeded: number; hoursPerDay: number;
-  repeatable: boolean; group: boolean; reward: Reward | { hidden: true }; link: { kind: string; ref?: string } | null; tags: string[];
+  repeatable: boolean; group: boolean; events: EventDef[]; eventChance: number | null; reward: Reward | { hidden: true }; link: { kind: string; ref?: string } | null; tags: string[];
   source: 'premade' | 'dm' | 'player'; status: 'ok' | 'proposed' | 'hidden'; createdBy: string | null; changed: boolean;
 }
 export interface Task {
@@ -19,11 +19,24 @@ export interface Task {
   scope: 'personal' | 'group'; members: string[]; memberNames?: string[];
   contributions: { accountId: string; name?: string; minutes: number; label: string }[];
 }
+export interface Outcome { text: string; cp: number; item: string; qty: number; days: number; damage: number; heal: number; exhaustion: number; noReward?: boolean }
+export interface EventDef { id?: string; title: string; text: string; check: string; dc: number; success: Outcome; failure: Outcome; weight?: number; /** The event pack (house rule) that adds it. */ pack?: string }
+export interface DtEvent extends EventDef {
+  id: string; roundId: string | null; taskId: string; task: string; accountId: string; player?: string;
+  status: 'pending' | 'success' | 'failure' | 'cancelled'; roll: number | null; total: number | null; note: string; createdAt: string;
+}
+export const NO_OUTCOME: Outcome = { text: '', cp: 0, item: '', qty: 1, days: 0, damage: 0, heal: 0, exhaustion: 0, noReward: false };
+export const outcomeText = (o: Outcome | undefined): string => (!o ? '' : [
+  o.text.replace(/[.!]+$/, ''), o.cp ? `${o.cp > 0 ? '+' : '−'}${Math.abs(o.cp) / 100} gp` : '', o.item ? `${o.qty > 1 ? `${o.qty} × ` : ''}${o.item}` : '',
+  o.days ? `${o.days > 0 ? '+' : '−'}${Math.abs(o.days)} day${Math.abs(o.days) === 1 ? '' : 's'} of progress` : '',
+  o.damage ? `${o.damage} damage` : '', o.heal ? `${o.heal} HP back` : '', o.exhaustion ? `${o.exhaustion > 0 ? '+' : '−'}${Math.abs(o.exhaustion)} exhaustion` : '', o.noReward ? 'the job fails, no reward' : '',
+].filter(Boolean).join(', '));
+
 export interface Answer { accountId: string; name: string; waiting?: boolean; skipped?: boolean; picks?: { taskId: string; days: number; name: string }[]; at?: string }
-export interface Round { id: string; days: number; hours: number; status: 'open' | 'closed' | 'cancelled'; note: string; worldLabel: string; createdAt: string; answers?: Answer[]; mine?: Answer | null }
+export interface Round { id: string; days: number; hours: number; kind?: 'downtime' | 'travel'; hoursPerDay?: number; status: 'open' | 'closed' | 'cancelled'; note: string; worldLabel: string; createdAt: string; answers?: Answer[]; mine?: Answer | null }
 export interface Overview {
   on: boolean; dayHours: number; playerNew: 'approve' | 'free' | 'off'; advanceClock: boolean; now: string;
-  tiers: { id: Tier; label: string; days: number }[]; round: Round | null; tasks: Task[]; waitingRewards?: number; proposals?: number;
+  tiers: { id: Tier; label: string; days: number }[]; round: Round | null; tasks: Task[]; events?: DtEvent[]; waitingRewards?: number; proposals?: number;
 }
 export interface LogLine { id: string; at: string; worldDate: string; accountId: string; player: string; taskId: string | null; task: string; kind: string; minutes: number; time: string; by: string; note: string; undone: boolean }
 export interface Ranked { id: string; name: string; tier: Tier; tierLabel: string; days: number; hoursPerDay: number; why: string }
@@ -38,7 +51,7 @@ export function GroupChip() {
   return <span className="dt-group" title="A group activity: the whole party shares it"><i className="fa-solid fa-people-group" aria-hidden="true" /> Group</span>;
 }
 
-export const EVENTS = ['downtime', 'downtime-round', 'downtime-done', 'settings', 'clock'];
+export const EVENTS = ['downtime', 'downtime-round', 'downtime-done', 'downtime-event', 'settings', 'clock'];
 
 export function useDowntime(player?: string | null) {
   const { w } = useWorld();
@@ -63,7 +76,7 @@ export const rewardText = (r: Task['reward']): string => ('text' in r ? [r.text,
 
 export const KIND_LABEL: Record<string, string> = {
   start: 'Started', work: 'Worked', time: 'Time changed', skip: 'Skipped', missed: 'No pick', pause: 'Paused', resume: 'Back to it',
-  remove: 'Stopped', edit: 'Changed', approve: 'Approved', complete: 'Finished', reward: 'Reward given', join: 'Joined', leave: 'Left',
+  remove: 'Stopped', edit: 'Changed', approve: 'Approved', complete: 'Finished', reward: 'Reward given', join: 'Joined', leave: 'Left', event: 'Event',
 };
 
 export const CSS = `
@@ -81,5 +94,9 @@ export const CSS = `
 .dt-log .undone { text-decoration: line-through; opacity: .6; }
 .dt-group { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 0 8px; font-size: 11px; background: var(--accent-soft, rgba(59,125,216,.15)); color: var(--accent, #3b7dd8); white-space: nowrap; }
 .dt-scope { margin: 8px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #888); display: flex; align-items: center; gap: 6px; }
+.dt-event { border: 1px solid var(--accent, #3b7dd8); border-radius: 10px; padding: 12px; display: grid; gap: 6px; }
+.dt-event.success { border-color: #3f9d5a; }
+.dt-event.failure { border-color: var(--danger, #c33); }
+.dt-stakes { display: grid; gap: 2px; font-size: 13px; }
 .dt-chip { position: fixed; right: 16px; bottom: 76px; z-index: 40; }
 `;

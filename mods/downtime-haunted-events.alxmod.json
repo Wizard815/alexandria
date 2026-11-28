@@ -1,0 +1,190 @@
+{
+  "kit": 2,
+  "id": "downtime-haunted-events",
+  "name": "Haunted town events",
+  "version": "1.0.0",
+  "author": "Alexandria",
+  "summary": "An event pack for DownTime: ghostly random events for a haunted town. Turn it on with DownTime and they join the cellar, temple, tavern, work and rumour lists, and the general list.",
+  "requires": {
+    "mods": {
+      "downtime": "*"
+    }
+  },
+  "content": {
+    "downtimeEvents": {
+      "_general": [
+        {
+          "id": "church-bell",
+          "title": "The bell at midnight",
+          "text": "The church bell rings thirteen times.",
+          "check": "Wisdom",
+          "dc": 13,
+          "success": "You keep your nerve and sleep.",
+          "failure": {
+            "text": "You lie awake listening.",
+            "days": -1
+          }
+        },
+        {
+          "id": "wrong-reflection",
+          "title": "A wrong reflection",
+          "text": "Your reflection blinks a moment after you do.",
+          "check": "Religion",
+          "dc": 14,
+          "success": "A quick prayer and it behaves.",
+          "failure": {
+            "text": "You can't stop shaking all day.",
+            "days": -1
+          }
+        },
+        {
+          "id": "lantern-man",
+          "title": "The lantern man",
+          "text": "A figure with a lantern waits at the crossroads.",
+          "check": "Insight",
+          "dc": 14,
+          "success": {
+            "text": "You give him a coin and he points you the safe way.",
+            "gp": -1
+          },
+          "failure": {
+            "text": "You follow him into the marsh.",
+            "damage": 3,
+            "days": -1
+          }
+        },
+        {
+          "id": "whispering-well",
+          "title": "The whispering well",
+          "text": "The town well whispers names.",
+          "check": "Arcana",
+          "dc": 13,
+          "success": "You hear one you know (DM's choice).",
+          "failure": {
+            "text": "You hear your own.",
+            "exhaustion": 1
+          }
+        }
+      ],
+      "pre-cellar": [
+        {
+          "id": "walled-up",
+          "title": "A walled-up door",
+          "text": "Fresh mortar on an old wall.",
+          "check": "Investigation",
+          "dc": 14,
+          "success": {
+            "text": "Behind it, an old shrine and an offering bowl.",
+            "gp": 6
+          },
+          "failure": "Something knocks back."
+        },
+        {
+          "id": "crying-child",
+          "title": "Crying in the dark",
+          "text": "A child is crying behind the barrels. There is no child.",
+          "check": "Wisdom",
+          "dc": 14,
+          "success": "You finish the job with the lantern turned up.",
+          "failure": {
+            "text": "You flee the cellar. The job isn't done.",
+            "noReward": true
+          }
+        },
+        {
+          "id": "grave-rats",
+          "title": "Grave rats",
+          "text": "These rats have eyes like candle flames.",
+          "check": "Athletics",
+          "dc": 14,
+          "success": {
+            "text": "You drive them into the light and they burn away.",
+            "gp": 8
+          },
+          "failure": {
+            "text": "They chase you up the stairs.",
+            "damage": 4,
+            "noReward": true
+          }
+        }
+      ],
+      "pre-pray": [
+        {
+          "id": "empty-pews",
+          "title": "Empty pews",
+          "text": "The congregation stares straight ahead and never blinks.",
+          "check": "Religion",
+          "dc": 15,
+          "success": {
+            "text": "You break the spell with a blessing.",
+            "heal": 4
+          },
+          "failure": {
+            "text": "You run before the sermon ends.",
+            "days": -1
+          }
+        },
+        {
+          "id": "bleeding-candle",
+          "title": "A bleeding candle",
+          "text": "The candle wax runs red.",
+          "check": "Religion",
+          "dc": 14,
+          "success": "You read the warning (DM's choice).",
+          "failure": "It stains your hands for a week."
+        }
+      ],
+      "pre-carouse": [
+        {
+          "id": "dead-mans-round",
+          "title": "A dead man's round",
+          "text": "A stranger buys drinks for the house. He was buried last week.",
+          "check": "Insight",
+          "dc": 15,
+          "success": {
+            "text": "You toast him, and he leaves you his purse.",
+            "gp": 10
+          },
+          "failure": {
+            "text": "You drink with him until dawn.",
+            "exhaustion": 1
+          }
+        }
+      ],
+      "pre-work": [
+        {
+          "id": "night-shift",
+          "title": "The night shift",
+          "text": "The foreman asks who will stay after dark.",
+          "check": "Constitution",
+          "dc": 13,
+          "success": {
+            "text": "You stay, and the pay is double.",
+            "gp": 4
+          },
+          "failure": {
+            "text": "You see something on the stairs and quit early.",
+            "days": -1
+          }
+        }
+      ],
+      "pre-rumours": [
+        {
+          "id": "missing-folk",
+          "title": "The missing",
+          "text": "Three people have gone missing this month.",
+          "check": "Investigation",
+          "dc": 14,
+          "success": {
+            "text": "You find what links them (DM's choice).",
+            "days": 1
+          },
+          "failure": {
+            "text": "Someone tells you to stop asking.",
+            "damage": 2
+          }
+        }
+      ]
+    }
+  }
+}

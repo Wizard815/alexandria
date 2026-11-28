@@ -20,13 +20,15 @@ import { ctx, isDM, me, memberIds, names, settings } from '../../routes/_shared.
 import * as clock from '../clock/api.ts';
 import { postChat } from '../sessionchat/hooks.ts';
 import type { Feature } from '../types.ts';
-import { DEFAULT_TIER_DAYS, MAX_DAYS, TIERS, TIER_LABEL, checkActivity, checkPremade, checkReward, checkTierDays, hasReward, tierOf, type Activity } from './catalog.ts';
+import { DEFAULT_TIER_DAYS, MAX_DAYS, MAX_EVENTS, TIERS, TIER_LABEL, checkActivity, checkEvents, checkPremade, checkReward, checkTierDays, hasReward, tierOf, type Activity } from './catalog.ts';
 import './codex.ts';
 import { linkHandlers } from './hooks.ts';
+import { PACK_KEY, checkPack } from './library.ts';
 import {
-  PARTY, SCHEMA, activities, activity, addWork, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
+  PARTY, SCHEMA, activities, activity, addWork, migrateRounds, applyPick, dayHours, daysFor, editTask, isOn, listTasks, mustTask, openRound, removeActivity, roundOut, roundRow,
   isGroup, saveActivity, setMember, setStatus, span, startTask, taskOut, taskRow, tierDays, tx, undoPick, updateActivity, worldSettings, writeLog, type ActivityRow, type DayPick,
 } from './store.ts';
+import { EVENTS_SCHEMA, announce, cancelPending, eventOut, eventRow, outcomeText, resolveEvent, rollForPick, takeBackEvents } from './events.ts';
 import { decideTier, rankActivities } from './suggest.ts';
 
 const enc = encodeURIComponent;
@@ -161,6 +163,7 @@ function routes(d: Deps) {
       ...base,
       round: round ? roundOut(db, w, round, viewer(res), nm, players(w)) : null,
       tasks,
+      events: all<any>(db, `SELECT * FROM downtime_events WHERE world_id = ? AND status = 'pending'${aid ? ' AND account_id = ?' : ''} ORDER BY created_at`, w, ...(aid ? [aid] : [])).map((x) => ({ ...eventOut(x), player: nm[x.account_id] ?? '' })),
       ...(dm ? { waitingRewards: listTasks(db, w, { status: 'done' }).filter((x) => !x.reward_given_at && hasReward(checkReward(parseJson(x.reward, {})))).length, proposals: tasks.filter((t) => t.status === 'proposed').length } : {}),
     });
   });
@@ -311,7 +314,9 @@ function routes(d: Deps) {
   function afterFinish(w: string, row: any) {
     if (!row || row.status !== 'done' || row.reward_given_at) return;
     const rw = checkReward(parseJson(row.reward, {}));
-    if (hasReward(rw) && featureSetting<boolean>(worldSettings(db, w), 'downtimeAutoReward') === true) giveReward(w, row, row.created_by ?? me0(w), 'given at once');
+    // An event still waiting on the task may fail the job: the reward waits for it.
+    const waiting = one(db, "SELECT 1 FROM downtime_events WHERE world_id = ? AND task_id = ? AND status = 'pending'", w, row.id);
+    if (hasReward(rw) && !waiting && featureSetting<boolean>(worldSettings(db, w), 'downtimeAutoReward') === true) giveReward(w, row, row.created_by ?? me0(w), 'given at once');
     hub.emit(w, 'downtime-done', { accountId: row.account_id, taskId: row.id, name: row.name, group: isGroup(row) }, isGroup(row) ? everyone : dmAnd(row.account_id));
   }
   const me0 = (w: string) => one<any>(db, "SELECT account_id FROM members WHERE world_id = ? AND role = 'dm' LIMIT 1", w)?.account_id ?? null;
@@ -362,11 +367,20 @@ function routes(d: Deps) {
     if (!Number.isInteger(days) || days < 1 || days > 365) throw new HttpError(400, 'days must be a whole number from 1 to 365');
     const advance = typeof req.body?.advance === 'boolean' ? req.body.advance : featureSetting<boolean>(S(res), 'downtimeAdvanceClock') !== false;
     const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 300) : '';
+    // Travel days: on the road, only a few hours a day go to downtime (the world's downtimeTravelHours, or { hours }).
+    const travel = req.body?.travel === true || req.body?.kind === 'travel';
+    let dayMin: number | null = null;
+    if (travel) {
+      const h = req.body?.hours === undefined || req.body?.hours === null ? Number(featureSetting<number>(S(res), 'downtimeTravelHours') ?? 2) : Number(req.body.hours);
+      if (!Number.isInteger(h) || h < 0 || h > dayHours(S(res))) throw new HttpError(400, `hours must be a whole number from 1 to ${dayHours(S(res))}`);
+      if (h === 0) throw new HttpError(409, 'Travel days give no downtime in this world (travel hours is 0)');
+      dayMin = h * 60;
+    }
     const before = clock.getClock(db, w);
     let entry: string | null = null;
-    if (advance) entry = clock.advance(db, hub, w, days * 1440, `Downtime: ${days} day${days === 1 ? '' : 's'}${note ? ` (${note})` : ''}`, me(res)).id;
+    if (advance) entry = clock.advance(db, hub, w, days * 1440, `${travel ? 'Travel' : 'Downtime'}: ${days} day${days === 1 ? '' : 's'}${note ? ` (${note})` : ''}`, me(res)).id;
     const rid = id('dtr_');
-    run(db, "INSERT INTO downtime_rounds (id, world_id, days, status, note, world_start, world_label, clock_entry, created_by, created_at) VALUES (?,?,?,'open',?,?,?,?,?,?)", rid, w, days, note, before.minutes, before.label, entry, me(res), now());
+    run(db, "INSERT INTO downtime_rounds (id, world_id, days, status, note, world_start, world_label, clock_entry, created_by, created_at, kind, day_min) VALUES (?,?,?,'open',?,?,?,?,?,?,?,?)", rid, w, days, note, before.minutes, before.label, entry, me(res), now(), travel ? 'travel' : 'downtime', dayMin);
     audit(d, w, me(res), 'downtime.round', `${days} days`);
     roundChanged(w, rid, 'open');
     res.status(201).json({ round: roundView(res, roundRow(db, w, rid)) });
@@ -403,16 +417,21 @@ function routes(d: Deps) {
       }
       picks.push({ taskId: tid!, days });
     }
+    // A task still in the pick keeps its waiting event; the ones dropped lose theirs.
+    cancelPending(db, w, round.id, aid, me(res), new Set(picks.map((p) => p.taskId)));
     let result;
     try { result = applyPick(d, w, round, aid, picks, skip, me(res), typeof b.note === 'string' ? b.note.slice(0, 300) : ''); } catch (e) {
       // A pick that does not fit leaves no new empty tasks behind.
       for (const m of made) run(db, "UPDATE downtime_tasks SET status = 'removed', updated_at = ? WHERE id = ? AND done_min = 0", now(), m.id);
       throw e;
     }
+    // Something may happen on those days: a quick-time event for the player to roll. Rolled first, so a
+    // finished task's auto reward waits for an event that could fail the job.
+    const events = skip ? [] : rollForPick(d, w, round, aid, picks);
     for (const f of result.finished) afterFinish(w, f);
     changed(w, aid);
     roundChanged(w, round.id, 'open');
-    res.json({ round: roundView(res, roundRow(db, w, round.id)), finished: result.finished.map((x) => out(res, x)) });
+    res.json({ round: roundView(res, roundRow(db, w, round.id)), finished: result.finished.map((x) => out(res, x)), events });
   });
 
   /** The DM closes the round. Players who did not answer are logged as missed. */
@@ -435,15 +454,123 @@ function routes(d: Deps) {
     const w = W(res);
     const round = req.params.rid === 'current' ? openRound(db, w) : roundRow(db, w, String(req.params.rid));
     if (!round || round.status !== 'open') throw new HttpError(404, 'No open downtime round');
+    let taken = { undone: 0, sheetKept: [] as string[] };
     tx(db, () => {
       for (const p of all<any>(db, 'SELECT account_id FROM downtime_picks WHERE round_id = ?', round.id)) undoPick(d, w, round.id, p.account_id, me(res));
+      taken = takeBackEvents(d, w, round.id, me(res));
+      cancelPending(db, w, round.id, null, me(res));
       run(db, "UPDATE downtime_rounds SET status = 'cancelled', closed_at = ? WHERE id = ?", now(), round.id);
     });
     let clockBack = false;
     if (round.clock_entry) { try { clock.undo(db, hub, w, round.clock_entry, me(res)); clockBack = true; } catch { /* the clock moved since */ } }
     roundChanged(w, round.id, 'cancelled');
     changed(w, null);
-    res.json({ ok: true, clockBack });
+    const nm = nameMap(w);
+    res.json({ ok: true, clockBack, eventsUndone: taken.undone, ...(taken.sheetKept.length ? { note: `HP and exhaustion from events stay on ${taken.sheetKept.map((a) => nm[a] ?? 'a player').join(', ')}'s sheet: change them there if you want them back` } : {}) });
+  });
+
+  // ---- random events: quick-time checks on downtime days ----
+
+  r.get('/events', (req, res) => {
+    guestNo(res);
+    const w = W(res);
+    const nm = nameMap(w);
+    const aid = whose(res, req.query.player);
+    const st = typeof req.query.status === 'string' && ['pending', 'success', 'failure', 'cancelled'].includes(req.query.status) ? req.query.status : null;
+    const where = ['world_id = ?'];
+    const args: unknown[] = [w];
+    if (aid) { where.push('account_id = ?'); args.push(aid); }
+    if (st) { where.push('status = ?'); args.push(st); }
+    if (typeof req.query.round === 'string' && req.query.round) { where.push('round_id = ?'); args.push(req.query.round === 'current' ? openRound(db, w)?.id ?? '' : req.query.round); }
+    const rows = all<any>(db, `SELECT * FROM downtime_events WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT ?`, ...args, Math.min(Math.max(Number(req.query.limit) || 50, 1), 200));
+    res.json({ events: rows.map((x) => ({ ...eventOut(x), player: nm[x.account_id] ?? '' })) });
+  });
+
+  function settle(res: Response, eid: string, how: { bonus?: number; total?: number; result?: 'success' | 'failure' }) {
+    const w = W(res);
+    const r = resolveEvent(d, w, eid, how, me(res));
+    announce(hub, w, r);
+    // The task may be finished now (the event added days), or was waiting on this event for its reward.
+    const t = taskRow(db, w, r.event.taskId);
+    if (t?.status === 'done' && !t.reward_given_at) afterFinish(w, t);
+    const nm = nameMap(w)[r.event.accountId] ?? 'Someone';
+    try { postChat(d, w, 'table', me(res), isDM(res) ? 'dm' : 'player', `🎲 ${nm}, during **${r.event.task}**: ${r.event.title}. ${r.event.note}`); } catch { /* no session running: the log has it */ }
+    return { ...r.event, outcomeText: outcomeText(r.outcome) };
+  }
+
+  /** Roll a pending event: { bonus } for d20 + bonus on the server, or { total } typed from the player's own dice. */
+  r.post('/events/:id/roll', requirePlayerOrDM, (req, res) => {
+    need(res);
+    const w = W(res);
+    const e = eventRow(db, w, String(req.params.id));
+    if (!e || (!isDM(res) && e.account_id !== me(res))) throw new HttpError(404, 'Event not found');
+    const n = (v: unknown, what: string, lo: number, hi: number) => { const x = Number(v); if (!Number.isInteger(x) || x < lo || x > hi) throw new HttpError(400, `${what} must be a whole number from ${lo} to ${hi}`); return x; };
+    const b = req.body ?? {};
+    const how = b.total !== undefined && b.total !== null && b.total !== '' ? { total: n(b.total, 'total', -10, 60) } : { bonus: b.bonus === undefined || b.bonus === null || b.bonus === '' ? 0 : n(b.bonus, 'bonus', -10, 30) };
+    res.json(settle(res, e.id, how));
+  });
+
+  /** The DM decides an event without a roll, or cancels it: { result: success | failure | cancel, note? }. */
+  // ---- sharing events: import a list (or a pack) into the editor, export the world's own lists as an event pack ----
+  /** Check events to import: a list, { events }, an exported file, or an event pack (its list for `activity`). */
+  r.post('/event-import', requireDM, (req, res) => {
+    need(res);
+    let data = req.body?.data;
+    const aid = typeof req.body?.activity === 'string' ? req.body.activity : '';
+    if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e: any) { throw new HttpError(400, `That is not valid JSON: ${e.message}`); } }
+    let list: unknown = data;
+    let from = 'list';
+    const pack = data?.content?.[PACK_KEY] ?? data?.[PACK_KEY];
+    if (pack) {
+      const errs = checkPack(pack);
+      if (errs.length) throw new HttpError(400, `That event pack has problems: ${errs.slice(0, 3).join('; ')}`);
+      const key = aid.startsWith('pre-') && pack[aid] ? aid : pack._general ? '_general' : '';
+      if (!key) throw new HttpError(400, `That pack has no events for this activity (it has ${Object.keys(pack).join(', ')})`);
+      list = pack[key];
+      from = key === aid ? 'pack' : 'pack-general';
+    } else if (data && !Array.isArray(data) && Array.isArray(data.events)) list = data.events;
+    if (!Array.isArray(list)) throw new HttpError(400, 'Paste a list of events, an exported events file, or an event pack');
+    if (list.length > MAX_EVENTS) throw new HttpError(400, `At most ${MAX_EVENTS} events on one activity`);
+    res.json({ events: checkEvents(list.map((e: any) => { const { pack: _p, ...rest } = e ?? {}; return rest; })), from });
+  });
+  /** The world's own event lists (the DM's edited ready-made activities, or one: ?activity=) as an event pack, a house rule file. */
+  r.get('/event-pack', requireDM, (req, res) => {
+    need(res);
+    const w = W(res);
+    const only = typeof req.query.activity === 'string' ? req.query.activity : '';
+    const lists: Record<string, unknown[]> = {};
+    for (const a of activities(db, w)) {
+      if (!a.id.startsWith('pre-') || (only ? a.id !== only : !a.changed)) continue;
+      const own = a.events.filter((e) => !e.pack).map(({ pack: _p, ...e }) => e);
+      if (own.length) lists[a.id] = own;
+    }
+    if (!Object.keys(lists).length) throw new HttpError(409, only ? 'That activity has no events of its own to share' : 'No ready-made activity has events you changed yet: edit one first, or pick one to share');
+    const world = ctx(res).world as any;
+    const slug = String(world.slug ?? world.name ?? 'world').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'world';
+    const n = Object.values(lists).reduce((s, l) => s + l.length, 0);
+    const file = {
+      kit: 2, id: `${slug}-events`, name: `${String(world.name ?? 'World').slice(0, 50)} downtime events`, version: '1.0.0', author: '',
+      summary: `An event pack: ${n} DownTime random event${n === 1 ? '' : 's'} for ${Object.keys(lists).length} activit${Object.keys(lists).length === 1 ? 'y' : 'ies'}. Turn it on with DownTime and they join those activities' lists.`,
+      requires: { mods: { downtime: '*' } },
+      content: { [PACK_KEY]: lists },
+    };
+    res.json({ file, events: n });
+  });
+  r.post('/events/:id/decide', requireDM, (req, res) => {
+    need(res);
+    const w = W(res);
+    const e = eventRow(db, w, String(req.params.id));
+    if (!e) throw new HttpError(404, 'Event not found');
+    const result = req.body?.result;
+    if (result === 'cancel') {
+      if (e.status !== 'pending') throw new HttpError(409, 'That event is already settled');
+      run(db, "UPDATE downtime_events SET status = 'cancelled', resolved_at = ?, resolved_by = ?, note = ? WHERE id = ?", now(), me(res), typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : 'Cancelled by the DM', e.id);
+      writeLog(db, w, { accountId: e.account_id, taskId: e.task_id, taskName: e.task_name, kind: 'event', roundId: e.round_id, by: me(res), note: `${eventOut(e).title}: cancelled` });
+      hub.emit(w, 'downtime-event', { accountId: e.account_id, ids: [e.id] }, dmAnd(e.account_id));
+      return res.json(eventOut(eventRow(db, w, e.id)));
+    }
+    if (result !== 'success' && result !== 'failure') throw new HttpError(400, 'result must be success, failure or cancel');
+    res.json(settle(res, e.id, { result }));
   });
 
   // ---- the helper model: rank and decide ----
@@ -479,13 +606,16 @@ const P = (description: string) => ({ type: 'string', description });
 
 const feature: Feature = {
   id: 'downtime',
-  schema: SCHEMA,
+  schema: SCHEMA + EVENTS_SCHEMA,
+  migrate: migrateRounds,
   settings: {
     downtimeOn: { type: 'boolean', default: false },
     downtimeDayHours: { type: 'int', default: 8, min: 1, max: 24 },
     downtimePlayerNew: { type: 'enum', values: ['approve', 'free', 'off'], default: 'approve' },
     downtimeAdvanceClock: { type: 'boolean', default: true },
     downtimeAutoReward: { type: 'boolean', default: false },
+    downtimeEventChance: { type: 'int', default: 10, min: 0, max: 100 },
+    downtimeTravelHours: { type: 'int', default: 2, min: 0, max: 24 },
     downtimeTierDays: { type: 'json', default: { ...DEFAULT_TIER_DAYS }, validate: checkTierDays },
     downtimePremade: { type: 'json', default: [], validate: checkPremade },
   },
@@ -512,6 +642,23 @@ const feature: Feature = {
       name: 'downtime_suggest', description: 'Rank downtime activities for what a character wants (e.g. "earn money", "get stronger") with the small helper model; returns the best three with a reason each.',
       props: { player: P('DM: which player'), want: P('What they want from their downtime') },
       call: (a) => ({ method: 'POST', path: '/downtime/suggest', body: { player: a.player, want: a.want } }),
+    },
+    {
+      name: 'downtime_events', description: 'Random downtime events (quick-time checks that happened on downtime days): the event, its check and DC, what success and failure do, and the result. status pending lists the ones waiting for a roll.',
+      props: { player: P('DM: one player'), status: { type: 'string', enum: ['pending', 'success', 'failure', 'cancelled'] } },
+      call: (a) => ({ method: 'GET', path: `/downtime/events?${[a.player && `player=${enc(a.player)}`, a.status && `status=${enc(a.status)}`].filter(Boolean).join('&')}` }),
+    },
+    {
+      name: 'downtime_event_roll', playerOnly: true,
+      description: 'Roll your pending downtime event: bonus is your modifier for its check (the server rolls the d20), or total if you rolled your own dice.',
+      props: { event: P('Event id'), bonus: { type: 'integer' }, total: { type: 'integer' } }, required: ['event'],
+      call: (a) => ({ method: 'POST', path: `/downtime/events/${enc(a.event)}/roll`, body: { bonus: a.bonus, total: a.total } }),
+    },
+    {
+      name: 'downtime_event_decide', write: true, dmOnly: true,
+      description: 'Decide a pending downtime event without a roll (success or failure, applying its outcome) or cancel it.',
+      props: { event: P('Event id'), result: { type: 'string', enum: ['success', 'failure', 'cancel'] }, note: P('Why') }, required: ['event', 'result'],
+      call: (a) => ({ method: 'POST', path: `/downtime/events/${enc(a.event)}/decide`, body: { result: a.result, note: a.note } }),
     },
     {
       name: 'downtime_start', playerOnly: true,
@@ -566,8 +713,8 @@ const feature: Feature = {
     },
     {
       name: 'downtime_round', write: true, dmOnly: true,
-      description: 'Press Downtime: N days pass and every player gets a popup to pick their downtime (or skip, or make a new activity). Moves the world clock unless advance is false.',
-      props: { days: { type: 'integer', description: 'Days of downtime (default 1)' }, note: P('e.g. "Resting in Saltmarsh"'), advance: { type: 'boolean' } },
+      description: 'Press Downtime: N days pass and every player gets a popup to pick their downtime (or skip, or make a new activity). Moves the world clock unless advance is false. travel: true for days on the road, where only a few hours a day (the world\'s travel hours, or hours) go to downtime.',
+      props: { days: { type: 'integer', description: 'Days of downtime (default 1)' }, travel: { type: 'boolean', description: 'Travel days: only a few hours a day' }, hours: { type: 'integer', description: 'Travel: hours a day for downtime' }, note: P('e.g. "Resting in Saltmarsh"'), advance: { type: 'boolean' } },
       call: (a) => ({ method: 'POST', path: '/downtime/rounds', body: a }),
     },
     {

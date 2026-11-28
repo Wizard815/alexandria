@@ -210,6 +210,12 @@ export function previewMod(mod: ModFile): string[] {
   }
   for (const p of s.prompts) L.push(`The DM gets a ${p.button} button: every player is asked "${p.text || p.title}" with ${p.choices.map((c) => c.label).join(' / ')}`);
   for (const v of s.views) L.push(`${v.place === 'dm' ? "A tab on the DM's House rules page" : v.place === 'sheet' ? "On the player's sheet" : "On the player's House rules page"}: ${v.title} (${v.columns.join(', ')})`);
+  for (const [k, v] of Object.entries(mod.content)) {
+    if (k === 'downtimeEvents' && v && typeof v === 'object') {
+      const lists = Object.entries(v as Record<string, unknown>).filter(([, l]) => Array.isArray(l)) as [string, unknown[]][];
+      L.push(`Adds ${lists.reduce((n, [, l]) => n + l.length, 0)} DownTime random events to ${lists.map(([id]) => id === '_general' ? 'the general list' : id).join(', ')}`);
+    } else L.push(`Content for another part of Alexandria: ${k}`);
+  }
   const pre = Object.entries(mod.presets);
   if (pre.length) L.push(`While on, sets: ${pre.map(([k, v]) => `${k} = ${typeof v === 'string' && v.startsWith('$') ? num(v, o) : JSON.stringify(v).slice(0, 40)}`).join('; ')}`);
   if (mod.group) L.push(`Only one rule of the ${mod.group} group is on at a time`);

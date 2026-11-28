@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { timeShort } from '../../lib/format.ts';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead, useAction, useToast } from '../../ui/index.tsx';
-import { CSS, GroupChip, KIND_LABEL, Progress, TierChip, isOpen, rewardText, splitScope, useDowntime, type Activity, type LogLine, type Overview, type Ranked, type Task } from './shared.tsx';
+import { CSS, GroupChip, KIND_LABEL, Progress, TierChip, isOpen, outcomeText, rewardText, splitScope, useDowntime, type DtEvent, type Activity, type LogLine, type Overview, type Ranked, type Task } from './shared.tsx';
 
 const FOLD = 'alx.downtime.later';
 
@@ -20,11 +20,23 @@ export function DowntimePopup() {
 function PopupInner() {
   const o = useDowntime();
   const [later, setLater] = useState<string | null>(() => { try { return sessionStorage.getItem(FOLD); } catch { return null; } });
+  // The event whose result is on screen stays until Continue, even when the live reload has already settled it.
+  const [settled, setSettled] = useState<DtEvent | null>(null);
   const r = o.data?.round;
-  if (!o.data || !r || r.mine) return null;
+  const live = o.data?.events ?? [];
+  const pending = settled && !live.some((e) => e.id === settled.id) ? [settled, ...live] : live;
+  if (!o.data) return null;
+  // After the pick (or with no round open): an event that happened on those days waits for a roll.
+  if ((!r || r.mine) && pending.length) {
+    const key = `ev:${pending[0].id}`;
+    const fold = (v: string | null) => { setLater(v); try { if (v) sessionStorage.setItem(FOLD, v); else sessionStorage.removeItem(FOLD); } catch { /* private */ } };
+    if (later === key) return <button type="button" className="btn dt-chip" data-testid="downtime-event-chip" onClick={() => fold(null)}><style>{CSS}</style><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Downtime event: roll</button>;
+    return <EventModal events={pending} onClose={() => fold(key)} onResult={setSettled} onDone={() => { setSettled(null); void o.reload(); }} />;
+  }
+  if (!r || r.mine) return null;
   const fold = (v: string | null) => { setLater(v); try { if (v) sessionStorage.setItem(FOLD, v); else sessionStorage.removeItem(FOLD); } catch { /* private */ } };
   if (later === r.id) {
-    return <button type="button" className="btn dt-chip" data-testid="downtime-chip" onClick={() => fold(null)}><style>{CSS}</style><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> Downtime: pick your {r.days === 1 ? 'day' : `${r.days} days`}</button>;
+    return <button type="button" className="btn dt-chip" data-testid="downtime-chip" onClick={() => fold(null)}><style>{CSS}</style><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> {r.kind === 'travel' ? 'Travel' : 'Downtime'}: pick your {r.days === 1 ? 'day' : `${r.days} days`}</button>;
   }
   return <PickModal o={o.data} onClose={() => fold(r.id)} onDone={() => void o.reload()} />;
 }
@@ -44,9 +56,13 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
   const [choices, setChoices] = useState<Choice[]>(() => prev.map((p) => { const t = mine.find((x) => x.id === p.taskId); return { key: p.taskId, taskId: p.taskId, days: p.days, label: p.name, perDay: (t?.perDayMin ?? o.dayHours * 60) / 60 }; }));
   // Open on my tasks when I have some of my own (or joined a group one); else on starting something.
   const [mode, setMode] = useState<'mine' | 'start' | 'new'>(split.personal.length || split.group.some((t) => t.members.includes(player ?? me)) ? 'mine' : 'start');
-  const used = choices.reduce((n, c) => n + c.days * c.perDay, 0);
-  const left = r.days * o.dayHours - used;
-  const toggle = (c: Choice) => setChoices((l) => (l.some((x) => x.key === c.key) ? l.filter((x) => x.key !== c.key) : [...l, { ...c, days: Math.max(1, Math.min(c.days, Math.floor((left + 0) / c.perDay) || 1)) }]));
+  // A travel day has only a few hours: each task gets at most that much of each day.
+  const dayH = r.hoursPerDay ?? o.dayHours;
+  const travel = r.kind === 'travel';
+  const per = (c: { perDay: number }) => Math.min(c.perDay, dayH);
+  const used = choices.reduce((n, c) => n + c.days * per(c), 0);
+  const left = r.days * dayH - used;
+  const toggle = (c: Choice) => setChoices((l) => (l.some((x) => x.key === c.key) ? l.filter((x) => x.key !== c.key) : [...l, { ...c, days: Math.max(1, Math.min(c.days, Math.floor((left + 0) / Math.min(c.perDay, dayH)) || 1)) }]));
   const setDays = (key: string, days: number) => setChoices((l) => l.map((x) => (x.key === key ? { ...x, days: Math.max(1, Math.min(r.days, days)) } : x)));
   const send = (skip: boolean) => act.run(async () => {
     await w.call('POST', '/downtime/rounds/current/pick', skip ? { skip: true, player } : {
@@ -68,8 +84,8 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
           <span className="tiny muted">{r.worldLabel}{r.note ? ` · ${r.note}` : ''}</span>
           <button type="button" className="btn ghost small" onClick={onClose}>Later</button>
         </div>
-        <h2 id="dt-pick" style={{ margin: 0 }}>Downtime: {r.days === 1 ? 'one day' : `${r.days} days`}</h2>
-        <p className="small muted" style={{ margin: 0 }}>{r.days * o.dayHours} hours to spend. A daily task (an hour or two a day) fits beside a bigger one. {r.mine ? 'You already picked; a new pick replaces it.' : ''}</p>
+        <h2 id="dt-pick" style={{ margin: 0 }}>{travel ? 'Travel' : 'Downtime'}: {r.days === 1 ? 'one day' : `${r.days} days`}</h2>
+        <p className="small muted" style={{ margin: 0 }}>{travel ? `On the road: ${dayH} hour${dayH === 1 ? '' : 's'} a day for downtime, ${r.days * dayH} in all. Every task moves at that pace.` : `${r.days * dayH} hours to spend. A daily task (an hour or two a day) fits beside a bigger one.`} {r.mine ? 'You already picked; a new pick replaces it.' : ''}</p>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="tablist">
           {mine.length > 0 && <button type="button" role="tab" aria-selected={mode === 'mine'} className={`btn small${mode === 'mine' ? ' on' : ''}`} onClick={() => setMode('mine')}>My tasks ({mine.length})</button>}
           <button type="button" role="tab" aria-selected={mode === 'start'} className={`btn small${mode === 'start' ? ' on' : ''}`} onClick={() => setMode('start')}>Start something</button>
@@ -113,13 +129,13 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
                 <span>{c.label}{c.activity ? ' (new)' : c.activityId ? ' (start)' : ''}</span>
                 <span className="dt-step">
                   <button type="button" className="btn small" aria-label={`One day less on ${c.label}`} onClick={() => setDays(c.key, c.days - 1)} disabled={c.days <= 1}>−</button>
-                  <span className="small">{c.days} day{c.days === 1 ? '' : 's'}{c.perDay < o.dayHours ? ` × ${c.perDay}h` : ''}</span>
+                  <span className="small">{c.days} day{c.days === 1 ? '' : 's'}{per(c) < o.dayHours ? ` × ${per(c)}h` : ''}</span>
                   <button type="button" className="btn small" aria-label={`One day more on ${c.label}`} onClick={() => setDays(c.key, c.days + 1)} disabled={c.days >= r.days}>＋</button>
                   <button type="button" className="btn small ghost" aria-label={`Drop ${c.label}`} onClick={() => setChoices((l) => l.filter((x) => x.key !== c.key))}>✕</button>
                 </span>
               </div>
             ))}
-            <span className={`tiny ${left < 0 ? '' : 'muted'}`} style={left < 0 ? { color: 'var(--danger, #c33)' } : undefined}>{left < 0 ? `${-left} hours too many` : `${left} of ${r.days * o.dayHours} hours left`}</span>
+            <span className={`tiny ${left < 0 ? '' : 'muted'}`} style={left < 0 ? { color: 'var(--danger, #c33)' } : undefined}>{left < 0 ? `${-left} hours too many` : `${left} of ${r.days * dayH} hours left`}</span>
           </section>
         )}
         <ErrorBox error={act.error} />
@@ -128,6 +144,79 @@ export function PickModal({ o, onClose, onDone, player }: { o: Overview; onClose
           <button type="button" className="btn primary" disabled={act.busy || !choices.length || left < 0} onClick={() => void send(false)} data-testid="downtime-send">Spend the time</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Something happened during downtime: the event cards, one after another. */
+function EventModal({ events, onClose, onDone, onResult }: { events: DtEvent[]; onClose: () => void; onDone: () => void; onResult: (e: DtEvent) => void }) {
+  useEffect(() => {
+    const k = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+  return (
+    <div className="modal-back">
+      <style>{CSS}</style>
+      <div className="modal stack" role="dialog" aria-modal="true" aria-labelledby="dt-ev" data-testid="downtime-event-popup" style={{ maxWidth: 520 }}>
+        <div className="row between"><h2 id="dt-ev" style={{ margin: 0 }}><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Something happens</h2><button type="button" className="btn ghost small" onClick={onClose} title="It stays waiting: only the DM can cancel an event">Roll later</button></div>
+        <p className="tiny muted" style={{ margin: 0 }}>Part of the downtime you picked: it can wait, but not be skipped.</p>
+        <EventCard key={events[0].id} e={events[0]} onDone={onDone} onResult={onResult} />
+        {events.length > 1 && <span className="tiny muted">{events.length - 1} more after this one</span>}
+      </div>
+    </div>
+  );
+}
+
+/** One quick-time event: what happens, the check, the stakes, and the roll. */
+export function EventCard({ e, onDone, onResult, dm = false }: { e: DtEvent; onDone?: () => void; onResult?: (e: DtEvent) => void; dm?: boolean }) {
+  const { w } = useWorld();
+  const act = useAction();
+  const [bonus, setBonus] = useState('');
+  const [own, setOwn] = useState('');
+  const [done, setDone] = useState<DtEvent | null>(null);
+  const shown = done ?? e;
+  // The player sees the result first and moves on with Continue; the DM's list just updates.
+  // Held before the call: the live reload that settles it can arrive before the answer does.
+  const roll = (body: object) => act.run(async () => { onResult?.(e); const x = await w.call<DtEvent>('POST', `/downtime/events/${e.id}/roll`, body); setDone(x); if (dm) onDone?.(); });
+  const decide = (result: string) => act.run(async () => { setDone(await w.call<DtEvent>('POST', `/downtime/events/${e.id}/decide`, { result })); onDone?.(); });
+  return (
+    <div className={`dt-event ${shown.status}`} data-testid="downtime-event">
+      <span className="tiny muted">{e.player ? `${e.player} · ` : ''}During {e.task}</span>
+      <strong>{e.title}</strong>
+      {e.text && <span className="small">{e.text}</span>}
+      {e.check && <span className="small"><strong>{e.check}</strong> check, DC {e.dc}</span>}
+      <div className="dt-stakes">
+        {outcomeText(e.success) && <span><span style={{ color: '#3f9d5a' }}>{e.check ? 'Success' : 'What happens'}:</span> {outcomeText(e.success)}</span>}
+        {e.check && outcomeText(e.failure) && <span><span style={{ color: 'var(--danger, #c33)' }}>Failure:</span> {outcomeText(e.failure)}</span>}
+      </div>
+      {shown.status !== 'pending' ? (
+        <div className="row between" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <span className="small" data-testid="downtime-event-result"><strong style={{ color: shown.status === 'success' ? '#3f9d5a' : shown.status === 'failure' ? 'var(--danger, #c33)' : undefined }}>{shown.status === 'cancelled' ? 'Cancelled' : shown.status === 'success' ? 'Success' : 'Failure'}</strong>{shown.note ? <span className="muted"> · {shown.note.replace(/,? ?(success|failure)(: )?/, (_m: string, _r: string, more?: string) => (more ? ' → ' : ''))}</span> : null}</span>
+          {!dm && done && <button type="button" className="btn small primary" onClick={() => onDone?.()} data-testid="downtime-event-continue">Continue</button>}
+        </div>
+      ) : (
+        <>
+          {!dm && (e.check ? (
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <label className="small">Your bonus <input className="input" type="number" min={-10} max={30} style={{ width: 64 }} value={bonus} onChange={(ev) => setBonus(ev.target.value)} aria-label={`Your ${e.check} bonus`} /></label>
+              <button type="button" className="btn primary" disabled={act.busy} onClick={() => void roll({ bonus: bonus === '' ? 0 : Number(bonus) })} data-testid="downtime-event-roll"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Roll</button>
+              <span className="tiny muted">or my own dice:</span>
+              <input className="input" type="number" min={-10} max={60} style={{ width: 64 }} value={own} onChange={(ev) => setOwn(ev.target.value)} aria-label="Total from my own dice" />
+              <button type="button" className="btn" disabled={act.busy || own === ''} onClick={() => void roll({ total: Number(own) })}>Use it</button>
+            </div>
+          ) : <button type="button" className="btn primary" disabled={act.busy} onClick={() => void roll({})}>OK</button>)}
+          {dm && (
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button type="button" className="btn small" disabled={act.busy} onClick={() => void decide('success')}>Success</button>
+              {e.check && <button type="button" className="btn small" disabled={act.busy} onClick={() => void decide('failure')}>Failure</button>}
+              <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void decide('cancel')}>Cancel it</button>
+              <span className="tiny muted">or let the player roll</span>
+            </div>
+          )}
+        </>
+      )}
+      <ErrorBox error={act.error} />
     </div>
   );
 }
@@ -147,7 +236,7 @@ function StartList({ onPick, picked, player, scope: scope0 = 'all' }: { onPick: 
   const card = (a: Activity, why?: string) => (
     <button key={a.id} type="button" className={`btn dt-act${picked.includes(`a:${a.id}`) ? ' on' : ''}`} aria-pressed={picked.includes(`a:${a.id}`)} onClick={() => onPick(a)}>
       <span className="row between" style={{ gap: 6 }}><strong>{a.name}</strong><span className="row" style={{ gap: 4 }}>{a.group && <GroupChip />}<TierChip tier={a.tier} label={a.tierLabel} /></span></span>
-      <span className="tiny muted">{a.daysNeeded} day{a.daysNeeded === 1 ? '' : 's'}{a.hoursPerDay < 8 ? `, ${a.hoursPerDay}h a day` : ''}{a.link?.kind === 'spell-craft' ? ' · Codex' : ''}{'text' in a.reward && (a.reward.text || a.reward.cp || a.reward.item) ? ` · ${rewardText(a.reward)}` : ''}</span>
+      <span className="tiny muted">{a.daysNeeded} day{a.daysNeeded === 1 ? '' : 's'}{a.hoursPerDay < 8 ? `, ${a.hoursPerDay}h a day` : ''}{a.link?.kind === 'spell-craft' ? ' · Codex' : ''}{a.events?.length ? ' · things can happen' : ''}{'text' in a.reward && (a.reward.text || a.reward.cp || a.reward.item) ? ` · ${rewardText(a.reward)}` : ''}</span>
       {why ? <span className="tiny">{why}</span> : <span className="tiny faint">{a.summary.slice(0, 110)}</span>}
     </button>
   );
@@ -258,6 +347,7 @@ export function PlayerDowntime() {
         <button type="button" className="btn primary" onClick={() => setPicking(true)}>{o.data.round.mine ? 'Change my pick' : 'Pick'}</button>
       </section>}
       {picking && o.data.round && <PickModal o={o.data} onClose={() => setPicking(false)} onDone={() => { setPicking(false); void o.reload(); }} />}
+      {(o.data.events ?? []).length > 0 && <section className="card stack tight" data-testid="downtime-events"><h2 style={{ margin: 0 }}><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Waiting for your roll</h2>{o.data.events!.map((e) => <EventCard key={e.id} e={e} onDone={() => void o.reload()} />)}</section>}
       {starting && <section className="card"><StartList picked={[]} onPick={(a) => void run(async () => { await w.call('POST', '/downtime/tasks', { activityId: a.id }); setStarting(false); }, `Started ${a.name}`)} /></section>}
       <ErrorBox error={act.error ?? tasks.error} />
       <section className="card" data-testid="downtime-personal">

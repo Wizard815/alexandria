@@ -4,7 +4,8 @@
 // and a daily vigil, and sends; the DM sees her answer, picks for Anselm,
 // adds a day to Tomas, closes the round, finishes and rewards a task, and
 // reads the log; Jess sees her tasks on her sheet and joins the party's group
-// stronghold from her Downtime page. Screenshots go to SHOTS.
+// stronghold from her Downtime page; a random event from the cellar list pops
+// up for her to roll, and the DM decides one for Tomas. Screenshots go to SHOTS.
 // Run from web/: npm run build && node e2e/downtime.mjs   (DOWNTIME_PORT, default 19822)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,7 +18,7 @@ const W = `${base}/w/saltreach`;
 const problems = [];
 const note = (m) => console.log('  ' + m);
 const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
-const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: false }); } };
+const shot = async (page, name, el) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await (el ?? page).screenshot({ path: path.join(SHOTS, `${name}.png`), ...(el ? {} : { fullPage: false }) }); } };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('downtime'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
@@ -52,6 +53,7 @@ async function signIn(user, pass, opts) {
 try {
   // 1. The DM turns DownTime on (House rules) and gives Tomas a legendary stronghold with a surprise reward.
   await api(dmLogin.token, 'PUT', '/mods/downtime/enabled', { on: true });
+  await api(dmLogin.token, 'PATCH', '/settings', { downtimeEventChance: 0 }); // no random events until step 8
   await api(dmLogin.token, 'POST', '/downtime/tasks', { player: 'Tomas', activityId: 'pre-stronghold', reward: { text: 'A keep on the cliffs and a lordship', hidden: true }, dmNote: 'The cliffs hide a smugglers cave' });
   const { page: dm } = await signIn('dm', 'dungeon master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
   await dm.goto(`${W}/dm/house-rules`);
@@ -143,6 +145,80 @@ try {
   await grp.scrollIntoViewIfNeeded();
   await shot(pl, '8-player-group-tasks');
   note('player: personal and group tasks apart, joined the party stronghold');
+
+  // 8. Random events: every downtime day has one. Jess cleans a cellar and one of its events comes up; she rolls on her phone.
+  await api(dmLogin.token, 'PATCH', '/settings', { downtimeEventChance: 100 });
+  await pl.waitForTimeout(1500); // the settings change reloads the world on her phone first
+  await api(dmLogin.token, 'POST', '/downtime/rounds', { days: 1, advance: false, note: 'A quiet day in town' });
+  // Live, or on opening the app: either way the popup is there.
+  if (!(await pl.getByTestId('downtime-popup').waitFor({ timeout: 6000 }).then(() => true, () => false))) { note('popup: not live in 6 s, reloading'); await pl.reload(); }
+  await pl.getByTestId('downtime-popup').waitFor({ timeout: 10000 });
+  await pl.getByRole('tab', { name: 'Start something' }).click();
+  await pl.getByLabel('Search activities').fill('cellar');
+  await pl.getByRole('button', { name: /Clean out a cellar/ }).click();
+  await pl.getByTestId('downtime-send').click();
+  await pl.getByTestId('downtime-event-popup').waitFor({ timeout: 8000 });
+  await pl.waitForTimeout(400);
+  await shot(pl, '9-player-event-phone');
+  const evp = pl.getByTestId('downtime-event-popup');
+  const title = await evp.getByTestId('downtime-event').locator('strong').first().innerText();
+  await evp.locator('input[type=number]').first().fill('3');
+  await evp.getByTestId('downtime-event-roll').click();
+  await evp.getByTestId('downtime-event-result').waitFor({ timeout: 8000 });
+  await shot(pl, '10-player-event-result');
+  const result = await evp.getByTestId('downtime-event-result').innerText();
+  check(/^(Success|Failure)/.test(result.trim()), `event result shown: ${result}`);
+  await evp.getByTestId('downtime-event-continue').click();
+  await pl.getByTestId('downtime-event-popup').waitFor({ state: 'hidden', timeout: 8000 });
+  note(`player: event "${title}" -> ${result.slice(0, 80)}`);
+
+  // 9. Tomas's event waits for him; the DM sees it on the Downtime button and decides it.
+  const tomTok = (await login('tom', 'player pass 123')).token;
+  const tp = await api(tomTok, 'POST', '/downtime/rounds/current/pick', { picks: [{ activityId: 'pre-work', days: 1 }] });
+  check(tp.events?.length === 1, 'Tomas got an event at work');
+  await dm.goto(`${W}/dm/downtime`);
+  const dmEv = dm.getByTestId('downtime-dm-events');
+  await dmEv.waitFor({ timeout: 8000 });
+  await dmEv.scrollIntoViewIfNeeded();
+  await shot(dm, '11-dm-event-waiting');
+  await dmEv.getByRole('button', { name: 'Success' }).first().click();
+  await dmEv.waitFor({ state: 'detached', timeout: 8000 });
+  const settled = await api(tomTok, 'GET', '/downtime/events?status=success');
+  check(settled.events.length === 1, 'the DM settled Tomas\'s event');
+  await dm.getByRole('button', { name: 'Close', exact: true }).click();
+  note('dm: saw Tomas\'s event and decided it');
+
+  // 10. Sharing events: the haunted event pack adds to the cellar; the DM imports a list into it and shares a pack.
+  await api(dmLogin.token, 'PUT', '/mods/downtime-haunted-events/enabled', { on: true });
+  await dm.goto(`${W}/dm/house-rules`);
+  await dm.getByRole('tab', { name: 'DownTime activities' }).click();
+  await dm.locator('div.row.between', { hasText: 'Clean out a cellar' }).getByRole('button', { name: 'Edit' }).click();
+  const evs = dm.locator('details', { hasText: 'Random events' });
+  await evs.locator('summary').click();
+  check(await evs.getByText(/\+ 3 from packs/).count() === 1, 'the cellar shows the pack\'s 3 events');
+  check(await evs.getByText('downtime-haunted-events').count() >= 1, 'pack events say where they come from');
+  await evs.getByRole('button', { name: 'Import events' }).click();
+  await dm.getByLabel('Events to import').fill(JSON.stringify([{ title: 'A cellar ghost', text: 'A cold hand on your shoulder.', check: 'Wisdom', dc: 13, success: { text: 'You stay calm', gp: 3 }, failure: { text: 'You flee', noReward: true } }]));
+  await dm.getByRole('button', { name: 'Add to the list' }).click();
+  await evs.getByText(/Added 1 event/).waitFor({ timeout: 8000 });
+  // Build one from blocks: a fight starter, rename it, and snap "job fails" onto its failure block.
+  await evs.getByRole('button', { name: 'A fight' }).click();
+  await dm.getByLabel('Event title').last().fill('A cellar thief');
+  const blk = dm.getByTestId('dt-event-block').last();
+  await blk.locator('.blk-outcome-fail').getByRole('button', { name: '+ Effect' }).click();
+  await blk.locator('.blk-outcome-fail').getByRole('button', { name: 'Job fails' }).click();
+  check(await blk.getByText('The job fails: no reward for the task').count() === 1, 'the job-fails piece snapped on');
+  await dm.getByLabel('Event title').last().scrollIntoViewIfNeeded();
+  await shot(dm, '12-dm-event-import');
+  await shot(dm, '13-dm-event-blocks', dm.getByTestId('dt-event-block').last());
+  await dm.getByRole('button', { name: 'Save', exact: true }).click();
+  await dm.getByRole('button', { name: 'Save', exact: true }).waitFor({ state: 'detached', timeout: 8000 });
+  const [dl] = await Promise.all([dm.waitForEvent('download', { timeout: 8000 }), dm.getByRole('button', { name: 'Share events as a pack' }).click()]);
+  const packFile = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
+  check(packFile.content?.downtimeEvents?.['pre-cellar']?.some((e) => e.title === 'A cellar ghost'), 'the shared pack has the imported event');
+  check(packFile.content.downtimeEvents['pre-cellar'].some((e) => e.title === 'A cellar thief' && e.failure?.noReward === true), 'the block-built event saved with job fails');
+  check(!packFile.content.downtimeEvents['pre-cellar'].some((e) => e.pack), 'the shared pack leaves out other packs\' events');
+  note(`dm: pack events shown, imported one, shared ${dl.suggestedFilename()}`);
 } catch (e) {
   problems.push(`stopped: ${e.message.split('\n').slice(0, 3).join(' ')}`);
   if (process.env.FAIL_SHOTS) for (const [i, p] of pages.entries()) await p.screenshot({ path: path.join(process.env.FAIL_SHOTS, `fail-${i}.png`) }).catch(() => {});

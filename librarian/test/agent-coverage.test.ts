@@ -230,6 +230,17 @@ const dtOn = () => once('downtime-on', async () => { await dm('PUT', '/mods/down
 const dtTask = async (label: string, reward?: unknown) => { await dtOn(); return (await dm('POST', '/downtime/tasks', { player: ID.jess, activity: { name: `Coverage ${label}`, tier: 'common' }, reward })).id as string; };
 const dtNoRound = async () => { await dtOn(); await call('POST', w('/downtime/rounds/current/cancel'), T.dm, {}); };
 const dtRound = async () => { await dtOn(); if (!(await dm('GET', '/downtime/rounds/current')).round) await dm('POST', '/downtime/rounds', { days: 1, advance: false }); };
+// A pending random event of Jess's: every downtime day has one (chance 100), on a fresh task each time
+// (a task that already had an event this round gets no second one).
+let dtEvents = 0;
+const dtEvent = async () => {
+  await dtRound();
+  await dm('PATCH', '/settings', { downtimeEventChance: 100 });
+  const t = await dm('POST', '/downtime/tasks', { player: ID.jess, activityId: 'pre-cellar' }).catch(async () => dm('POST', '/downtime/tasks', { player: ID.jess, activity: { name: `Coverage event ${++dtEvents}`, tier: 'rare' } }));
+  const p = await dm('POST', '/downtime/rounds/current/pick', { player: ID.jess, picks: [{ taskId: t.id, days: 1 }] });
+  if (!p.events?.[0]) throw new Error('no event: ' + JSON.stringify(p).slice(0, 300));
+  return p.events[0].id as string;
+};
 
 const ARGS: Record<string, Maker> = {
   import_content: () => ({ source: 'open5e', books: ['tob'], kinds: ['condition'] }),
@@ -367,6 +378,9 @@ const ARGS: Record<string, Maker> = {
   downtime_reward: async () => { const t = await dtTask('reward', { gp: 2 }); await dm('POST', `/downtime/tasks/${t}/work`, { days: 1 }); return { task: t }; },
   downtime_round: async () => { await dtNoRound(); return { days: 1, advance: false }; },
   downtime_close_round: async () => { await dtRound(); return {}; },
+  downtime_events: async () => { await dtOn(); return { status: 'pending' }; },
+  downtime_event_roll: async () => ({ event: await dtEvent(), bonus: 3 }),
+  downtime_event_decide: async () => ({ event: await dtEvent(), result: 'success' }),
   // A player spends a personal reroll they really hold (for a roll made with real dice), so the run shows a spend, not a refusal.
   house_rule_spend: async () => {
     await dm('PUT', '/mods/inspiration-rerolls/enabled', { on: true });
@@ -429,6 +443,7 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['write a house rule for hero points', ['house_rule_check', 'house_rule_save']],
     ['start a downtime round for 3 days', ['downtime_round']],
     ['Mira lost two days of crafting to the fever', ['downtime_time']],
+    ['what happened in the rats in the cellar event', ['downtime_event_decide', 'downtime_events']],
     ['make me a downtime mod for my table', ['house_rule_guide', 'house_rule_file', 'house_rule_check']],
     ['start a downtime day for the party', ['house_rule_prompt']],
     ['take two days off Jess\'s downtime task', ['house_rule_record_act', 'house_rule_records']],

@@ -14,6 +14,7 @@ import {
   type Activity, type Link, type Reward, type Tier,
 } from './catalog.ts';
 import { linkFor } from './hooks.ts';
+import { libraryEvents, packEvents, withPack } from './library.ts';
 
 export const SCHEMA = `
   CREATE TABLE IF NOT EXISTS downtime_activities (
@@ -64,7 +65,9 @@ export const SCHEMA = `
     clock_entry TEXT,
     created_by TEXT,
     created_at TEXT NOT NULL,
-    closed_at TEXT
+    closed_at TEXT,
+    kind TEXT NOT NULL DEFAULT 'downtime', -- downtime | travel (a few hours of each day, on the road)
+    day_min INTEGER                  -- minutes of work in each of its days; null: the world's downtime day
   );
   CREATE INDEX IF NOT EXISTS downtime_rounds_world ON downtime_rounds(world_id, status);
   CREATE TABLE IF NOT EXISTS downtime_picks (
@@ -83,7 +86,7 @@ export const SCHEMA = `
     account_id TEXT NOT NULL,
     task_id TEXT,
     task_name TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL,              -- start | work | time | skip | missed | pause | resume | remove | edit | approve | complete | reward | join | leave
+    kind TEXT NOT NULL,              -- start | work | time | skip | missed | pause | resume | remove | edit | approve | complete | reward | join | leave | event
     minutes INTEGER NOT NULL DEFAULT 0,
     round_id TEXT,
     world_minutes INTEGER,
@@ -132,10 +135,13 @@ export interface ActivityRow extends Activity { source: 'premade' | 'dm' | 'play
 export function activities(db: DB, worldId: string): ActivityRow[] {
   const rows = all<any>(db, 'SELECT * FROM downtime_activities WHERE world_id = ? ORDER BY created_at, id', worldId);
   const by = new Map(rows.map((r) => [r.id, r]));
+  const packs = packEvents(db, worldId);
   const out: ActivityRow[] = premadeFrom(featureSetting(worldSettings(db, worldId), 'downtimePremade')).map((p) => {
     const r = by.get(p.id);
-    if (!r) return { ...p, source: 'premade', status: 'ok', createdBy: null, changed: false };
-    return { ...checkActivity(parseJson(r.json, {}), p.id), source: 'premade', status: r.status, createdBy: null, changed: true };
+    // A ready-made activity with no events of its own takes the library's; turned-on event packs add theirs.
+    if (!r) return { ...p, events: withPack(p.events.length ? p.events : libraryEvents(p.id), packs.get(p.id)), source: 'premade', status: 'ok', createdBy: null, changed: false };
+    const c = checkActivity(parseJson(r.json, {}), p.id);
+    return { ...c, events: withPack(c.events, packs.get(p.id)), source: 'premade', status: r.status, createdBy: null, changed: true };
   });
   for (const r of rows) {
     if (r.id.startsWith('pre-') && out.some((x) => x.id === r.id)) continue;
@@ -161,7 +167,9 @@ export function saveActivity(db: DB, worldId: string, raw: any, by: string, sour
 export function updateActivity(db: DB, worldId: string, aid: string, patch: any): ActivityRow {
   const cur = activity(db, worldId, aid);
   const { source, status, createdBy, changed, ...base } = cur;
-  const next = checkActivity({ ...base, ...patch, reward: patch?.reward === undefined ? base.reward : patch.reward }, aid);
+  // An event pack's events are not the activity's own: they stay with the pack (on or off), never in the copy.
+  const own = (l: unknown) => (Array.isArray(l) ? l.filter((e: any) => !e?.pack) : l);
+  const next = checkActivity({ ...base, events: own(base.events), ...patch, ...(patch?.events !== undefined ? { events: own(patch.events) } : {}), reward: patch?.reward === undefined ? base.reward : patch.reward }, aid);
   const st = patch?.status === 'hidden' || patch?.status === 'ok' ? patch.status : status === 'proposed' ? 'ok' : status;
   if (one(db, 'SELECT 1 FROM downtime_activities WHERE world_id = ? AND id = ?', worldId, aid)) run(db, 'UPDATE downtime_activities SET json = ?, status = ?, updated_at = ? WHERE world_id = ? AND id = ?', JSON.stringify(next), st, now(), worldId, aid);
   else run(db, "INSERT INTO downtime_activities (world_id, id, json, source, status, created_by, created_at, updated_at) VALUES (?,?,?,'premade',?,NULL,?,?)", worldId, aid, JSON.stringify(next), st, now(), now());
@@ -387,6 +395,14 @@ export function editTask(d: { db: DB; hub: EventHub }, worldId: string, tid: str
 // ---- rounds: the DM's Downtime button ----------------------------------------------------------------------------------
 
 export interface DayPick { taskId: string; days: number }
+/** Minutes of work in each day of a round: the world's downtime day, or a travel round's few hours. */
+export const roundDayMin = (s: WorldSettings, round: any): number => Math.min(round?.day_min ?? dayHours(s) * 60, dayHours(s) * 60);
+/** Rounds from before travel days have no kind or day_min column. */
+export function migrateRounds(db: DB) {
+  const cols = all<any>(db, 'PRAGMA table_info(downtime_rounds)').map((c) => c.name);
+  if (!cols.includes('kind')) db.exec(`ALTER TABLE downtime_rounds ADD COLUMN kind TEXT NOT NULL DEFAULT 'downtime'`);
+  if (!cols.includes('day_min')) db.exec('ALTER TABLE downtime_rounds ADD COLUMN day_min INTEGER');
+}
 export const openRound = (db: DB, worldId: string) => one<any>(db, "SELECT * FROM downtime_rounds WHERE world_id = ? AND status = 'open' ORDER BY created_at DESC LIMIT 1", worldId);
 export const roundRow = (db: DB, worldId: string, rid: string) => one<any>(db, 'SELECT * FROM downtime_rounds WHERE world_id = ? AND id = ?', worldId, rid);
 export const pickRow = (db: DB, rid: string, aid: string) => one<any>(db, 'SELECT * FROM downtime_picks WHERE round_id = ? AND account_id = ?', rid, aid);
@@ -421,7 +437,9 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
   const { db } = d;
   return tx(db, () => {
     const s = worldSettings(db, worldId);
-    const budget = round.days * dayHours(s) * 60;
+    // A travel day has only a few hours for downtime: every task gets at most that much of each day.
+    const cap = roundDayMin(s, round);
+    const budget = round.days * cap;
     const seen = new Set<string>();
     let used = 0;
     const rows = picks.map((p) => {
@@ -432,7 +450,7 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
       if (isGroup(r) && r.status === 'paused') throw new HttpError(409, `The DM paused ${r.name}`);
       if (!['active', 'proposed', 'paused'].includes(r.status)) throw new HttpError(409, `${r.name} is ${r.status}`);
       if (!Number.isInteger(p.days) || p.days < 1 || p.days > round.days) throw new HttpError(400, `days must be from 1 to ${round.days}`);
-      used += p.days * r.per_day_min;
+      used += p.days * Math.min(r.per_day_min, cap);
       return { r, days: p.days };
     });
     if (used > budget) throw new HttpError(400, `That is ${span(used, dayHours(s))} of work; this downtime has ${span(budget, dayHours(s))}`);
@@ -447,7 +465,7 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
       if (r.status === 'paused') { run(db, "UPDATE downtime_tasks SET status = 'active' WHERE id = ?", r.id); writeLog(db, worldId, { accountId: aid, taskId: r.id, taskName: r.name, kind: 'resume', roundId: round.id, by }); }
       // Working on a group task joins it.
       if (isGroup(r) && !membersOf(r).includes(aid)) setMember(db, worldId, r.id, aid, true, by);
-      const out = addWork(d, worldId, r.id, days * r.per_day_min, { kind: 'work', by, roundId: round.id, worker: aid, note: note || `${days} downtime day${days === 1 ? '' : 's'}` });
+      const out = addWork(d, worldId, r.id, days * Math.min(r.per_day_min, cap), { kind: 'work', by, roundId: round.id, worker: aid, note: note || `${days} ${round.kind === 'travel' ? 'travel' : 'downtime'} day${days === 1 ? '' : 's'}${cap < r.per_day_min ? `, ${cap / 60} h a day` : ''}` });
       if (out.finished) finished.push(out.row);
     }
     return { finished };
@@ -457,7 +475,8 @@ export function applyPick(d: { db: DB; hub: EventHub }, worldId: string, round: 
 export function roundOut(db: DB, worldId: string, round: any, viewer: { accountId: string; dm: boolean }, names: Record<string, string>, players: string[]) {
   const picks = all<any>(db, 'SELECT * FROM downtime_picks WHERE round_id = ?', round.id);
   const s = worldSettings(db, worldId);
-  const base = { id: round.id, days: round.days, status: round.status, note: round.note, worldLabel: round.world_label, createdAt: round.created_at, closedAt: round.closed_at, hours: round.days * dayHours(s) };
+  const hpd = roundDayMin(s, round) / 60;
+  const base = { id: round.id, days: round.days, status: round.status, note: round.note, worldLabel: round.world_label, createdAt: round.created_at, closedAt: round.closed_at, kind: round.kind ?? 'downtime', hoursPerDay: hpd, hours: round.days * hpd };
   const view = (p: any) => {
     const list = parseJson<DayPick[]>(p.picks, []).map((x) => { const t = taskRow(db, worldId, x.taskId); return { ...x, name: t?.name ?? 'removed task' }; });
     return { accountId: p.account_id, name: names[p.account_id] ?? '', skipped: !!p.skipped, picks: list, at: p.at };

@@ -5,8 +5,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLoad, useWorld } from '../../lib/world.tsx';
+import { download } from '../../lib/offline.ts';
 import { Empty, ErrorBox, Loading, Modal, PageHead, Tabs, useAction, useToast } from '../../ui/index.tsx';
-import { LogList, PickModal, TaskLine } from './Player.tsx';
+import { EventCard, LogList, PickModal, TaskLine } from './Player.tsx';
+import { EventsEditor } from './EventBlocks.tsx';
 import { CSS, GroupChip, TierChip, splitScope, useDowntime, type Activity, type LogLine, type Reward, type Task, type Tier } from './shared.tsx';
 
 const PARTY = 'party';
@@ -20,12 +22,14 @@ export function DowntimeButton({ compact = false }: { compact?: boolean }) {
   const { toast, toastNode } = useToast();
   const [days, setDays] = useState(1);
   const [note, setNote] = useState('');
+  const [travel, setTravel] = useState(false);
+  const travelH = Number((info.settings as any).downtimeTravelHours ?? 2);
   const [forPlayer, setForPlayer] = useState<string | null>(null);
   if ((info.settings as any).downtimeOn !== true) return compact ? null : <p className="small muted">DownTime is off. Turn it on under <Link to={`/w/${info.slug}/dm/house-rules`}>House rules</Link>.</p>;
   if (!o.data) return <Loading />;
   const r = o.data.round;
-  const start = () => act.run(async () => { await w.call('POST', '/downtime/rounds', { days, note: note.trim() || undefined }); setNote(''); toast(`Downtime: ${days} day${days === 1 ? '' : 's'}. Each player has a popup.`); });
-  const close = (how: 'close' | 'cancel') => act.run(async () => { const x = await w.call<any>('POST', `/downtime/rounds/current/${how}`, {}); toast(how === 'close' ? 'Downtime closed' : `Taken back${x?.clockBack ? ', the clock too' : ''}`); });
+  const start = () => act.run(async () => { await w.call('POST', '/downtime/rounds', { days, note: note.trim() || undefined, ...(travel ? { travel: true } : {}) }); setNote(''); toast(`${travel ? 'Travel' : 'Downtime'}: ${days} day${days === 1 ? '' : 's'}. Each player has a popup.`); });
+  const close = (how: 'close' | 'cancel') => act.run(async () => { const x = await w.call<any>('POST', `/downtime/rounds/current/${how}`, {}); toast(how === 'close' ? 'Downtime closed' : `Taken back${x?.clockBack ? ', the clock too' : ''}${x?.eventsUndone ? `, and ${x.eventsUndone} event${x.eventsUndone === 1 ? '' : 's'}` : ''}${x?.note ? `. ${x.note}` : ''}`); });
   return (
     <div className="stack tight" data-testid="downtime-button">
       <style>{CSS}</style>
@@ -37,13 +41,14 @@ export function DowntimeButton({ compact = false }: { compact?: boolean }) {
             <button type="button" className="btn small" aria-label="One day more" onClick={() => setDays((n) => Math.min(365, n + 1))}>＋</button>
             <span className="small">day{days === 1 ? '' : 's'}</span>
           </span>
+          {travelH > 0 && <label className="small" title={`On the road only ${travelH} hour${travelH === 1 ? '' : 's'} a day go to downtime`}><input type="checkbox" checked={travel} onChange={(e) => setTravel(e.target.checked)} data-testid="downtime-travel" /> Travel ({travelH}h a day)</label>}
           {!compact && <input className="input grow" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="Where, e.g. Resting in Saltmarsh" aria-label="Note" />}
-          <button type="button" className="btn primary" disabled={act.busy} onClick={() => void start()} data-testid="downtime-start"><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> Downtime</button>
+          <button type="button" className="btn primary" disabled={act.busy} onClick={() => void start()} data-testid="downtime-start"><i className="fa-solid fa-hourglass-half" aria-hidden="true" /> {travel ? 'Travel days' : 'Downtime'}</button>
         </div>
       ) : (
         <>
           <div className="row between" style={{ gap: 6, flexWrap: 'wrap' }}>
-            <strong>Downtime: {r.days} day{r.days === 1 ? '' : 's'}{r.note ? ` · ${r.note}` : ''}</strong>
+            <strong>{r.kind === 'travel' ? `Travel: ${r.days} day${r.days === 1 ? '' : 's'}, ${r.hoursPerDay}h a day` : `Downtime: ${r.days} day${r.days === 1 ? '' : 's'}`}{r.note ? ` · ${r.note}` : ''}</strong>
             <span className="row" style={{ gap: 6 }}>
               <button type="button" className="btn small primary" disabled={act.busy} onClick={() => void close('close')}>Close</button>
               <button type="button" className="btn small" disabled={act.busy} onClick={() => void close('cancel')} title="Undo every pick and move the clock back">Take back</button>
@@ -59,6 +64,12 @@ export function DowntimeButton({ compact = false }: { compact?: boolean }) {
             </div>
           ))}
         </>
+      )}
+      {(o.data.events ?? []).length > 0 && (
+        <div className="stack tight" data-testid="downtime-dm-events">
+          <strong className="small"><i className="fa-solid fa-dice-d20" aria-hidden="true" /> Events waiting for a roll</strong>
+          {o.data.events!.map((e) => <EventCard key={e.id} e={e} dm onDone={() => void o.reload()} />)}
+        </div>
       )}
       <ErrorBox error={act.error} />
       {forPlayer && r && <ForPlayer player={forPlayer} onClose={() => setForPlayer(null)} />}
@@ -284,9 +295,13 @@ export function Activities() {
   const td = tierDays ?? Object.fromEntries((o.data?.tiers ?? []).map((t) => [t.id, t.days]));
   const saveTiers = () => act.run(async () => { await w.call('PATCH', '/settings', { downtimeTierDays: td }); setTierDays(null); });
   const save = () => act.run(async () => {
-    const body = { name: edit!.name, summary: edit!.summary, tier: edit!.tier, days: edit!.days || null, hoursPerDay: edit!.hoursPerDay || 8, repeatable: !!edit!.repeatable, group: !!edit!.group, reward: edit!.reward };
+    const body = { name: edit!.name, summary: edit!.summary, tier: edit!.tier, days: edit!.days || null, hoursPerDay: edit!.hoursPerDay || 8, repeatable: !!edit!.repeatable, group: !!edit!.group, reward: edit!.reward, events: (edit!.events ?? []).filter((e) => !e.pack), eventChance: edit!.eventChance ?? null };
     if (edit!.id) await w.call('PATCH', `/downtime/activities/${edit!.id}`, body); else await w.call('POST', '/downtime/activities', body);
     setEdit(null);
+  });
+  const sharePack = () => act.run(async () => {
+    const x = await w.call<{ file: any; events: number }>('GET', '/downtime/event-pack');
+    download(`${x.file.id}.alxmod.json`, JSON.stringify(x.file, null, 2), 'application/json');
   });
   const hide = (a: Activity) => act.run(() => (a.status === 'hidden' ? w.call('PATCH', `/downtime/activities/${a.id}`, { status: 'ok' }) : w.call('DELETE', `/downtime/activities/${a.id}`)));
   if ((info.settings as any).downtimeOn !== true) return <p className="small muted">Turn DownTime on to manage its activities.</p>;
@@ -301,7 +316,7 @@ export function Activities() {
         </div>
       </section>
       <section className="card stack tight">
-        <div className="card-head"><h2>Activities</h2><button type="button" className="btn small" onClick={() => setEdit({ tier: 'common', hoursPerDay: 8, reward: { text: '', cp: 0, item: '', qty: 1, hidden: false } })}>＋ New activity</button></div>
+        <div className="card-head"><h2>Activities</h2><span className="row" style={{ gap: 6 }}><button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void sharePack()} title="Download the events you changed as an event pack: a house rule file other DMs can add">Share events as a pack</button><button type="button" className="btn small" onClick={() => setEdit({ tier: 'common', hoursPerDay: 8, reward: { text: '', cp: 0, item: '', qty: 1, hidden: false } })}>＋ New activity</button></span></div>
         <ErrorBox error={act.error ?? list.error} />
         {!list.data ? <Loading /> : TIERS.map(([t, label]) => {
           const rows = list.data!.activities.filter((a) => a.tier === t);
@@ -311,7 +326,7 @@ export function Activities() {
               <h3 style={{ margin: '6px 0 0', fontSize: 14 }}><TierChip tier={t} label={label} /></h3>
               {rows.map((a) => (
                 <div key={a.id} className="row between" style={{ gap: 8, opacity: a.status === 'hidden' ? 0.5 : 1 }}>
-                  <span><strong>{a.name}</strong> {a.group && <GroupChip />} <span className="tiny muted">{a.daysNeeded}d{a.hoursPerDay < 8 ? ` × ${a.hoursPerDay}h` : ''}{a.repeatable ? ' · repeatable' : ''}{a.source === 'player' ? ' · a player\'s' : a.source === 'premade' ? '' : ' · yours'}{a.status === 'proposed' ? ' · waiting for you' : ''}</span></span>
+                  <span><strong>{a.name}</strong> {a.group && <GroupChip />} <span className="tiny muted">{a.events?.length ? `${a.events.length} event${a.events.length === 1 ? '' : 's'} · ` : ''}{a.daysNeeded}d{a.hoursPerDay < 8 ? ` × ${a.hoursPerDay}h` : ''}{a.repeatable ? ' · repeatable' : ''}{a.source === 'player' ? ' · a player\'s' : a.source === 'premade' ? '' : ' · yours'}{a.status === 'proposed' ? ' · waiting for you' : ''}</span></span>
                   <span className="row" style={{ gap: 4 }}>
                     {!a.link && <button type="button" className="btn small ghost" onClick={() => setEdit(a)}>Edit</button>}
                     {!a.link && <button type="button" className="btn small ghost" disabled={act.busy} onClick={() => void hide(a)}>{a.status === 'hidden' ? 'Show' : a.id.startsWith('pre-') ? 'Hide' : 'Remove'}</button>}
@@ -335,6 +350,7 @@ export function Activities() {
               <label className="small"><input type="checkbox" checked={!!edit.group} onChange={(e) => setEdit({ ...edit, group: e.target.checked })} /> Group activity (the party shares it)</label>
             </div>
             <RewardFields r={asReward(edit.reward as any)} onChange={(r) => setEdit({ ...edit, reward: r })} />
+            <EventsEditor activity={edit.id ?? ''} name={edit.name ?? ''} events={(edit.events ?? []).filter((e) => !e.pack)} packed={(edit.events ?? []).filter((e) => e.pack)} chance={edit.eventChance ?? null} onChange={(events, eventChance) => setEdit({ ...edit, events: [...events, ...(edit.events ?? []).filter((e) => e.pack)], eventChance })} />
             <ErrorBox error={act.error} />
             <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" className="btn" onClick={() => setEdit(null)}>Cancel</button>
@@ -346,3 +362,4 @@ export function Activities() {
     </div>
   );
 }
+

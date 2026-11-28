@@ -67,6 +67,101 @@ becomes a group one with `"group": true`. The DM sets this with a checkbox in
 the activity editor. A player sets it with the checkbox on a new activity.
 The DM can also assign one to "The whole party".
 
+## Several days at once, and travel days
+
+- **Several days at once:** the DM presses **Downtime** with the number of
+  days that passed, for example 5. Each player gets one popup for all five
+  days, with 5 × 8 = 40 hours to spread over their tasks. A daily task of an
+  hour or two fits beside a bigger one. The world clock moves 5 days in one
+  step. Random events roll per day (at most one per task).
+- **Travel days:** in D&D 5e, downtime is the time between adventures, so a
+  day on the road is not downtime. Many tables still let characters read,
+  practise or pray for a little while each day. Tick **Travel** on the
+  Downtime button: each day then gives only the world's travel hours (the
+  rule's `travelHours` option, `downtimeTravelHours`, 2 by default), and
+  every task moves at that pace. Setting it to 0 turns off downtime on the
+  road. The API takes `{ travel: true, hours? }`.
+- **The day cycle:** each round moves the world clock (unless the DM turns
+  that off). Every downtime day spent on a task sends the server event
+  `downtime-day`, so features that count study days (MANA's spell study) can
+  add them.
+
+## Random events
+
+Something can happen on a downtime day: rats boil out of the cellar you are
+cleaning, a fight breaks out where you work, or a dwarf challenges you to a
+drinking contest.
+
+- **How often:** each activity can have up to 40 events. Every downtime day
+  spent on it has a chance of one, at most one per task per pick. The chance
+  is the activity's `eventChance`, or else the world's (the rule's
+  `eventChance` option, `downtimeEventChance`). The default is 10%, and 0
+  turns events off.
+- **What the player sees:** a quick-time card after the pick, showing what
+  happens, the check and DC, and both stakes. The player types their bonus
+  and the server rolls a d20, or they enter the total from their own dice.
+  This is an ability check, so a natural 20 or 1 is not automatic.
+- **What an outcome can do:** give or take coin, give an item, add or take
+  away days of progress (−1 loses that day's work), deal damage, heal, add
+  levels of exhaustion, or fail the job (**no reward**: the task's reward is
+  lost, unless it was already given).
+  Exhaustion goes on the sheet as the condition "Exhaustion N". Coin and
+  items go to the character who had the event, even on a group task.
+- **What the DM sees:** waiting events under the Downtime button. The DM can
+  call **Success** or **Failure** without a roll, or **Cancel it**. A new
+  pick, or **Take back**, cancels events nobody has rolled yet.
+- **Where they're edited:** in the activity editor under **Random events**,
+  live and per world.
+- **The record:** every event, roll and result is in the log and in table
+  chat.
+
+DownTime ships 504 original events: 21 for each of the 23 ready-made
+activities (Clean out a cellar is a new common job), and 21 general ones for
+a player's own activity or the DM's one-off. They live in
+`librarian/src/features/downtime/data/events.json`, keyed by activity id,
+with `_general` for the rest. A Codex spell study uses the Study a spell
+list. The stakes grow with the tier: a common job risks a few coins or a
+bruise, a legendary craft risks weeks of work. A ready-made activity uses
+its library list until the DM edits its events, which makes the world's
+own copy.
+
+### Event packs and sharing events
+
+An **event pack** is a house rule that only adds events. It has a `content`
+part with `downtimeEvents`, a list of events per ready-made activity id, and
+`_general` for the general list. It needs DownTime (`requires.mods`):
+
+```json
+{
+  "kit": 2, "id": "my-events", "name": "My events", "version": "1.0.0",
+  "requires": { "mods": { "downtime": "*" } },
+  "content": { "downtimeEvents": {
+    "pre-cellar": [{ "title": "A cellar ghost", "check": "Wisdom", "dc": 13,
+      "success": { "gp": 3 }, "failure": { "text": "You flee", "noReward": true } }],
+    "_general": [{ "title": "A lucky find", "success": { "gp": 2 } }]
+  } }
+}
+```
+
+- Add it like any rule (House rules, Make or add one) and turn it on. Its
+  events join those activities' lists, even a list the DM edited, and go away
+  when it is turned off. The editor lists them under "From event packs" and
+  never saves them into the activity.
+- A key that isn't `_general` or a `pre-` id, or a bad event, is refused when
+  the file is checked, with the reason.
+- **Haunted town events** (`mods/downtime-haunted-events.alxmod.json`) ships as
+  an example: 12 events for the cellar, temple, tavern, work, rumours and the
+  general list.
+- **Share events as a pack** (Activities tab) downloads the events you changed
+  as a pack file another DM can add. `GET /downtime/event-pack?activity=`.
+- In the activity editor, **Export events** downloads one activity's list,
+  and **Import events** takes a pasted or chosen file: a list of events, an
+  exported file, or a pack (its list for that activity, else its general
+  list). You can add to the list or replace it, then Save.
+  `POST /downtime/event-import { activity, data }`.
+
+![A random event on a phone](screenshots/downtime/9-player-event-phone.png)
+
 ![A player's group tasks](screenshots/downtime/8-player-group-tasks.png)
 
 ## In play
@@ -98,9 +193,9 @@ a **Downtime** module to their sheet.
 ## The assistant
 
 The DM's assistant: `downtime` (everyone's tasks and the open round),
-`downtime_log`, `downtime_activities`, `downtime_suggest`, and with approval
+`downtime_log`, `downtime_activities`, `downtime_suggest`, `downtime_events`, and with approval
 `downtime_round`, `downtime_close_round`, `downtime_assign`, `downtime_time`,
-`downtime_work`, `downtime_update`, `downtime_remove`, `downtime_reward`.
+`downtime_work`, `downtime_update`, `downtime_remove`, `downtime_reward`, `downtime_event_decide`. Players also get `downtime_event_roll`.
 Players' helpers: `downtime`, `downtime_log`, `downtime_activities`,
 `downtime_suggest`, `downtime_start` and `downtime_pick` (their own only; `group: true` starts or
 joins a group activity). `downtime_assign` with `group: true` and no player
@@ -117,7 +212,7 @@ Under `/api/worlds/:world/downtime`: `GET /`, `GET|POST /activities`,
 `PATCH|DELETE /activities/:id`, `GET|POST /tasks`, `PATCH|DELETE /tasks/:id`,
 `POST /tasks/:id/time|work|reward|join|leave`, `GET /log`, `GET /rounds`,
 `GET /rounds/current`, `POST /rounds`, `POST /rounds/:rid/pick|close|cancel`
-(`current` for the open one), `POST /suggest`, `POST /decide`. `POST /tasks`
+(`current` for the open one), `POST /suggest`, `POST /decide`, `GET /events`, `POST /events/:id/roll` (`{ bonus }` or `{ total }`), `POST /events/:id/decide` (`{ result: success | failure | cancel }`). `POST /tasks`
 takes `group: true` (the DM may leave out `player` for the whole party);
 `GET /tasks?scope=personal|group` filters; `/tasks/:id/work` takes `worker`
 on a group task. Live events:

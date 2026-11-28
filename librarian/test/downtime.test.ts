@@ -11,9 +11,12 @@ import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
 import { tierByWords } from '../src/features/downtime/suggest.ts';
 import { premadeFrom } from '../src/features/downtime/catalog.ts';
+import { rollForPick, resolveEvent } from '../src/features/downtime/events.ts';
+import { generalEvents, libraryEvents, eventLibrary } from '../src/features/downtime/library.ts';
 
 let base = '';
 let server: any;
+let deps: any;
 let tmp = '';
 const T: Record<string, string> = {};
 const ID: Record<string, string> = {};
@@ -38,6 +41,7 @@ before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-downtime-'));
   // No model at all: the helper falls back to its word rules.
   const made = createApp({ noScheduler: true, dataDir: path.join(tmp, 'data'), vaultsDir: path.join(tmp, 'vaults'), env: { ALX_ADMIN_TABLE_LOGIN: '1', ALX_RATE_LIMIT: '0' } });
+  deps = made.deps;
   server = made.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -247,4 +251,249 @@ test('TestDowntime_GroupTasksAreSharedApartFromPersonal', async () => {
   assert.deepEqual(camp.members, []);
   assert.equal((await call('POST', `${D()}/tasks/${(await task('jess', 'Research lore')).id}/join`, T.jess)).status, 409, 'personal tasks have no members');
   await ok('DELETE', `${D()}/tasks/${fest.id}`, T.dm);
+});
+
+test('TestDowntime_RandomEventsAreQuickTimeChecks', async () => {
+  const acts = (await ok('GET', `${D()}/activities`, T.tom)).activities;
+  const cellar = acts.find((a: any) => a.id === 'pre-cellar');
+  assert.ok(cellar.events.some((e: any) => e.title === 'Rats in the cellar!' && e.check === 'Athletics' && e.dc === 12));
+  // The DM gives the cellar one event only, and every downtime day has one.
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { events: [{ title: 'Rats in the cellar!', text: 'A swarm of rats.', check: 'Athletics', dc: 12, success: { text: 'Cleared out', gp: 5 }, failure: { text: 'Bitten', damage: 3, exhaustion: 1, noReward: true } }] });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 100 });
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const p = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  assert.equal(p.events.length, 1);
+  const ev = p.events[0];
+  assert.equal(ev.status, 'pending');
+  assert.equal(ev.accountId, ID.tom);
+  // A new pick replaces the old one, and the event that was not rolled yet goes with it.
+  const p2 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  assert.equal((await ok('GET', `${D()}/events?status=cancelled`, T.tom)).events.some((e: any) => e.id === ev.id), true);
+  const ev2 = p2.events[0];
+  // Jess cannot roll Tom's event; Tom sees it on his overview.
+  assert.equal((await call('POST', `${D()}/events/${ev2.id}/roll`, T.jess, { bonus: 2 })).status, 404);
+  assert.ok((await ok('GET', D(), T.tom)).events.some((e: any) => e.id === ev2.id));
+  // Tom rolls with his own dice: 15 beats DC 12. The bonus coin goes to his purse.
+  const before = (await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp;
+  const r = await ok('POST', `${D()}/events/${ev2.id}/roll`, T.tom, { total: 15 });
+  assert.equal(r.status, 'success');
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, before + 500);
+  assert.equal((await call('POST', `${D()}/events/${ev2.id}/roll`, T.tom, { total: 15 })).status, 409, 'settled once');
+  // A failure: damage and a level of exhaustion on his sheet.
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.tom}/vitals`, T.dm, { hp: 20, maxHp: 20 });
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const p3 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  const f = await ok('POST', `${D()}/events/${p3.events[0].id}/roll`, T.tom, { total: 4 });
+  assert.equal(f.status, 'failure');
+  assert.match(f.note, /Athletics 4 vs DC 12, failure: Bitten, 3 damage, \+1 exhaustion, the job fails, no reward/);
+  const job = (await ok('GET', `${D()}/tasks?all=1`, T.dm)).tasks.find((x: any) => x.id === p3.events[0].taskId);
+  assert.equal(job.rewardWaiting, false, 'a failed job pays nothing');
+  const sheet = await ok('GET', `/api/worlds/${W}/sheet/${ID.tom}`, T.tom);
+  const v = sheet.vitals ?? sheet;
+  assert.equal(v.hp, 17);
+  assert.ok(v.conditions.includes('Exhaustion 1'), JSON.stringify(v.conditions));
+  // The DM decides or cancels the next one instead of a roll; the log has every event.
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const p4 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  assert.equal((await call('POST', `${D()}/events/${p4.events[0].id}/decide`, T.tom, { result: 'success' })).status, 403);
+  assert.equal((await ok('POST', `${D()}/events/${p4.events[0].id}/decide`, T.dm, { result: 'cancel' })).status, 'cancelled');
+  const log = (await ok('GET', `${D()}/log?player=Tomas`, T.dm)).log.filter((l: any) => l.kind === 'event');
+  assert.ok(log.some((l: any) => /success/.test(l.note)) && log.some((l: any) => /failure/.test(l.note)) && log.some((l: any) => /cancelled/.test(l.note)));
+  // Taking a round back cancels its unrolled events; chance 0 turns events off.
+  await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 0 });
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 3, advance: false });
+  assert.equal((await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] })).events.length, 0);
+  await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
+});
+
+test('TestDowntime_FiveDaysAtOnceAndTravelDays', async () => {
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 0 });
+  const t = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activity: { name: 'Learn to sail', tier: 'very-rare', days: 20 } });
+  // Five downtime days at once: 40 hours to spread over tasks; the clock moves five days.
+  const c0 = (await ok('GET', D(), T.dm)).now;
+  const { round } = await ok('POST', `${D()}/rounds`, T.dm, { days: 5 });
+  assert.equal(round.hours, 40);
+  assert.notEqual((await ok('GET', D(), T.dm)).now, c0, 'the world clock moved');
+  await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: t.id, days: 5 }] });
+  assert.equal((await task('tom', 'Learn to sail')).doneMin, 5 * 8 * 60);
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  // Travel days: 2 hours a day go to downtime, so 3 days on the road are 6 hours on the task.
+  const tr = (await ok('POST', `${D()}/rounds`, T.dm, { days: 3, travel: true, advance: false, note: 'On the road to Saltmarsh' })).round;
+  assert.equal(tr.kind, 'travel');
+  assert.equal(tr.hoursPerDay, 2);
+  assert.equal(tr.hours, 6);
+  await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: t.id, days: 3 }] });
+  assert.equal((await task('tom', 'Learn to sail')).doneMin, 5 * 8 * 60 + 3 * 2 * 60);
+  assert.equal((await call('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: t.id, days: 3 }, { activityId: 'pre-pray', days: 1 }] })).status, 400, 'no time left beyond 6 hours');
+  await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
+  // A world with no downtime on the road.
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeTravelHours: 0 });
+  assert.equal((await call('POST', `${D()}/rounds`, T.dm, { days: 2, travel: true })).status, 409);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeTravelHours: 2 });
+});
+
+test('TestDowntime_EventLogicHolds', async () => {
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 100, downtimeAutoReward: true });
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { events: [{ title: 'Rats', check: 'Athletics', dc: 12, success: { gp: 5 }, failure: { text: 'Bitten', noReward: true } }] });
+  // 1. Changing the pick does not dodge or re-roll an event on the same task.
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 2, advance: false });
+  const a1 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  assert.equal(a1.events.length, 1);
+  const cellarTask = a1.events[0].taskId;
+  // 2. Auto rewards wait for a waiting event: the cellar is done but not paid yet.
+  let ct = (await ok('GET', `${D()}/tasks?all=1`, T.dm)).tasks.find((x: any) => x.id === cellarTask);
+  assert.equal(ct.status, 'done');
+  assert.equal(ct.rewardGivenAt, null, 'held for the event');
+  const long = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activity: { name: 'Long study', tier: 'legendary' } });
+  const b1 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: long.id, days: 1 }] });
+  assert.equal(b1.events.length, 1, 'the general events cover a one-off task');
+  const b2 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ taskId: long.id, days: 2 }] });
+  assert.equal(b2.events.length, 0, 'the same task in a new pick: no new roll');
+  const pend = (await ok('GET', `${D()}/events?status=pending`, T.tom)).events;
+  assert.equal(pend.filter((e: any) => e.taskId === long.id).length, 1, 'its event still waits');
+  assert.equal(pend.filter((e: any) => e.taskId === cellarTask).length, 0, 'the cellar left the pick, so its event went with it');
+  const purse0 = (await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp;
+  void purse0;
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  // A failed job pays nothing, even with auto rewards on.
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const f1 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  const purseF = (await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp;
+  await ok('POST', `${D()}/events/${f1.events[0].id}/roll`, T.tom, { total: 2 });
+  ct = (await ok('GET', `${D()}/tasks?all=1`, T.dm)).tasks.find((x: any) => x.id === f1.events[0].taskId);
+  assert.equal(ct.rewardWaiting, false);
+  assert.equal(ct.rewardGivenAt, null);
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, purseF, 'no pay');
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  // 3. A success: the held reward is paid the moment the event is settled, with the event's bonus.
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const a2 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  const purse1 = (await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp;
+  await ok('POST', `${D()}/events/${a2.events[0].id}/roll`, T.tom, { total: 20 });
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, purse1 + 500 + 100, '5 gp bonus and the 1 gp job');
+  // 4. Taking the round back undoes the event's coin too.
+  const back = await ok('POST', `${D()}/rounds/current/cancel`, T.dm);
+  assert.equal(back.eventsUndone, 1);
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, purse1 + 100, 'the bonus is gone; the reward paid stays the DM\'s call');
+  // 5. A loss never takes more than the purse holds.
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { events: [{ title: 'Fined', success: { gp: -100000 } }] });
+  await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+  const a3 = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-cellar', days: 1 }] });
+  await ok('POST', `${D()}/events/${a3.events[0].id}/roll`, T.tom, {});
+  assert.equal((await ok('GET', `/api/worlds/${W}/live/ledger`, T.tom)).cp, 0);
+  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 10, downtimeAutoReward: false });
+});
+
+test('TestDowntime_EventChanceIsPerDayAndTravelIsAShare', () => {
+  // The engine on its own with a fixed roll: a travel day of 2 of 8 hours has a quarter of the chance.
+  const db = deps.db;
+  const t = db.prepare("SELECT * FROM downtime_tasks WHERE world_id = ? AND activity_id = 'pre-cellar' LIMIT 1").get(W);
+  db.prepare("UPDATE worlds SET settings = json_set(COALESCE(settings, '{}'), '$.downtimeEventChance', 40) WHERE id = ?").run(W);
+  const d = { db, hub: { emit() {} } };
+  const at = (n: number) => (lo: number, hi: number) => (hi === 1000 ? n : lo);
+  const full = { id: 'sim-full', day_min: null };
+  const travel = { id: 'sim-travel', day_min: 120 };
+  assert.equal(rollForPick(d as any, W, full, ID.tom, [{ taskId: t.id, days: 1 }], at(400)).length, 1, '40% full day: a 400 in 1000 hits');
+  assert.equal(rollForPick(d as any, W, travel, ID.tom, [{ taskId: t.id, days: 1 }], at(101)).length, 0, 'travel: 10% of 1000 is the line');
+  assert.equal(rollForPick(d as any, W, { id: 'sim-travel-2', day_min: 120 }, ID.tom, [{ taskId: t.id, days: 1 }], at(100)).length, 1);
+});
+
+test('TestDowntime_EventLibraryCoversEveryActivity', async () => {
+  // About 500 ready-made events: every ready-made activity has its own list, and a one-off task uses the general one.
+  const lib = eventLibrary();
+  const acts = (await ok('GET', `${D()}/activities`, T.dm)).activities.filter((a: any) => a.source === 'premade');
+  assert.ok(acts.length >= 23);
+  for (const a of acts) assert.ok(libraryEvents(a.id).length >= 20, `${a.id} has ${libraryEvents(a.id).length} events`);
+  assert.ok(generalEvents().length >= 20);
+  const total = [...lib.values()].reduce((n, l) => n + l.length, 0);
+  assert.ok(total >= 500, `${total} events`);
+  for (const [k, l] of lib) {
+    assert.ok(k === '_general' || acts.some((a: any) => a.id === k), `${k} is a real activity`);
+    for (const e of l) {
+      assert.ok(e.text && e.title, `${k}/${e.id} has a title and text`);
+      if (e.check) assert.ok(e.dc >= 8 && e.dc <= 20, `${k}/${e.id} DC ${e.dc}`);
+      else assert.ok(!e.failure.text && !e.failure.cp && !e.failure.days, `${k}/${e.id}: no check, so no failure`);
+    }
+  }
+});
+
+test('TestDowntime_EveryLibraryEventSettlesBothWays', async () => {
+  // Fire every event in the library, then settle it as a success and again as a failure: none throws, each applies.
+  const db = deps.db;
+  const d = { db, hub: { emit() {} } };
+  const t = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activity: { name: 'Event soak', tier: 'legendary', days: 3650 } });
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.tom}/vitals`, T.dm, { hp: 500, maxHp: 500 });
+  db.prepare("INSERT INTO ledger (id, world_id, owner, amount_cp, status, note, by_id, at) VALUES ('soak-seed', ?, ?, 100000000, 'approved', 'soak', ?, ?)").run(W, ID.tom, ID.dm, new Date().toISOString());
+  let n = 0;
+  for (const [k, list] of eventLibrary()) {
+    for (const ev of list) {
+      for (const result of ['success', 'failure'] as const) {
+        const eid = `soak-${n++}`;
+        db.prepare("INSERT INTO downtime_events (id, world_id, round_id, task_id, task_name, account_id, event, status, created_at) VALUES (?,?,NULL,?,?,?,?,'pending',?)").run(eid, W, t.id, 'Event soak', ID.tom, JSON.stringify(ev), new Date().toISOString());
+        const r = resolveEvent(d as any, W, eid, { result }, ID.dm);
+        assert.equal(r.event.status, result, `${k}/${ev.id}`);
+        assert.ok(r.event.note, `${k}/${ev.id} has a result line`);
+      }
+    }
+  }
+  assert.ok(n >= 1000);
+  db.prepare("DELETE FROM ledger WHERE world_id = ? AND owner = ?").run(W, ID.tom);
+  await ok('POST', `/api/worlds/${W}/sheet/${ID.tom}/vitals`, T.dm, { hp: 20, maxHp: 20, conditions: [] });
+});
+
+test('TestDowntime_EventPacksAndSharing', async () => {
+  const M = `/api/worlds/${W}/mods`;
+  const cellar = async () => (await ok('GET', `${D()}/activities`, T.dm)).activities.find((a: any) => a.id === 'pre-cellar');
+  const base = (await cellar()).events.filter((e: any) => !e.pack).length;
+  // A bad pack is refused when checked, with the reason.
+  const bad = await ok('POST', `${M}/check`, T.dm, { mod: { kit: 2, id: 'bad-pack', name: 'Bad pack', content: { downtimeEvents: { cellar: [{ title: 'x' }], 'pre-work': [{ text: 'no title' }] } } } });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.errors.some((e: string) => /content\.downtimeEvents: "cellar" is not a ready-made activity id/.test(e)), JSON.stringify(bad.errors));
+  assert.ok(bad.errors.some((e: string) => /pre-work: .*title is needed/.test(e)), JSON.stringify(bad.errors));
+  // The shipped haunted pack: its check says what it adds; on, its events join the lists, tagged with the pack.
+  const chk = await ok('POST', `${M}/check`, T.dm, { mod: JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'mods', 'downtime-haunted-events.alxmod.json'), 'utf8')) });
+  assert.ok(chk.preview.some((l: string) => /^Adds 12 DownTime random events to /.test(l)), JSON.stringify(chk.preview));
+  await ok('PUT', `${M}/downtime-haunted-events/enabled`, T.dm, { on: true });
+  let c = await cellar();
+  const packed = c.events.filter((e: any) => e.pack === 'downtime-haunted-events');
+  assert.equal(packed.length, 3);
+  assert.equal(c.events.length, base + 3);
+  // Saving the activity keeps the pack's events out of the world's copy.
+  const mine = [{ title: 'Rats in the cellar!', check: 'Athletics', dc: 12, success: { gp: 5 }, failure: { text: 'Bitten', noReward: true } }, { title: 'A loose brick', success: { gp: 2 } }];
+  await ok('PATCH', `${D()}/activities/pre-cellar`, T.dm, { name: 'Clean out a cellar', events: [...mine, ...packed] });
+  c = await cellar();
+  assert.equal(c.events.filter((e: any) => !e.pack).length, 2, 'the copy has the two own events');
+  assert.equal(c.events.filter((e: any) => e.pack).length, 3, 'the pack still adds its three');
+  // A one-off task's general list gets the pack's general events too: fire them all.
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 100 });
+  const odd = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activity: { name: 'Odd job', tier: 'common', days: 30 } });
+  const seen = new Set<string>();
+  const d = { db: deps.db, hub: { emit() {} } };
+  for (let i = 0; i < 400 && seen.size < 30; i++) for (const e of rollForPick(d as any, W, null, ID.tom, [{ taskId: odd.id, days: 1 }])) seen.add(e.title);
+  assert.ok(seen.has('The bell at midnight') || seen.has('The lantern man') || seen.has('A wrong reflection') || seen.has('The whispering well'), 'a pack general event came up');
+  // Turned off, the pack's events go.
+  await ok('PUT', `${M}/downtime-haunted-events/enabled`, T.dm, { on: false });
+  assert.equal((await cellar()).events.filter((e: any) => e.pack).length, 0);
+  // Export: the world's edited lists as an event pack, which imports back as a house rule.
+  const ex = await ok('GET', `${D()}/event-pack`, T.dm);
+  assert.deepEqual(Object.keys(ex.file.content.downtimeEvents), ['pre-cellar']);
+  assert.equal(ex.file.content.downtimeEvents['pre-cellar'].length, 2);
+  assert.equal((await call('GET', `${D()}/event-pack`, T.tom)).status, 403);
+  const imp = await ok('POST', `${M}/import`, T.dm, { mod: ex.file });
+  assert.equal(imp.id, ex.file.id);
+  // Import into the editor: a plain list (gp or cp), an exported file, or a pack's list for the activity.
+  const one = await ok('POST', `${D()}/event-import`, T.dm, { activity: 'pre-work', data: JSON.stringify([{ title: 'Spilled ink', check: 'Dexterity', dc: 11, success: { gp: 1 } }]) });
+  assert.equal(one.events[0].success.cp, 100);
+  const file = await ok('POST', `${D()}/event-import`, T.dm, { activity: 'pre-work', data: { type: 'alexandria-downtime-events', events: one.events } });
+  assert.equal(file.events[0].title, 'Spilled ink');
+  const fromPack = await ok('POST', `${D()}/event-import`, T.dm, { activity: 'pre-cellar', data: ex.file });
+  assert.equal(fromPack.from, 'pack');
+  assert.equal(fromPack.events.length, 2);
+  assert.equal((await call('POST', `${D()}/event-import`, T.dm, { activity: 'pre-work', data: ex.file })).status, 400, 'no list for that activity');
+  assert.equal((await call('POST', `${D()}/event-import`, T.dm, { data: '{nope' })).status, 400);
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { downtimeEventChance: 10 });
 });
