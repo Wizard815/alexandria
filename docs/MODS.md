@@ -313,6 +313,11 @@ taken, and a package with one of them is refused whole.
 To make a rule built in for everyone on a server, put the file (rule or
 package) in `mods/` instead.
 
+Mods are free to share. You can link to a donation page such as Ko-fi, but a
+mod shared through Alexandria can't be paid-only or locked. The built-in rules
+in `mods/` are MIT, so you can copy them as a start. See
+[LICENSING.md](LICENSING.md#mods).
+
 ## API
 
 Under `/api/worlds/:world/mods`: `GET /` (the DM gets every rule, a player
