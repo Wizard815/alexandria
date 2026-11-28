@@ -31,7 +31,7 @@ export const COMMANDS = [
   { name: 'unlink', description: 'Stop this Discord account acting as your Alexandria character' },
   { name: 'roll', description: 'Roll dice at the table, e.g. 2d20kh1+5 attack', options: [{ type: 3, name: 'dice', description: 'Dice and a note: 2d6+3 sneak attack', required: true, max_length: 200 }] },
   {
-    name: 'ask', description: 'Ask your quick helper (only you see the answer unless you share it)', options: [
+    name: 'ask', description: 'Ask your Squire (only you see the answer unless you share it)', options: [
       { type: 3, name: 'question', description: 'Your question', max_length: 400 },
       { type: 3, name: 'task', description: 'What kind of help', choices: [
         { name: 'Answer a question', value: 'ask' }, { name: 'A rules question', value: 'rules' }, { name: 'My turn: what can I do?', value: 'turn' },
@@ -221,10 +221,10 @@ class Bot {
     }
 
     if (name === 'ask') {
-      if (who.role !== 'player') return this.reply(i, 'The quick helper is for players.');
+      if (who.role !== 'player') return this.reply(i, 'The Squire is for players.');
       const s = settingsOf(this.d, w);
-      if (featureSetting<boolean>(s, 'quickHelper') === false) return this.reply(i, 'The GM has turned the quick helper off.');
-      if (!c.helper) return this.reply(i, 'The GM has turned the quick helper off in Discord. It is still in the app.');
+      if (featureSetting<boolean>(s, 'quickHelper') === false) return this.reply(i, 'The GM has turned the Squire off.');
+      if (!c.helper) return this.reply(i, 'The GM has turned the Squire off in Discord. It is still in the app.');
       const raw = String(opt('task') ?? 'ask');
       const task: QuickTask = (QUICK_TASKS as readonly string[]).includes(raw) ? (raw as QuickTask) : 'ask';
       const question = String(opt('question') ?? '').slice(0, 400);
@@ -239,7 +239,7 @@ class Bot {
       } catch (e: any) {
         text = e?.name === 'ModelPreempted' || /preempt|GM first|for the GM/i.test(String(e?.message))
           ? 'The GM needs the model right now (the GM goes first). Ask again in a moment.'
-          : e?.status === 429 ? `${e.message}. Ask again in a moment.` : 'The quick helper is not answering right now. Try the app.';
+          : e?.status === 429 ? `${e.message}. Ask again in a moment.` : 'Your Squire is not answering right now. Try the app.';
       }
       const parts = chunks(text);
       await this.rest('PATCH', `/webhooks/${i.application_id ?? this.status.applicationId}/${i.token}/messages/@original`, { content: parts[0], allowed_mentions: noPings });

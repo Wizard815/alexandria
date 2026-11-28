@@ -26,8 +26,8 @@ const GROUPS: [string, string, Row[]][] = [
     T('playerChangesNeedApproval', 'Player coin and item changes need your approval', 'On: what players add, spend, edit or remove waits in Approvals and shows as “Waiting for the GM”. Broker payments are never held.'),
     T('gmChangeReason', 'Ask me why when I change a player’s things', 'Your reason shows to the owner, who can confirm or dispute it.'),
     T('playerTransfers', 'Players can give coin and items freely', 'On: players hand each other coin and items, and move things in and out of the party stash, without asking. You see every give in Party & inventory.'),
-    T('brokerEnabled', 'Information broker', 'Players can buy what their characters could learn, at prices you set on the broker page.'),
-    T('brokerPartyPay', 'Players may pay the broker from the party pouch', 'On: after a price is set, each player chooses to pay from their own coin or the party pouch (it needs “Shared party pouch”). Party payments are logged for everyone to see.'),
+    T('brokerEnabled', 'Information broker', 'Players can buy what their characters could learn, at prices you set on The Broker page.'),
+    T('brokerPartyPay', 'Players may pay The Broker from the party pouch', 'On: after a price is set, each player chooses to pay from their own coin or the party pouch (it needs “Shared party pouch”). Party payments are logged for everyone to see.'),
     C('brokerPayer', 'Which purse is picked first', 'Only the one preselected on the payment choice; the player can still switch.', [['self', 'The player’s own coin'], ['party', 'The party pouch']]),
   ]],
   ['combat', 'Combat & quick events', [

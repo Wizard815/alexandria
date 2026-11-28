@@ -737,6 +737,8 @@ const PLAYER_ROUTES = [
   'POST /mods/:id/records/:action', 'POST /mods/:id/prompts/round/:round/answer',
   // The quick helper: a question to the small model (it reads only what this player may see and changes nothing).
   'POST /helper/quick',
+  // Each player names their own Squire and gives it a personality (their own row only).
+  'PUT /helper/squire',
   // Discord: a player gets their own one-time link code and unlinks their own Discord account.
   'POST /discord/me/code', 'DELETE /discord/me',
 ];

@@ -5,8 +5,9 @@
 //   GET /helper/journal-draft   a draft of this player's journal for a session, from the table transcript
 //   GET /helper/recap           what happened last session: the published log entries, newest first
 //
-// The quick helper (quick.ts) is the one part that uses a model: a small second one, the 'helper' job.
-//   GET  /helper/quick          is it on, and which model answers
+// Squire, the quick helper (quick.ts), is the one part that uses a model: a small second one, the 'helper' job.
+//   GET  /helper/quick          is it on, which model answers, and this player's Squire (name, trait)
+//   PUT  /helper/squire         { name?, trait? } this player names their Squire and gives it a personality trait
 //   GET  /helper/quick/brief    what the small model is given for a task (?task=&q=; the GM: &account=)
 //   POST /helper/quick          { task: ask|rules|turn|sheet|suggest, question? } -> an answer or a handoff
 import { Router } from 'express';
@@ -17,7 +18,7 @@ import { HttpError } from '../../core/util.ts';
 import { ctx, isGM, me, memberIds, settings } from '../../routes/_shared.ts';
 import { listSessions, sessionLines } from '../audio/api.ts';
 import { featureSetting } from '../../core/policy.ts';
-import { QUICK_TASKS, askQuick, quickBrief, quickStatus, type QuickTask } from './quick.ts';
+import { QUICK_TASKS, SQUIRE_NAME_MAX, SQUIRE_SCHEMA, SQUIRE_TRAIT_MAX, askQuick, getSquire, quickBrief, quickStatus, setSquire, type QuickTask } from './quick.ts';
 
 const taskOf = (v: unknown): QuickTask => {
   const t = typeof v === 'string' && v ? v : 'ask';
@@ -34,8 +35,9 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 
 const feature: Feature = {
   id: 'playerhelp',
+  schema: SQUIRE_SCHEMA,
   settings: {
-    // The players' quick helper (a small second model). Off: players only have the table helper and the broker.
+    // Squire, the players' quick helper (a small second model). Off: players only have the table helper and the broker.
     quickHelper: { type: 'boolean', default: true },
   },
   worldMount: 'helper',
@@ -71,7 +73,17 @@ const feature: Feature = {
     const quickOn = (res: any) => featureSetting<boolean>(settings(res), 'quickHelper') !== false;
     r.get('/quick', (_req, res) => {
       const st = quickStatus(d);
-      res.json({ on: quickOn(res), ...st });
+      res.json({ on: quickOn(res), ...st, squire: isGM(res) ? null : getSquire(d.db, ctx(res).world.id, me(res)) });
+    });
+
+    r.put('/squire', (req, res) => {
+      if (isGM(res)) throw new HttpError(403, 'Each player names their own Squire');
+      const b = req.body ?? {};
+      for (const [k, max] of [['name', SQUIRE_NAME_MAX], ['trait', SQUIRE_TRAIT_MAX]] as const) {
+        if (b[k] !== undefined && typeof b[k] !== 'string') throw new HttpError(400, `${k} must be text`);
+        if (typeof b[k] === 'string' && b[k].trim().length > max) throw new HttpError(400, `${k} must be at most ${max} characters`);
+      }
+      res.json(setSquire(d.db, ctx(res).world.id, me(res), { name: b.name, trait: b.trait }));
     });
 
     r.get('/quick/brief', async (req, res) => {
@@ -87,8 +99,8 @@ const feature: Feature = {
     });
 
     r.post('/quick', async (req, res) => {
-      if (isGM(res)) throw new HttpError(403, 'The quick helper is for players');
-      if (!quickOn(res)) throw new HttpError(403, 'The GM has turned the quick helper off');
+      if (isGM(res)) throw new HttpError(403, 'The Squire is for players');
+      if (!quickOn(res)) throw new HttpError(403, 'The GM has turned the Squire off');
       const c = ctx(res);
       try {
         res.json(await askQuick(d, { worldId: c.world.id, worldName: c.world.name, accountId: me(res), settings: settings(res), task: taskOf(req.body?.task), question: questionOf(req.body?.question) }));

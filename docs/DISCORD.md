@@ -5,7 +5,7 @@ A world can have a bot in the table's Discord server. It:
 - posts a **session recap** to a channel the moment the GM publishes it;
 - posts **dice rolls** from the table chat to a channel (never the party chat, and a roll the GM hides comes down again);
 - sends each player their **broker messages** as Discord DMs: an answer that is ready, a price the GM named, and the GM's special offers (the teaser and price only; the information stays in the app until someone pays);
-- lets linked players use slash commands: `/roll`, `/ask` (their quick helper), `/recap`, `/link`, `/unlink`.
+- lets linked players use slash commands: `/roll`, `/ask` (their Squire), `/recap`, `/link`, `/unlink`.
 
 Nothing GM-only is posted. Everything the bot sends is something the players
 already see in the app, and commands run as the linked account with its role
@@ -46,7 +46,7 @@ can do nothing more through the bot.
 | Command | Who | What |
 | --- | --- | --- |
 | `/roll dice:2d6+3 sneak attack` | linked player or GM | Rolled on the Alexandria server. While a session runs it goes into the table chat as that player (and the GM sees it like any roll); with no session it is only answered in Discord. Same dice syntax as the table chat (`kh`, `kl`, `dh`, `dl`). |
-| `/ask question:… task:…` | linked player | The quick helper (the small `helper` model). Tasks: answer, rules, my turn, sum up my character, what next, story so far. Only the player sees the answer unless they set `share`. Questions about the world go to the broker, with a link to it. |
+| `/ask question:… task:…` | linked player | Their Squire, the quick helper (the small `helper` model), in the name and personality the player gave it. Tasks: answer, rules, my turn, sum up my character, what next, story so far. Only the player sees the answer unless they set `share`. Questions about the world go to The Broker, with a link to it. |
 | `/recap` | linked player or GM | The last published recap, privately unless `share`. |
 | `/link code:…`, `/unlink` | anyone in the server | Link or unlink a character. |
 

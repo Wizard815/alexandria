@@ -35,7 +35,7 @@ const BACKEND_NAMES: Record<Backend, string> = { argos: 'Argos', 'llama-swap': '
 const REASONS: Record<string, string> = { manual: 'started by hand', recording: 'a recording is running', chat: 'a session chat is open' };
 const HOLD_TEXT: Record<HoldState, string> = { loading: '… loading', ready: '✓ loaded, held', failed: '✗ failed', lost: 'reloading' };
 const SEEN_TEXT: Record<Seen, string> = { loaded: 'loaded', unloaded: 'not loaded', unknown: 'unknown', missing: 'not on the server', unreachable: 'server not reachable' };
-const JOB_TITLES: Record<string, string> = { chat: 'Chat', audit: 'Audit', audio: 'Audio', voice: 'Voice', extra: 'Embeddings', rerank: 'Rerank' };
+const JOB_TITLES: Record<string, string> = { chat: 'Chat', audit: 'Audit', audio: 'Audio', voice: 'Voice', extra: 'Historian (embeddings)', rerank: 'Arbiter (rerank)' };
 
 export const WarmMark = ({ e }: { e?: WarmEntry }) => {
   if (!e || e.state === 'idle') return <span className="muted">not loaded yet</span>;

@@ -183,7 +183,7 @@ export function BrokerTeaser() {
   const offered = rs.filter((q) => q.status === 'offered').length;
   return (
     <section className="card" aria-labelledby="brk-h">
-      <div className="card-head"><h2 id="brk-h">The broker</h2><Link to={`/w/${info.slug}/broker`} className="small">Visit →</Link></div>
+      <div className="card-head"><h2 id="brk-h">The Broker</h2><Link to={`/w/${info.slug}/broker`} className="small">Visit →</Link></div>
       <span className="small">{fresh ? `${fresh} answer${fresh === 1 ? ' is' : 's are'} ready.` : waiting ? `${waiting} question${waiting === 1 ? '' : 's'} on the way.` : 'Buy what your character could find out.'}</span>
       {offered > 0 && <span className="small" style={{ color: 'var(--accent-strong)' }}>{offered} price{offered === 1 ? '' : 's'} offered. Pay or decline.</span>}
       {openOffers.map((o) => <span key={o.id} className="small" style={{ color: 'var(--accent-strong)' }}>✉ Someone offers knowledge of “{o.title}” for {coins(o.price_cp, info.settings.coins)}.</span>)}

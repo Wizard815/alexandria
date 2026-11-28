@@ -267,7 +267,7 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
       <p className="tiny muted" style={{ margin: 0 }}>
         {j.source === 'saved' && 'Using these saved settings.'}
         {j.source === 'env' && `Using the server's environment settings (${j.effective?.baseUrl}).`}
-        {j.source === 'chat' && `Using the ${j.job === 'helper' ? 'Players (or Chat)' : 'Chat'} model${j.effective ? ` (${j.effective.model})` : ''}. Pick a provider and a model here to give this its own${j.job === 'helper' ? ': a small one, 4B or less, on its own llama.cpp server' : ''}.`}
+        {j.source === 'chat' && `Using the ${j.job === 'helper' ? 'The Broker (or Chat)' : 'Chat'} model${j.effective ? ` (${j.effective.model})` : ''}. Pick a provider and a model here to give this its own${j.job === 'helper' ? ': a small one, 4B or less, on its own llama.cpp server' : ''}.`}
         {j.source === 'none' && (j.job === 'rerank' ? 'Not set. Search keeps its keyword order.' : 'No model set. Features that need it fall back or stay off.')}
       </p>
 
@@ -341,7 +341,7 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
 }
 
 type Tab = 'setup' | 'session' | 'memory' | 'embeddings' | 'calls';
-const TABS: [Tab, string][] = [['setup', 'Providers & jobs'], ['session', 'Game night'], ['memory', 'GPU & queue'], ['embeddings', 'Embeddings'], ['calls', 'Gateway calls']];
+const TABS: [Tab, string][] = [['setup', 'Providers & jobs'], ['session', 'Game night'], ['memory', 'GPU & queue'], ['embeddings', 'Historian (embeddings)'], ['calls', 'Gateway calls']];
 
 export default function ModelsPage() {
   const { client } = useAuth();
