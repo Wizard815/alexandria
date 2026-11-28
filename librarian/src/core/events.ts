@@ -56,6 +56,9 @@ export class EventHub {
     return true;
   }
 
+  /** The worlds someone is listening to right now (for news that is not about one world, such as a model going down). */
+  worlds(): string[] { return [...new Set([...this.subs].map((s) => s.worldId))]; }
+
   emit(worldId: string, type: string, data: unknown, audience: Audience) {
     const payload = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const s of [...this.subs]) {

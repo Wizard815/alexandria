@@ -12,7 +12,7 @@ type Kind = 'argos' | 'openai' | 'ollama' | 'lmstudio' | 'openai-compatible';
 type Location = 'local' | 'cloud';
 type Seen = 'loaded' | 'unloaded' | 'unknown' | 'missing' | 'unreachable';
 
-interface Provider { id: string; name: string; kind: Kind; baseUrl: string; apiKey: string; location: Location; webUrl?: string; usedBy: string[]; backend?: { label: string; canHold: boolean; detected: string | null } }
+interface Provider { id: string; name: string; kind: Kind; baseUrl: string; apiKey: string; location: Location; webUrl?: string; usedBy: string[]; addedBy?: string | null; backend?: { label: string; canHold: boolean; detected: string | null } }
 interface FallbackView { providerId: string; model: string; options: Record<string, unknown>; allowCloud: boolean; location?: Location }
 interface Choice { providerId: string; model: string }
 interface JobView {
@@ -169,7 +169,7 @@ function ProviderCard({ p, onChanged, onFound }: { p: Provider; onChanged: () =>
         <div className="row"><h3 style={{ margin: 0 }}>{p.name}</h3><span className="chip">{KIND_NAMES[p.kind]}</span><LocChip l={p.location} />{p.backend?.detected && <span className="chip" title="What this server can do around a game session (Game night tab)" data-backend={p.backend.detected}>{p.backend.label}</span>}</div>
         {p.webUrl && <a className="small" href={p.webUrl} target="_blank" rel="noreferrer">Argos page ↗</a>}
       </div>
-      <p className="tiny muted" style={{ margin: 0 }}>{p.usedBy.length ? `Used by ${p.usedBy.join(', ')}.` : 'Not used by any job yet.'}</p>
+      <p className="tiny muted" style={{ margin: 0 }}>{p.usedBy.length ? `Used by ${p.usedBy.join(', ')}.` : 'Not used by any job yet.'}{p.addedBy ? ` Added by ${p.addedBy} (a GM).` : ''}</p>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
       <Field label="Base URL"><input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} inputMode="url" /></Field>
       <Field label="API key" help="Leave the dots to keep it; clear the box to remove it."><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" /></Field>
@@ -247,10 +247,18 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
   const fb = providers.find((p) => p.id === fbProvider);
   const crossesToCloud = !!(hasFb && main && fb && main.location === 'local' && fb.location === 'cloud');
 
-  const save = () => a.run(async () => {
+  // A new embeddings model asks first (409 reindex): the answer is the card below.
+  const [reindex, setReindex] = useState<string | null>(null);
+  const save = (confirmReindex = false) => a.run(async () => {
     const fallback = hasFb && fbProvider ? { providerId: fbProvider, model: fbModel, allowCloud: crossesToCloud && allowCloud } : null;
-    await client.request('PUT', '/api/admin/models', { jobs: { [j.job]: { providerId, model, options: options.trim() || '{}', enabled, gameNight, fallback } } });
-    toast('Saved');
+    try {
+      await client.request('PUT', '/api/admin/models', { jobs: { [j.job]: { providerId, model, options: options.trim() || '{}', enabled, gameNight, fallback } }, ...(confirmReindex ? { confirmReindex: true } : {}) });
+    } catch (e: any) {
+      if (e?.status === 409) { setReindex(String(e.message)); return; }
+      throw e;
+    }
+    setReindex(null);
+    toast(confirmReindex ? 'Saved. Every world is being embedded again; the story bible keeps its facts.' : 'Saved');
     onSaved();
   });
   const call = (what: string, path: string) => a.run(async () => {
@@ -324,8 +332,17 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
       )}
 
       <ErrorBox error={a.error} />
+      {reindex && (
+        <div className="error-box" role="alert" data-testid={`reindex-${j.job}`}>
+          {reindex}
+          <div className="row" style={{ marginTop: 8 }}>
+            <button type="button" className="btn small primary" onClick={() => save(true)} disabled={a.busy}>Change it and re-embed every world</button>
+            <button type="button" className="btn small" onClick={() => setReindex(null)}>Keep the current model</button>
+          </div>
+        </div>
+      )}
       <div className="row">
-        <button type="button" className="btn primary" onClick={save} disabled={a.busy}>Save</button>
+        <button type="button" className="btn primary" onClick={() => save()} disabled={a.busy}>Save</button>
         <button type="button" className="btn" onClick={() => call('Test', `/api/admin/models/${j.job}/test`)} disabled={a.busy}>Test</button>
         {j.fallback && <button type="button" className="btn" onClick={() => call('Fallback test', `/api/admin/models/${j.job}/test?which=fallback`)} disabled={a.busy}>Test fallback</button>}
         <button type="button" className="btn" onClick={() => call('Warm up', `/api/admin/models/${j.job}/warm`)} disabled={a.busy} data-testid={`warm-${j.job}`}>Warm up</button>
@@ -342,6 +359,36 @@ function JobRow({ j, providers, models, status, onSaved }: { j: JobView; provide
 
 type Tab = 'setup' | 'session' | 'memory' | 'embeddings' | 'calls';
 const TABS: [Tab, string][] = [['setup', 'Providers & jobs'], ['session', 'Game night'], ['memory', 'GPU & queue'], ['embeddings', 'Embeddings'], ['calls', 'Gateway calls']];
+
+// What a world's DM may do in DM → Setup → Models, and which of these providers they may pick.
+function DmAccessCard() {
+  const { client } = useAuth();
+  const [v, setV] = useState<{ level: 'off' | 'switch' | 'setup'; cloud: boolean; local: boolean } | null>(null);
+  const a = useAction();
+  useEffect(() => { void client.request<typeof v>('GET', '/api/admin/models/dm-access').then(setV).catch(() => {}); }, [client]);
+  const put = (b: Record<string, unknown>) => a.run(async () => setV(await client.request('PUT', '/api/admin/models/dm-access', b)));
+  if (!v) return null;
+  return (
+    <section className="card" aria-label="GMs and models" data-testid="dm-access">
+      <h2 style={{ margin: 0 }}>GMs and models</h2>
+      <p className="muted small" style={{ margin: 0 }}>A world’s Game Master can switch models from the table (GM → Setup → Models), for example when one goes down mid-session. Their changes are these same settings, and show here.</p>
+      <Field label="A GM may">
+        <select value={v.level} onChange={(e) => put({ level: e.target.value })} aria-label="What a GM may do">
+          <option value="off">Only look and test</option>
+          <option value="switch">Switch between the providers allowed below</option>
+          <option value="setup">Switch, and bring their own providers (local or cloud)</option>
+        </select>
+      </Field>
+      <div className="stack tight">
+        <span className="small">Providers set up here that GMs may pick:</span>
+        <label className="row small"><input type="checkbox" checked={v.local} onChange={(e) => put({ local: e.target.checked })} aria-label="GMs may use local providers" /> Local providers</label>
+        <label className="row small"><input type="checkbox" checked={v.cloud} onChange={(e) => put({ cloud: e.target.checked })} aria-label="GMs may use cloud providers" /> Cloud providers</label>
+        <span className="tiny muted">A provider a GM brought is always theirs to use.</span>
+      </div>
+      <ErrorBox error={a.error} />
+    </section>
+  );
+}
 
 export default function ModelsPage() {
   const { client } = useAuth();
@@ -393,6 +440,7 @@ export default function ModelsPage() {
               <ArgosPreset jobs={jobs} onDone={reload} />
               {providers.map((p) => <ProviderCard key={p.id + p.name + p.baseUrl + p.location + p.apiKey} p={p} onChanged={reload} onFound={remember} />)}
               <AddProvider onDone={reload} />
+              <DmAccessCard />
               <h2 style={{ marginBottom: 0 }}>Jobs</h2>
               {jobs.map((j) => <JobRow key={JSON.stringify(j) + providers.length} j={j} providers={providers} models={models} status={status?.jobs[j.job]} onSaved={reload} />)}
             </>

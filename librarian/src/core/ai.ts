@@ -18,6 +18,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 // request itself never falls back. A local to cloud fallback needs the job's
 // explicit allowCloudFallback switch. Every attempt is screened for classified
 // text first, so the fallback path is as guarded as the main one.
+// A main provider that failed is skipped for a minute (the fallback goes first), and the DM is told when a job
+// moves to its fallback, has nothing left that answers, or is back (see "health" below).
 //
 // Where each job's settings come from: setJobResolver() (the models
 // feature stores them, set in Admin → Models). Until one is set, the
@@ -82,8 +84,9 @@ const locationOf = (c: JobConfig): Location => c.location ?? inferLocation(c.bas
  *   timeoutMs       give up after this long without an answer (default 120000 for chat)
  *   docPrefix       embeddings: put before every library text that is stored (nomic-embed-text: "search_document: ")
  *   queryPrefix     embeddings: put before every search question (nomic-embed-text: "search_query: ")
+ *   smallModel      true for a 0.5 to 2B model (story bible: short pieces of a page); unset: guessed from the name
  */
-export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning', 'contextTokens', 'maxConcurrent', 'docPrefix', 'queryPrefix'] as const;
+export const JOB_OPTION_KEYS = ['maxTokensParam', 'noTemperature', 'jsonMode', 'timeoutMs', 'minOutputTokens', 'reasoningModel', 'refineModel', 'temperatureFallback', 'reasoning', 'contextTokens', 'maxConcurrent', 'docPrefix', 'queryPrefix', 'smallModel'] as const;
 /**
  * `reasoning: 'on' | 'off'`: whether an OpenRouter model may think before it answers. The audit job (yes/no checks,
  * routing, Active mode) defaults to off: thinking made hy4-flash about three times slower there for no better answer.
@@ -416,17 +419,108 @@ const JOB_PRIORITY: Partial<Record<Job, number>> = { audio: 3, voice: 2 };
  */
 async function viaChain<T>(d: Deps, job: Job, screen: () => void, fn: (c: JobConfig, signal: AbortSignal | undefined) => Promise<T>, o: { mayRetry?: () => boolean; signal?: AbortSignal } = {}): Promise<T> {
   const mayRetry = o.mayRetry ?? (() => true);
-  const chain = chainFor(d, job);
-  if (!chain.length) throw new ModelUnavailable(job, `No model is set for "${job}" (Admin → Models)`);
+  const planned = chainFor(d, job);
+  if (!planned.length) throw new ModelUnavailable(job, `No model is set for "${job}" (Admin → Models)`);
+  // Test and Warm up (a pinned provider) say nothing about health: they are the admin or the DM checking by hand.
+  const watched = !(d as any)[PIN];
+  // A main provider that just failed is skipped for a while (it is tried again after the fallback, and on its own after
+  // the cool-down), so a server that went away mid-session costs one timeout, not one per request.
+  const chain = watched && planned.length > 1 && isResting(planned[0]) ? [planned[1], planned[0]] : planned;
   for (let i = 0; ; i++) {
     screen();
     const c = chain[i];
     const st = gateStore.getStore();
     const g = gateFor(c);
     g.policy = dmFirstOf(d);
-    try { return await g.run(job, st?.p ?? JOB_PRIORITY[job] ?? 1, (gs) => fn(c, both(o.signal, gs)), { signal: o.signal, onWait: st?.onWait, canRestart: mayRetry }); } catch (err) {
+    try {
+      const out = await g.run(job, st?.p ?? JOB_PRIORITY[job] ?? 1, (gs) => fn(c, both(o.signal, gs)), { signal: o.signal, onWait: st?.onWait, canRestart: mayRetry });
+      if (watched) noteAnswered(d, job, c, planned);
+      return out;
+    } catch (err) {
+      if (watched && canFallBack(err) && !o.signal?.aborted) noteFailed(d, job, c, planned, chain[i + 1], err);
       if (i + 1 >= chain.length || !canFallBack(err) || !mayRetry()) throw err;
     }
+  }
+}
+
+// ---- health: a job that moved to its fallback, or that nothing answers --------------------------------------------
+//
+// The DM hears about it (models feature: an event to every world's DM and a notice band on DM pages), so a model that
+// went down mid-session is a one-tap switch instead of a silent "the assistant is not answering".
+
+export interface JobHealth {
+  job: Job;
+  /** 'fallback': the main model failed and the fallback answers. 'down': nothing set for the job answered. */
+  state: 'fallback' | 'down';
+  since: string;
+  /** The model that failed (the main one). */
+  model: string;
+  /** The model answering instead, when state is 'fallback'. */
+  using?: string;
+  /** The saved providers they are on (Admin → Models), when they are saved ones. */
+  providerId?: string;
+  usingProviderId?: string;
+  error: string;
+}
+const health = new Map<Job, JobHealth>();
+/** When each main provider (url|model) last failed. */
+const resting = new Map<string, number>();
+const restKey = (c: JobConfig) => `${c.baseUrl}|${c.model}`;
+const isResting = (c: JobConfig) => { const at = resting.get(restKey(c)); return at !== undefined && at + restMs > Date.now(); };
+let restMs = 60_000;
+type HealthListener = (d: Deps, change: { job: Job; state: 'ok' | 'fallback' | 'down'; health?: JobHealth; model?: string }) => void;
+let healthListener: HealthListener | null = null;
+
+/** Jobs that are on their fallback or not answering right now. */
+export const jobHealth = (): JobHealth[] => [...health.values()];
+/** Who hears when a job moves to its fallback, goes down, or is back (the models feature tells the DMs). */
+export function setHealthListener(f: HealthListener | null) { healthListener = f; }
+/** How long a failed main provider is skipped before it is tried first again (ms). */
+export function setRestMs(ms: number) { restMs = Math.max(0, ms); }
+/** Forget what failed: the DM picked another model for this job (or every job, for tests). */
+export function clearJobHealth(d: Deps | null, job?: Job) {
+  for (const j of job ? [job] : [...health.keys()]) {
+    const was = health.get(j);
+    if (!health.delete(j)) continue;
+    if (d) { try { healthListener?.(d, { job: j, state: 'ok', model: was?.model }); } catch { /* a listener never breaks a call */ } }
+  }
+  if (!job) resting.clear();
+}
+const tell = (d: Deps, h: JobHealth | { job: Job; state: 'ok'; model?: string }) => {
+  try { healthListener?.(d, h.state === 'ok' ? h : { job: h.job, state: h.state, health: h }); } catch { /* a listener never breaks a call */ }
+};
+const errText = (err: unknown) => String((err as any)?.message ?? err).slice(0, 200);
+
+function noteFailed(d: Deps, job: Job, c: JobConfig, planned: JobConfig[], next: JobConfig | undefined, err: unknown) {
+  resting.set(restKey(c), Date.now());
+  const main = planned[0];
+  const cur = health.get(job);
+  if (next) {
+    // The main one failed and the fallback is next: say so once (the fallback answering keeps it that way).
+    if (c === main && cur?.state !== 'fallback') {
+      const h: JobHealth = { job, state: 'fallback', since: new Date().toISOString(), model: main.model, using: next.model, providerId: main.providerId, usingProviderId: next.providerId, error: errText(err) };
+      health.set(job, h); tell(d, h);
+    }
+    return;
+  }
+  // Nothing left to try.
+  if (cur?.state !== 'down') {
+    const h: JobHealth = { job, state: 'down', since: new Date().toISOString(), model: main.model, providerId: main.providerId, error: errText(err) };
+    health.set(job, h); tell(d, h);
+  }
+}
+
+function noteAnswered(d: Deps, job: Job, c: JobConfig, planned: JobConfig[]) {
+  const cur = health.get(job);
+  if (c === planned[0]) {
+    resting.delete(restKey(c));
+    if (cur) { health.delete(job); tell(d, { job, state: 'ok', model: c.model }); }
+    return;
+  }
+  // The fallback answered: a job that was 'down' (or new to this) is on its fallback.
+  if (cur?.state !== 'fallback') {
+    const h: JobHealth = { job, state: 'fallback', since: cur?.since ?? new Date().toISOString(), model: planned[0].model, using: c.model, providerId: planned[0].providerId, usingProviderId: c.providerId, error: cur?.error ?? 'The main model did not answer.' };
+    health.set(job, h); tell(d, h);
   }
 }
 

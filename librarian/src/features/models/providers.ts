@@ -10,7 +10,7 @@ export const MASK = '••••';
 export const KINDS = ['argos', 'openai', 'ollama', 'lmstudio', 'openai-compatible'] as const;
 export type Kind = (typeof KINDS)[number];
 
-export interface ProviderRow { id: string; name: string; kind: Kind; base_url: string; api_key: string; location: Location; created_at: string; updated_at: string }
+export interface ProviderRow { id: string; name: string; kind: Kind; base_url: string; api_key: string; location: Location; created_at: string; updated_at: string; /** The DM account that brought it (DM → Setup → Models); '' for the admin's. */ added_by?: string }
 
 export const listProviders = (db: DB) => all<ProviderRow>(db, 'SELECT * FROM models_providers ORDER BY created_at, name');
 export const getProvider = (db: DB, pid: string) => (pid ? one<ProviderRow>(db, 'SELECT * FROM models_providers WHERE id = ?', pid) : undefined);
@@ -42,14 +42,14 @@ export function guessKind(baseUrl: string): Kind {
 
 const nameFor = (baseUrl: string) => { try { const u = new URL(baseUrl); return u.host; } catch { return baseUrl.slice(0, 40); } };
 
-export function createProvider(db: DB, p: { name?: string; kind: Kind; baseUrl: string; apiKey?: string; location?: Location }): ProviderRow {
+export function createProvider(db: DB, p: { name?: string; kind: Kind; baseUrl: string; apiKey?: string; location?: Location; addedBy?: string }): ProviderRow {
   const t = now();
   const kind = p.kind;
   const row: ProviderRow = {
     id: id('prov_'), name: (p.name ?? '').trim().slice(0, 80) || nameFor(p.baseUrl), kind, base_url: p.baseUrl, api_key: (p.apiKey ?? '').trim().slice(0, 500),
-    location: p.location ?? defaultLocation(kind, p.baseUrl), created_at: t, updated_at: t,
+    location: p.location ?? defaultLocation(kind, p.baseUrl), created_at: t, updated_at: t, added_by: p.addedBy ?? '',
   };
-  run(db, 'INSERT INTO models_providers (id, name, kind, base_url, api_key, location, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)', row.id, row.name, row.kind, row.base_url, row.api_key, row.location, row.created_at, row.updated_at);
+  run(db, 'INSERT INTO models_providers (id, name, kind, base_url, api_key, location, created_at, updated_at, added_by) VALUES (?,?,?,?,?,?,?,?,?)', row.id, row.name, row.kind, row.base_url, row.api_key, row.location, row.created_at, row.updated_at, row.added_by);
   return row;
 }
 

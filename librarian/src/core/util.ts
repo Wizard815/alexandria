@@ -2,9 +2,12 @@ import { randomBytes, createHash } from 'node:crypto';
 
 export class HttpError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** A word a client can act on (sent as `code` next to `error`), e.g. 'reindex'. */
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    if (code) this.code = code;
   }
 }
 

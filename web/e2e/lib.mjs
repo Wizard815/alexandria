@@ -24,7 +24,8 @@ export async function startScript(script, args, ready, tag) {
 export const tmpDir = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `alx-${name}-`));
 
 export async function signIn(browser, base, user, pass, viewport, mobile, landing = /\/w\/saltreach/) {
-  const ctx = await browser.newContext({ viewport, isMobile: !!mobile, hasTouch: !!mobile });
+  // E2E_DSF=2 for screenshots a person will look at.
+  const ctx = await browser.newContext({ viewport, isMobile: !!mobile, hasTouch: !!mobile, ...(process.env.E2E_DSF ? { deviceScaleFactor: Number(process.env.E2E_DSF) } : {}) });
   const page = await ctx.newPage();
   await page.goto(base + '/login');
   await page.getByLabel(/username/i).fill(user);

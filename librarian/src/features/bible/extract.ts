@@ -48,16 +48,69 @@ CREATE TABLE IF NOT EXISTS bible_state (
 );
 `;
 
-const PROMPT_VERSION = 'bible1';
+// bible2: facts in the caveman voice (github.com/JuliusBrussee/caveman: few words, meaning kept), a JSON schema, and
+// small pieces for a small model. A new version reads every page again, in the background.
+export const PROMPT_VERSION = 'bible2';
 const MAX_TEXT = 6000;
 const MAX_FACTS = 30;
+/** A small model (0.5 to 2B) reads a page in pieces this long, and gives at most this many facts a piece. */
+const SMALL_PIECE = 1800;
+const SMALL_FACTS = 10;
 /** Scopes are taken in turn, a few pages each (the party's copy, then the DM's, in each turn), so none waits for the others to finish. */
 const ORDER: VecScope[] = ['party', 'dm', 'lifted', 'broker'];
 const PER_TURN = 3;
 
-const SYSTEM = `You build the "story bible" of a tabletop role-playing campaign. Read the page and list the durable facts it states about people, places, factions, items, events and lore.
-Answer with JSON only: {"facts":[{"subject":"the name the fact is about","kind":"person|place|faction|item|event|lore","fact":"one short sentence"}]}
-Use only what the page says. One fact per sentence, at most ${MAX_FACTS} facts, the subject always a proper name or a clear noun phrase. If the page holds no facts, answer {"facts":[]}.`;
+// The instructions stay in plain English (making the prompt itself terse makes answers worse); only the facts it writes
+// are short. Short facts are fewer tokens for a small model to write, and fewer for Minerva to read later.
+const systemFor = (max: number) => `You build the "story bible" of a tabletop role-playing campaign. Read the page and list the lasting facts it states about people, places, factions, items, events and lore.
+Answer with JSON only: {"facts":[{"subject":"name","kind":"person|place|faction|item|event|lore","fact":"short fact"}]}
+Rules:
+- Use only what the page says. Never guess.
+- subject: a name from the page, exactly as written.
+- fact: caveman style. Few words, no "the" or "a", present tense, under 15 words. Keep names, numbers and every "not", "never", "no" and "only".
+- One idea per fact. At most ${max} facts.
+Example: {"facts":[{"subject":"Old Brannoc","kind":"person","fact":"Blacksmith. Lost left hand to troll."},{"subject":"Iron Vale","kind":"place","fact":"Mining valley. Not safe after dark."}]}
+No facts on the page: {"facts":[]}.`;
+const FACTS_SCHEMA = {
+  name: 'story_bible_facts',
+  schema: {
+    type: 'object', additionalProperties: false, required: ['facts'],
+    properties: {
+      facts: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false, required: ['subject', 'kind', 'fact'],
+          properties: { subject: { type: 'string' }, kind: { type: 'string', enum: [...KINDS] }, fact: { type: 'string' } },
+        },
+      },
+    },
+  },
+};
+
+/** Is the story bible's model a small one (0.5 to 2B)? The job option `smallModel` says so, else the name does ("qwen3-0.6b", "lfm-3-1.7b"). */
+export function isSmallModel(model: string, options?: Record<string, unknown>): boolean {
+  if (options?.smallModel === true) return true;
+  if (options?.smallModel === false) return false;
+  const m = /(?:^|[^\d.])(\d+(?:\.\d+)?)\s*b(?:\b|[-_:])/i.exec(model.replace(/a\d+(?:\.\d+)?b/gi, ''));
+  return !!m && Number(m[1]) > 0 && Number(m[1]) <= 2;
+}
+
+/** A page cut into pieces at paragraph (else sentence) ends, each at most `size` characters. */
+export function piecesOf(text: string, size: number): string[] {
+  const out: string[] = [];
+  let cur = '';
+  const push = () => { if (cur.trim()) out.push(cur.trim()); cur = ''; };
+  for (const para of text.split(/\n\s*\n/)) {
+    const parts = para.length > size ? para.split(/(?<=[.!?])\s+/) : [para];
+    for (const part of parts) {
+      if (cur && cur.length + part.length + 2 > size) push();
+      cur = cur ? `${cur}\n\n${part}` : part;
+      while (cur.length > size) { out.push(cur.slice(0, size)); cur = cur.slice(size); }
+    }
+  }
+  push();
+  return out;
+}
 
 /** A subject name made comparable: no case, accents, punctuation or leading article. */
 export function normSubject(s: string): string {
@@ -267,9 +320,42 @@ async function syncBibleOnce(d: Deps, opts: { maxPages?: number; worldId?: strin
 async function extract(d: Deps, r: Pending, signal?: AbortSignal): Promise<Fact[] | null> {
   if (!r.full.trim()) return [];
   const text = r.full.length > MAX_TEXT ? r.full.slice(0, MAX_TEXT) : r.full;
-  const j = await chatJson<any>(d, 'bible', [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Page: ${r.title}\n\n${text}` }], signal, { maxTokens: jobBudget(d, 'bible', 900) });
-  if (!j || !Array.isArray(j.facts)) return null;
-  return cleanFacts(j);
+  const cfg = jobConfig(d, 'bible');
+  const small = !!cfg && isSmallModel(cfg.model, cfg.options);
+  const pieces = small ? piecesOf(text, SMALL_PIECE) : [text];
+  const max = small ? SMALL_FACTS : MAX_FACTS;
+  const all: Fact[] = [];
+  let answered = 0;
+  for (const piece of pieces) {
+    const j = await chatJson<any>(d, 'bible', [{ role: 'system', content: systemFor(max) }, { role: 'user', content: `Page: ${r.title}\n\n${piece}` }], signal, { maxTokens: jobBudget(d, 'bible', small ? 450 : 900), schema: FACTS_SCHEMA });
+    if (!j || !Array.isArray(j.facts)) continue;
+    answered++;
+    // A small model now and then makes up a name: a fact about a subject the page never names is dropped.
+    const page = normSubject(`${r.title} ${piece}`);
+    all.push(...(small ? j.facts.filter((f: any) => page.includes(normSubject(String(f?.subject ?? '')))) : j.facts));
+  }
+  if (!answered) return null;
+  return cleanFacts({ facts: all });
+}
+
+/**
+ * The Historian got a new embeddings model: make every fact's vector again with it, keeping the facts themselves (no
+ * page is read again by the chat model). Calls `onDone` as batches finish. Returns how many facts got a new vector.
+ */
+export async function revectorFacts(d: Deps, worldId: string, signal?: AbortSignal, onDone?: (done: number, total: number) => void): Promise<number> {
+  if (!hasJob(d, 'extra')) return 0;
+  const rows = d.db.prepare('SELECT id, subject, kind, fact FROM bible_facts WHERE world_id = ? ORDER BY id').all(worldId) as { id: number; subject: string; kind: FactKind; fact: string }[];
+  const batch = embedBatch(d);
+  let done = 0;
+  for (let i = 0; i < rows.length && !signal?.aborted; i += batch) {
+    const part = rows.slice(i, i + batch);
+    const vecs = await embedFacts(d, part, batch, signal);
+    if (!vecs) break;
+    tx(d.db, () => { part.forEach((r, k) => run(d.db, 'UPDATE bible_facts SET vec = ? WHERE id = ?', toBlob(vecs[k]), r.id)); });
+    done += part.length;
+    onDone?.(done, rows.length);
+  }
+  return done;
 }
 
 /** Vectors of the facts for searching by meaning, `batch` facts a request; null when there is no embeddings model or it fails. */

@@ -103,7 +103,7 @@ function chatReply(body: any): { content: string | null; tool_calls?: any[]; fin
     if (hit) return { content: null, finish: 'tool_calls', tool_calls: [{ id: 'call_fake_1', type: 'function', function: { name: hit, arguments: '{}' } }] };
   }
 
-  if (body?.response_format?.type === 'json_object') {
+  if (body?.response_format?.type === 'json_object' || (body?.response_format?.type === 'json_schema' && /story bible/i.test(messages.filter((m) => m?.role === 'system').map((m) => text(m.content)).join('\n')))) {
     const sys = messages.filter((m) => m?.role === 'system').map((m) => text(m.content)).join('\n');
     const m = sys.match(/^FAKE_JSON:\s*(\{.*\})\s*$/m);
     let out = '{}';

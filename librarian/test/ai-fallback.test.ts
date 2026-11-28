@@ -3,9 +3,9 @@
 // that is unloaded or not found), the fallback once. A 4xx about the request
 // never falls back. Leaving a local provider for a cloud one needs the job's
 // switch. The classified guard screens every attempt. Rerank has a time budget.
-import { test, afterEach } from 'node:test';
+import { test, afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClassifiedRefused, ModelUnavailable, canFallBack, chainFor, chat, chatStream, embed, inferLocation, pinned, rerank, rerankItems, setJobResolver, speak, transcribe, type Job, type JobConfig } from '../src/core/ai.ts';
+import { ClassifiedRefused, ModelUnavailable, canFallBack, chainFor, clearJobHealth, jobHealth, setRestMs, chat, chatStream, embed, inferLocation, pinned, rerank, rerankItems, setJobResolver, speak, transcribe, type Job, type JobConfig } from '../src/core/ai.ts';
 import { levelWords } from '../src/core/levels.ts';
 
 type Reply = Response | ((url: string, body: any, headers: Record<string, string>) => Response | Promise<Response>);
@@ -48,6 +48,8 @@ function setup(primary: Reply, second: Reply, cfg: { main?: Partial<JobConfig>; 
   return { d, calls, hosts: () => calls.map((c) => (c.url.startsWith(LOCAL) ? 'local' : 'cloud')) };
 }
 afterEach(() => setJobResolver(null));
+// A main provider that failed rests for a minute (it is tried after its fallback): each test starts with none resting.
+beforeEach(() => clearJobHealth(null));
 
 // ---- which failures fall back ----
 
@@ -68,6 +70,33 @@ for (const [label, reply] of [
     assert.equal(f.calls[1].body.model, 'cloud-model');
   });
 }
+
+test('AIFallback_FailedMainRestsThenIsTriedFirstAgain', async () => {
+  let down = true;
+  const f = setup(() => (down ? err(502, 'bad gateway') : ok('main is back')), () => ok('from the fallback'), { allowCloud: true, main: { location: 'local' }, fb: { location: 'local', baseUrl: 'https://argos2.lan/v1' } });
+  await chat(f.d, 'chat', { messages: msgs });
+  assert.deepEqual(f.hosts(), ['local', 'cloud']);
+  assert.equal(jobHealth()[0]?.state, 'fallback');
+  // While it rests the fallback goes first: no second wait on the dead server.
+  f.calls.length = 0;
+  assert.equal((await chat(f.d, 'chat', { messages: msgs })).content, 'from the fallback');
+  assert.deepEqual(f.hosts(), ['cloud']);
+  // After the rest it is tried first again, and an answer clears the health note.
+  setRestMs(0);
+  try {
+    down = false;
+    f.calls.length = 0;
+    assert.equal((await chat(f.d, 'chat', { messages: msgs })).content, 'main is back');
+    assert.deepEqual(f.hosts(), ['local']);
+    assert.equal(jobHealth().length, 0);
+  } finally { setRestMs(60_000); }
+});
+
+test('AIFallback_PinnedTestsLeaveHealthAlone', async () => {
+  const f = setup(() => err(502, 'bad gateway'), () => ok('fb'), { allowCloud: true, main: { location: 'local' }, fb: { location: 'local', baseUrl: 'https://argos2.lan/v1' } });
+  await assert.rejects(chat(pinned(f.d, 'primary'), 'chat', { messages: msgs }));
+  assert.equal(jobHealth().length, 0, 'Test in Admin → Models is a check by hand, not news for the DM');
+});
 
 test('AIFallback_FallsBackOnTimeout', async () => {
   const hang: Reply = (_u, _b, _h) => new Promise<Response>(() => { /* never answers; the guard aborts */ });
@@ -150,6 +179,7 @@ test('AIFallback_LocalToCloudNeedsTheSwitch', async () => {
   assert.equal(chainFor(off.d, 'chat').length, 1, 'no cloud step in the chain');
   await assert.rejects(chat(off.d, 'chat', { messages: msgs }), /500/);
   assert.deepEqual(off.hosts(), ['local'], 'world text did not leave for the cloud');
+  clearJobHealth(null); // the failed main would rest, and the fallback go first
 
   const on = setup(() => err(500, 'down'), () => ok('cloud answer'), { allowCloud: true });
   assert.equal(chainFor(on.d, 'chat').length, 2);
