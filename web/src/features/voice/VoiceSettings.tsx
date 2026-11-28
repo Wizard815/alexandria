@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ErrorBox, Empty, Field, useAction, useToast } from '../../ui/index.tsx';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import type { Preset } from './SpeakOverlay.tsx';
+import NpcVoices from './NpcVoices.tsx';
 
 const EFFECTS: [string, string][] = [['none', 'None'], ['echo', 'Echo'], ['radio', 'Radio']];
 const TARGETS: [string, string][] = [['table', 'The table'], ['players', 'Players’ devices'], ['both', 'Both']];
@@ -68,6 +69,7 @@ export default function VoiceSettings() {
           <div className="row"><button type="button" className="btn primary" disabled={act.busy || !edit.name.trim()} onClick={() => void save()}>Save</button><button type="button" className="btn" onClick={() => setEdit(null)}>Cancel</button></div>
         </div>
       ) : <div><button type="button" className="btn" onClick={() => setEdit({ ...blank })}>New voice</button></div>}
+      <NpcVoices presets={presets} />
       {toastNode}
     </div>
   );

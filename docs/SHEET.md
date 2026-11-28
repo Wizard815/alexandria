@@ -117,4 +117,24 @@ account id or character name):
 - `POST /:aid/rerolls { kind: personal|party|gm, delta, note? }` (re-rolls on; the GM gives or takes back, a player spends their own).
 - `POST /:aid/gm-notes { kind: note|goal, text }` (GM), `PATCH /:aid/gm-notes/:id` (GM: text/kind/done; the player: done on a goal), `DELETE /:aid/gm-notes/:id` (GM).
 
-Assistant tools: `party_status` (read), and `change_player_hp` and `give_reroll` (writes the GM approves).
+Assistant tools: `party_status` (GM read), `read_sheet` and `sheet_log` (reads for both: a player's helper only ever gets that player's own sheet and log, and the GM's assistant never gets a module the player marked private), and `change_player_hp`, `change_player_mana`, `give_reroll`, `add_sheet_note` and `update_sheet_note` (writes the GM approves). The player helper is also given the goals and notes the GM put on that player's sheet with every question, so it can answer "what does the GM want me to do" without a tool call.
+
+A check against real models (Hy4 Flash for the GM, Ternary Bonsai 9B for a player) is in `web/e2e/features-real.mjs` (`FEATURES_REAL=1`; it costs under a cent).
+
+## Session prep
+
+Before game night the GM can have the assistant write each player a short
+note (Session prep card on the GM home page, or "send each player a session
+prep"): last time, where their character stands, their open threads, and
+one thing to think about. Each draft is written by the Players model from
+that player's own brief only (their sheet, items, goals, journal, the
+published session log), so a GM-only note or another player's quest never
+reaches it; with no model it is built from that brief for the GM to edit.
+The GM's own line for everyone is added as written. Drafts are the GM's
+alone until sent; a sent prep arrives as a kept private chat in Messages.
+
+API (`/api/worlds/:w/prep`): `GET /` (GM: drafts and the last two weeks
+sent; player: theirs), `POST /` `{accountIds?, note?, title?}` (GM),
+`PATCH /:id` `{text?, title?}`, `DELETE /:id`, `POST /send` `{ids?}`.
+MCP tools: `draft_session_prep`, `list_session_prep` (GM),
+`edit_session_prep`, `send_session_prep` (GM write key).

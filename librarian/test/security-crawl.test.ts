@@ -344,7 +344,9 @@ test('TestSecurityCrawl_PlayersMcpEndpointLeaksNothing', async () => {
   for (const [who, key] of [['jess', S.K.jessRead], ['tom', S.K.tomRead]] as const) {
     const tools = toolsFor(false).filter((t) => !t.playerOnly || true);
     const listed = (await rpc(key, 'tools/list', {})).result.tools.map((t: any) => t.name);
-    for (const t of tools) if (!t.write && !t.gmOnly) assert.ok(listed.includes(t.name) || t.playerOnly, `${t.name} is listed`);
+    // A tool the GM opens to players (playerWhen) is listed only while it is open; quick generators are closed here.
+    for (const t of tools) if (!t.write && !t.gmOnly && !t.playerWhen) assert.ok(listed.includes(t.name) || t.playerOnly, `${t.name} is listed`);
+    for (const t of tools) if (t.playerWhen) assert.ok(!listed.includes(t.name), `${t.name} is hidden while the GM keeps it closed`);
     for (const t of tools) if (t.gmOnly) assert.ok(!listed.includes(t.name), `${t.name} is GM-only and hidden from a player key`);
     assert.ok(!listed.some((n: string) => toolsFor(true).find((t) => t.name === n)?.write), 'no write tool for a read key');
     for (const name of listed) {

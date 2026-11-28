@@ -25,6 +25,7 @@ keep their old names.
 | **extra** | Historian. Embeddings for library search and broker matching. Also the `/v1/embeddings` passthrough. | `POST {base}/embeddings` |
 | **rerank** | Arbiter. Optional. Reorders the top 20 library search results and the agent's library matches. | `POST {base}/rerank` |
 | **helper** | Squire. Optional. The players' quick helper: a small second model (4B or less, under about 6 GB) for rules lookups, turn options and sheet summaries. Unset: the Players model, then Chat. See [Squire, the players' quick helper](#squire-the-players-quick-helper-a-small-second-model). | `POST {base}/chat/completions` |
+| **vision** (part of chat) | Oracle. Map vision: reads a map picture and says where its rooms are, so the assistant uncovers fog in the right place (`look_at_map`, then `reveal_fog`). Not set: Minerva's model (the GM assistant). Before a picture is sent, the provider's `/models` list is checked: Argos `capabilities.vision`, or an `image` input modality (OpenRouter). A model listed without image input is never sent a map, and the GM is told to attach one that can see (Hy4 Flash, Gemma 3, Qwen VL). | `POST {base}/chat/completions` with an `image_url` part |
 
 ### Providers
 

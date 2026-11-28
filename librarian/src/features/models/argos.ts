@@ -48,7 +48,8 @@ export function normalizeModel(r: any): DiscoveredModel | null {
     status: st === 'loaded' || st === 'unloaded' ? st : 'unknown',
     inputModalities: strs(r?.architecture?.input_modalities),
     outputModalities: strs(r?.architecture?.output_modalities),
-    vision: !!caps.vision,
+    // Argos says capabilities.vision; OpenRouter and others list an image input modality.
+    vision: !!caps.vision || strs(r?.architecture?.input_modalities).includes('image') || strs(r?.input_modalities).includes('image'),
     tools: !!(caps.tools || caps.function_calling),
     reranker: !!caps.reranker,
     contextLength: Number.isFinite(ctx) && ctx > 0 ? ctx : null,

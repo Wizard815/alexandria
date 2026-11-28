@@ -437,6 +437,61 @@ const feature: Feature = {
       required: ['accountId', 'kind'],
       call: ({ accountId, delta, ...rest }) => ({ method: 'POST', path: `/sheet/${encodeURIComponent(String(accountId))}/rerolls`, body: { delta: delta ?? 1, ...rest } }),
     },
+    // Read tools for both harnesses: a player only ever gets their own sheet (the
+    // route answers 404 for anyone else's), the GM any player's. Modules a player
+    // marked private are left out of every copy but their own.
+    {
+      name: 'read_sheet',
+      description: "One character sheet: HP, max and temporary HP, conditions, mana, re-roll tokens, the notes and goals the GM set for that player, and the sheet modules (character summary, stats like AC, initiative, passive scores and spell DC, counters, checklists, notes). A player reads their own ('me'); the GM any player.",
+      props: { accountId: { type: 'string', description: "'me', or (GM) a player's account id or character name" } },
+      call: ({ accountId }) => ({ method: 'GET', path: `/sheet/${encodeURIComponent(String(accountId ?? 'me'))}` }),
+    },
+    {
+      name: 'sheet_log',
+      description: 'The history of HP and mana changes, newest first: who changed what, by how much and why. A player sees their own; the GM sees everyone or one player.',
+      props: { accountId: { type: 'string', description: "(GM) one player's account id or character name; leave out for everyone" } },
+      call: ({ accountId }) => ({ method: 'GET', path: `/sheet/log${accountId && accountId !== 'me' ? `?account=${encodeURIComponent(String(accountId))}` : ''}` }),
+    },
+    {
+      name: 'import_ddb_character', write: true,
+      description: "GM: import a character from D&D Beyond onto a player's sheet (public characters only; the D&D Beyond import house rule must be on). Brings in the Character and Stats modules (AC, initiative, passive scores, spell DC), HP, conditions and limited uses. D&D Beyond has no official API, so it can break; a pasted character JSON works too.",
+      props: { accountId: { type: 'string', description: "The player's account id or character name" }, url: { type: 'string', description: 'The D&D Beyond character link, like https://www.dndbeyond.com/characters/12345678' }, json: { type: 'string', description: 'Or the character JSON pasted by hand' } },
+      required: ['accountId'],
+      call: (a) => ({ method: 'POST', path: `/sheet/${encodeURIComponent(String(a.accountId))}/import/ddb`, body: { url: a.url, json: a.json } }),
+    },
+    {
+      name: 'add_sheet_note', write: true,
+      description: "GM: put a note or a goal on one player's sheet, under From the GM. Only that player and the GM see it; the player can tick a goal done.",
+      props: {
+        accountId: { type: 'string', description: 'The player: account id (from party_status) or character name' },
+        kind: { type: 'string', enum: ['note', 'goal'] },
+        text: { type: 'string', description: 'What it says (up to 2000 characters)' },
+      },
+      required: ['accountId', 'text'],
+      call: ({ accountId, kind, text }) => ({ method: 'POST', path: `/sheet/${encodeURIComponent(String(accountId))}/gm-notes`, body: { kind: kind ?? 'note', text } }),
+    },
+    {
+      name: 'update_sheet_note', write: true,
+      description: "GM: change a note or goal on a player's sheet (its id comes from read_sheet, under fromGm): new text, note or goal, or tick a goal done.",
+      props: {
+        accountId: { type: 'string', description: 'The player: account id or character name' },
+        noteId: { type: 'string', description: 'The note id (sdn_...)' },
+        text: { type: 'string' }, kind: { type: 'string', enum: ['note', 'goal'] }, done: { type: 'boolean' },
+      },
+      required: ['accountId', 'noteId'],
+      call: ({ accountId, noteId, ...rest }) => ({ method: 'PATCH', path: `/sheet/${encodeURIComponent(String(accountId))}/gm-notes/${encodeURIComponent(String(noteId))}`, body: rest }),
+    },
+    {
+      name: 'change_player_mana', write: true,
+      description: "When the world uses mana: change a player character's mana. Give delta (spend with a negative number), set (the new amount) or full: true (back to the maximum). Logged.",
+      props: {
+        accountId: { type: 'string', description: 'The player: account id (from party_status) or character name' },
+        delta: { type: 'integer' }, set: { type: 'integer' }, full: { type: 'boolean' },
+        note: { type: 'string', description: 'Why, for the log' },
+      },
+      required: ['accountId'],
+      call: ({ accountId, ...rest }) => ({ method: 'POST', path: `/sheet/${encodeURIComponent(String(accountId))}/mana`, body: rest }),
+    },
   ],
 };
 export default feature;

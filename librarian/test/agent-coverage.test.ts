@@ -205,6 +205,7 @@ const scene = () => once('scene', async () => (await gm('POST', '/scenes', { nam
 const pendingCoin = () => once('coin', async () => (await gm('GET', '/approvals')).coin[0].id as string);
 const request = () => once('request', async () => (await as('jess')('POST', '/requests', { kind: 'question', title: 'Can I recall the keeper?', body: 'Jessamine grew up here.' })).id as string);
 const gmTemplate = () => once('gm-template', async () => (await gm('POST', '/templates', { kind: 'library', name: 'Coverage page', spec: { sections: ['Overview'] } })).id as string);
+const sheetNote = () => once('sheet-note', async () => (await gm('POST', `/sheet/${ID.jess}/gm-notes`, { kind: 'goal', text: 'Ask the keeper about the lamp.' })).fromGm.at(-1).id as string);
 const movableItem = () => once('movable', async () => (await gm('POST', '/inventory', { owner: ID.tom, name: 'Rope', qty: 3, reason: 'Bought' })).id as string);
 
 const shopId = () => once('shop', async () => (await gm('POST', '/shop/generate', { kind: 'general', size: 'town', seed: 'cov', save: true, status: 'open' })).shop.id as string);
@@ -303,6 +304,8 @@ const ARGS: Record<string, Maker> = {
   play_ambience: () => ({ scene: 'Rainy night' }),
   play_sfx: () => ({ name: 'creak' }),
   speak: () => ({ text: 'Welcome, travellers.', preset: 'Narrator' }),
+  set_npc_voice: () => ({ npc: 'Captain Vex', preset: 'Narrator' }),
+  set_npc_voices: () => ({ on: true, defaultPreset: 'Narrator' }),
   show_on_stage: () => ({ kind: 'text', title: 'The lighthouse', text: 'A tall white tower on the headland.' }),
   hide_stage_card: async () => ({ cardId: await card() }),
   queue_media: () => ({ url: 'https://youtu.be/dQw4w9WgXcQ', title: 'Tavern theme' }),
@@ -316,6 +319,23 @@ const ARGS: Record<string, Maker> = {
   update_person: async () => ({ personId: await person(), attitude: 'Chatty' }),
   change_player_hp: () => ({ accountId: 'jess', damage: 1, note: 'coverage' }),
   give_reroll: () => ({ accountId: 'jess', kind: 'personal', note: 'coverage' }),
+  look_at_map: () => once('map-pic', async () => {
+    const r = await fetch(base + w('/files?name=dungeon.png&kind=map&title=Coverage%20dungeon'), { method: 'POST', headers: { Authorization: `Bearer ${T.gm}`, 'Content-Type': 'image/png' }, body: fs.readFileSync(path.join(import.meta.dirname, '../../web/e2e/fixtures/dungeon-map.png')) });
+    const f = await r.json() as any;
+    return `lib:${f.id ?? f.file?.id}`;
+  }).then((pic) => ({ pic, question: 'Where is the crypt?' })),
+  reveal_fog: async () => { await once('fog-on', () => gm('PUT', '/fog/map/world/enabled', { pic: 'none', enabled: true })); return { shape: 'circle', x: 40, y: 50, r: 10 }; },
+  set_fog: () => ({ enabled: true }),
+  run_light_scene: () => once('light-scene', async () => (await gm('POST', '/lights/scenes', { name: 'Candlelight', color: '#ff9933', brightness: 40 })).name as string).then((scene) => ({ scene })),
+  // Session prep: each call drafts its own fresh prep for Jessamine, so the order the tools run in does not matter.
+  edit_session_prep: async () => ({ id: (await gm('POST', '/prep', { accountIds: [ID.jess] })).preps[0].id, text: 'See you Friday at the crypt.' }),
+  send_session_prep: async () => ({ ids: [(await gm('POST', '/prep', { accountIds: [ID.jess] })).preps[0].id] }),
+  // The D&D Beyond import house rule is off by default: switched on the first time, and the character pasted as JSON (no network).
+  import_ddb_character: async () => { await once('ddb-on', () => gm('PATCH', '/settings', { sheetDdbImport: true })); return { accountId: 'tom', json: fs.readFileSync(path.join(import.meta.dirname, '../../web/e2e/fixtures/ddb-character.json'), 'utf8') }; },
+  add_sheet_note: () => ({ accountId: 'jess', kind: 'goal', text: 'Find out who darkened the lighthouse.' }),
+  update_sheet_note: async () => ({ accountId: 'jess', noteId: await sheetNote(), done: true }),
+  // Mana is off by default: the first time a mana tool runs, it is switched on and Jessamine gets a pool.
+  change_player_mana: async () => { await once('mana-on', async () => { await gm('PATCH', '/settings', { spellMana: true }); await gm('PUT', `/spells/characters/${ID.jess}`, { manaMax: 10 }); }); return { accountId: 'jess', delta: -2, note: 'coverage' }; },
   add_recall: async () => ({ personId: await person(), accountId: ID.jess, text: 'Jessamine knew him as a child.', success: true }),
   resolve_quick_event: async () => ({ id: await quickEvent('resolve') }),
   cancel_quick_event: async () => ({ id: await quickEvent('cancel') }),
@@ -421,10 +441,18 @@ test('Coverage: every tool can be offered to the model by some message', () => {
     ['put the lighthouse on the stage for the table', ['show_on_stage']],
     ['play tense music', ['play_music']],
     ['read this aloud in the narrator voice', ['speak']],
+    ['give Captain Vex a gravelly voice in encounters', ['set_npc_voice']],
+    ['turn on npc voices', ['set_npc_voices']],
+    ['send each player a session prep before friday', ['draft_session_prep', 'send_session_prep']],
+    ['import Tomas from D&D Beyond', ['import_ddb_character']],
+    ["what's my armor class?", ['read_sheet']],
     ['start recording the session', ['start_recording', 'start_game_session']],
     ['publish the session log', ['publish_session_log']],
     ['approve the coin request', ['decide_approval']],
     ['add a pin on the map', ['add_map_mark']],
+    ['uncover the room around the shrine', ['reveal_fog']],
+    ['set the lights to candlelight', ['run_light_scene']],
+    ['open the crypt for the players', ['look_at_map', 'reveal_fog']],
     ['give Jess a personal reroll for that speech', ['house_rule_grant']],
     ['write a house rule for hero points', ['house_rule_check', 'house_rule_save']],
     ['start a downtime round for 3 days', ['downtime_round']],
@@ -497,7 +525,16 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
     assert.match(r.result, /Unknown tool/, `${t.name} is hidden from players`);
     assert.ok(!r.offered.includes(t.name), `${t.name} is not offered to a player's model`);
   }
-  const readTools = toolsFor(false).filter((t) => !t.write && !t.gmOnly);
+  // A tool the GM may open to players (playerWhen) is hidden while it is closed, and runs once it is open.
+  const gated = toolsFor(false).filter((t) => !t.write && !t.gmOnly && t.playerWhen);
+  assert.ok(gated.some((t) => t.name === 'generate_names'));
+  for (const t of gated) assert.match((await drive('jess', t.name, await argsFor(t))).result, /Unknown tool/, `${t.name} is hidden from players while it is closed`);
+  await gm('PATCH', '/settings', { quickgenPlayers: true });
+  try {
+    const r = await drive('jess', 'generate_names', { race: 'elf', count: 2, seed: 'cov' });
+    assert.ok(!FAILED.test(r.result), `generate_names runs for a player once the GM opens it: ${r.result.slice(0, 200)}`);
+  } finally { await gm('PATCH', '/settings', { quickgenPlayers: false }); }
+  const readTools = toolsFor(false).filter((t) => !t.write && !t.gmOnly && !t.playerWhen);
   const writeTools = toolsFor(true).filter((t) => t.write);
   assert.ok(readTools.length >= 30 && writeTools.length >= 30);
   // toolsFor(false) is already read only: no write tool, and no GM's playerOnly mix-up either.
@@ -522,7 +559,7 @@ test('Coverage: the player harness offers and runs read tools only', async () =>
   assert.deepEqual(failures, [], `player tools that did not run:\n${failures.join('\n')}`);
   console.log(`Player harness: ${readTools.length - denied.length} ran, ${denied.length} are the GM's and were refused (${denied.join(', ')})`);
   // The ones a player is meant to have are not among the refused.
-  for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory', 'house_rule_spend', 'house_rule_records', 'house_rule_my_record']) assert.ok(!denied.includes(n), `${n} works for a player`);
+  for (const n of ['read_page', 'search_library', 'list_people', 'get_live', 'get_stage', 'get_world_date', 'read_table_chat', 'read_party_chat', 'list_session_log', 'get_inventory', 'house_rule_spend', 'house_rule_records', 'house_rule_my_record', 'read_sheet', 'sheet_log']) assert.ok(!denied.includes(n), `${n} works for a player`);
   // The spend really happened: Jess's personal reroll is used and logged as hers.
   const spent = (await gm('GET', '/mods/log')).log.find((l: any) => l.action === 'use-personal' && l.accountId === ID.jess);
   assert.ok(spent && spent.after === spent.before - 1, 'house_rule_spend spent a personal reroll for the player');
@@ -546,6 +583,8 @@ test('Coverage: a player key over MCP lists and runs read tools only', async () 
   const listed = (await rpc('tools/list')).result.tools.map((t: any) => t.name);
   const writes = new Set(toolsFor(true).filter((t) => t.write).map((t) => t.name));
   assert.deepEqual(listed.filter((n: string) => writes.has(n)), []);
+  // A player's own action the in-app helper may take (selfAction) is not on a read-only key.
+  for (const t of allTools().filter((x) => x.selfAction)) assert.ok(!listed.includes(t.name), `${t.name} is not on a player's read key`);
   for (const n of ['save_page', 'add_coin', 'next_turn', 'play_music', 'speak', 'start_recording', 'decide_approval', 'show_on_stage']) {
     const r = await rpc('tools/call', { name: n, arguments: { path: 'x', markdown: 'y', owner: 'me', amountCp: 5, text: 'x', kind: 'text', id: 'x', action: 'approve' } });
     assert.ok(r.error || r.result?.isError, `${n} is refused for a player key`);
@@ -563,4 +602,59 @@ test('Coverage: no classified text, and no GM-only text for a player, reaches an
   assert.ok(gms.some((s) => GM_ONLY.some((m) => s.body.includes(m))), 'the GM agent saw GM-only text');
   // Calls were audited.
   assert.ok(one<any>(deps.db, `SELECT COUNT(*) AS n FROM audit WHERE world_id = ? AND action = 'agent.action'`, W)!.n >= 30);
+});
+
+test('Coverage: a player helper reads their own sheet only, and never what is hidden from them', async () => {
+  // The GM's note for Tomas, and a module Jessamine keeps private.
+  await gm('POST', `/sheet/${ID.tom}/gm-notes`, { kind: 'note', text: 'TOMONLY_NOTE your brother is alive' });
+  const mods = (await as('jess')('GET', '/sheet/me')).modules;
+  await as('jess')('PUT', '/sheet/me/modules', { modules: [...mods, { id: 'diary', type: 'notes', title: 'Diary', private: true, data: { text: 'JESSPRIVATE_DIARY I stole the lamp oil' } }] });
+  await as('jess')('POST', '/sheet/me/vitals', { maxHp: 20, hp: 20 });
+  await as('jess')('POST', '/sheet/me/vitals', { damage: 1, note: 'stubbed a toe' });
+
+  // Jessamine's helper reads her own sheet, private module and all, and her log.
+  const own = await drive('jess', 'read_sheet', {});
+  assert.ok(own.result.includes('JESSPRIVATE_DIARY') && !own.result.includes('TOMONLY_NOTE'), own.result.slice(0, 300));
+  assert.match((await drive('jess', 'sheet_log', {})).result, /stubbed a toe/);
+  // Another player's sheet is refused, by account id or by name.
+  for (const who of [ID.tom, 'tom']) assert.match((await drive('jess', 'read_sheet', { accountId: who })).result, /^Error 404/);
+  // A player asking about their own health is offered the sheet tool.
+  assert.ok(selectTools('how much hp do I have left?', toolsFor(false).filter((t) => !t.gmOnly).map((t) => t.name), undefined, false).includes('read_sheet'));
+
+  // The GM's assistant sees Tomas's note and Jessamine's sheet, but not her private module.
+  assert.match((await drive('gm', 'read_sheet', { accountId: 'tom' })).result, /TOMONLY_NOTE/);
+  const gmView = await drive('gm', 'read_sheet', { accountId: 'jess' });
+  assert.ok(!gmView.result.includes('JESSPRIVATE_DIARY'), 'the GM agent did not get a private module');
+  assert.ok(selectTools("put a goal on Jess's sheet", toolsFor(true).map((t) => t.name)).includes('add_sheet_note'));
+
+  // No model request for Jessamine carried Tomas's note; none for the GM carried her diary.
+  for (const s of model.seen.filter((x) => x.who === 'player')) assert.ok(!s.body.includes('TOMONLY_NOTE'), "a player's request carried another player's GM note");
+  for (const s of model.seen.filter((x) => x.who === 'gm')) assert.ok(!s.body.includes('JESSPRIVATE_DIARY'), "the GM's request carried a player's private module");
+});
+
+test('Coverage: a player helper reads their codex, sees what a spell still needs, and asks to learn a ready one', async () => {
+  await gm('PATCH', '/settings', { spellCrafting: true, spellCraftApproval: 'gm' });
+  await gm('POST', `/spells/characters/${ID.jess}/known`, { spell: 'Fire Bolt' });
+  await gm('PUT', `/spells/characters/${ID.jess}`, { level: 3, abilities: { int: 14 } });
+  const ready = await gm('POST', '/spells/recipes', { result: 'Burning Hands', prereqs: ['Fire Bolt'], gmNotes: 'GMSECRET_RECIPE the flames answer to the drowned king' });
+  await gm('POST', '/spells/recipes', { result: 'Scorching Ray', prereqs: ['Fire Bolt', 'Burning Hands'], stats: { int: 13 } });
+
+  const codex = await drive('jess', 'my_spell_codex', {});
+  assert.match(codex.result, /Fire Bolt/);
+  assert.match(codex.result, /Burning Hands/);
+  assert.match(codex.result, /Scorching Ray/, 'the next recipe and what it needs');
+  assert.ok(!codex.result.includes('GMSECRET_RECIPE'), "the GM's recipe note is not in a player's codex");
+  // The message picks the codex tools for a player.
+  const playerTools = toolsFor(false).filter((t) => !t.gmOnly).map((t) => t.name);
+  for (const text of ['what spells can I learn next?', 'what do I need to learn Scorching Ray?', 'which spells do I know?']) assert.ok(selectTools(text, playerTools, undefined, false).includes('my_spell_codex'), text);
+  assert.ok(selectTools('what are my quests right now?', playerTools, undefined, false).includes('my_context'));
+  assert.ok(selectTools('who really runs the harbour council?', playerTools, undefined, false).includes('ask_broker_quote'), 'the broker quote is always at hand');
+
+  // Asking to learn the ready one files a request the GM decides; it is not a GM write.
+  const asked = await drive('jess', 'request_spell_learning', { recipeId: ready.id ?? ready.recipe?.id, note: 'Practised all week' });
+  assert.ok(!FAILED.test(asked.result), asked.result.slice(0, 200));
+  assert.equal(asked.actions.length, 0, 'no action card: it is the player\'s own request');
+  assert.ok(one<any>(deps.db, "SELECT 1 FROM spells_learn WHERE world_id = ? AND account_id = ? AND status = 'pending'", W, ID.jess), 'a pending learn request for the GM');
+  // The GM's harness never gets it.
+  assert.ok(!toolsFor(true).some((t) => t.name === 'request_spell_learning'));
 });
