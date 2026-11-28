@@ -7,6 +7,7 @@ import { Tabs, ErrorBox, useAction } from '../../ui/index.tsx';
 import { timeShort } from '../../lib/format.ts';
 import { Body, useCurrent, type Channel, type ChatMessage } from './shared.tsx';
 import { TradeOffers } from './TradeDialog.tsx';
+import { chatActions } from '../registry.ts';
 
 const EMOJI = ['👍', '😂', '🎲', '⚔️'];
 const WINDOW_MS = 10 * 60_000;
@@ -99,6 +100,7 @@ export function ChatPanel({ tall = false, onRead }: { tall?: boolean; onRead?: (
                   {canEdit && m.kind === 'text' && <button type="button" onClick={() => { setEditing(m); setText(m.body); setReplyTo(null); }}>Edit</button>}
                   {canEdit && <button type="button" onClick={() => del(m)}>Delete</button>}
                   {isDM && channel === 'table' && <button type="button" onClick={() => hide(m)}>{m.hidden ? 'Unhide' : 'Hide'}</button>}
+                  {open && !m.hidden && chatActions.map((A, i) => <A key={i} message={m} channel={channel} />)}
                 </div>
               )}
             </div>

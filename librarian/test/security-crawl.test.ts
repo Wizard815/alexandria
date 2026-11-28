@@ -91,7 +91,7 @@ const SPEC: Record<string, string> = {
   'agent:pageId': 'SELECT id FROM pages WHERE world_id = ?',
   'audio:sid': 'SELECT id FROM audio_sessions WHERE world_id = ?',
   'audio:id': 'SELECT id FROM audio_mics WHERE world_id = ? UNION SELECT id FROM audio_lines WHERE world_id = ?',
-  'clock:id': 'SELECT id FROM clock_events WHERE world_id = ? UNION SELECT id FROM clock_log WHERE world_id = ?',
+  'clock:id': 'SELECT id FROM clock_events WHERE world_id = ? UNION SELECT id FROM clock_log WHERE world_id = ? UNION SELECT id FROM clock_someday WHERE world_id = ?',
   'intake:sid': 'SELECT id FROM sources WHERE world_id = ?',
   'intake:kid': 'SELECT id FROM intake_keys WHERE world_id = ?',
   'files:fid': 'SELECT id FROM libfiles_files WHERE world_id = ?',
@@ -710,7 +710,7 @@ const PLAYER_ROUTES = [
   'PUT /spells/characters/:aid', 'POST /spells/cast', 'POST /spells/learn', 'POST /spells/learn/:lid/cancel',
   // Sheet: a player arranges their own sheet and changes their own HP, conditions and mana (each one only their own; the log keeps it).
   'PUT /sheet/me/modules', 'POST /sheet/:aid/vitals', 'POST /sheet/:aid/mana', 'PATCH /sheet/:aid/dm-notes/:nid', 'POST /sheet/:aid/rerolls',
-  'POST /agent/chats', 'POST /agent/chats/:id/messages', 'POST /agent/chats/:id/stop',
+  'POST /agent/chats', 'POST /agent/chats/:id/messages', 'POST /agent/chats/:id/stop', 'POST /agent/chats/folders/rename',
   'POST /approvals/:id/ack', 'POST /approvals/:id/dispute',
   'POST /audio/consent', 'POST /audio/mics', 'POST /audio/sessions/:sid/chunks', 'POST /audio/sessions/:sid/holds', 'DELETE /audio/mics/:id', 'POST /audio/sessions/:sid/chunks/:seq/text', 'POST /audio/mics/:id/stt',
   'POST /broker/:id/accept', 'POST /broker/:id/decline', 'POST /broker/ask', 'POST /broker/offers/:oid/decline', 'POST /broker/offers/:oid/pay', 'POST /broker/quote',
@@ -729,6 +729,12 @@ const PLAYER_ROUTES = [
   'POST /actions/run', 'POST /actions/macros/:id/run', 'POST /actions/bindings', 'DELETE /actions/bindings/:id', 'PUT /lights/me',
   // A player links their phone's home-screen widget: a key that reads only their own glance.
   'POST /glance/link', 'POST /glance/answer/:eid',
+  // House rules: a player spends their own counters (the server checks who may run each action).
+  'POST /mods/:id/act',
+  // DownTime: a player starts, pauses and stops their own tasks, picks in a Downtime round, and asks the helper to rank or rate activities.
+  'POST /downtime/tasks', 'PATCH /downtime/tasks/:id', 'DELETE /downtime/tasks/:id', 'POST /downtime/rounds/:rid/pick', 'POST /downtime/suggest', 'POST /downtime/decide', 'POST /downtime/tasks/:id/join', 'POST /downtime/tasks/:id/leave',
+  // Data systems: a player runs record actions the rule gives them and answers the DM's prompts (checked per action).
+  'POST /mods/:id/records/:action', 'POST /mods/:id/prompts/round/:round/answer',
   // The quick helper: a question to the small model (it reads only what this player may see and changes nothing).
   'POST /helper/quick',
   // Discord: a player gets their own one-time link code and unlinks their own Discord account.

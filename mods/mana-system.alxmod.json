@@ -1,0 +1,58 @@
+{
+  "kit": 2,
+  "id": "mana-system",
+  "name": "MANA spell system",
+  "version": "1.1.0",
+  "author": "Wizard",
+  "group": "magic",
+  "summary": "Spells cost mana from a pool by caster type, with study, spell lines, surge casting and dual casting. Replaces spell slots for every character.",
+  "alexandria": ">=0.1",
+  "targets": {
+    "builtFor": ["codex", "sheet"]
+  },
+  "presets": {
+    "spellMana": true,
+    "spellRulesOn": true,
+    "spellManaName": "Mana"
+  },
+  "requires": {
+    "settings": ["spellRulesOn"]
+  },
+  "rules": [
+    {
+      "term": "MANA (house rule)",
+      "text": "Spells are cast from a mana pool instead of spell slots. Pools depend on caster type and level; new spells are learned by study. See the Codex for costs and your pool."
+    }
+  ],
+  "assistant": {
+    "words": [
+      "mana",
+      "spell tree",
+      "learn a spell",
+      "study",
+      "studying",
+      "downtime",
+      "final check",
+      "scroll",
+      "arcana",
+      "upcast",
+      "caster level"
+    ],
+    "player": "Help the player choose what to study and plan it. my_spell_tree status=learn lists spells they can start now; status=locked with a name says what is missing. my_study_plan gives days and gold. A downtime day earns 1 point alone, 2 with a text, 3 with a mentor (+1 in a lab). A 3rd-level spell takes about 13 days alone (250 gp), 7 with a text (250 gp), or 5 with a mentor (500 gp). A scroll adds a quarter of the points and is kept; casting it before learning loses that help. It never skips requirements. Use my_studies for progress, and my_study_days only for days they actually spent. Use my_study_check when the points are in; a failure keeps the points, so try again after a long rest. Start a study only when they ask, and ask for their Arcana total if the plan needs one. my_cast_quote gives the mana cost. Never promise a dark spell; only the DM can give it.",
+    "dm": "The DM sees any player's tree and studies in Codex > Spell tree, can give a spell, can set study points by hand, and approves logged days when approval is dm. Recipes decide which spells teach which; suggest one with draft_spell_recipe only when asked.",
+    "tools": [
+      "my_spell_tree",
+      "my_study_plan",
+      "my_studies",
+      "my_start_study",
+      "my_study_days",
+      "my_study_check",
+      "my_cast_quote",
+      "my_spell_codex",
+      "list_spells",
+      "read_spell",
+      "list_spell_recipes",
+      "draft_spell_recipe"
+    ]
+  }
+}

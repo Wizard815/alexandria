@@ -15,6 +15,13 @@ interface Category { re: RegExp; tools: string[] }
 // Most specific first: when the cap is reached, the categories at the end are the ones left out.
 // A message may match several. Each list is in order of usefulness.
 const CATEGORIES: Category[] = [
+  { re: /\b(make|write|build|create|draft|design|add|change|edit|fix|copy|import)\b.{0,40}\b(house ?rules?|mods?|rule files?|homebrew (rule|system)s?|variant rules?|table rules?)\b|\b(house ?rule|mod) (file|studio|kit)\b/i, tools: ['house_rule_guide', 'house_rule_file', 'house_rule_check', 'house_rule_save', 'house_rules'] },
+  { re: /\b(house ?rules?|table rules?|variant rules?|re-?rolls?|inspiration|hero points?|luck (tokens?|points?)|reward (the |their |good )?(rp|roleplay|role-play))\b/i, tools: ['house_rule_grant', 'house_rules', 'house_rule_counters', 'house_rule_spend', 'house_rule_check', 'house_rule_save'] },
+  // DownTime (the feature) and a house rule's own data system can both answer "downtime": a plain mention offers the core of each.
+  { re: /\b(down ?time|downtime activit\w*|between (adventures|sessions))\b/i, tools: ['downtime', 'downtime_round', 'downtime_time', 'house_rule_prompt', 'house_rule_records', 'house_rule_record_act'] },
+  { re: /\b(lost (\w+ )?days?|(days?|weeks?|months?) (of|off) (rest|work|crafting|training|research)|carous\w*|work(ing)? a job|stronghold|legendary (task|vigil)|group (task|activit\w*)|(reward|finish(ed)?|stop|remove|close|assign|log|spent \w+ days?)\b.{0,40}\b(down ?time|task|crafting|research|training|round))\b/i, tools: ['downtime_time', 'downtime_work', 'downtime_assign', 'downtime_reward', 'downtime_update', 'downtime_remove', 'downtime_close_round', 'downtime_log'] },
+  { re: /\b(suggest|recommend|what (can|should) i do|pick (my|for)|my downtime|join (the|a) (group|party)|(start|begin) (an? )?(activit\w*|task|project))\b/i, tools: ['downtime_activities', 'downtime_suggest', 'downtime_pick', 'downtime_start', 'downtime_log'] },
+  { re: /\b(down ?time|activit(y|ies)|tasks?|projects?|crafting queue|reputation|a (downtime )?day passes|house rule (list|records?))\b/i, tools: ['house_rules', 'house_rule_records', 'house_rule_record_act', 'house_rule_prompt', 'house_rule_my_record'] },
   { re: /\bfoundry\b|\bvtt\b|\b(move|drag|put) (the |my |our )?[\w' -]{0,30}token\b|\btokens?\b.*\b(scene|map)\b/i, tools: ['foundry_status', 'foundry_move_token', 'foundry_send_map', 'foundry_send_handout', 'foundry_say', 'list_pages'] },
   { re: /\broll ?20\b/i, tools: ['roll20_status', 'roll20_send_handout', 'roll20_say', 'list_pages'] },
   { re: /\bowlbear\b|\bvtt\b|\bvirtual table(top)?\b/i, tools: ['owlbear_status', 'owlbear_link'] },
@@ -58,6 +65,8 @@ const CATEGORIES: Category[] = [
   { re: /\b(refresh (the )?world|resync|re-?sync|sync (everything|all|the sources)|update (the )?(index|knowledge)|rebuild (the )?(index|knowledge))\b/i, tools: ['refresh_world', 'world_sources'] },
   { re: /\b(quick events?|recall check|vote|poll|reaction|twist|saving throw for the party)\b/i, tools: ['list_quick_events', 'send_quick_event', 'resolve_quick_event', 'cancel_quick_event'] },
   { re: /\b(encounters?|npc (walks|comes) up|walks up to|approaches|wander(ing)?|street gambler|shell game|coin toss|dice duel|peddler|mini-?games?)\b/i, tools: ['list_encounters', 'list_encounter_templates', 'send_encounter', 'encounter_say', 'end_encounter'] },
+  { re: /\b(quick[- ]?events?|random events?|(?:town|city|road|woods|forest|cave|dungeon|tavern|market|wilderness|travel) events?|something happens|pickpocket|undervalued gem)\b/i, tools: ['list_encounter_templates', 'send_encounter', 'save_encounter_template', 'list_encounters', 'list_dm_templates', 'get_dm_template'] },
+  { re: /\b(new spell|homebrew spell|make (?:a|me a) spell|design (?:a )?spell|invent (?:a )?spell|spell template|cantrip)\b/i, tools: ['save_homebrew_spell', 'list_spells', 'read_spell', 'list_dm_templates', 'get_dm_template'] },
   { re: /\b(arcs?|close the (current )?arc|new arc|start an arc)\b/i, tools: ['arc_close', 'arc_start', 'context_for', 'codex_upsert'] },
   { re: /\b(jot|jot down|note down|write (this |that |it )?down|an idea|idea:|log that|log this|file (this )?conversation|by speaker)\b/i, tools: ['memory_capture', 'conversation_log', 'memory_log'] },
   { re: /\b(broker|special offers?|offers?|information for sale|sell (this|that|the) (fact|info)|may sell)\b/i, tools: ['add_broker_note', 'send_broker_offer', 'list_broker_requests', 'broker_answer', 'list_broker_offers', 'ask_broker_quote', 'broker_pay_options', 'broker_deliver', 'broker_refuse'] },
@@ -86,7 +95,7 @@ const CATEGORIES: Category[] = [
   { re: /\b(pages?|save|write|draft|create|make a note|note|lore|wiki|library|folder|rewrite|edit|update|summari[sz]e|summary|outline)\b/i, tools: ['save_page', 'list_pages', 'list_relations'] },
   { re: /\b(people|person|quote|quotes|talk(ed)? to|met)\b/i, tools: ['list_people', 'add_person', 'add_quote', 'update_person', 'add_recall'] },
   { re: /\b(requests?|approve|approvals?|change request|reject)\b/i, tools: ['list_approvals', 'decide_approval', 'list_requests', 'decide_request'] },
-  { re: /\b(date|time|day|days|week|month|calendar|clock|long rest|short rest|rest|dawn|dusk|midnight|holiday|festival|deadline)\b/i, tools: ['get_world_date', 'advance_world_time', 'list_world_events', 'add_world_event'] },
+  { re: /\b(date|time|day|days|week|month|calendar|clock|long rest|short rest|rest|dawn|dusk|midnight|holiday|festival|deadline|someday|no date)\b/i, tools: ['get_world_date', 'advance_world_time', 'list_world_events', 'add_world_event', 'list_someday_events', 'add_someday_event', 'remove_someday_event'] },
   { re: /\b(broker|offer|offers|information for sale|rumou?rs?)\b/i, tools: ['list_broker_requests', 'list_broker_offers', 'ask_broker_quote', 'send_broker_offer', 'add_broker_note', 'broker_answer', 'broker_deliver', 'broker_refuse'] },
   { re: /\b(game night|schedule|rsvp|next game|real[- ]life)\b/i, tools: ['list_calendar', 'schedule_session'] },
   { re: /\b(stage|spotlight|handout|show (it |this |that |the )?(to |on )?(the )?(table|players|screen|party)|put (it |this |that )?on (the )?(stage|screen|board))\b/i, tools: ['show_on_stage', 'get_stage', 'hide_stage_card', 'sculpt', 'speak'] },

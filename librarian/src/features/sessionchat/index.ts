@@ -16,16 +16,13 @@ import {
   sessionOut, startSession, unreadCounts, viewMessage, mentionIds, type Channel,
 } from './chat.ts';
 import { acceptTrade, closeTrade, createTrade, tradeOut } from './trade.ts';
+import { fanout as fanoutTo, runCommand } from './hooks.ts';
 
 const audit = (db: DB, worldId: string, accountId: string, action: string, detail = '') => { run(db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, accountId, action, detail.slice(0, 500), now()); };
 
 /** Send each reader their own view of a message; only readers of the channel get it. Exported for features that post as a player (the Discord bot's /roll). */
 export function fanoutChat(d: Pick<Deps, 'db' | 'hub'>, worldId: string, channel: Channel, type: string, row: any) {
-  for (const m of all<any>(d.db, 'SELECT account_id, role FROM members WHERE world_id = ?', worldId)) {
-    const v = { accountId: m.account_id as string, role: m.role as Viewer['role'] };
-    if (!canRead(v, channel)) continue;
-    d.hub.emit(worldId, 'chat', { type, channel, sessionId: row.session_id, message: viewMessage(d.db, row, v, worldId) }, only(v.accountId));
-  }
+  fanoutTo(d as Deps, worldId, channel, type, row);
 }
 
 const feature: Feature = {
@@ -155,6 +152,7 @@ const feature: Feature = {
       const s = startSession(db, w, str(req.body?.title, 'title', { max: 100, optional: true }) || 'Game night', me(res), 'manual', null);
       audit(db, w, me(res), 'sessionchat.start', s.title);
       for (const m of roles(w)) d.hub.emit(w, 'chat-session', { session: sessionOut(s) }, only(m.accountId));
+      d.hub.emit(w, 'session-start', { sessionId: s.id }, () => false); // server listeners only (house rule triggers)
       res.status(201).json(sessionOut(s));
     });
 
@@ -166,6 +164,7 @@ const feature: Feature = {
       audit(db, w, me(res), 'sessionchat.end', cur.title);
       const ended = one<any>(db, 'SELECT * FROM sessionchat_sessions WHERE id = ?', cur.id);
       for (const m of roles(w)) d.hub.emit(w, 'chat-session', { session: sessionOut(ended) }, only(m.accountId));
+      d.hub.emit(w, 'session-end', { sessionId: cur.id }, () => false); // server listeners only (house rule triggers)
       res.json(sessionOut(ended));
     });
 
@@ -189,7 +188,10 @@ const feature: Feature = {
       const s = currentSession(db, w);
       if (!s) throw new HttpError(409, isDM(res) ? 'No session is running: press Start session' : 'No session is running yet');
       if (typeof req.body?.body !== 'string') throw new HttpError(400, 'body must be text');
-      const row = addMessage(db, w, { sessionId: s.id, channel: ch, authorId: me(res), role: viewer(res).role, body: req.body.body, replyTo: typeof req.body?.replyTo === 'string' ? req.body.replyTo : null });
+      const replyTo = typeof req.body?.replyTo === 'string' ? req.body.replyTo : null;
+      // A house rule's chat word ("/reroll personal") runs its action; what it returns is posted as the caller's message.
+      const cmd = runCommand(d, { worldId: w, channel: ch, sessionId: s.id, viewer: viewer(res), replyTo }, req.body.body);
+      const row = addMessage(db, w, { sessionId: s.id, channel: ch, authorId: me(res), role: viewer(res).role, body: cmd?.body ?? req.body.body, replyTo: cmd ? cmd.replyTo ?? replyTo : replyTo });
       fanout(w, ch, 'new', row);
       res.status(201).json(viewMessage(db, row, viewer(res), w));
     });
