@@ -4,9 +4,9 @@ import ModuleSettings from './Settings.tsx';
 
 const feature: WebFeature = {
   id: 'modules',
-  dmRoutes: [{ path: 'rules', element: <RulesPage /> }],
+  gmRoutes: [{ path: 'rules', element: <RulesPage /> }],
   playerRoutes: [{ path: 'rules', element: <RulesPage /> }],
-  dmNav: [{ to: 'rules' }],
+  gmNav: [{ to: 'rules' }],
   playerNav: [{ to: 'rules', label: 'Rules', icon: 'fa-book' }],
   settings: { title: 'Game module', component: ModuleSettings },
 };

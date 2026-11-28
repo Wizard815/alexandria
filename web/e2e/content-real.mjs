@@ -1,5 +1,5 @@
-// The DM assistant pulls a free book from Open5e with a REAL chat model (OpenRouter) and the real Open5e API:
-// the DM asks in plain words, the model proposes import_content, the DM approves, and the book's monsters
+// The GM assistant pulls a free book from Open5e with a REAL chat model (OpenRouter) and the real Open5e API:
+// the GM asks in plain words, the model proposes import_content, the GM approves, and the book's monsters
 // are in the world. No browser. Skipped unless CONTENT_REAL=1 (it spends about a cent). Run from web/:
 //   NODE_USE_ENV_PROXY=1 CONTENT_REAL=1 node e2e/content-real.mjs
 import path from 'node:path';
@@ -20,7 +20,7 @@ try {
   const admin = (await j('POST', '/api/admin-auth/login', null, { username: 'admin', password: 'library admin 123' })).x.token;
   const prov = (await j('POST', '/api/admin/models/providers', admin, { name: 'OpenRouter', kind: 'openai-compatible', baseUrl: OR, apiKey: KEY, location: 'cloud' })).x;
   await j('PUT', '/api/admin/models', admin, { jobs: { chat: { providerId: prov.provider?.id ?? prov.id, model: CHAT, enabled: true, options: { reasoning: 'off', maxConcurrent: 2 } } } });
-  const tok = (await j('POST', '/api/auth/login', null, { username: 'dm', password: 'dungeon master 123' })).x.token;
+  const tok = (await j('POST', '/api/auth/login', null, { username: 'gm', password: 'game master 123' })).x.token;
   const P = `/api/worlds/${(await j('GET', '/api/worlds', tok)).x[0].id}`;
   const chat = (await j('POST', `${P}/agent/chats`, tok, {})).x;
   const ask = async (text) => {

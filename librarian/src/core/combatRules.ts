@@ -1,4 +1,4 @@
-// The 5e combat bookkeeping the tracker keeps for the DM: temporary HP,
+// The 5e combat bookkeeping the tracker keeps for the GM: temporary HP,
 // concentration, death saves and timed conditions. Pure functions over plain
 // values so the live route, the agent tools and the tests share one rule set.
 

@@ -25,7 +25,7 @@ export function waitMs(k: KeyRow, at = Date.now()): number {
 
 /**
  * Read what the key can see and store it for each account that may use the
- * key for its library view. `force` skips the rate limit (the DM, the first read).
+ * key for its library view. `force` skips the rate limit (the GM, the first read).
  */
 export async function refreshAccess(d: Deps, k: KeyRow, by: string, opts: { force?: boolean } = {}): Promise<RefreshResult> {
   if (!canFeedLibrary(k)) return { ok: false, pages: 0, status: 409, note: 'Only a verified per-user key with the library use feeds a library view.' };

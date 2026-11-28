@@ -1,7 +1,7 @@
 // End-to-end test of video on the players' screen: a tiny WebM is recorded in the browser (MediaRecorder on a canvas, nothing
 // binary checked in), uploaded to the library, loaded as a mixed folder slideshow, and played on the screen: the slideshow
 // moves on when the video ends, sound is on by default, the "Click to start" overlay shows when the browser blocks sound (and
-// is gone when autoplay is allowed), DM-only files can be shown and shared from the DM page, and Range requests work.
+// is gone when autoplay is allowed), GM-only files can be shown and shared from the GM page, and Range requests work.
 // Run from web/: npm run build && node e2e/screenvideo.mjs   (SCREENVIDEO_PORT)
 import path from 'node:path';
 import { chromium, root, startScript, tmpDir, signIn, quiet } from './lib.mjs';
@@ -53,8 +53,8 @@ const recordWebm = (page, ms, hue) => page.evaluate(async ({ ms, hue }) => {
 }, { ms, hue });
 
 try {
-  const { ctx, page } = await signIn(open, base, 'dm', 'dungeon master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
-  watch(page, 'dm');
+  const { ctx, page } = await signIn(open, base, 'gm', 'game master 123', { width: 1280, height: 800 }, false, /\/w\/saltreach/);
+  watch(page, 'gm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
     const r = await fetch(`${base}/api/worlds/saltreach${p}`, { method, headers: { ...(raw ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${token}` }, body: raw ? raw : body ? JSON.stringify(body) : undefined });
@@ -69,8 +69,8 @@ try {
   const up1 = await put('a-intro.webm', 'Clips', 'Clip A', 'party', v1);
   const up2 = await put('c-outro.webm', 'Clips', 'Clip C', 'party', v2);
   const upg = await put('b-spark.gif', 'Clips', 'Spark', 'party', GIF);
-  const dmOnly = await put('secret.webm', 'Private', 'Secret clip', 'dm', v1);
-  check([up1, up2, upg, dmOnly].every((u) => u.status === 201), `uploads: ${[up1, up2, upg, dmOnly].map((u) => u.status)} ${JSON.stringify(up1.json)}`);
+  const gmOnly = await put('secret.webm', 'Private', 'Secret clip', 'gm', v1);
+  check([up1, up2, upg, gmOnly].every((u) => u.status === 201), `uploads: ${[up1, up2, upg, gmOnly].map((u) => u.status)} ${JSON.stringify(up1.json)}`);
   check(up1.json?.family === 'video' && up1.json?.mime === 'video/webm', 'a recorded WebM should be sniffed as video/webm');
 
   // Range request from the browser, the way a <video> seeks.
@@ -121,24 +121,24 @@ try {
   note('per-item sound and loop reach the screen');
   await tv.close();
 
-  // ---- DM-only video: shown by the DM's choice, then shared from the DM page ----
+  // ---- GM-only video: shown by the GM's choice, then shared from the GM page ----
   const sec = (await api('GET', '/screen/media/sources')).json.files.find((f) => f.name === 'secret.webm');
-  check(sec && sec.shared === false && sec.blocked === false, 'the DM-only video is listed as not shared');
+  check(sec && sec.shared === false && sec.blocked === false, 'the GM-only video is listed as not shared');
   await api('POST', '/screen/media/clear', {});
   const shown = await api('POST', '/screen/media/items', { kind: 'video', ref: sec.id, play: true, loopVideo: true });
-  check(shown.status === 201, `a DM-only video can be queued: ${shown.status}`);
-  await page.goto(`${W}/dm/screen-players`);
-  check(await shows(page.getByRole('button', { name: /^Share secret.webm with the party$/ })), 'the DM page offers Share with party for a DM-only file');
+  check(shown.status === 201, `a GM-only video can be queued: ${shown.status}`);
+  await page.goto(`${W}/gm/screen-players`);
+  check(await shows(page.getByRole('button', { name: /^Share secret.webm with the party$/ })), 'the GM page offers Share with party for a GM-only file');
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: /^Share secret.webm with the party$/ }).click();
   await page.getByRole('button', { name: /^Share secret.webm with the party$/ }).waitFor({ state: 'detached', timeout: 8000 }).catch(() => problems.push('the Share button should go once the file is shared'));
   check((await api('GET', '/screen/media/sources')).json.files.find((f) => f.id === sec.id)?.shared === true, 'the file is shared after the button');
-  check(await shows(page.locator('.psc video').first()), 'the DM page shows a video thumbnail');
-  note('DM-only video shown, then shared from the DM page');
+  check(await shows(page.locator('.psc video').first()), 'the GM page shows a video thumbnail');
+  note('GM-only video shown, then shared from the GM page');
   await api('POST', '/screen/media/clear', {});
 
   // ---- the browser's normal policy: one click unlocks sound ----
-  // A fresh browser context with the DM's token already stored: no click has happened on this page, as on a TV that was just switched on.
+  // A fresh browser context with the GM's token already stored: no click has happened on this page, as on a TV that was just switched on.
   const ctx2 = await normal.newContext({ viewport: { width: 1280, height: 800 } });
   await ctx2.addInitScript((t) => { try { localStorage.setItem('alx.token', t); } catch { /* blocked */ } }, token);
   const tv2 = await ctx2.newPage();

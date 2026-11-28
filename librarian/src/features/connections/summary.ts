@@ -1,4 +1,4 @@
-// One line about a world's sources, for the DM's agent: what is connected and who can see it.
+// One line about a world's sources, for the GM's agent: what is connected and who can see it.
 import type { DB } from '../../core/db.ts';
 import { all, one } from '../../core/db.ts';
 import { connectorFor } from '../../intake/registry.ts';

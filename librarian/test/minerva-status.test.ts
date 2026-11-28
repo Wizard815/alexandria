@@ -7,7 +7,7 @@ const THREADS = [
   '- [on] [[The darkened lamp]]: who paid the keeper to put the light out',
   "- [ongoing] [[Velmira's payroll]]: three captains owe her",
   '- [simmering] [[The drowned bell]]: it rings at low tide',
-  'A loose DM note about the harbour.',
+  'A loose GM note about the harbour.',
 ].join('\n');
 
 test('TestMinerva_ThreadHeatChangeKeepsLinkAndDescription', () => {
@@ -16,7 +16,7 @@ test('TestMinerva_ThreadHeatChangeKeepsLinkAndDescription', () => {
   assert.equal(lines[0], '- [ongoing] [[The darkened lamp]]: who paid the keeper to put the light out');
   assert.equal(lines[1], "- [ongoing] [[Velmira's payroll]]: three captains owe her");
   assert.equal(lines[2], '- [on] [[The drowned bell]]: it rings at low tide');
-  assert.equal(lines[3], 'A loose DM note about the harbour.');
+  assert.equal(lines[3], 'A loose GM note about the harbour.');
 });
 
 test('TestMinerva_ThreadMergeAddsNewAndDropsPlaceholder', () => {

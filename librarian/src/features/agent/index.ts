@@ -1,7 +1,7 @@
-// The DM agent and the player harness on one chat model (PLAN §6).
+// The GM agent and the player harness on one chat model (PLAN §6).
 // Conversations are stored per account; a message is answered in the
 // background and delivered by polling (GET /chats/:id) or the 'agent' event.
-// Writes the DM agent wants to make wait as pending actions until the DM
+// Writes the GM agent wants to make wait as pending actions until the GM
 // approves them (POST /actions/:id). Combat tools and statblocks live here.
 import express, { Router } from 'express';
 import type { Feature } from '../types.ts';
@@ -9,10 +9,10 @@ import { hasJob, transcribe, speak, ModelUnavailable, withPriority } from '../..
 import { buildHint } from '../audio/hint.ts';
 import { all, one, run } from '../../core/db.ts';
 import { only } from '../../core/events.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { featureSetting } from '../../core/policy.ts';
 import { HttpError, int, now, oneOf, str } from '../../core/util.ts';
-import { ctx, isDM, me, settings } from '../../routes/_shared.ts';
+import { ctx, isGM, me, settings } from '../../routes/_shared.ts';
 import { sessionLines, listSessions } from '../audio/api.ts';
 import { budgetFor, describeCall, emitAction, harnessTools, historyFor, runAgent, runTool, stopRun, type Caller } from './harness.ts';
 import { ALWAYS_ASK } from './auto.ts';
@@ -42,21 +42,21 @@ function routes(d: import('../../app.ts').Deps) {
 
   /** Who is asking, and with which token the tools will run. */
   const caller = (req: any, res: any): Caller => {
-    const dm = isDM(res);
-    if (!dm && (ctx(res).viewer.role !== 'player' || featureSetting<boolean>(settings(res), 'agentPlayerChat') === false)) throw new HttpError(403, 'The player assistant is not available to you in this world');
-    return { worldId: W(res), worldName: ctx(res).world.name, accountId: me(res), viewer: ctx(res).viewer, harness: dm ? 'dm' : 'player', token: bearer(req), port: req.socket.localPort, settings: settings(res) };
+    const gm = isGM(res);
+    if (!gm && (ctx(res).viewer.role !== 'player' || featureSetting<boolean>(settings(res), 'agentPlayerChat') === false)) throw new HttpError(403, 'The player assistant is not available to you in this world');
+    return { worldId: W(res), worldName: ctx(res).world.name, accountId: me(res), viewer: ctx(res).viewer, harness: gm ? 'gm' : 'player', token: bearer(req), port: req.socket.localPort, settings: settings(res) };
   };
   const needModel = () => { if (!hasJob(d, 'chat')) throw new HttpError(503, 'No chat model is set (Admin → Models), so the assistant cannot answer.'); };
 
   r.get('/status', (_req, res) => {
     const s = settings(res);
-    res.json({ model: hasJob(d, 'chat'), stream: true, harness: isDM(res) ? 'dm' : 'player', playerChat: featureSetting<boolean>(s, 'agentPlayerChat') !== false, autoApprove: isDM(res) ? featureSetting<string[]>(s, 'agentAutoApprove') ?? [] : [], auto: isDM(res) && featureSetting<boolean>(s, 'agentAuto') === true, alwaysAsk: isDM(res) ? ALWAYS_ASK : [] });
+    res.json({ model: hasJob(d, 'chat'), stream: true, harness: isGM(res) ? 'gm' : 'player', playerChat: featureSetting<boolean>(s, 'agentPlayerChat') !== false, autoApprove: isGM(res) ? featureSetting<string[]>(s, 'agentAutoApprove') ?? [] : [], auto: isGM(res) && featureSetting<boolean>(s, 'agentAuto') === true, alwaysAsk: isGM(res) ? ALWAYS_ASK : [] });
   });
 
   // ---- chats ----
   r.get('/chats', (req, res) => {
     caller(req, res);
-    // Only the chats of the role asking: a DM who was once a player (or the reverse) is not shown the other role's chats.
+    // Only the chats of the role asking: a GM who was once a player (or the reverse) is not shown the other role's chats.
     // And only the chats of the voice asked for: the broker's ('') or the table helper's (?mode=helper).
     // Template chats are kept apart: no ?template lists the main chats, ?template=only every template chat,
     // ?template=<id> the chats started from one template.
@@ -78,7 +78,7 @@ function routes(d: import('../../app.ts').Deps) {
     // An incognito chat is not saved: it is never listed, and starting another one ends the last.
     if (req.body?.incognito === true) dropIncognito(d.db, c.worldId, c.accountId, c.harness, { all: true, keep: chat.id });
     if (req.body?.mode === 'helper' && c.harness === 'player') {
-      if (featureSetting<boolean>(settings(res), 'agentPlayerHelper') === false) throw new HttpError(403, 'The DM has turned the table helper off');
+      if (featureSetting<boolean>(settings(res), 'agentPlayerHelper') === false) throw new HttpError(403, 'The GM has turned the table helper off');
       run(d.db, "UPDATE agent_chats SET mode = 'helper' WHERE id = ?", chat.id);
     }
     res.status(201).json(chatView(d.db, chat.id));
@@ -128,7 +128,7 @@ function routes(d: import('../../app.ts').Deps) {
 
   // Talk to the assistant: a short recording from the chat's mic button, turned into text by the world's own speech
   // model (the audio job), never a browser or cloud dictation service. The text goes back to the box to send.
-  r.post('/dictate', requireDM, express.raw({ type: ['audio/*', 'video/webm', 'application/octet-stream'], limit: 8 * 1024 * 1024 }), async (req, res) => {
+  r.post('/dictate', requireGM, express.raw({ type: ['audio/*', 'video/webm', 'application/octet-stream'], limit: 8 * 1024 * 1024 }), async (req, res) => {
     const c = ctx(res);
     if (!Buffer.isBuffer(req.body) || req.body.length < 100) throw new HttpError(400, 'Send the recording as the request body');
     if (!hasJob(d, 'audio')) throw new HttpError(503, 'No speech model is set (Admin, Models: the audio job)');
@@ -141,9 +141,9 @@ function routes(d: import('../../app.ts').Deps) {
     }
   });
 
-  // Read a reply aloud on the DM's own device: the text goes to the world's own text-to-speech model (the voice job) and the
-  // audio comes back to the caller only. It is never played to the table; the DM-only text of a reply stays on the DM's device.
-  r.post('/speak', requireDM, async (req, res) => {
+  // Read a reply aloud on the GM's own device: the text goes to the world's own text-to-speech model (the voice job) and the
+  // audio comes back to the caller only. It is never played to the table; the GM-only text of a reply stays on the GM's device.
+  r.post('/speak', requireGM, async (req, res) => {
     const text = speakable(str(req.body?.text, 'text', { max: 20000 }));
     if (!text) throw new HttpError(400, 'There is nothing to read aloud');
     if (!hasJob(d, 'voice')) throw new HttpError(503, 'No voice model is set (Admin, Models: the voice job)');
@@ -164,13 +164,13 @@ function routes(d: import('../../app.ts').Deps) {
     if (chat.harness !== who.harness) throw new HttpError(403, 'This chat belongs to another role');
     // A player's helper chat (checked before anything is stored: a refused message leaves nothing behind).
     const mode = (one<any>(d.db, 'SELECT mode FROM agent_chats WHERE id = ?', chat.id)?.mode ?? '') === 'helper' && who.harness === 'player' ? 'helper' as const : undefined;
-    if (mode === 'helper' && featureSetting<boolean>(settings(res), 'agentPlayerHelper') === false) throw new HttpError(403, 'The DM has turned the table helper off');
+    if (mode === 'helper' && featureSetting<boolean>(settings(res), 'agentPlayerHelper') === false) throw new HttpError(403, 'The GM has turned the table helper off');
     const text = str(req.body?.text, 'text', { max: 8000 }).trim();
     if (!text) throw new HttpError(400, 'text is required');
     const page = str(req.body?.page, 'page', { max: 300, optional: true });
     const selection = str(req.body?.selection, 'selection', { max: 3000, optional: true });
     // /takeover, /auto music on and the like: Active mode's own commands, no model needed.
-    const cmdReply = who.harness === 'dm' ? tryChatCommand(d, W(res), text) : null;
+    const cmdReply = who.harness === 'gm' ? tryChatCommand(d, W(res), text) : null;
     if (cmdReply !== null) {
       addMessage(d.db, chat.id, 'user', text, {});
       if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
@@ -179,16 +179,16 @@ function routes(d: import('../../app.ts').Deps) {
       return res.status(202).json(chatView(d.db, chat.id));
     }
     // Dice, the date, "next turn" and the like are answered by a rule, so they work with no model at all.
-    const fast = fastPlan(text, who.harness === 'dm');
+    const fast = fastPlan(text, who.harness === 'gm');
     if (!fast) needModel();
     if (one(d.db, `SELECT 1 FROM agent_messages WHERE chat_id = ? AND status = 'working' AND created_at > ?`, chat.id, new Date(Date.now() - 10 * 60_000).toISOString())) throw new HttpError(409, 'The assistant is still answering the last message');
     const { messages: history, summary } = historyFor(d, chat.id, budgetFor(d).history);
     addMessage(d.db, chat.id, 'user', text, { context: { page: page || undefined, selection: selection || undefined } });
     if (!chat.title) run(d.db, 'UPDATE agent_chats SET title = ? WHERE id = ?', text.slice(0, 60), chat.id);
     const reply = addMessage(d.db, chat.id, 'assistant', '', { status: 'working' });
-    // The DM's questions go before players' when the model server is busy (core/ai.ts, the queue).
+    // The GM's questions go before players' when the model server is busy (core/ai.ts, the queue).
     void withPriority(
-      who.harness === 'dm' ? 2 : 1,
+      who.harness === 'gm' ? 2 : 1,
       () => runAgent(d, { ...who, mode }, { chatId: chat.id, replyId: reply.id, text, context: { page: page || undefined, selection: selection || undefined }, history, summary, fast }),
       // Queued behind other requests to the same model: the asker sees "Waiting for the model (N ahead)".
       (ahead) => d.hub.emit(who.worldId, 'agent', { chatId: chat.id, messageId: reply.id, kind: 'queue', ahead, text: `Waiting for the model (${ahead} ahead)` }, only(who.accountId)),
@@ -207,16 +207,16 @@ function routes(d: import('../../app.ts').Deps) {
     res.json({ stopped });
   });
 
-  // ---- pending actions (DM) ----
-  r.get('/actions', requireDM, (req, res) => {
+  // ---- pending actions (GM) ----
+  r.get('/actions', requireGM, (req, res) => {
     const st = typeof req.query.status === 'string' ? req.query.status : 'pending';
     const rows = all<any>(d.db, 'SELECT * FROM agent_actions WHERE world_id = ? AND status = ? ORDER BY created_at DESC LIMIT 100', W(res), st);
     res.json({ actions: rows.map(actionView) });
   });
 
-  // Change a card before approving it: the DM fixes an amount, a name or a target instead of rejecting and asking again.
+  // Change a card before approving it: the GM fixes an amount, a name or a target instead of rejecting and asking again.
   // The new arguments are checked against the tool's schema like the model's are; the card's words follow the change.
-  r.patch('/actions/:id', requireDM, async (req, res) => {
+  r.patch('/actions/:id', requireGM, async (req, res) => {
     const worldId = W(res);
     const a = one<any>(d.db, 'SELECT * FROM agent_actions WHERE id = ? AND world_id = ?', String(req.params.id), worldId);
     if (!a) throw new HttpError(404, 'Action not found');
@@ -224,7 +224,7 @@ function routes(d: import('../../app.ts').Deps) {
     const raw = req.body?.args;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'args must be an object');
     if (JSON.stringify(raw).length > 20_000) throw new HttpError(400, 'args is too large');
-    const tool = (await harnessTools('dm')).find((t) => t.name === a.tool && t.write);
+    const tool = (await harnessTools('gm')).find((t) => t.name === a.tool && t.write);
     if (!tool) throw new HttpError(409, 'That tool is no longer available');
     const chk = checkArgs(tool, raw);
     if (chk.problems.length) throw new HttpError(400, chk.problems.join('; '));
@@ -238,13 +238,13 @@ function routes(d: import('../../app.ts').Deps) {
     res.json(actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id)));
   });
 
-  r.post('/actions/:id', requireDM, async (req, res) => {
+  r.post('/actions/:id', requireGM, async (req, res) => {
     const decision = oneOf(req.body?.decision, 'decision', ['approve', 'reject'] as const);
     const worldId = W(res);
     const accountId = me(res);
     const a = one<any>(d.db, 'SELECT * FROM agent_actions WHERE id = ? AND world_id = ?', String(req.params.id), worldId);
     if (!a) throw new HttpError(404, 'Action not found');
-    // Claim it first, so two clicks (or two DMs) never run it twice.
+    // Claim it first, so two clicks (or two GMs) never run it twice.
     if (!run(d.db, `UPDATE agent_actions SET status = ?, decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'`, decision === 'reject' ? 'rejected' : 'running', now(), accountId, a.id)) throw new HttpError(409, 'That action was already decided');
     const note = (text: string) => { addMessage(d.db, a.chat_id, 'assistant', text); d.hub.emit(worldId, 'agent', { kind: 'message', chatId: a.chat_id }, only(a.account_id)); };
     const view = () => actionView(one(d.db, 'SELECT * FROM agent_actions WHERE id = ?', a.id));
@@ -252,7 +252,7 @@ function routes(d: import('../../app.ts').Deps) {
     emitAction(d, worldId, a.account_id, a.id);
     if (decision === 'reject') {
       audit(d.db, worldId, accountId, 'agent.reject', `${a.tool} ${a.args}`);
-      logAgentCall(d, worldId, { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok: false, result: 'rejected by the DM', via: 'rejected', actionId: a.id, rejected: true });
+      logAgentCall(d, worldId, { tool: a.tool, args: JSON.parse(a.args), summary: a.summary, ok: false, result: 'rejected by the GM', via: 'rejected', actionId: a.id, rejected: true });
       note(`Rejected: ${a.summary}.`);
       think(d, worldId, { source: 'assistant', kind: 'skip', actionId: a.id, chatId: a.chat_id, text: `You rejected: ${a.summary}.` });
       return res.json(view());
@@ -279,10 +279,10 @@ function routes(d: import('../../app.ts').Deps) {
       void withPriority(2, () => runAgent(d, who, { chatId: chat.id, replyId: reply.id, text, context: {}, history, summary, fast: null }));
     };
     // The work never blocks the answer for long: a tool that needs a model (a statblock, a generator) can wait behind other model
-    // work, so after a moment the DM gets "running" and the card finishes by itself when the event arrives. The DM's approval jumps
+    // work, so after a moment the GM gets "running" and the card finishes by itself when the event arrives. The GM's approval jumps
     // the model queue (priority 3) so it is not held behind chat turns.
     const work = withPriority(3, async () => {
-      const tool = (await harnessTools('dm')).find((t) => t.name === a.tool && t.write);
+      const tool = (await harnessTools('gm')).find((t) => t.name === a.tool && t.write);
       let ok = false;
       let out = '';
       if (!tool) out = 'That tool is no longer available.';
@@ -309,7 +309,7 @@ function routes(d: import('../../app.ts').Deps) {
     res.status(first ? 200 : 502).json(view());
   });
 
-  r.get('/leaks', requireDM, (_req, res) => {
+  r.get('/leaks', requireGM, (_req, res) => {
     res.json({ leaks: all<any>(d.db, 'SELECT id, account_id, chat_id, matched, at FROM agent_leaks WHERE world_id = ? ORDER BY at DESC LIMIT 50', W(res)).map((l) => ({ id: l.id, accountId: l.account_id, chatId: l.chat_id, matched: l.matched, at: l.at })) });
   });
 
@@ -321,14 +321,14 @@ function routes(d: import('../../app.ts').Deps) {
     if (!s) return res.json({ session: null, lines: [] });
     const q = typeof req.query.q === 'string' ? req.query.q.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [] : [];
     const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 200);
-    // DMs also get the DM-only lines; a player only ever gets the players' transcript.
-    let lines = sessionLines(d.db, W(res), s.id, { includeDm: isDM(res) });
+    // GMs also get the GM-only lines; a player only ever gets the players' transcript.
+    let lines = sessionLines(d.db, W(res), s.id, { includeGm: isGM(res) });
     if (q.length) lines = lines.filter((l) => q.every((w) => `${l.speaker} ${l.text}`.toLowerCase().includes(w)));
     res.json({ session: { id: s.id, name: s.name }, lines: lines.slice(-limit) });
   });
 
-  // ---- statblocks (DM) ----
-  r.post('/statblock', requireDM, async (req, res) => {
+  // ---- statblocks (GM) ----
+  r.post('/statblock', requireGM, async (req, res) => {
     const b = req.body ?? {};
     const given = ['prompt', 'pageId', 'moduleTermId'].filter((k) => typeof b[k] === 'string' && b[k].trim());
     if (given.length !== 1) throw new HttpError(400, 'Send exactly one of prompt, pageId or moduleTermId');
@@ -342,7 +342,7 @@ function routes(d: import('../../app.ts').Deps) {
   });
 
   /** "Add to combat" for a saved statblock page. */
-  r.post('/statblock/:pageId/combat', requireDM, async (req, res) => {
+  r.post('/statblock/:pageId/combat', requireGM, async (req, res) => {
     const pg: any = d.library.get(W(res), String(req.params.pageId), ctx(res).viewer);
     const sb = statblockFromBody(String(pg.body ?? ''));
     if (!sb) throw new HttpError(422, 'That page has no statblock data from the agent');
@@ -351,7 +351,7 @@ function routes(d: import('../../app.ts').Deps) {
 
   async function addToCombat(req: any, res: any, sb: Statblock, pageId: string, b: any) {
     const initiative = b.initiative !== undefined && b.initiative !== null ? int(b.initiative, 'initiative', { min: -20, max: 60 })! : Math.max(-20, Math.min(60, rollInitiative(sb)));
-    const tool = (await harnessTools('dm')).find((t) => t.name === 'add_combatant')!;
+    const tool = (await harnessTools('gm')).find((t) => t.name === 'add_combatant')!;
     const t = await runTool(d, { worldId: W(res), token: bearer(req), port: req.socket.localPort }, tool, { name: typeof b.name === 'string' && b.name ? b.name : sb.name, initiative, hp: sb.hp, maxHp: sb.hp, ac: sb.ac, hidden: !!b.hidden, statblockPage: pageId });
     if (!t.ok) throw new HttpError(t.status >= 400 && t.status < 600 ? t.status : 502, `Could not add to combat: ${t.text.slice(0, 200)}`);
     return { ...JSON.parse(t.text), initiative, hp: sb.hp, ac: sb.ac };
@@ -368,7 +368,7 @@ const feature: Feature = {
   migrate(db) {
     // An action approved just before the server stopped never finished: say so instead of showing it as running forever.
     try { db.prepare(`UPDATE agent_actions SET status = 'failed', result = ? WHERE status = 'running'`).run(JSON.stringify({ error: 'The server restarted before this finished. Check whether it happened, then ask again.' })); } catch { /* table not made yet */ }
-    // The combat tracker keeps each creature's armor class and the statblock page it came from (DM view only).
+    // The combat tracker keeps each creature's armor class and the statblock page it came from (GM view only).
     const cols = (db.prepare('PRAGMA table_info(combatants)').all() as any[]).map((c) => c.name);
     if (!cols.includes('ac')) db.exec('ALTER TABLE combatants ADD COLUMN ac INTEGER');
     if (!cols.includes('statblock_page')) db.exec('ALTER TABLE combatants ADD COLUMN statblock_page TEXT');
@@ -393,7 +393,7 @@ const feature: Feature = {
       type: 'json', default: [],
       validate: (v) => { if (!Array.isArray(v) || v.length > 60 || v.some((x) => typeof x !== 'string' || x.length > 60)) throw new Error('agentAutoApprove must be a list of tool names'); },
     },
-    // Auto mode: the DM's assistant applies its changes without a card, except the tools that always ask (auto.ts).
+    // Auto mode: the GM's assistant applies its changes without a card, except the tools that always ask (auto.ts).
     agentAuto: { type: 'boolean', default: false },
     agentPlayerChat: { type: 'boolean', default: true },
     // A player's own out-of-character helper (their character, items, rules, what the party learned), beside the broker.
@@ -406,7 +406,7 @@ const feature: Feature = {
     { name: 'get_combat', description: `Combat now: whether it is active, the round, whose turn it is, and each creature's initiative, HP and conditions, as you may see them. ${COMBAT_NOTE}`, props: {}, call: () => ({ method: 'GET', path: '/live/combat' }) },
     {
       name: 'add_combatant', write: true,
-      description: 'DM: add a creature or a player character to the combat tracker in initiative order. For a player character give accountId (from list_members) and the initiative that player rolled. Give hp (and ac) or a statblock object (from make_statblock); without an initiative one is rolled (d20 plus Dexterity) when a statblock is given or the creature is in the rules module (the result says what was rolled).',
+      description: 'GM: add a creature or a player character to the combat tracker in initiative order. For a player character give accountId (from list_members) and the initiative that player rolled. Give hp (and ac) or a statblock object (from make_statblock); without an initiative one is rolled (d20 plus Dexterity) when a statblock is given or the creature is in the rules module (the result says what was rolled).',
       props: {
         name: S('Name, e.g. Goblin Boss'), initiative: { type: 'integer', description: 'Initiative total; leave it out unless someone said it, and it is rolled' }, hp: { type: 'integer' }, maxHp: { type: 'integer' }, ac: { type: 'integer', description: 'Armor class' },
         hidden: { type: 'boolean', description: 'Hide from players' }, effects: { type: 'array', items: COND_ITEM },
@@ -423,27 +423,27 @@ const feature: Feature = {
         return { method: 'POST', path: '/live/combatants', body: { name: a.name, initiative, hp, maxHp: a.maxHp ?? hp, ac: a.ac ?? sb?.ac, hidden: a.hidden, effects: a.effects, statblockPage: a.statblockPage, accountId: a.accountId, tempHp: a.tempHp, concentration: a.concentration, deathSaves: a.deathSaves } };
       },
     },
-    { name: 'damage_combatant', write: true, description: `DM: deal damage to a combatant. Temporary HP absorb it first. The result tells you when a concentration save is due (Constitution, DC half the damage, at least 10), and when a player character drops to 0 HP or takes a death save failure; tell the DM. Set crit for a critical hit (two death save failures at 0 HP). ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), amount: { type: 'integer', description: 'Damage, 0 or more' }, crit: { type: 'boolean', description: 'A critical hit' } }, required: ['combatant', 'amount'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { damage: a.amount, crit: a.crit } }) },
-    { name: 'heal_combatant', write: true, description: `DM: heal a combatant (not above its max HP; temporary HP are untouched). A player character healed above 0 HP stops making death saves. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), amount: { type: 'integer', description: 'Healing, 0 or more' } }, required: ['combatant', 'amount'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { heal: a.amount } }) },
-    { name: 'set_conditions', write: true, description: `DM: replace a combatant's conditions (e.g. Prone, Poisoned). Send the full list; an empty list clears them. A condition may be a name or an object with a duration: rounds (counts down each new round), or untilEndOf / untilStartOf (a combatant id or name: ends at the end / start of that creature's next turn). A bare name keeps the timer the condition already has. next_turn removes expired ones and reports them. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), conditions: { type: 'array', items: COND_ITEM } }, required: ['combatant', 'conditions'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { effects: a.conditions } }) },
-    { name: 'give_temp_hp', write: true, description: `DM: give a combatant temporary HP. They never stack: the higher of the old and new amount is kept. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), amount: { type: 'integer', description: 'Temporary HP granted' } }, required: ['combatant', 'amount'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { tempHp: a.amount } }) },
-    { name: 'set_concentration', write: true, description: `DM: mark a combatant as concentrating on a spell (replacing any earlier one), or leave spell empty when it stops or loses concentration. Damage then asks for a Constitution save. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), spell: S('Spell name; empty to end concentration') }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { concentration: a.spell ? String(a.spell) : null } }) },
-    { name: 'concentration_save', write: true, description: `DM: settle the Constitution save a combatant owes to keep concentrating. Give result pass or fail, or the total rolled to compare with the DC. A fail ends the concentration. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), result: { type: 'string', enum: ['pass', 'fail'] }, roll: { type: 'integer', description: 'Save total, instead of result' } }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { concentrationSave: a.result ? { result: a.result } : { roll: a.roll } } }) },
-    { name: 'death_save', write: true, description: `DM: record a death saving throw a player character at 0 HP rolled. Not for taking damage: "drops to 0" or a hit is damage_combatant (it handles 0 HP itself). Give roll (the d20: 20 brings them back at 1 HP, 1 is two failures, 10 or more a success) or result success or failure. Three successes: stable. Three failures: dead. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), roll: { type: 'integer', description: 'The d20 rolled, 1 to 20' }, result: { type: 'string', enum: ['success', 'failure'] } }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { deathSave: typeof a.roll === 'number' ? { roll: a.roll } : { result: a.result } } }) },
-    { name: 'set_combatant_state', write: true, description: `DM: put exact values on a combatant to correct a mistake or undo one: hp, tempHp (set exactly, no stacking rule), concentration (spell name or empty), deathSaves ({successes, failures, stable, dead} or null) and conditions. Leave out what should not change. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), hp: { type: 'integer' }, tempHp: { type: 'integer' }, concentration: { description: 'Spell name, {spell, dc} with a save due, or null' }, deathSaves: { type: 'object', description: 'Or null to clear' }, conditions: { type: 'array', items: COND_ITEM } }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { hp: a.hp, setTempHp: a.tempHp, concentration: a.concentration, deathSaves: a.deathSaves, effects: a.conditions } }) },
-    { name: 'remove_combatant', write: true, description: `DM: take a creature out of the combat tracker (e.g. when it dies, is killed or flees). ${COMBAT_NOTE}`, props: { combatant: S('Combatant id') }, required: ['combatant'], call: (a) => ({ method: 'DELETE', path: `/live/combatants/${enc(a.combatant)}` }) },
-    { name: 'set_initiative', write: true, description: `DM: set the initiative of a creature already in the tracker. Give value (the total), or leave it out to roll d20 plus bonus. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), value: { type: 'integer', description: 'Initiative total' }, bonus: { type: 'integer', description: 'Added to the d20 when rolling' } }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { initiative: typeof a.value === 'number' ? a.value : Math.max(-20, Math.min(60, 1 + Math.floor(Math.random() * 20) + (typeof a.bonus === 'number' ? a.bonus : 0))) } }) },
-    { name: 'set_combat', write: true, description: 'DM: start combat (active true) or end the fight (active false), or set the round or whose turn it is (0 is the first in the order). Use it for "end combat" / "the fight is over".', props: { active: { type: 'boolean' }, round: { type: 'integer' }, turn: { type: 'integer' } }, call: (a) => ({ method: 'PUT', path: '/live/combat', body: { active: a.active, round: a.round, turn: a.turn } }) },
-    { name: 'next_turn', write: true, description: 'DM: end the current turn and move to the next combatant (starts combat if it is not active). Conditions whose time is up are removed and listed in `ended`; deathSaveDue names a player character at 0 HP whose turn it now is. Tell the DM about both.', props: {}, call: () => ({ method: 'POST', path: '/live/combat/next' }) },
+    { name: 'damage_combatant', write: true, description: `GM: deal damage to a combatant. Temporary HP absorb it first. The result tells you when a concentration save is due (Constitution, DC half the damage, at least 10), and when a player character drops to 0 HP or takes a death save failure; tell the GM. Set crit for a critical hit (two death save failures at 0 HP). ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), amount: { type: 'integer', description: 'Damage, 0 or more' }, crit: { type: 'boolean', description: 'A critical hit' } }, required: ['combatant', 'amount'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { damage: a.amount, crit: a.crit } }) },
+    { name: 'heal_combatant', write: true, description: `GM: heal a combatant (not above its max HP; temporary HP are untouched). A player character healed above 0 HP stops making death saves. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), amount: { type: 'integer', description: 'Healing, 0 or more' } }, required: ['combatant', 'amount'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { heal: a.amount } }) },
+    { name: 'set_conditions', write: true, description: `GM: replace a combatant's conditions (e.g. Prone, Poisoned). Send the full list; an empty list clears them. A condition may be a name or an object with a duration: rounds (counts down each new round), or untilEndOf / untilStartOf (a combatant id or name: ends at the end / start of that creature's next turn). A bare name keeps the timer the condition already has. next_turn removes expired ones and reports them. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), conditions: { type: 'array', items: COND_ITEM } }, required: ['combatant', 'conditions'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { effects: a.conditions } }) },
+    { name: 'give_temp_hp', write: true, description: `GM: give a combatant temporary HP. They never stack: the higher of the old and new amount is kept. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), amount: { type: 'integer', description: 'Temporary HP granted' } }, required: ['combatant', 'amount'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { tempHp: a.amount } }) },
+    { name: 'set_concentration', write: true, description: `GM: mark a combatant as concentrating on a spell (replacing any earlier one), or leave spell empty when it stops or loses concentration. Damage then asks for a Constitution save. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), spell: S('Spell name; empty to end concentration') }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { concentration: a.spell ? String(a.spell) : null } }) },
+    { name: 'concentration_save', write: true, description: `GM: settle the Constitution save a combatant owes to keep concentrating. Give result pass or fail, or the total rolled to compare with the DC. A fail ends the concentration. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), result: { type: 'string', enum: ['pass', 'fail'] }, roll: { type: 'integer', description: 'Save total, instead of result' } }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { concentrationSave: a.result ? { result: a.result } : { roll: a.roll } } }) },
+    { name: 'death_save', write: true, description: `GM: record a death saving throw a player character at 0 HP rolled. Not for taking damage: "drops to 0" or a hit is damage_combatant (it handles 0 HP itself). Give roll (the d20: 20 brings them back at 1 HP, 1 is two failures, 10 or more a success) or result success or failure. Three successes: stable. Three failures: dead. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), roll: { type: 'integer', description: 'The d20 rolled, 1 to 20' }, result: { type: 'string', enum: ['success', 'failure'] } }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { deathSave: typeof a.roll === 'number' ? { roll: a.roll } : { result: a.result } } }) },
+    { name: 'set_combatant_state', write: true, description: `GM: put exact values on a combatant to correct a mistake or undo one: hp, tempHp (set exactly, no stacking rule), concentration (spell name or empty), deathSaves ({successes, failures, stable, dead} or null) and conditions. Leave out what should not change. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), hp: { type: 'integer' }, tempHp: { type: 'integer' }, concentration: { description: 'Spell name, {spell, dc} with a save due, or null' }, deathSaves: { type: 'object', description: 'Or null to clear' }, conditions: { type: 'array', items: COND_ITEM } }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { hp: a.hp, setTempHp: a.tempHp, concentration: a.concentration, deathSaves: a.deathSaves, effects: a.conditions } }) },
+    { name: 'remove_combatant', write: true, description: `GM: take a creature out of the combat tracker (e.g. when it dies, is killed or flees). ${COMBAT_NOTE}`, props: { combatant: S('Combatant id') }, required: ['combatant'], call: (a) => ({ method: 'DELETE', path: `/live/combatants/${enc(a.combatant)}` }) },
+    { name: 'set_initiative', write: true, description: `GM: set the initiative of a creature already in the tracker. Give value (the total), or leave it out to roll d20 plus bonus. ${COMBAT_NOTE}`, props: { combatant: S('Combatant id'), value: { type: 'integer', description: 'Initiative total' }, bonus: { type: 'integer', description: 'Added to the d20 when rolling' } }, required: ['combatant'], call: (a) => ({ method: 'PATCH', path: `/live/combatants/${enc(a.combatant)}`, body: { initiative: typeof a.value === 'number' ? a.value : Math.max(-20, Math.min(60, 1 + Math.floor(Math.random() * 20) + (typeof a.bonus === 'number' ? a.bonus : 0))) } }) },
+    { name: 'set_combat', write: true, description: 'GM: start combat (active true) or end the fight (active false), or set the round or whose turn it is (0 is the first in the order). Use it for "end combat" / "the fight is over".', props: { active: { type: 'boolean' }, round: { type: 'integer' }, turn: { type: 'integer' } }, call: (a) => ({ method: 'PUT', path: '/live/combat', body: { active: a.active, round: a.round, turn: a.turn } }) },
+    { name: 'next_turn', write: true, description: 'GM: end the current turn and move to the next combatant (starts combat if it is not active). Conditions whose time is up are removed and listed in `ended`; deathSaveDue names a player character at 0 HP whose turn it now is. Tell the GM about both.', props: {}, call: () => ({ method: 'POST', path: '/live/combat/next' }) },
     {
       name: 'search_transcript',
-      description: "Lines of the live session transcript (the latest session unless one is given), optionally only those containing all the words in q. A DM also gets DM-only lines; a player gets only the players' transcript. Cite lines by speaker and text.",
+      description: "Lines of the live session transcript (the latest session unless one is given), optionally only those containing all the words in q. A GM also gets GM-only lines; a player gets only the players' transcript. Cite lines by speaker and text.",
       props: { query: S('Words that must all appear (optional)'), session: S('Session id (default: the latest)'), limit: { type: 'integer' } },
       call: (a) => ({ method: 'GET', path: `/agent/transcript?q=${enc(a.query ?? '')}&session=${enc(a.session ?? '')}&limit=${enc(String(a.limit ?? 30))}` }),
     },
     {
       name: 'make_statblock', write: true,
-      description: 'DM: build a statblock and save it as a DM-only page in the Statblocks folder. Give one of: moduleTermId (copy a game-module monster, e.g. dnd-2024:monster-goblin-warrior), pageId (a library page about the creature) or prompt (describe it). addToCombat puts it in initiative with its HP and AC.',
+      description: 'GM: build a statblock and save it as a GM-only page in the Statblocks folder. Give one of: moduleTermId (copy a game-module monster, e.g. dnd-2024:monster-goblin-warrior), pageId (a library page about the creature) or prompt (describe it). addToCombat puts it in initiative with its HP and AC.',
       props: { prompt: S('What the creature is'), pageId: S('Library page id'), moduleTermId: S('Module term id'), addToCombat: { type: 'boolean' }, initiative: { type: 'integer' }, name: S('Name in combat, if different') },
       call: (a) => ({ method: 'POST', path: '/agent/statblock', body: { prompt: a.prompt, pageId: a.pageId, moduleTermId: a.moduleTermId, addToCombat: a.addToCombat, initiative: a.initiative, name: a.name } }),
     },

@@ -4,10 +4,10 @@
 import { Router } from 'express';
 import type { Deps } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../core/auth.ts';
 import { canSee } from '../core/policy.ts';
 import { HttpError, id, int, now, oneOf, str } from '../core/util.ts';
-import { ctx, isDM, me, memberIds } from './_shared.ts';
+import { ctx, isGM, me, memberIds } from './_shared.ts';
 
 export default function peopleRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
@@ -24,14 +24,14 @@ export default function peopleRoutes(d: Deps) {
     res.json({ accountId: aid, name: m.character_name || m.display_name, blocks });
   });
 
-  r.put('/profiles/me/blocks', requirePlayerOrDM, (req, res) => {
+  r.put('/profiles/me/blocks', requirePlayerOrGM, (req, res) => {
     const c = ctx(res);
     const b = req.body ?? {};
     const vals = {
       section: oneOf(b.section, 'section', ['story', 'traits', 'goals', 'bonds', 'basics'] as const),
       title: str(b.title, 'title', { max: 120 }),
       body: str(b.body, 'body', { max: 20_000, optional: true }),
-      visibility: oneOf(b.visibility, 'visibility', ['me', 'dm', 'party'] as const, 'me'),
+      visibility: oneOf(b.visibility, 'visibility', ['me', 'gm', 'party'] as const, 'me'),
       sort: int(b.sort, 'sort', { min: 0, max: 1000, optional: true }) ?? 0,
     };
     let bid = b.id ? str(b.id, 'id', { max: 60 }) : null;
@@ -61,14 +61,14 @@ export default function peopleRoutes(d: Deps) {
     })));
   });
 
-  r.post('/people', requireDM, (req, res) => {
+  r.post('/people', requireGM, (req, res) => {
     const c = ctx(res);
     const b = req.body ?? {};
     const p = {
       id: id('ppl_'), name: str(b.name, 'name', { max: 120 }), role: str(b.role, 'role', { max: 120, optional: true }),
       attitude: str(b.attitude, 'attitude', { max: 60, optional: true }), kind: oneOf(b.kind, 'kind', ['ally', 'neutral', 'rival'] as const, 'neutral'),
       page_id: b.pageId ? str(b.pageId, 'pageId', { max: 60 }) : null, met: str(b.met, 'met', { max: 60, optional: true }),
-      visibility: oneOf(b.visibility, 'visibility', ['dm', 'party'] as const, 'party'),
+      visibility: oneOf(b.visibility, 'visibility', ['gm', 'party'] as const, 'party'),
     };
     if (p.page_id && !one(db, 'SELECT 1 FROM pages WHERE id = ? AND world_id = ?', p.page_id, c.world.id)) throw new HttpError(400, 'Page not found');
     run(db, 'INSERT INTO people (id, world_id, name, role, attitude, kind, page_id, met, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', p.id, c.world.id, p.name, p.role, p.attitude, p.kind, p.page_id, p.met, p.visibility);
@@ -91,7 +91,7 @@ export default function peopleRoutes(d: Deps) {
     return p;
   };
 
-  r.patch('/people/:pid', requireDM, (req, res) => {
+  r.patch('/people/:pid', requireGM, (req, res) => {
     const p = person(res, String(req.params.pid));
     const b = req.body ?? {};
     run(db, 'UPDATE people SET name = ?, role = ?, attitude = ?, kind = ?, met = ?, visibility = ? WHERE id = ?',
@@ -100,20 +100,20 @@ export default function peopleRoutes(d: Deps) {
       b.attitude !== undefined ? str(b.attitude, 'attitude', { max: 60, optional: true }) : p.attitude,
       b.kind !== undefined ? oneOf(b.kind, 'kind', ['ally', 'neutral', 'rival'] as const) : p.kind,
       b.met !== undefined ? str(b.met, 'met', { max: 60, optional: true }) : p.met,
-      b.visibility !== undefined ? oneOf(b.visibility, 'visibility', ['dm', 'party'] as const) : p.visibility, p.id);
+      b.visibility !== undefined ? oneOf(b.visibility, 'visibility', ['gm', 'party'] as const) : p.visibility, p.id);
     res.json({ ok: true });
   });
 
-  r.post('/people/:pid/quotes', requireDM, (req, res) => {
+  r.post('/people/:pid/quotes', requireGM, (req, res) => {
     const p = person(res, String(req.params.pid));
-    const q = { id: id('quo_'), person_id: p.id, text: str(req.body?.text, 'text', { max: 1000 }), said: str(req.body?.said, 'said', { max: 80, optional: true }), visibility: oneOf(req.body?.visibility, 'visibility', ['dm', 'party'] as const, 'party') };
+    const q = { id: id('quo_'), person_id: p.id, text: str(req.body?.text, 'text', { max: 1000 }), said: str(req.body?.said, 'said', { max: 80, optional: true }), visibility: oneOf(req.body?.visibility, 'visibility', ['gm', 'party'] as const, 'party') };
     run(db, 'INSERT INTO quotes (id, person_id, text, said, visibility) VALUES (?, ?, ?, ?, ?)', q.id, q.person_id, q.text, q.said, q.visibility);
     if (q.visibility === 'party' && p.visibility === 'party') d.hub.emit(ctx(res).world.id, 'quote', q, () => true);
     res.status(201).json(q);
   });
 
   // Recalls: what a character remembered (or failed to) about a person.
-  r.post('/people/:pid/recalls', requireDM, (req, res) => {
+  r.post('/people/:pid/recalls', requireGM, (req, res) => {
     const p = person(res, String(req.params.pid));
     const aid = str(req.body?.accountId, 'accountId', { max: 60 });
     if (!memberIds(db, ctx(res).world.id, ['player']).includes(aid)) throw new HttpError(400, 'Player not found');
@@ -124,12 +124,12 @@ export default function peopleRoutes(d: Deps) {
     res.status(201).json(x);
   });
 
-  // Each player's own note on a person. Nobody else, DM included, reads it.
-  r.put('/people/:pid/note', requirePlayerOrDM, (req, res) => {
+  // Each player's own note on a person. Nobody else, GM included, reads it.
+  r.put('/people/:pid/note', requirePlayerOrGM, (req, res) => {
     const p = person(res, String(req.params.pid));
     const body = str(req.body?.body, 'body', { max: 10_000, optional: true });
     run(db, `INSERT INTO person_notes (person_id, account_id, body) VALUES (?, ?, ?) ON CONFLICT (person_id, account_id) DO UPDATE SET body = excluded.body`, p.id, me(res), body);
-    res.json({ ok: true, dm: isDM(res) });
+    res.json({ ok: true, gm: isGM(res) });
   });
 
   return r;

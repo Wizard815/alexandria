@@ -1,6 +1,6 @@
-// Web research for the DM's assistant: off until the DM turns it on for the world. Only the query words leave
-// Alexandria, and a query is refused before anything is sent when it holds a word that only DM-only or classified
-// text in this world has (fail closed). The DM may allow a DM-only word by hand; a classified word never goes out.
+// Web research for the GM's assistant: off until the GM turns it on for the world. Only the query words leave
+// Alexandria, and a query is refused before anything is sent when it holds a word that only GM-only or classified
+// text in this world has (fail closed). The GM may allow a GM-only word by hand; a classified word never goes out.
 import type { Deps } from '../../app.ts';
 import { jobConfig, screenOutgoing, wouldBeRefused } from '../../core/ai.ts';
 import { all, one, run } from '../../core/db.ts';
@@ -8,7 +8,7 @@ import { HttpError, now, parseJson } from '../../core/util.ts';
 import { webConfig, type WebConfig } from './store.ts';
 
 export interface WebResult { title: string; url: string; snippet: string; query: string }
-export interface Blocked { query: string; term: string; level: 'dm' | 'classified' }
+export interface Blocked { query: string; term: string; level: 'gm' | 'classified' }
 
 // Everyday words (and the ones every fantasy world uses) never count as a secret on their own.
 const COMMON = new Set(`the and for with from that this these those there their them they then than what when where which while who whom whose why how
@@ -33,12 +33,12 @@ const blockText = (json: string | null | undefined): string => {
   return out.join(' ');
 };
 
-export interface SecretTerms { dm: Set<string>; classified: Set<string> }
+export interface SecretTerms { gm: Set<string>; classified: Set<string> }
 const cache = new Map<string, { key: string; terms: SecretTerms }>();
 
 /**
  * The words a query may not carry: words of classified text no AI copy has, and the names (capitalised words, page
- * titles and aliases) that DM-only text has and no player copy has. Common words never count.
+ * titles and aliases) that GM-only text has and no player copy has. Common words never count.
  */
 export function secretTerms(d: Deps, worldId: string): SecretTerms {
   const cols = new Set((d.db.prepare('PRAGMA table_info(pages)').all() as any[]).map((c) => c.name));
@@ -51,28 +51,28 @@ export function secretTerms(d: Deps, worldId: string): SecretTerms {
   if (hit && hit.key === key) return hit.terms;
   const pub = new Set<string>();
   const ai = new Set<string>();
-  const dmAll = new Set<string>();
-  const dmNames = new Set<string>();
+  const gmAll = new Set<string>();
+  const gmNames = new Set<string>();
   const rows = all<any>(d.db, `SELECT title, visibility, aliases, body, blocks, properties, ${has('ai_body')} AS ai_body, ${has('ai_blocks')} AS ai_blocks, ${has('ai_properties')} AS ai_properties, player_body, ${has('player_blocks')} AS player_blocks, ${has('player_properties')} AS player_properties FROM pages WHERE world_id = ?`, worldId);
   for (const p of rows) {
     const aliases = parseJson<string[]>(p.aliases, []).join(' ');
-    const dmText = flat(p.title, aliases, p.body, blockText(p.blocks), blockText(p.properties));
+    const gmText = flat(p.title, aliases, p.body, blockText(p.blocks), blockText(p.properties));
     const classifiedPage = p.visibility === 'classified';
     const aiText = classifiedPage ? '' : flat(p.title, aliases, p.ai_body ?? p.body, blockText(p.ai_blocks ?? p.blocks), blockText(p.ai_properties ?? p.properties));
-    for (const w of wordsOf(dmText)) dmAll.add(w);
+    for (const w of wordsOf(gmText)) gmAll.add(w);
     for (const w of wordsOf(aiText)) ai.add(w);
     if (p.visibility === 'party') for (const w of wordsOf(flat(p.title, p.player_body, blockText(p.player_blocks), blockText(p.player_properties)))) pub.add(w);
-    // Names in what the DM's copy holds beyond the players' (a DM-only page's title counts whole).
-    for (const w of capsOf(aiText)) dmNames.add(w);
-    if (p.visibility !== 'party') for (const w of wordsOf(flat(p.title, aliases))) dmNames.add(w);
+    // Names in what the GM's copy holds beyond the players' (a GM-only page's title counts whole).
+    for (const w of capsOf(aiText)) gmNames.add(w);
+    if (p.visibility !== 'party') for (const w of wordsOf(flat(p.title, aliases))) gmNames.add(w);
   }
   for (const l of lines) {
     if (l.audience === 'players') for (const w of wordsOf(l.text)) pub.add(w);
-    else for (const w of capsOf(l.text)) dmNames.add(w);
+    else for (const w of capsOf(l.text)) gmNames.add(w);
   }
-  const classified = new Set([...dmAll].filter((w) => keep(w) && !ai.has(w) && !pub.has(w)));
-  const dm = new Set([...dmNames].filter((w) => keep(w) && !pub.has(w) && !classified.has(w)));
-  const terms = { dm, classified };
+  const classified = new Set([...gmAll].filter((w) => keep(w) && !ai.has(w) && !pub.has(w)));
+  const gm = new Set([...gmNames].filter((w) => keep(w) && !pub.has(w) && !classified.has(w)));
+  const terms = { gm, classified };
   cache.set(worldId, { key, terms });
   return terms;
 }
@@ -85,16 +85,16 @@ export function blockedQuery(d: Deps, worldId: string, queries: string[], cfg: W
     if (wouldBeRefused(d, q)) return { query: q, term: '', level: 'classified' };
     for (const w of wordsOf(q)) {
       if (terms.classified.has(w)) return { query: q, term: w, level: 'classified' };
-      if (terms.dm.has(w) && !allowed.has(w)) return { query: q, term: w, level: 'dm' };
+      if (terms.gm.has(w) && !allowed.has(w)) return { query: q, term: w, level: 'gm' };
     }
   }
   return null;
 }
 
-/** What the DM (and the assistant) is told about a refused query. A classified word is never repeated. */
+/** What the GM (and the assistant) is told about a refused query. A classified word is never repeated. */
 export const blockedText = (b: Blocked): string => (b.level === 'classified'
   ? 'Not sent: the query repeats classified text from this world, which never leaves Alexandria. Search for the real-world reference only.'
-  : `Not sent: "${b.term}" is a DM-only name in this world, so it never goes to an outside service. Search for the real-world reference only, or allow the word under Templates & guides → Web research.`);
+  : `Not sent: "${b.term}" is a GM-only name in this world, so it never goes to an outside service. Search for the real-world reference only, or allow the word under Templates & guides → Web research.`);
 
 export function cleanQueries(v: unknown): string[] {
   const raw = Array.isArray(v) ? v : typeof v === 'string' ? [v] : [];
@@ -155,13 +155,13 @@ async function searchOne(d: Deps, cfg: WebConfig, q: string): Promise<WebResult[
   return out.slice(0, cfg.maxResults);
 }
 
-/** Run the searches (each checked first). Throws an HttpError the DM can read; nothing is sent for a refused query. */
+/** Run the searches (each checked first). Throws an HttpError the GM can read; nothing is sent for a refused query. */
 export async function webSearch(d: Deps, worldId: string, queries: string[], by: string | null): Promise<{ queries: string[]; results: WebResult[]; provider: string }> {
   const cfg = webConfig(d.db, worldId);
-  if (!cfg.enabled) throw new HttpError(403, 'Web research is off for this world. The DM can turn it on under Templates & guides → Web research.');
+  if (!cfg.enabled) throw new HttpError(403, 'Web research is off for this world. The GM can turn it on under Templates & guides → Web research.');
   const b = blockedQuery(d, worldId, queries, cfg);
   if (b) {
-    run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, by, 'templates.web_blocked', b.level === 'classified' ? 'a query repeated classified text' : `a query held the DM-only word "${b.term}"`, now());
+    run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', worldId, by, 'templates.web_blocked', b.level === 'classified' ? 'a query repeated classified text' : `a query held the GM-only word "${b.term}"`, now());
     throw new HttpError(422, blockedText(b));
   }
   const results: WebResult[] = [];
@@ -170,17 +170,17 @@ export async function webSearch(d: Deps, worldId: string, queries: string[], by:
   return { queries, results, provider: cfg.provider };
 }
 
-/** Before a web_research call becomes a card: why it would not run (off, no query, a DM-only or classified word), or null. */
+/** Before a web_research call becomes a card: why it would not run (off, no query, a GM-only or classified word), or null. */
 export function webPrecheck(d: Deps, worldId: string, args: any): string | null {
   const cfg = webConfig(d.db, worldId);
-  if (!cfg.enabled) return 'Not proposed: web research is off for this world (the DM turns it on under Templates & guides → Web research). Work from the library.';
+  if (!cfg.enabled) return 'Not proposed: web research is off for this world (the GM turns it on under Templates & guides → Web research). Work from the library.';
   let queries: string[];
   try { queries = cleanQueries(args?.queries ?? args?.query); } catch (e: any) { return `Not proposed: ${e.message}`; }
   const b = blockedQuery(d, worldId, queries, cfg);
   return b ? `${blockedText(b)} Nothing was sent.` : null;
 }
 
-/** The results as the chat shows them after the DM approved a search, and as the assistant reads them next. */
+/** The results as the chat shows them after the GM approved a search, and as the assistant reads them next. */
 export function researchNote(raw: string): string {
   const j = parseJson<any>(raw, null);
   const list: WebResult[] = Array.isArray(j?.results) ? j.results : [];

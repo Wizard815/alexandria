@@ -4,7 +4,7 @@
   "name": "DownTime",
   "version": "1.1.0",
   "author": "Wizard",
-  "summary": "Downtime activities from common to legendary. The DM presses Downtime when days pass and each player picks what to spend them on, skips, or makes a new activity. Progress, rewards and a log of what was done, when and for how long.",
+  "summary": "Downtime activities from common to legendary. The GM presses Downtime when days pass and each player picks what to spend them on, skips, or makes a new activity. Progress, rewards and a log of what was done, when and for how long.",
   "alexandria": ">=0.1",
   "targets": {
     "builtFor": ["clock"],
@@ -28,7 +28,7 @@
       ],
       "default": "approve",
       "label": "Players making new activities",
-      "help": "approve: the DM sets its tier and reward first (work still counts); free: it starts at once; off: only the DM makes them."
+      "help": "approve: the GM sets its tier and reward first (work still counts); free: it starts at once; off: only the GM makes them."
     },
     "advanceClock": {
       "type": "boolean",
@@ -40,7 +40,7 @@
       "type": "boolean",
       "default": false,
       "label": "Give rewards as soon as a task is done",
-      "help": "Off: the DM presses Give reward."
+      "help": "Off: the GM presses Give reward."
     }
   },
   "presets": {
@@ -71,7 +71,7 @@
         "summary": "A night out in town: rumours, new friends and the odd complication.",
         "repeatable": true,
         "reward": {
-          "text": "A rumour or a new contact (DM's choice)"
+          "text": "A rumour or a new contact (GM's choice)"
         },
         "tags": [
           "social"
@@ -116,7 +116,7 @@
         "tier": "uncommon",
         "summary": "Spend time and coin in the right places to learn what is being whispered.",
         "reward": {
-          "text": "A useful rumour (DM's choice)"
+          "text": "A useful rumour (GM's choice)"
         },
         "tags": [
           "social",
@@ -214,7 +214,7 @@
         "days": 7,
         "hoursPerDay": 1,
         "reward": {
-          "text": "A boon (DM's choice)"
+          "text": "A boon (GM's choice)"
         },
         "tags": [
           "daily"
@@ -228,7 +228,7 @@
         "days": 90,
         "hoursPerDay": 2,
         "reward": {
-          "text": "A feat or epic boon (DM's choice)"
+          "text": "A feat or epic boon (GM's choice)"
         },
         "tags": [
           "daily",
@@ -336,7 +336,7 @@
   "rules": [
     {
       "term": "Downtime (house rule)",
-      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the DM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the DM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The DM can add or take away time, stop a task midway, and set a reward for finishing. **Personal** activities are one character's own; **group** activities (a stronghold, a business, party training) are shared: anyone in the party can put days into them, their progress is pooled, and the reward goes to the party."
+      "text": "Between adventures characters spend **downtime days** on activities: working a job, crafting, research, training, building a stronghold. Each activity has a **tier** that sets how long it takes: Common 1 day, Uncommon 3 days, Rare 1 week, Very rare 1 month, Legendary 3 months (the GM can change these). A downtime day is 8 hours of work; a *daily* task takes an hour or two a day and fits beside others. When days pass the GM presses **Downtime** and each player picks what to work on, skips, or makes a new activity. The GM can add or take away time, stop a task midway, and set a reward for finishing. **Personal** activities are one character's own; **group** activities (a stronghold, a business, party training) are shared: anyone in the party can put days into them, their progress is pooled, and the reward goes to the party."
     }
   ]
 }

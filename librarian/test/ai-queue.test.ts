@@ -21,14 +21,14 @@ test('AiQueue_AtMostMaxConcurrentAtOnceAndTheMostUrgentGoFirst', async () => {
   setJobResolver(() => ({ baseUrl: 'http://queue.test/v1', model: 'm', location: 'local', options: { maxConcurrent: 2 } }));
   try {
     const ask = (who: string, p: number) => withPriority(p, () => chat(d, 'chat', { messages: [{ role: 'user', content: who }] }));
-    const all = [ask('bg1', 0), ask('bg2', 0), ask('player', 1), ask('bg3', 0), ask('dm', 2)];
+    const all = [ask('bg1', 0), ask('bg2', 0), ask('player', 1), ask('bg3', 0), ask('gm', 2)];
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(running, 2, 'two at a time on this server');
     assert.equal(gateStats().find((g) => g.server === 'http://queue.test/v1')!.waiting, 3);
     while (order.length < 5 || release.length) { const r = release.shift(); if (r) r(); await new Promise((x) => setTimeout(x, 5)); }
     await Promise.all(all);
     assert.equal(peak, 2);
-    assert.deepEqual(order.slice(2), ['dm', 'player', 'bg3'], 'waiting requests go DM first, then players, then background');
+    assert.deepEqual(order.slice(2), ['gm', 'player', 'bg3'], 'waiting requests go GM first, then players, then background');
   } finally { setJobResolver(null); }
   void msgs;
 });

@@ -1,9 +1,9 @@
 // Edits to the vault as data. A tool's write, a draft from the after-session
 // workflow and a player's journal entry are all an Op: it can be shown to the
-// DM as a diff, edited, approved (applied) or rejected (docs/MINERVA.md §7-§8).
+// GM as a diff, edited, approved (applied) or rejected (docs/MINERVA.md §7-§8).
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
 import type { FM } from '../../core/frontmatter.ts';
 import { codexUpsert, upsertTarget } from './codex.ts';
@@ -61,7 +61,7 @@ export function applyOp(d: Deps, worldId: string, op: Op, by: string | null): Ap
     case 'level': {
       const p = readPage(d, worldId, op.rel);
       if (!p) throw new HttpError(404, `No such page: ${op.rel}`);
-      if (!['party', 'broker', 'dm', 'classified'].includes(op.level)) throw new HttpError(400, 'level must be party, broker, dm or classified');
+      if (!['party', 'broker', 'gm', 'classified'].includes(op.level)) throw new HttpError(400, 'level must be party, broker, gm or classified');
       writePage(d, worldId, op.rel, { fm: { level: op.level }, by });
       return { rel: op.rel, note: `Level is now ${op.level}` };
     }
@@ -69,7 +69,7 @@ export function applyOp(d: Deps, worldId: string, op: Op, by: string | null): Ap
   }
 }
 
-/** What an op would change, for the DM: the text of the part it touches, before and after. */
+/** What an op would change, for the GM: the text of the part it touches, before and after. */
 export function previewOp(d: Deps, worldId: string, op: Op): { rel: string; where: string; before: string; after: string; level?: string; visibleToPlayers?: boolean } {
   switch (op.op) {
     case 'section': {
@@ -101,12 +101,12 @@ const sectionText = (body: string, heading: string): string => {
 // ---- drafts --------------------------------------------------------------------
 
 export interface Draft { id: string; review: string; kind: string; title: string; op: Op; status: 'pending' | 'approved' | 'rejected' | 'failed'; byAccount: string | null; tool: string; createdAt: string; decidedAt: string | null; note: string }
-const draftOut = (r: any): Draft => ({ id: r.id, review: r.review, kind: r.kind, title: r.title, op: parseJson<Op>(r.op, { op: 'level', rel: '', level: 'dm' }), status: r.status, byAccount: r.by_account, tool: r.tool, createdAt: r.created_at, decidedAt: r.decided_at, note: r.note });
+const draftOut = (r: any): Draft => ({ id: r.id, review: r.review, kind: r.kind, title: r.title, op: parseJson<Op>(r.op, { op: 'level', rel: '', level: 'gm' }), status: r.status, byAccount: r.by_account, tool: r.tool, createdAt: r.created_at, decidedAt: r.decided_at, note: r.note });
 
 export function createDraft(d: Deps, worldId: string, a: { review?: string; kind: string; title: string; op: Op; byAccount?: string | null; tool?: string }): Draft {
   const did = id('md_');
   run(d.db, 'INSERT INTO minerva_drafts (id, world_id, review, kind, title, op, status, by_account, tool, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', did, worldId, a.review ?? '', a.kind, a.title.slice(0, 200), JSON.stringify(a.op), 'pending', a.byAccount ?? null, a.tool ?? '', now());
-  d.hub.emit(worldId, 'minerva', { kind: 'draft', id: did }, dmOnly);
+  d.hub.emit(worldId, 'minerva', { kind: 'draft', id: did }, gmOnly);
   return getDraft(d, worldId, did)!;
 }
 
@@ -117,7 +117,7 @@ export function listDrafts(d: Deps, worldId: string, status: string | null = 'pe
   return all<any>(d.db, `SELECT * FROM minerva_drafts WHERE world_id = ? ${status ? 'AND status = ?' : ''} ORDER BY (kind LIKE 'suggest-%'), created_at, rowid LIMIT 500`, worldId, ...(status ? [status] : [])).map(draftOut);
 }
 
-/** The DM's decision. Approving applies the op; a failure is kept on the draft. */
+/** The GM's decision. Approving applies the op; a failure is kept on the draft. */
 export function decideDraft(d: Deps, worldId: string, did: string, decision: 'approve' | 'reject', who: string, edit?: { text?: string; body?: string }): Draft {
   const dr = getDraft(d, worldId, did);
   if (!dr) throw new HttpError(404, 'No such draft');

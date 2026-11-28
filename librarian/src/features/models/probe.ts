@@ -21,7 +21,7 @@ export async function testJob(d: Deps, job: Job, timeoutMs = 30_000): Promise<Te
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    if (job === 'chat' || job === 'audit' || job === 'dm' || job === 'player' || job === 'bible' || job === 'helper') {
+    if (job === 'chat' || job === 'audit' || job === 'gm' || job === 'player' || job === 'bible' || job === 'helper') {
       const r = await chat(d, job, { messages: [{ role: 'user', content: 'Reply with the single word: ready' }], maxTokens: 16, temperature: 0, noFloor: true }, ctl.signal);
       return done(r.content.trim() || '(empty reply)');
     }

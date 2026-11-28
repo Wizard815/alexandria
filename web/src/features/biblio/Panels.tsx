@@ -63,7 +63,7 @@ export function Suggestions({ gm, tree, open, nameOf }: { gm: boolean; tree: Tre
               <button type="button" className="btn small" onClick={() => void decide(x.id, 'reject')} disabled={act.busy}>Turn down</button>
               {x.kind === 'edit'
                 ? <button type="button" className="btn small primary" onClick={() => void decide(x.id, 'accept')} disabled={act.busy}>Add it to the article</button>
-                : <button type="button" className="btn small primary" onClick={() => void decide(x.id, 'accept', { level: 'dm' })} disabled={act.busy}>Make the article (GM only)</button>}
+                : <button type="button" className="btn small primary" onClick={() => void decide(x.id, 'accept', { level: 'gm' })} disabled={act.busy}>Make the article (GM only)</button>}
             </div>
           ) : <span className="chip">Waiting for the GM</span>}
         </div>

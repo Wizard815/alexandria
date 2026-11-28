@@ -21,7 +21,7 @@ export const BIBLIO_CSS = `
 .bib-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: none; border: 0; color: inherit; text-align: left; padding: 4px 4px; cursor: pointer; font: inherit; }
 .bib-open span:not(.bib-lv) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bib-lv { margin-left: auto; font-size: 10px; padding: 1px 5px; border-radius: 8px; opacity: .8; border: 1px solid currentColor; white-space: nowrap; }
-.bib-lv-dm { color: var(--red, #b54); } .bib-lv-broker { color: var(--gold, #b8902a); } .bib-lv-classified { color: var(--purple, #8459b8); } .bib-lv-party { color: var(--teal, #2a8f86); }
+.bib-lv-gm { color: var(--red, #b54); } .bib-lv-broker { color: var(--gold, #b8902a); } .bib-lv-classified { color: var(--purple, #8459b8); } .bib-lv-party { color: var(--teal, #2a8f86); }
 .bib-main { min-width: 0; }
 .bib-plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .bib-hits li { padding: 2px 0; }

@@ -6,6 +6,6 @@ const feature: WebFeature = {
   id: 'models',
   adminRoutes: [{ path: 'models', element: <ModelsPage /> }],
   adminNav: [{ to: 'models', label: 'Models' }],
-  dmTable: [{ id: 'ai', label: 'AI & templates', zone: 'side', order: 5, component: TableModels }],
+  gmTable: [{ id: 'ai', label: 'AI & templates', zone: 'side', order: 5, component: TableModels }],
 };
 export default feature;

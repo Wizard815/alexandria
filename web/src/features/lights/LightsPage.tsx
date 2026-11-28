@@ -1,4 +1,4 @@
-// DM → Lights: drivers, light groups, scenes and the event hooks.
+// GM → Lights: drivers, light groups, scenes and the event hooks.
 import { useState } from 'react';
 import { Empty, ErrorBox, Field, Loading, PageHead, Switch, Tabs, useAction, useToast } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';

@@ -6,7 +6,7 @@
 //   resume address. Op 7 and a dropped socket reconnect and resume; op 9
 //   (invalid session) starts again from IDENTIFY. Close codes that mean the
 //   token or the bot's settings are wrong stop the client for good, with a
-//   reason the DM page shows.
+//   reason the GM page shows.
 
 export const API_VERSION = 10;
 // GUILDS only: needed for GUILD_CREATE (which servers the bot is in). Slash

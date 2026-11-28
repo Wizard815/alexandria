@@ -1,4 +1,4 @@
-export type Level = 'party' | 'broker' | 'dm' | 'classified';
+export type Level = 'party' | 'broker' | 'gm' | 'classified';
 export type FieldType = 'text' | 'long' | 'number' | 'date' | 'link' | 'links' | 'yesno';
 export interface TemplateField { key: string; label: string; type: FieldType; gm?: boolean; rel?: string; help?: string }
 export interface Template { id: string; name: string; icon: string; fields: TemplateField[]; builtin?: boolean; description?: string }
@@ -21,6 +21,6 @@ export interface ArticleView {
   backlinks: { id: string; title: string; articleId: string | null }[]; updatedAt: string; article?: Article;
 }
 
-export const LEVEL_NAME: Record<Level, string> = { party: 'Players can read', broker: 'GM only (broker may sell)', dm: 'GM only', classified: 'Classified (no AI)' };
-export const LEVEL_SHORT: Record<Level, string> = { party: 'Players', broker: 'Broker', dm: 'GM', classified: 'Classified' };
-export const LEVELS: Level[] = ['party', 'broker', 'dm', 'classified'];
+export const LEVEL_NAME: Record<Level, string> = { party: 'Players can read', broker: 'GM only (broker may sell)', gm: 'GM only', classified: 'Classified (no AI)' };
+export const LEVEL_SHORT: Record<Level, string> = { party: 'Players', broker: 'Broker', gm: 'GM', classified: 'Classified' };
+export const LEVELS: Level[] = ['party', 'broker', 'gm', 'classified'];

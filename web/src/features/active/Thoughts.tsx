@@ -1,11 +1,11 @@
-// Minerva's thoughts: a floating window for the DM that shows what the assistant is doing and why, live.
+// Minerva's thoughts: a floating window for the GM that shows what the assistant is doing and why, live.
 // Active mode says what it heard, what it made of it, and why it acted, asked or let it go; the chat
 // assistant (and a spoken request or a macro's task) says what it is working on, what it looked up and
-// what it proposed. What waits for the DM (Active-mode cards and the assistant's proposals) sits at the
+// what it proposed. What waits for the GM (Active-mode cards and the assistant's proposals) sits at the
 // top with its buttons, so a decision never needs another page.
 //
 // Like the transcript island: drag it by its header, lock it to a corner, resize it, or fold it to its
-// dock button. It opens by itself when Active mode or Auto is switched on (unless the DM closed it while
+// dock button. It opens by itself when Active mode or Auto is switched on (unless the GM closed it while
 // that mode was on). Settings are per device.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useWorld } from '../../lib/world.tsx';
@@ -90,7 +90,7 @@ export default function ThoughtsIsland() {
   const activeCards = cards.filter((c) => !c.ruleKey?.startsWith('agent:'));
   const waiting = activeCards.length + pending.length;
   const shown = useMemo(() => (feed?.thoughts ?? []).filter((t) => p.filter === 'all' || (p.filter === 'active' ? t.source === 'active' || t.source === 'wake' : t.source === 'assistant' || t.source === 'task')), [feed, p.filter]);
-  // Follow the newest thought, unless the DM scrolled up to read.
+  // Follow the newest thought, unless the GM scrolled up to read.
   const follow = useRef(true);
   useEffect(() => { const el = body.current; if (el && follow.current) el.scrollTop = el.scrollHeight; }, [shown.length, p.open, waiting]);
 

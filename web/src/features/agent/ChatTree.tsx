@@ -1,4 +1,4 @@
-// The chat list as folders. Outside a session the DM (or player) sees their chats as a file tree: folders they made,
+// The chat list as folders. Outside a session the GM (or player) sees their chats as a file tree: folders they made,
 // chats at the top level, and template chats in one dropdown of their own so they never mix with the main chats.
 // During a session the compact dropdown of recent chats is shown instead (ChatSwitcher), and either view can be picked
 // by hand; the choice is remembered on this device. Folders are only paths that chats carry ("Bloodearth/Session 3"),
@@ -53,7 +53,7 @@ export function buildTree(chats: ChatRow[], extra: string[] = []): Node {
   return root;
 }
 
-/** A template id as a name: the DM's template's name when known, else a built-in starter's id made readable. */
+/** A template id as a name: the GM's template's name when known, else a built-in starter's id made readable. */
 export const templateName = (id: string, names: Record<string, string>) => names[id] || (id.startsWith('starter:') ? id.slice(8).replace(/[-_]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : id);
 
 export interface TreeTools {

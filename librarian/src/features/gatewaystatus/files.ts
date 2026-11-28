@@ -1,6 +1,6 @@
 // Files that came from sources or were added to the library, per world: what is held, how big, when it was fetched, how much disk it
-// takes. Names are shown only for files the admin may see: an admin who is not a world's DM sees the files its players may see by name,
-// and the rest only as counts and sizes ("a DM-only file").
+// takes. Names are shown only for files the admin may see: an admin who is not a world's GM sees the files its players may see by name,
+// and the rest only as counts and sizes ("a GM-only file").
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
@@ -38,12 +38,12 @@ export function sourceFiles(d: Deps, accountId: string) {
   const worlds = all<{ id: string; name: string }>(d.db, 'SELECT id, name FROM worlds ORDER BY name');
   let imageBytes = 0, imageCount = 0, libBytes = 0, libCount = 0;
   const out = worlds.map((w) => {
-    const isDm = adminViewer(d.db, w.id, accountId).role === 'dm';
+    const isGm = adminViewer(d.db, w.id, accountId).role === 'gm';
     const sources = all<any>(d.db, 'SELECT id, name, kind, connection_id, last_sync_at, last_status, enabled FROM sources WHERE world_id = ? ORDER BY name', w.id).map((s) => {
       const imgs = all<any>(d.db, `SELECT id, name, kind, size, at, visibility, page_external, world_id, source_id FROM intake_images WHERE world_id = ? AND source_id = ? ORDER BY at DESC`, w.id, s.id);
       const files: FileRow[] = imgs.slice(0, LIST_CAP).map((i) => {
-        const may = isDm || imageVisibleTo(d.db, i, 'player');
-        return { id: i.id, name: may ? i.name || 'Unnamed' : null, kind: i.kind, size: i.size, at: i.at, level: i.visibility === 'party' ? 'party' : 'dm', hidden: !may };
+        const may = isGm || imageVisibleTo(d.db, i, 'player');
+        return { id: i.id, name: may ? i.name || 'Unnamed' : null, kind: i.kind, size: i.size, at: i.at, level: i.visibility === 'party' ? 'party' : 'gm', hidden: !may };
       });
       const bytes = imgs.reduce((n, i) => n + i.size, 0);
       imageBytes += bytes; imageCount += imgs.length;
@@ -61,13 +61,13 @@ export function sourceFiles(d: Deps, accountId: string) {
     });
     const libs = all<any>(d.db, 'SELECT id, page_id, name, kind, level, size, at, world_id FROM libfiles_files WHERE world_id = ? ORDER BY at DESC', w.id);
     const libFiles: FileRow[] = libs.slice(0, LIST_CAP).map((f) => {
-      const may = isDm || mayRead(d, f, { accountId, role: 'player' });
+      const may = isGm || mayRead(d, f, { accountId, role: 'player' });
       return { id: f.id, name: may ? f.name : null, kind: f.kind, size: f.size, at: f.at, level: f.level, hidden: !may };
     });
     const lb = libs.reduce((n, f) => n + f.size, 0);
     libBytes += lb; libCount += libs.length;
     return {
-      id: w.id, name: w.name, view: isDm ? 'dm' : 'counts', sources,
+      id: w.id, name: w.name, view: isGm ? 'gm' : 'counts', sources,
       library: { count: libs.length, bytes: lb, files: libFiles, truncated: libs.length > LIST_CAP, hiddenCount: libFiles.filter((f) => f.hidden).length },
     };
   });
@@ -82,13 +82,13 @@ export function sourceFiles(d: Deps, accountId: string) {
 export function deleteLibraryFile(d: Deps, accountId: string, fileId: string): { ok: true; name: string } {
   const f = one<any>(d.db, 'SELECT * FROM libfiles_files WHERE id = ?', fileId);
   if (!f) return notFound();
-  const isDm = adminViewer(d.db, f.world_id, accountId).role === 'dm';
-  if (!isDm && !mayRead(d, f, { accountId, role: 'player' })) return notFound();
+  const isGm = adminViewer(d.db, f.world_id, accountId).role === 'gm';
+  if (!isGm && !mayRead(d, f, { accountId, role: 'player' })) return notFound();
   run(d.db, 'DELETE FROM libfiles_files WHERE id = ?', f.id);
   if (d.dataDir) fs.rmSync(path.join(d.dataDir, 'libfiles', f.world_id, f.id), { force: true });
-  run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', f.world_id, accountId, 'libfile.delete', `admin removed ${isDm ? f.name : 'a shared file'}`.slice(0, 500), now());
+  run(d.db, 'INSERT INTO audit (world_id, account_id, action, detail, at) VALUES (?, ?, ?, ?, ?)', f.world_id, accountId, 'libfile.delete', `admin removed ${isGm ? f.name : 'a shared file'}`.slice(0, 500), now());
   d.hub.emit(f.world_id, 'libfile', { pageId: f.page_id }, () => true);
-  return { ok: true, name: isDm ? f.name : 'File' };
+  return { ok: true, name: isGm ? f.name : 'File' };
 }
 
 function notFound(): never { throw new HttpError(404, 'File not found'); }

@@ -1,4 +1,4 @@
-// DM: how current everything the AI knows about the world is (sources, pictures, search index, story bible, Minerva's codex links), and
+// GM: how current everything the AI knows about the world is (sources, pictures, search index, story bible, Minerva's codex links), and
 // "Refresh world": one job that brings all of it up to date, step by step.
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -34,7 +34,7 @@ export default function KnowledgePage() {
   if (!s) return st.error ? <ErrorBox error={st.error} /> : <Loading what="knowledge" />;
   const start = (full: boolean) => act.run(async () => { await w.call('POST', '/knowledge/refresh', { full }); toast('Refreshing the world'); await st.reload(); });
   const stop = () => act.run(async () => { await w.call('POST', '/knowledge/refresh/stop'); await st.reload(); });
-  const dm = (to: string) => `/w/${info.slug}/dm/${to}`;
+  const gm = (to: string) => `/w/${info.slug}/gm/${to}`;
   const r = s.refresh;
   return (
     <div className="stack">
@@ -75,16 +75,16 @@ export default function KnowledgePage() {
               <td className="small">{when(x.lastSyncAt)}{x.lastStatus && <span className="tiny muted"> · {x.lastStatus}</span>}</td>
             </tr>
           ))}
-        </tbody></table></div> : <p className="small muted">No sources yet. Add Kanka, LegendKeeper, World Anvil, Notion, Obsidian or a folder in <Link to={dm('settings')}>Settings</Link>.</p>}
+        </tbody></table></div> : <p className="small muted">No sources yet. Add Kanka, LegendKeeper, World Anvil, Notion, Obsidian or a folder in <Link to={gm('settings')}>Settings</Link>.</p>}
       </section>
 
       <section className="card stack" aria-label="Indexes">
         <h3 style={{ margin: 0 }}>Indexes</h3>
         <Meter label="Search index (embeddings)" c={s.embeddings} extra={s.embeddings ? `${s.embeddings.chunks.toLocaleString()} chunks` : ''} />
-        <Meter label="Story bible" c={s.bible} extra={s.bible ? `${s.bible.facts.toLocaleString()} facts` : ''} to={dm('bible')} />
+        <Meter label="Story bible" c={s.bible} extra={s.bible ? `${s.bible.facts.toLocaleString()} facts` : ''} to={gm('bible')} />
         <div className="small">
           <strong>Minerva’s codex</strong>{' '}
-          {s.minerva.on ? <span className="muted">{s.minerva.linked} of {s.minerva.pages} pages linked to the library{s.minerva.broken ? <>, <span className="warn">{s.minerva.broken} point at a page that is gone</span></> : ''}. <Link to={dm('minerva')}>Open Minerva</Link></span> : <span className="muted">Minerva is off for this world.</span>}
+          {s.minerva.on ? <span className="muted">{s.minerva.linked} of {s.minerva.pages} pages linked to the library{s.minerva.broken ? <>, <span className="warn">{s.minerva.broken} point at a page that is gone</span></> : ''}. <Link to={gm('minerva')}>Open Minerva</Link></span> : <span className="muted">Minerva is off for this world.</span>}
         </div>
         <span className="tiny faint">{s.pages.toLocaleString()} library pages · {s.pictures.held.toLocaleString()} pictures stored here{s.pictures.waiting ? `, ${s.pictures.waiting} waiting` : ''}.</span>
       </section>

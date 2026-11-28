@@ -2,8 +2,8 @@
 // scribe apps. No dependencies: it uses fetch, so it runs in browsers,
 // Tauri, React Native and Node 18+.
 
-export type Role = 'dm' | 'player' | 'guest';
-export type Visibility = 'dm' | 'party' | 'me';
+export type Role = 'gm' | 'player' | 'guest';
+export type Visibility = 'gm' | 'party' | 'me';
 
 export class AlexandriaError extends Error {
   status: number;
@@ -167,15 +167,15 @@ export class WorldClient {
   // Library / Lore
   pages() { return this.r<any[]>('GET', '/library/pages'); }
   page(idOrPath: string) { return this.r('GET', `/library/pages/${encodeURIComponent(idOrPath)}`); }
-  savePage(p: { path: string; markdown?: string; body?: string; title?: string; frontmatter?: Record<string, unknown>; visibility?: 'dm' | 'party' | 'broker' | 'classified' }) { return this.r('PUT', '/library/pages', p); }
+  savePage(p: { path: string; markdown?: string; body?: string; title?: string; frontmatter?: Record<string, unknown>; visibility?: 'gm' | 'party' | 'broker' | 'classified' }) { return this.r('PUT', '/library/pages', p); }
   deletePage(id: string) { return this.r('DELETE', `/library/pages/${id}`); }
   search(q: string) { return this.r<any[]>('GET', '/library/search', undefined, { q }); }
   relations() { return this.r<any[]>('GET', '/library/relations'); }
 
   // Requests
   requests() { return this.r<any[]>('GET', '/requests'); }
-  request(req: { kind: 'edit' | 'new' | 'question'; title: string; body: string; pageId?: string; visibility?: 'dm' | 'party' }) { return this.r('POST', '/requests', req); }
-  decide(id: string, decision: 'accepted' | 'rejected', opts: { reply?: string; apply?: { mode: 'append' | 'replace' | 'create'; path?: string; body?: string; visibility?: 'dm' | 'party' } } = {}) { return this.r('POST', `/requests/${id}/decide`, { decision, ...opts }); }
+  request(req: { kind: 'edit' | 'new' | 'question'; title: string; body: string; pageId?: string; visibility?: 'gm' | 'party' }) { return this.r('POST', '/requests', req); }
+  decide(id: string, decision: 'accepted' | 'rejected', opts: { reply?: string; apply?: { mode: 'append' | 'replace' | 'create'; path?: string; body?: string; visibility?: 'gm' | 'party' } } = {}) { return this.r('POST', `/requests/${id}/decide`, { decision, ...opts }); }
 
   // Messages
   threads() { return this.r<any[]>('GET', '/messages'); }

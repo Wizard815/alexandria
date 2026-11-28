@@ -1,4 +1,4 @@
-// DM → Players' screen: the remote for the TV facing the table, and where its pictures come from.
+// GM → Players' screen: the remote for the TV facing the table, and where its pictures come from.
 import { useWorld } from '../../lib/world.tsx';
 import { PageHead } from '../../ui/index.tsx';
 import { PlayerScreenControls, PictureSources } from './Controls.tsx';

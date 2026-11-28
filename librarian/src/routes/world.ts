@@ -3,10 +3,23 @@ import { randomBytes } from 'node:crypto';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { all, one, run } from '../core/db.ts';
-import { type Auth, bearer, requireDM } from '../core/auth.ts';
+import { type Auth, bearer, requireGM } from '../core/auth.ts';
 import { mergeSettings, settingsFor } from '../core/policy.ts';
 import { HttpError, int, now, oneOf, sha256 } from '../core/util.ts';
-import { ctx, isDM, me, settings } from './_shared.ts';
+import { ctx, isGM, me, settings } from './_shared.ts';
+
+const NEW_KIND: Record<string, string> = {
+  'mods.import': 'houseRules', 'mods.update': 'houseRules', 'mods.on': 'houseRules',
+  'shop.item.add': 'items', 'shop.items.import': 'items', 'shop.item.edit': 'items',
+  'templates.import': 'templates', 'templates.create': 'templates', 'templates.starters': 'templates', 'templates.update': 'templates', 'encounter.template.create': 'templates',
+  'modules.import': 'gameModules', 'modules.enable': 'gameModules', 'modules.feed': 'gameModules', 'spells.import': 'spells', 'spells.recipe.import': 'spells',
+};
+const NEW_VERB: Record<string, string> = {
+  'mods.import': 'added house rule ', 'mods.update': 'updated house rule ', 'shop.item.add': 'added item ', 'shop.items.import': 'imported items: ', 'shop.item.edit': 'changed item ',
+  'templates.import': 'imported templates: ', 'templates.create': 'made template ', 'templates.starters': 'added starter templates: ', 'templates.update': 'changed template ', 'encounter.template.create': 'made encounter template ',
+  'modules.import': 'imported game module ', 'modules.enable': 'turned on game modules ', 'modules.feed': 'fed into spells and items: ', 'spells.import': 'imported spells: ', 'spells.recipe.import': 'imported spell recipes: ',
+};
+const WHATS_NEW = Object.keys(NEW_KIND);
 
 export function listMyWorlds(d: Deps) {
   return (_req: Request, res: Response) => {
@@ -34,7 +47,7 @@ export default function worldRoutes(d: Deps) {
   });
 
   r.get('/settings', (_req, res) => res.json(settingsFor(settings(res), ctx(res).viewer.role)));
-  r.patch('/settings', requireDM, (req, res) => {
+  r.patch('/settings', requireGM, (req, res) => {
     const c = ctx(res);
     let next;
     try {
@@ -49,7 +62,7 @@ export default function worldRoutes(d: Deps) {
   });
 
   // Invite codes for players and guests. The code is shown once.
-  r.post('/invites', requireDM, (req, res) => {
+  r.post('/invites', requireGM, (req, res) => {
     const c = ctx(res);
     const role = oneOf(req.body?.role, 'role', ['player', 'guest'] as const, 'player');
     const days = int(req.body?.days, 'days', { min: 1, max: 30, optional: true }) ?? 7;
@@ -74,11 +87,26 @@ export default function worldRoutes(d: Deps) {
     d.hub.subscribe(c.world.id, c.viewer, res, alive);
   });
 
-  r.get('/audit', requireDM, (req, res) => {
+  r.get('/audit', requireGM, (req, res) => {
     res.json(all(db, 'SELECT * FROM audit WHERE world_id = ? ORDER BY id DESC LIMIT ?', ctx(res).world.id, Math.min(Number(req.query.limit) || 100, 1000)));
   });
 
-  r.get('/whoami', (_req, res) => res.json({ ...ctx(res).viewer, dm: isDM(res), at: now() }));
+  // What the GM added to this world lately (house rules, items, templates and guides, game modules, spells), newest
+  // first, for the assistant's "what's new?": the audit log holds every add, so nothing has to register for it.
+  r.get('/whats-new', requireGM, (req, res) => {
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = all<{ action: string; detail: string; at: string }>(db, `SELECT action, detail, at FROM audit WHERE world_id = ? AND at >= ? AND action IN (${WHATS_NEW.map(() => '?').join(',')}) ORDER BY id DESC LIMIT 200`, ctx(res).world.id, since, ...WHATS_NEW);
+    const out: Record<string, { what: string; at: string }[]> = {};
+    for (const r of rows) {
+      const kind = NEW_KIND[r.action];
+      const what = r.action === 'mods.on' ? `turned on ${r.detail.split(',').filter((x) => x && !x.startsWith('-')).map((x) => x.replace(/^\+/, '')).join(', ')}` : `${NEW_VERB[r.action] ?? ''}${r.detail}`.trim();
+      if ((out[kind] ??= []).length < 25 && !out[kind].some((x) => x.what === what)) out[kind].push({ what: what.slice(0, 240), at: r.at.slice(0, 16) });
+    }
+    res.json({ days, ...out, note: Object.keys(out).length ? 'Newest first. Look each one up with its own tool (house_rules, search_items, list_gm_templates, lookup_term).' : `Nothing was added in the last ${days} days.` });
+  });
+
+  r.get('/whoami', (_req, res) => res.json({ ...ctx(res).viewer, gm: isGM(res), at: now() }));
 
   return r;
 }

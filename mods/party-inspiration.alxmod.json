@@ -43,7 +43,7 @@
     {
       "id": "add",
       "label": "Add or take points",
-      "by": "dm",
+      "by": "gm",
       "record": "pool",
       "do": "add",
       "field": "points",
@@ -79,10 +79,10 @@
       ]
     },
     {
-      "id": "dm",
+      "id": "gm",
       "title": "Party inspiration",
       "record": "pool",
-      "place": "dm",
+      "place": "gm",
       "columns": [
         "name",
         "points"
@@ -95,7 +95,7 @@
   "rules": [
     {
       "term": "Party inspiration (house rule)",
-      "text": "The DM puts inspiration into **one pool the whole party shares** (up to 10). Any player may **draw a point** to gain advantage on a roll they are about to make. Only one point can be drawn each round."
+      "text": "The GM puts inspiration into **one pool the whole party shares** (up to 10). Any player may **draw a point** to gain advantage on a roll they are about to make. Only one point can be drawn each round."
     }
   ],
   "assistant": {
@@ -104,7 +104,7 @@
       "inspiration pool",
       "party pool"
     ],
-    "dm": "Reward good roleplay or teamwork by adding a point to the pool with the add action and a note saying why. Only one point can be drawn per round.",
+    "gm": "Reward good roleplay or teamwork by adding a point to the pool with the add action and a note saying why. Only one point can be drawn per round.",
     "player": "The party shares one inspiration pool. If they want advantage on a roll they are about to make, they can draw a point with the draw action, at most one per round for the whole party. Say how many points are left."
   },
   "conflicts": [

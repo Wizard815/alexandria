@@ -43,11 +43,11 @@ test('Perf_TheLoopStaysFreeAndCallsStayQuickWhileAFullCrawlRuns', { skip: !PERF,
   };
   const setup = (await call('POST', '/api/setup', null, { username: 'wizard', password: 'correct horse battery' })).body;
   const admin = setup.token as string;
-  const wid = (await call('POST', '/api/admin/worlds', admin, { name: 'Perf', dmAccountId: setup.account.id })).body.id as string;
+  const wid = (await call('POST', '/api/admin/worlds', admin, { name: 'Perf', gmAccountId: setup.account.id })).body.id as string;
   const inv = (await call('POST', `/api/worlds/${wid}/invites`, admin, { role: 'player' })).body;
   const player = (await call('POST', '/api/join', null, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).body.token as string;
   const r = rng(3);
-  for (let i = 0; i < 1000; i++) made.deps.library.save(wid, { path: `Atlas/Area ${i % 20}/Page ${i}.md`, title: `Page ${i}`, body: `# Page ${i}\n\n${paragraph(r, 8)}\n\nSee [[Page ${(i * 7) % 1000}]] and [[Page ${(i * 13) % 1000}]].\n\n${paragraph(r, 6)}`, visibility: i % 3 ? 'dm' : 'party' }, null, { batch: true });
+  for (let i = 0; i < 1000; i++) made.deps.library.save(wid, { path: `Atlas/Area ${i % 20}/Page ${i}.md`, title: `Page ${i}`, body: `# Page ${i}\n\n${paragraph(r, 8)}\n\nSee [[Page ${(i * 7) % 1000}]] and [[Page ${(i * 13) % 1000}]].\n\n${paragraph(r, 6)}`, visibility: i % 3 ? 'gm' : 'party' }, null, { batch: true });
   await made.deps.library.rebuildPlayerCopiesAsync(wid);
   // A night's transcript with a session still open.
   run(made.deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at) VALUES (?, ?, ?, ?)', 's1', wid, 'Tonight', new Date().toISOString());

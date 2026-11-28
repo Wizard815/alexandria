@@ -21,7 +21,7 @@ test('ActiveIntents_ItemNamesFromTableTalkMustBeThings', () => {
 
 test('ActiveIntents_AFightAlreadyUnderWayIsOfferedNeverStarted', () => {
   const ctx: any = { combat: { active: false, turn: 0, combatants: [] }, party: [], pages: [], sfx: [], initiativeOpen: false };
-  const cue = (t: string) => allCues({ id: 'l', text: t, speaker: 'dm', role: 'dm', accountId: null, aside: false } as any, ctx).filter((c: any) => c.kind === 'combat_start');
+  const cue = (t: string) => allCues({ id: 'l', text: t, speaker: 'gm', role: 'gm', accountId: null, aside: false } as any, ctx).filter((c: any) => c.kind === 'combat_start');
   const c = cue('Thirty-three damage, Blake. That hits, it uses a legendary action.');
   assert.equal(c.length, 1);
   assert.equal((c[0] as any).ask, true, 'offered, not started');
@@ -33,7 +33,7 @@ test('ActiveIntents_AFightAlreadyUnderWayIsOfferedNeverStarted', () => {
 
 test('ActiveIntents_ACritSaidWithTheHitMakesItACriticalHit', () => {
   const ctx: any = { combat: { active: true, turn: 0, combatants: [{ id: 't', name: 'Tomas', effects: [], isPc: true, accountId: 'a' }, { id: 'o', name: 'Ogre', effects: [], isPc: false }] }, party: [{ accountId: 'a', name: 'Tom', character: 'Tomas' }], pages: [], sfx: [], initiativeOpen: false };
-  const dmg = (t: string) => allCues({ id: 'l', text: t, speaker: 'dm', role: 'dm', accountId: null, aside: false } as any, ctx).find((c: any) => c.kind === 'damage') as any;
+  const dmg = (t: string) => allCues({ id: 'l', text: t, speaker: 'gm', role: 'gm', accountId: null, aside: false } as any, ctx).find((c: any) => c.kind === 'damage') as any;
   assert.equal(dmg("It's a crit! Tomas takes 18 damage.")?.crit, true);
   assert.equal(dmg('Natural 20, Tomas takes 22.')?.crit, true);
   assert.equal(dmg('The ogre critically hits, Tomas takes 30 damage.')?.crit, true);

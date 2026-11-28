@@ -1,9 +1,9 @@
 # Templates & guides
 
-DM → Prep → **Templates & guides** (`/w/:world/dm/templates`). DM only: players get
+GM → Prep → **Templates & guides** (`/w/:world/gm/templates`). GM only: players get
 403 from every route and never see the page, the tools or what a guide found.
 
-A template is something the DM reuses. A **guide** is a template the assistant
+A template is something the GM reuses. A **guide** is a template the assistant
 follows by itself. For example, "Towns: for my world always research the real
 Japanese town it is based on, my own world lore and the towns around it": every
 later request to make a town gets that guide, its research steps and the
@@ -15,12 +15,12 @@ structure of the towns already written.
 |---|---|---|
 | **Agent guide** | task, instructions, steps (below), sections in order, tone, folder, exemplar pages | the assistant uses it when a request matches; **Ask the assistant** fills in "Use guide Towns: " |
 | **Generator template** | the generator (town, NPC, tavern, shop…), fields with hints, sections, instructions, folder | read by the assistant like a guide when a request matches |
-| **Macro template** | a prompt with `{{blanks}}`, the blanks, mode (propose or do), allowed tools | **Make a macro**: a Minerva macro step (`minerva.run`) the DM fills in when it runs ([MACROS.md](MACROS.md)) |
+| **Macro template** | a prompt with `{{blanks}}`, the blanks, mode (propose or do), allowed tools | **Make a macro**: a Minerva macro step (`minerva.run`) the GM fills in when it runs ([MACROS.md](MACROS.md)) |
 | **Assist panel** | a workspace layout, its panes and a request for the assistant | **Open**: the workspace with those panes, the request waiting in the assistant's box |
 | **Shop generation** | shop type, a guide, typical stock, price notes | **Make a shop**: a draft from the shop generator following the guide (below); the assistant reads it for shop requests |
-| **Library page** | folder, title pattern, tags, sections, a page skeleton | **New page from this**: a DM-only page from the skeleton; the assistant reads it like a guide |
+| **Library page** | folder, title pattern, tags, sections, a page skeleton | **New page from this**: a GM-only page from the skeleton; the assistant reads it like a guide |
 | **Quick event** | places (town, road, cave…), theme, instructions, tone, choices a step, skill checks on or off, most coin an event gives, how consequences are noted | **Make a story event**: a draft to check and save as a story event ([ENCOUNTERS.md](ENCOUNTERS.md)); the assistant follows it for "make a quick event…" and saves with `save_encounter_template` |
-| **Spell** | lowest and highest level, schools, classes, spell lines, balance, mana note, naming, instructions, "say what happens at higher levels" | **Make a spell**: a draft in the Codex format to check and **Save to the Codex** (homebrew, DM only); the assistant follows it for "make a new spell…" and saves with `save_homebrew_spell` |
+| **Spell** | lowest and highest level, schools, classes, spell lines, balance, mana note, naming, instructions, "say what happens at higher levels" | **Make a spell**: a draft in the Codex format to check and **Save to the Codex** (homebrew, GM only); the assistant follows it for "make a new spell…" and saves with `save_homebrew_spell` |
 
 Every template is per world, has a name and a short description, and is **on or
 off** (off: the assistant never uses it). Saving a change makes a new **version**;
@@ -31,18 +31,18 @@ classified text is refused when it is saved: templates go into model requests.
 ## Spell lines
 
 A spell template keeps spell lines as names (Fire, Frost…): a drafted spell
-lists the lines it fits beside it, and saving puts them in the spell's DM
+lists the lines it fits beside it, and saving puts them in the spell's GM
 notes, so a world without spell lines loses nothing.
 
 ## Template chats
 
 Open a saved template and use **Chat with the assistant about this
-template**: its own chats, kept apart from the main DnD chat (they show in
+template**: its own chats, kept apart from the main chat (they show in
 the assistant's chat list under **Templates**, and all of them on the
 **Template chats** tab). In a template chat the template is always at
 hand: ask about the template itself ("add a step that…", "change this
 template so…") and the assistant gets its content to change it
-(`update_dm_template`); ask it to make something ("make one where…") and
+(`update_gm_template`); ask it to make something ("make one where…") and
 it follows the template as if you had named it.
 
 ## Making one with the assistant
@@ -57,13 +57,13 @@ it follows the template as if you had named it.
 - **From examples**: pick one to eight library pages made the way you like (three
   towns, say). Their common structure becomes a guide: the headings most of them
   share, in their usual order; the folder and tags they share; whether they keep
-  DM-only details in `> [!secret]` blocks and link with `[[wikilinks]]`; their
+  GM-only details in `> [!secret]` blocks and link with `[[wikilinks]]`; their
   length. The pages are read as the assistant reads them (the AI copy), so a
   classified page is left out and named in the notes. A chat model, when set, only
   words the instructions and tone; the structure comes from the pages.
-- **In the chat**: the assistant has `list_dm_templates`, `get_dm_template`,
-  `create_dm_template` and `update_dm_template`. Creating or changing one is a
-  card the DM approves (or runs at once in Auto).
+- **In the chat**: the assistant has `list_gm_templates`, `get_gm_template`,
+  `create_gm_template` and `update_gm_template`. Creating or changing one is a
+  card the GM approves (or runs at once in Auto).
 
 ## How a guide is used
 
@@ -96,13 +96,13 @@ reply's sources. Everything is read as the assistant may read it: never
 classified text, and a guide that would repeat classified text is not used.
 
 New pages go through the normal approval flow: the assistant proposes `save_page`
-(a card, also in Auto: `save_page` always asks), DM only unless you say
+(a card, also in Auto: `save_page` always asks), GM only unless you say
 otherwise, in the guide's folder, ending with a **Sources** section.
 
 ## Web research
 
 The `web_research` tool searches the web for a real-world reference. It is the
-DM's choice per world and **off by default**: Templates & guides → Web research.
+GM's choice per world and **off by default**: Templates & guides → Web research.
 
 - **Providers**: OpenRouter's web search (a provider added in Admin → Models
   whose address is OpenRouter; the model is the one you name, or the chat job's
@@ -113,10 +113,10 @@ DM's choice per world and **off by default**: Templates & guides → Web researc
   /search?q=…&format=json`.
 - **Fail closed.** Before anything is sent, every query is checked against this
   world: a query holding a word that only classified text has, or a name
-  (capitalised word, page title or alias) that only DM-only text has, is refused
+  (capitalised word, page title or alias) that only GM-only text has, is refused
   and nothing is sent, not even the other queries in the same call. A refused
-  classified word is never repeated back. The DM may allow a DM-only word under
-  *DM-only words you allow in searches*; a classified word can never be allowed.
+  classified word is never repeated back. The GM may allow a GM-only word under
+  *GM-only words you allow in searches*; a classified word can never be allowed.
   The core classified guard also screens the OpenRouter request. Every search and
   every refusal is written to the audit log.
 - **Approval.** In Ask first, a search is a card showing the exact words ("Search
@@ -127,7 +127,7 @@ DM's choice per world and **off by default**: Templates & guides → Web researc
 - **Results feed the draft.** An approved search puts its sources in the chat
   (titles, links, snippets) and the assistant carries on from them by itself,
   with the same guide, without searching again. Results are cited as sources;
-  nothing is published without the DM.
+  nothing is published without the GM.
 
 ## Shop generator
 
@@ -137,7 +137,7 @@ the shop generator, `generateShop(d, worldId, opts, guide)` in
 generator reads directives in it: "12 items", "markup 20%", "no magic", "max
 rarity rare"; with a chat model it is the brief. The shop type picks the
 generator's kind ("apothecary" is an alchemist). **Make a shop** shows the draft;
-the DM makes and stocks shops on the Shops page.
+the GM makes and stocks shops on the Shops page.
 
 ## Starter templates
 
@@ -164,7 +164,7 @@ On the **Templates** tab, **Export all** (or **Export these** when one kind is
 shown) saves a `.alxtemplates.json` file, and each template has its own
 **Export** button. **Import** opens a file, lists what is in it, and saves
 them all only when you press **Import** (all or none). Take the file to
-another world, another table, or share it with other DMs.
+another world, another table, or share it with other GMs.
 
 ```json
 { "type": "alexandria-templates", "version": 1, "name": "My town guides",
@@ -184,7 +184,7 @@ another world, another table, or share it with other DMs.
 - A house rules file (`.alxmod.json`) is refused here. Import it under House
   rules instead.
 
-## API (DM only)
+## API (GM only)
 
 All under `/api/worlds/:world/templates`:
 
@@ -209,8 +209,8 @@ All under `/api/worlds/:world/templates`:
 | `GET /export?ids=a,b&kind=` | a package of those templates (or every one, or one kind) |
 | `POST /import` `{file, check?}` | import a package or one template, all or none; `check: true` lists them and saves nothing. Returns `{created, updated, unchanged}` |
 
-MCP (DM only): `list_dm_templates`, `get_dm_template`, `create_dm_template`
-(write), `update_dm_template` (write), `web_research` (write),
+MCP (GM only): `list_gm_templates`, `get_gm_template`, `create_gm_template`
+(write), `update_gm_template` (write), `web_research` (write),
 `save_homebrew_spell` (write).
 
 ## Code

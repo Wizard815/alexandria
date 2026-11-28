@@ -1,5 +1,5 @@
 // Where spells live: the bundled SRD 5.2.1 list (read once), the world's own
-// spells (homebrew and imports, deduplicated by name + source), the DM's
+// spells (homebrew and imports, deduplicated by name + source), the GM's
 // per-spell settings (open to players, mana cost, notes), each character's
 // sheet for spells (class, level, ability scores, mana) and known spells.
 import fs from 'node:fs';
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS spells_meta (
   spell_id TEXT NOT NULL,
   public INTEGER NOT NULL DEFAULT 0,
   mana_cost INTEGER,
-  dm_notes TEXT NOT NULL DEFAULT '',
+  gm_notes TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (world_id, spell_id)
 );
 CREATE TABLE IF NOT EXISTS spells_chars (
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS spells_known (
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   spell_id TEXT NOT NULL,
-  how TEXT NOT NULL DEFAULT 'dm',
+  how TEXT NOT NULL DEFAULT 'gm',
   at TEXT NOT NULL,
   PRIMARY KEY (world_id, account_id, spell_id)
 );
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS spells_recipes (
   min_level INTEGER,
   mana_cost INTEGER,
   visibility TEXT NOT NULL DEFAULT 'visible',
-  dm_notes TEXT NOT NULL DEFAULT '',
+  gm_notes TEXT NOT NULL DEFAULT '',
   draft INTEGER NOT NULL DEFAULT 0,
   created_by TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
@@ -111,35 +111,35 @@ export function srd(): Bundled {
 }
 export const SRD_SOURCE = 'SRD 5.2.1';
 
-/** A spell as the world serves it: where it came from, and the DM's settings for it. */
+/** A spell as the world serves it: where it came from, and the GM's settings for it. */
 export interface WorldSpell extends Spell {
   builtin: boolean;
   kind: 'srd' | 'homebrew' | 'import';
   attribution: string;
   public: boolean;
   manaOverride: number | null;
-  dmNotes: string;
+  gmNotes: string;
 }
 
-export interface Meta { public: boolean; manaCost: number | null; dmNotes: string }
+export interface Meta { public: boolean; manaCost: number | null; gmNotes: string }
 export function metaMap(db: DB, worldId: string): Map<string, Meta> {
-  return new Map(all<any>(db, 'SELECT spell_id, public, mana_cost, dm_notes FROM spells_meta WHERE world_id = ?', worldId)
-    .map((r) => [r.spell_id, { public: !!r.public, manaCost: r.mana_cost ?? null, dmNotes: r.dm_notes ?? '' }]));
+  return new Map(all<any>(db, 'SELECT spell_id, public, mana_cost, gm_notes FROM spells_meta WHERE world_id = ?', worldId)
+    .map((r) => [r.spell_id, { public: !!r.public, manaCost: r.mana_cost ?? null, gmNotes: r.gm_notes ?? '' }]));
 }
 
 function customRows(db: DB, worldId: string): WorldSpell[] {
   return all<any>(db, 'SELECT * FROM spells_custom WHERE world_id = ? ORDER BY name COLLATE NOCASE', worldId).map((r) => ({
     ...(parseJson<Spell>(r.data, {} as Spell)), id: r.id, name: r.name, source: r.source,
-    builtin: false, kind: r.kind === 'import' ? 'import' : 'homebrew', attribution: r.attribution ?? '', public: false, manaOverride: null, dmNotes: '',
+    builtin: false, kind: r.kind === 'import' ? 'import' : 'homebrew', attribution: r.attribution ?? '', public: false, manaOverride: null, gmNotes: '',
   }));
 }
 
-/** Every spell in the world, SRD first then the world's own, with the DM's settings filled in. */
+/** Every spell in the world, SRD first then the world's own, with the GM's settings filled in. */
 export function catalog(db: DB, worldId: string, publicSrd = false): WorldSpell[] {
   const meta = metaMap(db, worldId);
   const b = srd();
   const out: WorldSpell[] = [
-    ...b.spells.map((s) => ({ ...s, builtin: true, kind: 'srd' as const, attribution: b.attribution, public: publicSrd, manaOverride: null, dmNotes: '' })),
+    ...b.spells.map((s) => ({ ...s, builtin: true, kind: 'srd' as const, attribution: b.attribution, public: publicSrd, manaOverride: null, gmNotes: '' })),
     ...customRows(db, worldId),
   ];
   for (const s of out) {
@@ -147,7 +147,7 @@ export function catalog(db: DB, worldId: string, publicSrd = false): WorldSpell[
     if (!m) continue;
     s.public = s.public || m.public;
     s.manaOverride = m.manaCost;
-    s.dmNotes = m.dmNotes;
+    s.gmNotes = m.gmNotes;
   }
   return out;
 }
@@ -158,12 +158,12 @@ export function spellById(db: DB, worldId: string, spellId: string, publicSrd = 
     const s = b.spells.find((x) => x.id === spellId);
     if (!s) return null;
     const m = metaMap(db, worldId).get(spellId);
-    return { ...s, builtin: true, kind: 'srd', attribution: b.attribution, public: publicSrd || !!m?.public, manaOverride: m?.manaCost ?? null, dmNotes: m?.dmNotes ?? '' };
+    return { ...s, builtin: true, kind: 'srd', attribution: b.attribution, public: publicSrd || !!m?.public, manaOverride: m?.manaCost ?? null, gmNotes: m?.gmNotes ?? '' };
   }
   const r = one<any>(db, 'SELECT * FROM spells_custom WHERE world_id = ? AND id = ?', worldId, spellId);
   if (!r) return null;
   const m = metaMap(db, worldId).get(spellId);
-  return { ...(parseJson<Spell>(r.data, {} as Spell)), id: r.id, name: r.name, source: r.source, builtin: false, kind: r.kind === 'import' ? 'import' : 'homebrew', attribution: r.attribution ?? '', public: !!m?.public, manaOverride: m?.manaCost ?? null, dmNotes: m?.dmNotes ?? '' };
+  return { ...(parseJson<Spell>(r.data, {} as Spell)), id: r.id, name: r.name, source: r.source, builtin: false, kind: r.kind === 'import' ? 'import' : 'homebrew', attribution: r.attribution ?? '', public: !!m?.public, manaOverride: m?.manaCost ?? null, gmNotes: m?.gmNotes ?? '' };
 }
 
 /** A spell by id, or by name (an exact name, case and apostrophes aside; the SRD wins a tie). */
@@ -201,10 +201,10 @@ export function saveCustom(db: DB, worldId: string, s: Omit<Spell, 'id'>, kind: 
 }
 
 export function setMeta(db: DB, worldId: string, spellId: string, patch: Partial<Meta>) {
-  const cur = metaMap(db, worldId).get(spellId) ?? { public: false, manaCost: null, dmNotes: '' };
+  const cur = metaMap(db, worldId).get(spellId) ?? { public: false, manaCost: null, gmNotes: '' };
   const next = { ...cur, ...patch };
-  run(db, 'INSERT INTO spells_meta (world_id, spell_id, public, mana_cost, dm_notes) VALUES (?,?,?,?,?) ON CONFLICT(world_id, spell_id) DO UPDATE SET public = excluded.public, mana_cost = excluded.mana_cost, dm_notes = excluded.dm_notes',
-    worldId, spellId, next.public ? 1 : 0, next.manaCost, next.dmNotes);
+  run(db, 'INSERT INTO spells_meta (world_id, spell_id, public, mana_cost, gm_notes) VALUES (?,?,?,?,?) ON CONFLICT(world_id, spell_id) DO UPDATE SET public = excluded.public, mana_cost = excluded.mana_cost, gm_notes = excluded.gm_notes',
+    worldId, spellId, next.public ? 1 : 0, next.manaCost, next.gmNotes);
 }
 
 // ---- characters -----------------------------------------------------------------------------------------
@@ -226,14 +226,14 @@ const ABBR: Record<string, Ability> = { str: 'str', strength: 'str', dex: 'dex',
 
 /**
  * Ability scores and level a player wrote on their own profile ("Me" page) in
- * blocks the DM may read (party or DM, never "only me"): a block titled
+ * blocks the GM may read (party or GM, never "only me"): a block titled
  * "Level", or "Abilities"/"Ability scores"/"Stats" with "INT 13, WIS 10", or
  * one titled "Intelligence" with "13". The spell sheet's own values win.
  */
 export function profileStats(db: DB, worldId: string, accountId: string): { level: number | null; abilities: Partial<Record<Ability, number>> } {
   const out: { level: number | null; abilities: Partial<Record<Ability, number>> } = { level: null, abilities: {} };
   let rows: any[] = [];
-  try { rows = all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND account_id = ? AND visibility IN ('party', 'dm')", worldId, accountId); } catch { return out; }
+  try { rows = all<any>(db, "SELECT title, body FROM profile_blocks WHERE world_id = ? AND account_id = ? AND visibility IN ('party', 'gm')", worldId, accountId); } catch { return out; }
   for (const r of rows) {
     const t = String(r.title ?? '').trim().toLowerCase();
     const body = String(r.body ?? '');

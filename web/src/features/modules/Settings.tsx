@@ -17,7 +17,7 @@ const b64 = (buf: ArrayBuffer) => {
 };
 
 export default function ModuleSettings() {
-  const { w, isDM } = useWorld();
+  const { w, isGM } = useWorld();
   const mods = useLoad<any>(() => w.call('GET', '/modules'), [w], ['modules']);
   const act = useAction();
   const { toast, toastNode } = useToast();
@@ -46,7 +46,7 @@ export default function ModuleSettings() {
             {enabled.map((m, i) => (
               <div key={m.id} className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
                 <span><strong>{i + 1}. {m.name}</strong> <span className="tiny muted">{m.terms} terms{m.version ? ` · v${m.version}` : ''}{m.builtin ? '' : m.server ? ' · server library' : ' · imported'}</span></span>
-                {isDM && (
+                {isGM && (
                   <span className="row" style={{ gap: 6 }}>
                     <button type="button" className="btn small" onClick={() => setBrowse(browse === m.id ? null : m.id)} aria-pressed={browse === m.id}>Browse</button>
                     {!m.builtin && <button type="button" className="btn small" disabled={act.busy} title="Its spells into the Codex and its items into the shop's item database" onClick={() => void act.run(async () => { const r = await w.call('POST', '/modules/feed', { id: m.id }); toast(`Codex: ${r.fed?.spells?.added ?? 0} spells added · Shop: ${r.fed?.items?.added ?? 0} items added`); })}>Add spells &amp; items</button>}
@@ -65,7 +65,7 @@ export default function ModuleSettings() {
               {off.map((m) => (
                 <div key={m.id} className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
                   <span><strong>{m.name}</strong> {m.edition && <span className="chip">5e {m.edition}</span>} <span className="tiny muted">{m.terms} terms{m.builtin ? '' : m.server ? ' · server library, no download' : ' · imported'}</span></span>
-                  {isDM && (
+                  {isGM && (
                     <span className="row" style={{ gap: 6 }}>
                       <button type="button" className="btn small" onClick={() => setBrowse(browse === m.id ? null : m.id)} aria-pressed={browse === m.id}>Browse</button>
                       <button type="button" className="btn small" disabled={act.busy} onClick={() => void save([...enabled.map((x) => x.id), m.id])}>Turn on</button>
@@ -77,7 +77,7 @@ export default function ModuleSettings() {
             </section>
           )}
 
-          {isDM && browse && <ModuleBrowser key={browse} id={browse} onClose={() => setBrowse(null)} />}
+          {isGM && browse && <ModuleBrowser key={browse} id={browse} onClose={() => setBrowse(null)} />}
 
           <section className="card stack">
             <h3>Credits</h3>
@@ -86,7 +86,7 @@ export default function ModuleSettings() {
             ))}
           </section>
 
-          {isDM && <ImportBox onDone={() => void mods.reload()} />}
+          {isGM && <ImportBox onDone={() => void mods.reload()} />}
         </>
       )}
       {toastNode}
@@ -180,7 +180,7 @@ function ImportBox({ onDone }: { onDone: () => void }) {
       {src === 'dnd5eapi' && (
         <div className="stack tight">
           <p className="tiny muted">A fresh copy of the System Reference Document from the <a href="https://www.dnd5eapi.co" target="_blank" rel="noreferrer">5e SRD API</a>, as its own module. The app already has both SRDs built in; use this to pick up the API's newer fixes and additions.</p>
-          <Field label="Edition"><select value={edition} onChange={(e) => { setEdition(e.target.value); setPre(null); }}>{(sources.data?.dnd5eapi?.editions ?? [{ id: '2024', name: 'SRD 5.2 (D&D 2024)' }, { id: '2014', name: 'SRD 5.1 (D&D 5e 2014)' }]).map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+          <Field label="Edition"><select value={edition} onChange={(e) => { setEdition(e.target.value); setPre(null); }}>{(sources.data?.dnd5eapi?.editions ?? [{ id: '2024', name: 'SRD 5.2 (5e 2024)' }, { id: '2014', name: 'SRD 5.1 (5e 2014)' }]).map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
         </div>
       )}
       {free && (
@@ -237,7 +237,7 @@ function ImportBox({ onDone }: { onDone: () => void }) {
 
 const KIND_TABS: [string, string][] = [['', 'All'], ['spell', 'Spells'], ['monster', 'Monsters'], ['item', 'Items'], ['condition', 'Conditions'], ['rule', 'Rules'], ['class', 'Classes'], ['action', 'Actions'], ['other', 'Other']];
 
-/** Everything in one module, searchable; the DM can read an entry and leave it out of this world (or put it back). */
+/** Everything in one module, searchable; the GM can read an entry and leave it out of this world (or put it back). */
 export function ModuleBrowser({ id, onClose }: { id: string; onClose: () => void }) {
   const { w } = useWorld();
   const act = useAction();

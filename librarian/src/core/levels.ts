@@ -1,9 +1,9 @@
 // Four secrecy levels for world content. Every rule about them lives here.
 //
-//   level        players  broker (may sell it)  any AI / model context  the DM in the app
+//   level        players  broker (may sell it)  any AI / model context  the GM in the app
 //   party        yes      yes                   yes                     yes
 //   broker       no       yes                   yes                     yes
-//   dm           no       no                    yes                     yes
+//   gm           no       no                    yes                     yes
 //   classified   no       no                    NO, never               yes (clearly marked)
 //
 // A page has a level (pages.visibility) and blocks, property groups and
@@ -12,22 +12,22 @@
 //   player copy   party content only                (player_* columns)
 //   broker copy   party + broker content            (broker_* columns)
 //   AI copy       everything except classified      (ai_* columns)
-//   DM copy       everything                        (the plain columns)
-// Anything unknown or unparseable is `dm`: it fails closed.
+//   GM copy       everything                        (the plain columns)
+// Anything unknown or unparseable is `gm`: it fails closed.
 //
 // This file is also the contract other features build on: `Level`,
 // `pageLevel`, `copyFor` and the small helpers below.
 import type { FM } from './frontmatter.ts';
 import type { Block, Inline, PropertyGroup } from '../intake/model.ts';
 
-export type Level = 'party' | 'broker' | 'dm' | 'classified';
-export type Audience = 'player' | 'broker' | 'ai' | 'dm';
+export type Level = 'party' | 'broker' | 'gm' | 'classified';
+export type Audience = 'player' | 'broker' | 'ai' | 'gm';
 
-export const LEVELS: readonly Level[] = ['party', 'broker', 'dm', 'classified'];
-export const AUDIENCES: readonly Audience[] = ['player', 'broker', 'ai', 'dm'];
-export const RANK: Record<Level, number> = { party: 0, broker: 1, dm: 2, classified: 3 };
+export const LEVELS: readonly Level[] = ['party', 'broker', 'gm', 'classified'];
+export const AUDIENCES: readonly Audience[] = ['player', 'broker', 'ai', 'gm'];
+export const RANK: Record<Level, number> = { party: 0, broker: 1, gm: 2, classified: 3 };
 /** The highest level rank each audience may read. */
-export const AUDIENCE_MAX: Record<Audience, number> = { player: 0, broker: 1, ai: 2, dm: 3 };
+export const AUDIENCE_MAX: Record<Audience, number> = { player: 0, broker: 1, ai: 2, gm: 3 };
 
 /** The request header every model-facing caller sends; the library serves the AI copy when it is there. */
 export const CALLER_HEADER = 'x-alexandria-caller';
@@ -35,32 +35,32 @@ export const CALLER_MODEL = 'model';
 
 export const maxLevel = (...ls: (Level | null | undefined)[]): Level => ls.reduce<Level>((a, b) => (b && RANK[b] > RANK[a] ? b : a), 'party');
 export const canSeeLevel = (level: Level, audience: Audience): boolean => RANK[level] <= AUDIENCE_MAX[audience];
-/** True when the level may be shown to the audience (unknown levels never are, except to the DM). */
-export const levelOk = (level: unknown, audience: Audience): boolean => (isLevel(level) ? canSeeLevel(level, audience) : audience === 'dm');
-export const isLevel = (v: unknown): v is Level => v === 'party' || v === 'broker' || v === 'dm' || v === 'classified';
+/** True when the level may be shown to the audience (unknown levels never are, except to the GM). */
+export const levelOk = (level: unknown, audience: Audience): boolean => (isLevel(level) ? canSeeLevel(level, audience) : audience === 'gm');
+export const isLevel = (v: unknown): v is Level => v === 'party' || v === 'broker' || v === 'gm' || v === 'classified';
 
-/** A level from a stored or typed value. Anything unknown is `dm`. */
+/** A level from a stored or typed value. Anything unknown is `gm`. */
 export function normLevel(v: unknown): Level {
   const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
   if (s === 'party' || s === 'players' || s === 'public' || s === 'shared') return 'party';
   if (s === 'broker') return 'broker';
   if (s === 'classified') return 'classified';
-  return 'dm';
+  return 'gm';
 }
 
 /**
  * The level a page has for ONE account whose own per-user source key sees it
- * (features/sourcekeys). A source that marks a page private says `dm`; an
+ * (features/sourcekeys). A source that marks a page private says `gm`; an
  * account whose verified per-user key can read that page may open its player
  * copy. Only the source's own marking is lifted: `markerLevel` (broker and
- * classified tags and levels; secret blocks and DM fact groups are cut from
- * the copy anyway) is never lowered, a source set to `dm` or `party` is not
+ * classified tags and levels; secret blocks and GM fact groups are cut from
+ * the copy anyway) is never lowered, a source set to `gm` or `party` is not
  * touched, and anything unknown stays as stored. Fails closed.
  */
 export function levelForAccountKey(p: { visibility?: unknown; sourceLevel?: unknown; markerLevel?: unknown; audience?: unknown }, keySees: boolean): Level {
   const stored = normLevel(p.visibility);
-  if (!keySees || p.audience !== 'auto' || stored !== 'dm') return stored;
-  if (p.sourceLevel !== 'dm' || !isLevel(p.markerLevel)) return stored;
+  if (!keySees || p.audience !== 'auto' || stored !== 'gm') return stored;
+  if (p.sourceLevel !== 'gm' || !isLevel(p.markerLevel)) return stored;
   return RANK[p.markerLevel] < RANK[stored] ? p.markerLevel : stored;
 }
 
@@ -79,7 +79,7 @@ export function tagLevel(tags: unknown): Level {
 }
 
 export interface PageLevelInput {
-  /** The page's own visibility (party, broker, dm, classified; anything else is dm). Missing means dm. */
+  /** The page's own visibility (party, broker, gm, classified; anything else is gm). Missing means gm. */
   visibility?: unknown;
   tags?: unknown;
   frontmatter?: FM | Record<string, unknown> | null;
@@ -112,50 +112,50 @@ export function headingNamedLevel(text: string): Level | null {
   return m ? (m[1].toLowerCase() as Level) : null;
 }
 
-const DM_CALLOUTS = new Set(['secret', 'dm', 'gm', 'gm-only', 'dm-only', 'private']);
+const GM_CALLOUTS = new Set(['secret', 'dm', 'gm', 'gm-only', 'dm-only', 'private']);
 export function calloutVariantLevel(variant: string): Level {
   const v = String(variant ?? '').trim().toLowerCase();
   if (/^classified([-_ ]only)?$/.test(v)) return 'classified';
   if (/^broker([-_ ]only)?$/.test(v)) return 'broker';
-  if (DM_CALLOUTS.has(v)) return 'dm';
+  if (GM_CALLOUTS.has(v)) return 'gm';
   return 'party';
 }
 
 const inlineText = (c: Inline[] | undefined) => (c ?? []).map((x) => x.text ?? x.mention?.text ?? x.mention?.name ?? '').join('');
 
-/** A group's level: an explicit one, `dm: true`, or a title like "Broker" or "Classified". */
+/** A group's level: an explicit one, `gm: true`, or a title like "Broker" or "Classified". */
 export function groupLevel(g: PropertyGroup): Level {
   const t = g.title?.trim() ?? '';
   const named = levelOfWord(t);
-  const dmTitle = /^(secret|secrets|dm|dm[ _-].*|gm|gm[ _-].*|private|hidden)$/i.test(t);
-  return maxLevel(g.level && isLevel(g.level) ? g.level : null, g.dm ? 'dm' : null, dmTitle ? 'dm' : null, named);
+  const gmTitle = /^(secret|secrets|dm|dm[ _-].*|gm|gm[ _-].*|private|hidden)$/i.test(t);
+  return maxLevel(g.level && isLevel(g.level) ? g.level : null, (g.gm || (g as any).dm) ? 'gm' : null, gmTitle ? 'gm' : null, named);
 }
 
-/** A property row or frontmatter key's level: `broker_price` is broker, `classified_x` classified, `dm_notes` dm. */
+/** A property row or frontmatter key's level: `broker_price` is broker, `classified_x` classified, `gm_notes` gm. */
 export function keyLevel(key: string): Level {
   const k = String(key ?? '').trim();
   if (/^classified([ _-].*)?$/i.test(k)) return 'classified';
   if (/^broker([ _-].*)?$/i.test(k)) return 'broker';
-  if (/^(secret|secrets|dm|dm[ _-].*|gm|gm[ _-].*|private|hidden)$/i.test(k)) return 'dm';
+  if (/^(secret|secrets|dm|dm[ _-].*|gm|gm[ _-].*|private|hidden)$/i.test(k)) return 'gm';
   return 'party';
 }
 
 /** The level a block carries on its own (not counting a heading section it sits in or its children). */
 export function blockLevel(b: Block): Level {
   switch (b.kind) {
-    case 'secret': return isLevel((b as any).level) ? (b as any).level : 'dm';
-    case 'unsupported': return 'dm';
+    case 'secret': return isLevel((b as any).level) ? (b as any).level : 'gm';
+    case 'unsupported': return 'gm';
     case 'callout': return maxLevel(calloutVariantLevel(b.variant), levelOfWord(inlineText(b.title)));
     case 'toggle': return levelOfWord(inlineText(b.title)) ?? 'party';
     default: return 'party';
   }
 }
 
-/** The level a heading starts a section at: Broker / Classified, or the older DM headings. */
-export function headingLevel(b: Block, dmHeading: RegExp): Level {
+/** The level a heading starts a section at: Broker / Classified, or the older GM headings. */
+export function headingLevel(b: Block, gmHeading: RegExp): Level {
   if (b.kind !== 'heading') return 'party';
   const t = inlineText(b.content).trim();
-  return maxLevel(headingNamedLevel(t), dmHeading.test(t) ? 'dm' : null);
+  return maxLevel(headingNamedLevel(t), gmHeading.test(t) ? 'gm' : null);
 }
 
 // ---- reading a stored copy -----------------------------------------------------
@@ -195,20 +195,20 @@ const parse = <T,>(s: string | null | undefined, fallback: T): T => {
   try { return JSON.parse(s) as T; } catch { return fallback; }
 };
 
-/** The column prefix of each audience's copy ('' is the DM copy). */
-const PREFIX: Record<Audience, string> = { player: 'player_', broker: 'broker_', ai: 'ai_', dm: '' };
+/** The column prefix of each audience's copy ('' is the GM copy). */
+const PREFIX: Record<Audience, string> = { player: 'player_', broker: 'broker_', ai: 'ai_', gm: '' };
 
 /**
  * The stored copy of a page for one audience: blocks, markdown, sidebar
  * properties and frontmatter. Null when the audience has no copy (a page
- * above its level has none). The DM copy is always there. Never computes
+ * above its level has none). The GM copy is always there. Never computes
  * anything: copies are built when a page is saved.
  */
 export function copyFor(page: PageRow, audience: Audience): PageCopy | null {
   const p = PREFIX[audience];
   const row = page as Record<string, string | null | undefined>;
   const body = row[`${p}body`];
-  if (audience !== 'dm' && (body === null || body === undefined)) return null;
+  if (audience !== 'gm' && (body === null || body === undefined)) return null;
   return {
     audience,
     blocks: parse<Block[]>(row[`${p}blocks`], []),
@@ -220,7 +220,7 @@ export function copyFor(page: PageRow, audience: Audience): PageCopy | null {
 
 // ---- text checks ---------------------------------------------------------------
 
-/** The page text (blocks, properties, frontmatter, body) a stored row has for the DM but not in its AI copy: what no model may see. */
+/** The page text (blocks, properties, frontmatter, body) a stored row has for the GM but not in its AI copy: what no model may see. */
 export function classifiedOnly(page: PageRow): boolean {
   return normLevel(page.visibility) === 'classified';
 }
@@ -235,7 +235,7 @@ export function isModelSafe(text: string, classifiedGrams: Set<string> | null | 
   return classifiedMatch(text, classifiedGrams, n) === null;
 }
 
-/** Web addresses are left out: a bare URL in the DM copy and the same URL rendered as a Markdown link in the AI copy must not look like different text. */
+/** Web addresses are left out: a bare URL in the GM copy and the same URL rendered as a Markdown link in the AI copy must not look like different text. */
 const URLS = /\bhttps?:\/\/[^\s)\]*<>]+/gi;
 const tokens = (text: string): string[] => String(text ?? '').replace(URLS, ' ').toLowerCase().replace(/[’]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
 

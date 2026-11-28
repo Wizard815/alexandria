@@ -1,5 +1,5 @@
 // Opening a display on a physical monitor. The Window Management API (Chrome and Edge, with the person's permission) lists the
-// monitors and their rectangles; elsewhere a window just opens and the DM drags it over and presses F11.
+// monitors and their rectangles; elsewhere a window just opens and the GM drags it over and presses F11.
 
 export interface Monitor { key: string; label: string; left: number; top: number; width: number; height: number; primary: boolean }
 
@@ -8,7 +8,7 @@ export const canManageWindows = () => typeof (window as any).getScreenDetails ==
 let cache: Monitor[] = [];
 const ASSIGN_KEY = 'alx.screens.assign';
 
-/** Asks the browser for the monitors (this is where the permission prompt shows). Rejects if the DM says no. */
+/** Asks the browser for the monitors (this is where the permission prompt shows). Rejects if the GM says no. */
 export async function detectMonitors(): Promise<Monitor[]> {
   const d = await (window as any).getScreenDetails();
   const seen = new Map<string, number>();
@@ -28,7 +28,7 @@ export function getAssigned(id: string): string | undefined {
 }
 
 /**
- * Opens a display in its own named window (a second open focuses the same one), filling the monitor the DM assigned to it
+ * Opens a display in its own named window (a second open focuses the same one), filling the monitor the GM assigned to it
  * when the browser can place windows and the permission was given before. Otherwise it opens normally.
  */
 export async function openDisplay(url: string, name: string, id: string, size = 'width=1200,height=800'): Promise<boolean> {

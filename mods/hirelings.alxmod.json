@@ -53,7 +53,7 @@
     {
       "id": "hire",
       "label": "Hire someone",
-      "by": "dm",
+      "by": "gm",
       "record": "hireling",
       "do": "create",
       "ask": [
@@ -68,7 +68,7 @@
     {
       "id": "loyalty",
       "label": "Change loyalty",
-      "by": "dm",
+      "by": "gm",
       "record": "hireling",
       "do": "add",
       "field": "loyalty",
@@ -80,7 +80,7 @@
     {
       "id": "dismiss",
       "label": "Let go",
-      "by": "dm",
+      "by": "gm",
       "record": "hireling",
       "do": "set",
       "set": {
@@ -111,10 +111,10 @@
       }
     },
     {
-      "id": "dm",
+      "id": "gm",
       "title": "Hirelings",
       "record": "hireling",
-      "place": "dm",
+      "place": "gm",
       "columns": [
         "name",
         "job",
@@ -131,7 +131,7 @@
   "rules": [
     {
       "term": "Hirelings (house rule)",
-      "text": "Hirelings are paid **daily** (2 gp skilled, 2 sp unskilled). **Loyalty** runs 0 to 10: fair pay, shares of treasure and kindness raise it; danger without reward and abuse lower it. At 0 they leave or betray the party; in a crisis the DM may test loyalty with a d10 against it."
+      "text": "Hirelings are paid **daily** (2 gp skilled, 2 sp unskilled). **Loyalty** runs 0 to 10: fair pay, shares of treasure and kindness raise it; danger without reward and abuse lower it. At 0 they leave or betray the party; in a crisis the GM may test loyalty with a d10 against it."
     }
   ],
   "assistant": {
@@ -142,7 +142,7 @@
       "retainer",
       "torchbearer"
     ],
-    "dm": "Hirelings are on: track each one's wage and loyalty (0-10). Propose a loyalty change when the party pays, shares treasure or puts them in danger; in a crisis roll d10 against loyalty (over it, they flee or refuse). At 0 they leave.",
+    "gm": "Hirelings are on: track each one's wage and loyalty (0-10). Propose a loyalty change when the party pays, shares treasure or puts them in danger; in a crisis roll d10 against loyalty (over it, they flee or refuse). At 0 they leave.",
     "player": "The party's hirelings are listed with their wage and loyalty. Paying fairly and sharing treasure keeps them loyal."
   }
 }

@@ -1,7 +1,7 @@
 // DownTime: the house rule switches it on, players start activities and pick
-// in a Downtime round, tiers set the length, the DM adds and takes time,
+// in a Downtime round, tiers set the length, the GM adds and takes time,
 // stops tasks midway and gives rewards, everything is logged with the world
-// date, the Codex link files a learn request, and DM-only parts stay hidden.
+// date, the Codex link files a learn request, and GM-only parts stay hidden.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -42,11 +42,11 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Restwell', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Restwell', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : 'Tomas' });
     T[name] = j.token;
     ID[name] = j.account.id;
@@ -58,11 +58,11 @@ after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true });
 test('TestDowntime_OffUntilTheHouseRuleIsOn', async () => {
   const r = await call('POST', `${D()}/tasks`, T.jess, { activityId: 'pre-work' });
   assert.equal(r.status, 403);
-  const mods = await ok('GET', `/api/worlds/${W}/mods`, T.dm);
+  const mods = await ok('GET', `/api/worlds/${W}/mods`, T.gm);
   const dt = mods.mods.find((m: any) => m.id === 'downtime');
   assert.ok(dt, 'the rule ships from mods/downtime.alxmod.json');
   assert.equal(dt.feature, 'downtime');
-  await ok('PUT', `/api/worlds/${W}/mods/downtime/enabled`, T.dm, { on: true });
+  await ok('PUT', `/api/worlds/${W}/mods/downtime/enabled`, T.gm, { on: true });
   const o = await ok('GET', D(), T.jess);
   assert.equal(o.on, true);
   assert.equal(o.dayHours, 8);
@@ -76,19 +76,19 @@ test('TestDowntime_OffUntilTheHouseRuleIsOn', async () => {
 });
 
 test('TestDowntime_RoundPickProgressAndLog', async () => {
-  const clockBefore = (await ok('GET', `/api/worlds/${W}/clock`, T.dm)).minutes;
+  const clockBefore = (await ok('GET', `/api/worlds/${W}/clock`, T.gm)).minutes;
   // Jess starts research (uncommon: 3 days) herself.
   const research = await ok('POST', `${D()}/tasks`, T.jess, { activityId: 'Research lore' });
   assert.equal(research.tier, 'uncommon');
   assert.equal(research.needMin, 3 * 8 * 60);
-  // A player cannot start a round; the DM presses Downtime for 2 days.
+  // A player cannot start a round; the GM presses Downtime for 2 days.
   assert.equal((await call('POST', `${D()}/rounds`, T.jess, { days: 2 })).status, 403);
-  const { round } = await ok('POST', `${D()}/rounds`, T.dm, { days: 2, note: 'Resting in Saltmarsh' });
+  const { round } = await ok('POST', `${D()}/rounds`, T.gm, { days: 2, note: 'Resting in Saltmarsh' });
   assert.equal(round.days, 2);
   assert.equal(round.answers.length, 2);
   assert.ok(round.answers.every((a: any) => a.waiting));
-  assert.equal((await ok('GET', `/api/worlds/${W}/clock`, T.dm)).minutes, clockBefore + 2 * 1440, 'the clock moved two days');
-  assert.equal((await call('POST', `${D()}/rounds`, T.dm, { days: 1 })).status, 409, 'one round at a time');
+  assert.equal((await ok('GET', `/api/worlds/${W}/clock`, T.gm)).minutes, clockBefore + 2 * 1440, 'the clock moved two days');
+  assert.equal((await call('POST', `${D()}/rounds`, T.gm, { days: 1 })).status, 409, 'one round at a time');
   // Too much work for two days is refused.
   assert.equal((await call('POST', `${D()}/rounds/current/pick`, T.jess, { picks: [{ taskId: research.id, days: 3 }] })).status, 400);
   // Jess: 2 days of research plus a 1-hour daily vigil does not fit (16h + 2h > 16h)...
@@ -105,13 +105,13 @@ test('TestDowntime_RoundPickProgressAndLog', async () => {
   assert.equal((await task('jess', 'Legendary vigil')).doneMin, 0);
   // Tom skips.
   await ok('POST', `${D()}/rounds/current/pick`, T.tom, { skip: true });
-  const dmView = (await ok('GET', `${D()}/rounds/current`, T.dm)).round;
-  assert.equal(dmView.answers.find((a: any) => a.accountId === ID.tom).skipped, true);
+  const gmView = (await ok('GET', `${D()}/rounds/current`, T.gm)).round;
+  assert.equal(gmView.answers.find((a: any) => a.accountId === ID.tom).skipped, true);
   // A player sees only their own answer.
   const jv = (await ok('GET', `${D()}/rounds/current`, T.jess)).round;
   assert.equal(jv.answers, undefined);
   assert.ok(jv.mine);
-  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  await ok('POST', `${D()}/rounds/current/close`, T.gm);
   // The log: when (real and in-world) and how long.
   const log = (await ok('GET', `${D()}/log`, T.jess)).log;
   const work = log.find((l: any) => l.kind === 'work' && !l.undone);
@@ -124,64 +124,64 @@ test('TestDowntime_RoundPickProgressAndLog', async () => {
 
 test('TestDowntime_TimeAddedLostRemovedAndRewards', async () => {
   const r1 = await task('jess', 'Research lore');
-  // The DM sets a hidden reward and a private note.
-  await ok('PATCH', `${D()}/tasks/${r1.id}`, T.dm, { reward: { text: 'The map to the vault', gp: 5, item: 'Old map', hidden: true }, dmNote: 'SECRET-DOWNTIME-NOTE' });
+  // The GM sets a hidden reward and a private note.
+  await ok('PATCH', `${D()}/tasks/${r1.id}`, T.gm, { reward: { text: 'The map to the vault', gp: 5, item: 'Old map', hidden: true }, gmNote: 'SECRET-DOWNTIME-NOTE' });
   const seen = await task('jess', 'Research lore');
   assert.deepEqual(seen.reward, { hidden: true });
-  assert.equal(seen.dmNote, undefined);
+  assert.equal(seen.gmNote, undefined);
   assert.ok(!JSON.stringify(await ok('GET', D(), T.jess)).includes('SECRET-DOWNTIME-NOTE'));
   assert.ok(!JSON.stringify(await ok('GET', D(), T.jess)).includes('vault'));
   // Time lost, then added: finishing it.
-  await ok('POST', `${D()}/tasks/${r1.id}/time`, T.dm, { days: -1, note: 'Fever' });
+  await ok('POST', `${D()}/tasks/${r1.id}/time`, T.gm, { days: -1, note: 'Fever' });
   assert.equal((await task('jess', 'Research lore')).doneMin, 8 * 60);
   assert.equal((await call('POST', `${D()}/tasks/${r1.id}/time`, T.jess, { days: 1 })).status, 403);
-  await ok('POST', `${D()}/tasks/Research lore/time`, T.dm, { player: 'Jessamine', days: 2, note: 'A sage helped' });
+  await ok('POST', `${D()}/tasks/Research lore/time`, T.gm, { player: 'Jessamine', days: 2, note: 'A sage helped' });
   const done = await task('jess', 'Research lore');
   assert.equal(done.status, 'done');
   assert.equal(done.rewardWaiting, true);
-  // The DM gives the reward: coin and the item.
-  await ok('POST', `${D()}/tasks/${r1.id}/reward`, T.dm, {});
+  // The GM gives the reward: coin and the item.
+  await ok('POST', `${D()}/tasks/${r1.id}/reward`, T.gm, {});
   const after = await task('jess', 'Research lore');
   assert.ok(after.rewardGivenAt);
   assert.equal(after.reward.text, 'The map to the vault', 'revealed once given');
   const inv = await ok('GET', `/api/worlds/${W}/inventory`, T.jess);
   assert.ok(JSON.stringify(inv).includes('Old map'));
-  assert.equal((await call('POST', `${D()}/tasks/${r1.id}/reward`, T.dm, {})).status, 409);
+  assert.equal((await call('POST', `${D()}/tasks/${r1.id}/reward`, T.gm, {})).status, 409);
   // Tom's legendary craft (180 days) is stopped midway; the work stays in the log.
-  const sh = await ok('POST', `${D()}/tasks`, T.dm, { player: 'Tomas', activityId: 'pre-craft-legendary' });
+  const sh = await ok('POST', `${D()}/tasks`, T.gm, { player: 'Tomas', activityId: 'pre-craft-legendary' });
   assert.equal(sh.needMin, 180 * 8 * 60);
   assert.equal(sh.scope, 'personal');
-  await ok('POST', `${D()}/tasks/${sh.id}/work`, T.dm, { days: 10, note: 'Foundations' });
-  await ok('DELETE', `${D()}/tasks/${sh.id}?note=${encodeURIComponent('Ran out of gold')}`, T.dm);
-  const log = (await ok('GET', `${D()}/log?player=Tomas`, T.dm)).log;
+  await ok('POST', `${D()}/tasks/${sh.id}/work`, T.gm, { days: 10, note: 'Foundations' });
+  await ok('DELETE', `${D()}/tasks/${sh.id}?note=${encodeURIComponent('Ran out of gold')}`, T.gm);
+  const log = (await ok('GET', `${D()}/log?player=Tomas`, T.gm)).log;
   assert.deepEqual(log.slice(0, 3).map((l: any) => l.kind), ['remove', 'work', 'start']);
   assert.equal(log[1].time, '10 days');
   // Jess cannot touch Tom's task.
   assert.equal((await call('DELETE', `${D()}/tasks/${sh.id}`, T.jess)).status, 404);
 });
 
-test('TestDowntime_PlayerMadeActivityNeedsTheDm', async () => {
-  const { round } = await ok('POST', `${D()}/rounds`, T.dm, { days: 1, advance: false });
+test('TestDowntime_PlayerMadeActivityNeedsTheGm', async () => {
+  const { round } = await ok('POST', `${D()}/rounds`, T.gm, { days: 1, advance: false });
   const p = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activity: { name: 'Forge a dragon-bone blade', summary: 'From the bones we found' } }] });
   const t = await task('tom', 'Forge a dragon-bone blade');
   assert.equal(t.status, 'proposed');
   assert.equal(t.tier, 'legendary', 'word rule: dragon');
-  assert.equal(t.doneMin, 8 * 60, 'the day counts while the DM decides');
+  assert.equal(t.doneMin, 8 * 60, 'the day counts while the GM decides');
   assert.ok(p.round.mine);
   assert.equal((await call('PATCH', `${D()}/tasks/${t.id}`, T.tom, { status: 'active' })).status, 409);
-  // The DM approves it as rare, 2 days, with a reward.
-  const a = await ok('PATCH', `${D()}/tasks/${t.id}`, T.dm, { approve: true, tier: 'rare', days: 2, reward: { item: 'Dragon-bone blade' } });
+  // The GM approves it as rare, 2 days, with a reward.
+  const a = await ok('PATCH', `${D()}/tasks/${t.id}`, T.gm, { approve: true, tier: 'rare', days: 2, reward: { item: 'Dragon-bone blade' } });
   assert.equal(a.status, 'active');
   assert.equal(a.needMin, 2 * 8 * 60);
   const acts = (await ok('GET', `${D()}/activities`, T.jess)).activities;
   assert.ok(acts.some((x: any) => x.name === 'Forge a dragon-bone blade' && x.tier === 'rare'), 'approved: on the world\'s list for everyone');
   // Cancelling the round undoes the day.
-  await ok('POST', `${D()}/rounds/${round.id}/cancel`, T.dm);
+  await ok('POST', `${D()}/rounds/${round.id}/cancel`, T.gm);
   assert.equal((await task('tom', 'Forge a dragon-bone blade')).doneMin, 0);
   // playerNew off: players cannot make new ones.
-  await ok('PUT', `/api/worlds/${W}/mods/downtime/options`, T.dm, { options: { playerNew: 'off' } });
+  await ok('PUT', `/api/worlds/${W}/mods/downtime/options`, T.gm, { options: { playerNew: 'off' } });
   assert.equal((await call('POST', `${D()}/tasks`, T.jess, { activity: { name: 'Paint a mural' } })).status, 403);
-  await ok('PUT', `/api/worlds/${W}/mods/downtime/options`, T.dm, { options: { playerNew: 'approve' } });
+  await ok('PUT', `/api/worlds/${W}/mods/downtime/options`, T.gm, { options: { playerNew: 'approve' } });
 });
 
 test('TestDowntime_SuggestAndDecideWithoutAModel', async () => {
@@ -219,12 +219,12 @@ test('TestDowntime_GroupTasksAreSharedApartFromPersonal', async () => {
   assert.ok((await ok('GET', `${D()}/tasks?scope=group`, T.tom)).tasks.every((t: any) => t.scope === 'group'));
   assert.ok((await ok('GET', `${D()}/tasks?scope=personal`, T.jess)).tasks.every((t: any) => t.scope === 'personal' && t.accountId === ID.jess));
   // Rewarded to the party; both put days in during a round, progress is pooled (uncommon: 3 days).
-  await ok('PATCH', `${D()}/tasks/${g.id}`, T.dm, { reward: { gp: 30, text: 'Drilled as one' } });
-  await ok('POST', `${D()}/rounds`, T.dm, { days: 2, advance: false });
+  await ok('PATCH', `${D()}/tasks/${g.id}`, T.gm, { reward: { gp: 30, text: 'Drilled as one' } });
+  await ok('POST', `${D()}/rounds`, T.gm, { days: 2, advance: false });
   await ok('POST', `${D()}/rounds/current/pick`, T.jess, { picks: [{ taskId: g.id, days: 2 }] });
   const p = await ok('POST', `${D()}/rounds/current/pick`, T.tom, { picks: [{ activityId: 'pre-group-drill', days: 1 }] });
   assert.equal(p.finished.length, 1, 'two days + one day finish a three-day task');
-  await ok('POST', `${D()}/rounds/current/close`, T.dm);
+  await ok('POST', `${D()}/rounds/current/close`, T.gm);
   const done = await task('tom', 'Party training regimen');
   assert.equal(done.status, 'done');
   assert.deepEqual(done.contributions.map((c: any) => [c.accountId, c.minutes]), [[ID.jess, 2 * 8 * 60], [ID.tom, 8 * 60]]);
@@ -232,19 +232,19 @@ test('TestDowntime_GroupTasksAreSharedApartFromPersonal', async () => {
   const log = (await ok('GET', `${D()}/log?task=${g.id}`, T.tom)).log;
   assert.ok(log.some((l: any) => l.kind === 'work' && l.accountId === ID.jess), 'Tom sees Jess\'s work on the shared task');
   // The reward goes to the party pouch.
-  await ok('POST', `${D()}/tasks/${g.id}/reward`, T.dm);
+  await ok('POST', `${D()}/tasks/${g.id}/reward`, T.gm);
   const led = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.tom);
   assert.ok(led.entries.some((e: any) => e.note === 'Downtime: Party training regimen' && e.amount_cp === 3000), 'the party pouch gets the coin');
-  // Players leave a group task; only the DM pauses or removes it.
+  // Players leave a group task; only the GM pauses or removes it.
   const fest = await ok('POST', `${D()}/tasks`, T.jess, { activityId: 'pre-group-festival' });
   assert.equal((await call('DELETE', `${D()}/tasks/${fest.id}`, T.jess)).status, 403);
   assert.equal((await call('PATCH', `${D()}/tasks/${fest.id}`, T.jess, { status: 'paused' })).status, 403);
   assert.deepEqual((await ok('POST', `${D()}/tasks/${fest.id}/leave`, T.jess)).members, []);
   assert.deepEqual((await ok('POST', `${D()}/tasks/${fest.id}/join`, T.tom)).members, [ID.tom]);
-  // The DM gives the whole party a new group task (no player), and a personal one stays personal.
-  const camp = await ok('POST', `${D()}/tasks`, T.dm, { group: true, activity: { name: 'Fortify the camp', tier: 'common' } });
+  // The GM gives the whole party a new group task (no player), and a personal one stays personal.
+  const camp = await ok('POST', `${D()}/tasks`, T.gm, { group: true, activity: { name: 'Fortify the camp', tier: 'common' } });
   assert.equal(camp.accountId, 'party');
   assert.deepEqual(camp.members, []);
   assert.equal((await call('POST', `${D()}/tasks/${(await task('jess', 'Research lore')).id}/join`, T.jess)).status, 409, 'personal tasks have no members');
-  await ok('DELETE', `${D()}/tasks/${fest.id}`, T.dm);
+  await ok('DELETE', `${D()}/tasks/${fest.id}`, T.gm);
 });

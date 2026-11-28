@@ -1,4 +1,4 @@
-// End-to-end test of scenes on the demo world: the DM saves a scene (a stage card for the players' TV, a map for the
+// End-to-end test of scenes on the demo world: the GM saves a scene (a stage card for the players' TV, a map for the
 // table screen, and a lights preset that does not exist), taps it in the side-screen panel, and the players' screen and
 // the table screen change live while the report says the lights part failed and the rest worked. Undo puts both back.
 // The phone's Remote tab lists the same scene. Run from web/: npm run build && node e2e/scenes.mjs   (SCENES_PORT)
@@ -24,8 +24,8 @@ const gone = (loc, ms = 8000) => loc.waitFor({ state: 'detached', timeout: ms })
 const CARD = 'Scene Test Lighthouse Card';
 
 try {
-  const { ctx, page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1080, height: 1900 }, false, /\/w\/saltreach/);
-  watch(page, 'dm');
+  const { ctx, page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1080, height: 1900 }, false, /\/w\/saltreach/);
+  watch(page, 'gm');
   const token = await page.evaluate(() => localStorage.getItem('alx.token'));
   const api = async (method, p, body, raw) => {
     const r = await fetch(`${base}/api/worlds/saltreach${p}`, { method, headers: { ...(raw ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${token}` }, body: raw ? raw : body ? JSON.stringify(body) : undefined });
@@ -104,19 +104,19 @@ try {
     check(r.status === 403, `player ${m} ${p}: ${r.status}, wanted 403`);
   }
 
-  // The DM phone's Remote tab has the same button.
+  // The GM phone's Remote tab has the same button.
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await phone.addInitScript((t) => localStorage.setItem('alx.token', t), token);
   const pp = await phone.newPage();
   watch(pp, 'phone');
-  await pp.goto(`${W}/dm/phone`);
+  await pp.goto(`${W}/gm/phone`);
   await pp.getByRole('tab', { name: /remote/i }).click().catch(() => pp.getByText(/^Remote$/).first().click());
   check(await shows(pp.getByTestId('phone-scene').filter({ hasText: 'Lighthouse' })), 'phone: the scene button is not on the Remote tab');
   note('phone Remote tab lists the scene');
   await phone.close();
 
   // The Scenes page opens and lists it.
-  await page.goto(`${W}/dm/scenes`);
+  await page.goto(`${W}/gm/scenes`);
   check(await shows(page.getByText('Lighthouse').first()), 'scenes page: the scene is not listed');
   await ctx.close();
 } catch (e) {

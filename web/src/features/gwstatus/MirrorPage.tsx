@@ -1,6 +1,6 @@
 // Admin → World mirror: each world is also written to a folder of Markdown files on the server, a copy for people who read the folder
 // (an editor, Obsidian). The database is the truth. This page says whether the folder is complete, when it was last written, and which
-// copies could not be written. An admin who is not a world's DM sees counts only: page paths are page text.
+// copies could not be written. An admin who is not a world's GM sees counts only: page paths are page text.
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
 import { ErrorBox, Loading, PageHead, useAction, useToast } from '../../ui/index.tsx';
@@ -48,14 +48,14 @@ function WorldMirror({ w, onChanged, toast }: { w: MirrorWorld; onChanged: () =>
     onChanged();
   });
   const rows: { key: 'vault' | 'party' | 'api'; name: string; what: string; expect: number }[] = [
-    { key: 'vault', name: 'vault', what: 'every page, as the DM sees it', expect: w.pages },
+    { key: 'vault', name: 'vault', what: 'every page, as the GM sees it', expect: w.pages },
     { key: 'party', name: 'party', what: 'pages shared with players', expect: w.shared },
     { key: 'api', name: '_api', what: 'the party pages as JSON', expect: w.shared },
   ];
   return (
     <Section
       title={<span className="row wrap" style={{ gap: 10 }}>{w.name} <Pill tone={w.failures ? 'bad' : w.exists ? 'ok' : 'warn'}>{!w.exists ? 'No folder yet' : w.failures ? `${w.failures} failed cop${w.failures === 1 ? 'y' : 'ies'}` : 'Complete'}</Pill></span>}
-      lead={<><span className="mono">{w.folder ?? 'no data folder'}</span> · {w.exists ? `last written ${ago(w.lastWrittenAt)}` : 'nothing written'} · {w.view === 'dm' ? 'you are its DM' : 'counts only: you are not its DM'}</>}
+      lead={<><span className="mono">{w.folder ?? 'no data folder'}</span> · {w.exists ? `last written ${ago(w.lastWrittenAt)}` : 'nothing written'} · {w.view === 'gm' ? 'you are its GM' : 'counts only: you are not its GM'}</>}
       actions={<button type="button" className="btn small" disabled={a.busy} onClick={rewrite}>{a.busy && !a.offline ? 'Rewriting…' : 'Rewrite mirror'}</button>}
     >
       <ErrorBox error={a.error} />
@@ -84,7 +84,7 @@ function WorldMirror({ w, onChanged, toast }: { w: MirrorWorld; onChanged: () =>
           </table></div></div>
           <p className="tiny muted">The page itself is saved. Usually a page path needs a name as both a file and a folder (a/Dup.md and a/Dup.md/Child.md). Rename one of them in the library, then rewrite.</p>
         </div>
-      ) : <p className="small muted">{w.failures} cop{w.failures === 1 ? 'y' : 'ies'} could not be written. The page paths are shown only to this world's DM.</p>)}
+      ) : <p className="small muted">{w.failures} cop{w.failures === 1 ? 'y' : 'ies'} could not be written. The page paths are shown only to this world's GM.</p>)}
     </Section>
   );
 }

@@ -15,7 +15,7 @@ test('Audit_Paths: traversal and odd paths are refused, nothing is written outsi
   const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); before.add(p); if (e.isDirectory()) walk(p); } };
   const bad = ['../x.md', '..\\x.md', 'a/../../x.md', '.hidden/x.md', 'a/.git/x.md', 'a\u0000b.md', 'a/\u001fb.md', '', '   ', '/', '././.', 'x'.repeat(400), '.md', 'C:\\Windows\\x'];
   for (const p of bad) {
-    const r = await put(k.T.dm, { path: p, body: 'x' });
+    const r = await put(k.T.gm, { path: p, body: 'x' });
     if (p === '   ' || p === 'C:\\Windows\\x') continue; // allowed names, see below
     assert.ok(r.status === 400, `path ${JSON.stringify(p).slice(0, 40)} -> ${r.status} ${r.text.slice(0, 100)}`);
   }
@@ -29,7 +29,7 @@ test('Audit_Paths: traversal and odd paths are refused, nothing is written outsi
 test('Audit_Paths: unicode, RTL, emoji and very long titles are stored and returned as written', async () => {
   const titles = ['\u202Eevil\u202C RTL', 'Drachen 🐉 und Zwerge', 'עברית כותרת', 'a'.repeat(5000), 'tab\there', 'line\nbreak', '<script>alert(1)</script>', '"quote" & \'single\''];
   for (const [i, t] of titles.entries()) {
-    const r = await put(k.T.dm, { path: `uni/${i}.md`, title: t, body: `# ${t.replace(/\n/g, ' ')}\nbody ${i}`, visibility: 'party' });
+    const r = await put(k.T.gm, { path: `uni/${i}.md`, title: t, body: `# ${t.replace(/\n/g, ' ')}\nbody ${i}`, visibility: 'party' });
     assert.ok(r.status === 200 || r.status === 400, `title ${i} -> ${r.status} ${r.text.slice(0, 100)}`);
     if (r.status !== 200) continue;
     const got = await k.call('GET', k.w(`/library/pages/${r.body.id}`), k.T.jess);
@@ -53,7 +53,7 @@ test('Audit_Paths: malformed and oversized bodies answer 400 or 413, never 500',
     ['PUT', k.w('/library/pages'), { path: ['a'], body: 'x' }],
     ['PUT', k.w('/library/pages'), { path: 'ok.md', body: { a: 1 } }],
     ['PUT', k.w('/library/pages'), { path: 'ok2.md', body: 'x', frontmatter: 'nope' }],
-    ['PUT', k.w('/library/pages'), { path: 'ok3.md', body: 'x', frontmatter: { tags: { a: { b: 1 } }, aliases: 5, visibility: ['dm'] } }],
+    ['PUT', k.w('/library/pages'), { path: 'ok3.md', body: 'x', frontmatter: { tags: { a: { b: 1 } }, aliases: 5, visibility: ['gm'] } }],
     ['PUT', k.w('/library/pages'), { path: 'ok4.md', markdown: '---\n: : :\n  - [\n---\nbody' }],
     ['PUT', k.w('/library/pages'), { path: 'ok5.md', markdown: '---\ntitle: [unterminated\n' }],
     ['POST', k.w('/library/pages/bulk'), { ids: 'x' }],
@@ -75,9 +75,9 @@ test('Audit_Paths: malformed and oversized bodies answer 400 or 413, never 500',
     ['POST', '/api/join', { code: {}, username: 'x', password: 'y' }],
   ];
   for (const [m, u, b] of cases) {
-    const r = await k.call(m, u, k.T.dm, typeof b === 'string' ? b : JSON.stringify(b));
+    const r = await k.call(m, u, k.T.gm, typeof b === 'string' ? b : JSON.stringify(b));
     assert.ok(r.status < 500, `${m} ${u.replace(k.W, ':w')} ${typeof b === 'string' ? b : JSON.stringify(b).slice(0, 80)} -> ${r.status} ${r.text.slice(0, 100)}`);
   }
-  const big = await k.call('PUT', k.w('/library/pages'), k.T.dm, JSON.stringify({ path: 'big.md', body: 'x'.repeat(30 * 1024 * 1024) }));
+  const big = await k.call('PUT', k.w('/library/pages'), k.T.gm, JSON.stringify({ path: 'big.md', body: 'x'.repeat(30 * 1024 * 1024) }));
   assert.ok(big.status === 413 || big.status === 400, `a 30 MB body -> ${big.status}`);
 });

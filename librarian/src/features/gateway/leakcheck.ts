@@ -1,5 +1,5 @@
 // The runtime leak check: reads each world's library as each player and guest and checks that no run of
-// 8 words of DM-only text (DM pages, secret blocks, broker and classified parts, DM transcript lines)
+// 8 words of GM-only text (GM pages, secret blocks, broker and classified parts, GM transcript lines)
 // shows up. It reads through the same library calls the web app, the offline bulk fetch and the MCP read
 // tools use (Library.list / get / search, and the global search), so a leak found here is one those would serve.
 //
@@ -10,7 +10,7 @@ import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
 import type { Viewer } from '../../core/policy.ts';
 import { now, parseJson } from '../../core/util.ts';
-import { dmOnlyGrams, grams, treeText } from '../agent/leak.ts';
+import { gmOnlyGrams, grams, treeText } from '../agent/leak.ts';
 import { globalSearch } from '../search/global.ts';
 
 export const SCHEMA = `
@@ -49,11 +49,11 @@ function pageTexts(pg: any): string[] {
   return out;
 }
 
-/** Search words that would find DM-only text: titles of pages no player may open, and the first words of DM-only runs. */
-function queriesFor(db: DB, worldId: string, dm: Set<string>): string[] {
+/** Search words that would find GM-only text: titles of pages no player may open, and the first words of GM-only runs. */
+function queriesFor(db: DB, worldId: string, gm: Set<string>): string[] {
   const q = new Set<string>();
   for (const p of all<{ title: string }>(db, `SELECT title FROM pages WHERE world_id = ? AND visibility <> 'party' LIMIT ?`, worldId, SEARCH_QUERIES)) q.add(p.title);
-  for (const g of dm) { if (q.size >= SEARCH_QUERIES * 2) break; q.add(g.split(' ').slice(0, 3).join(' ')); }
+  for (const g of gm) { if (q.size >= SEARCH_QUERIES * 2) break; q.add(g.split(' ').slice(0, 3).join(' ')); }
   return [...q].filter((s) => s.trim().length > 1);
 }
 
@@ -102,12 +102,12 @@ async function execute(d: Deps, runId: number): Promise<void> {
   const findings: Finding[] = [];
   let viewers = 0, pages = 0, reads = 0, leaks = 0, worldCount = 0;
   const found = (f: Finding) => { leaks++; if (findings.length < MAX_FINDINGS) findings.push(f); };
-  const hit = (texts: string[], dm: Set<string>) => texts.some((t) => { for (const g of grams(t)) if (dm.has(g)) return true; return false; });
+  const hit = (texts: string[], gm: Set<string>) => texts.some((t) => { for (const g of grams(t)) if (gm.has(g)) return true; return false; });
 
   for (const w of all<{ id: string; name: string }>(db, 'SELECT id, name FROM worlds ORDER BY name')) {
     worldCount++;
-    const dm = dmOnlyGrams(db, w.id);
-    const queries = dm.size ? queriesFor(db, w.id, dm) : [];
+    const gm = gmOnlyGrams(db, w.id);
+    const queries = gm.size ? queriesFor(db, w.id, gm) : [];
     const people = all<{ account_id: string; role: string }>(db, `SELECT account_id, role FROM members WHERE world_id = ? AND role IN ('player', 'guest')`, w.id);
     // Every player and guest, and one guest who has no account at all.
     const subjects: { v: Viewer; label: string }[] = [
@@ -119,10 +119,10 @@ async function execute(d: Deps, runId: number): Promise<void> {
       const at = (surface: Surface, pageId: string | null, kind: string): Finding => ({ world: w.id, worldName: w.name, viewer: label, surface, pageId, kind });
       // Pages this person's own key or a share lifts to them are judged by the copy they are meant to have: those words are theirs.
       const lifted = v.accountId ? L.liftedInfo(w.id, v.accountId) : new Map();
-      const mine = new Set(dm);
+      const mine = new Set(gm);
       const list = L.list(w.id, v) as any[];
       reads++;
-      for (const p of list) if (hit([p.title, p.path, ...(p.tags ?? [])], dm) && !lifted.has(p.id)) found(at('list', p.id, 'page-list'));
+      for (const p of list) if (hit([p.title, p.path, ...(p.tags ?? [])], gm) && !lifted.has(p.id)) found(at('list', p.id, 'page-list'));
       const served: { id: string; texts: string[] }[] = [];
       for (const p of list) {
         let pg: any;

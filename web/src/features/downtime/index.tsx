@@ -1,20 +1,20 @@
-// DownTime: downtime activities from common to legendary, the DM's Downtime
+// DownTime: downtime activities from common to legendary, the GM's Downtime
 // button and the players' popup. Server: librarian/src/features/downtime; the
 // house rule that turns it on: mods/downtime.alxmod.json.
 import type { WebFeature } from '../registry.ts';
-import { Activities, DMDowntime, DowntimeCard } from './DM.tsx';
+import { Activities, GMDowntime, DowntimeCard } from './GM.tsx';
 import { DowntimePopup, PlayerDowntime } from './Player.tsx';
 
 const feature: WebFeature = {
   id: 'downtime',
-  dmRoutes: [{ path: 'downtime', element: <DMDowntime /> }],
+  gmRoutes: [{ path: 'downtime', element: <GMDowntime /> }],
   playerRoutes: [{ path: 'downtime', element: <PlayerDowntime /> }],
-  dmNav: [{ to: 'downtime' }],
+  gmNav: [{ to: 'downtime' }],
   playerNav: [{ to: 'downtime', label: 'Downtime', icon: 'fa-hourglass-half' }],
   overlay: DowntimePopup,
-  dmHome: [DowntimeCard],
+  gmHome: [DowntimeCard],
   houseRuleTabs: [{ mod: 'downtime', title: 'DownTime activities', component: Activities }],
 };
-// The DM's Table (when this server has its block registry) shows the Downtime button in the "now" zone.
-Object.assign(feature, { dmTable: [{ id: 'downtime', label: 'Downtime', zone: 'now', order: 30, component: DowntimeCard }] });
+// The GM's Table (when this server has its block registry) shows the Downtime button in the "now" zone.
+Object.assign(feature, { gmTable: [{ id: 'downtime', label: 'Downtime', zone: 'now', order: 30, component: DowntimeCard }] });
 export default feature;

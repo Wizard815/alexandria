@@ -1,6 +1,6 @@
 // Gateway status for the admin (/api/admin/gwstatus/*, admins only): what each connection is doing, the world mirror on disk, the files
 // held from sources, and what people search for. Everything here is a number, a name or a time. Being an admin does not open a world: query
-// text, page paths and file names appear only where the admin is that world's DM, and never a token or a keyed URL.
+// text, page paths and file names appear only where the admin is that world's GM, and never a token or a keyed URL.
 //
 //   GET  /connections         per connection: calls today and this hour, last success, last (cleaned) error, health, rate-limit state
 //   GET  /mirror              per world: the folder's files, when last written, failed copies
@@ -8,7 +8,7 @@
 //   GET  /files               per world and source: files held, sizes, last fetched, disk totals (re-fetch: POST /api/admin/sources/:id/sync)
 //   DELETE /files/library/:id     delete a library file (the only kind removed here)
 //   GET  /searches?days=7     what people searched, what found nothing, results by source
-//   POST /searches/draft      the DM of a world: DM-only draft pages for queries that found nothing
+//   POST /searches/draft      the GM of a world: GM-only draft pages for queries that found nothing
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';

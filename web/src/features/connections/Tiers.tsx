@@ -1,6 +1,6 @@
 // The tiered crawl on the world page: for each source, the index (list calls,
 // pages), the details read so far, the background budget, "Fetch everything
-// now" and pause. Also the DM's depth badge on a library page.
+// now" and pause. Also the GM's depth badge on a library page.
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';
@@ -48,7 +48,7 @@ export function TierPanel({ worldId, active }: { worldId: string; active: boolea
   return (
     <div className="stack tight" style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
       <strong>Reading the sources</strong>
-      <p className="tiny muted" style={{ margin: 0 }}>A crawl only lists: the fewest calls that put every page in the library with its title, type, tags and parent. Pages are read in full when someone opens one, when the agent or a search needs it, and in the background within the budget below. Until then a page is DM-only.</p>
+      <p className="tiny muted" style={{ margin: 0 }}>A crawl only lists: the fewest calls that put every page in the library with its title, type, tags and parent. Pages are read in full when someone opens one, when the agent or a search needs it, and in the background within the budget below. Until then a page is GM-only.</p>
       {list.map((t) => <TierRow key={t.id} t={t} onChanged={() => void tiers.reload()} />)}
       <ErrorBox error={tiers.error} />
     </div>
@@ -106,12 +106,12 @@ function TierRow({ t, onChanged }: { t: TierInfo; onChanged: () => void }) {
   );
 }
 
-/** DM only: how much of a library page has been read from its source. Shows nothing for a page read in full. */
+/** GM only: how much of a library page has been read from its source. Shows nothing for a page read in full. */
 export function DepthBadge({ pageId }: { pageId: string }) {
-  const { w, isDM } = useWorld();
-  const d = useLoad<{ depths: Record<string, string> }>(() => (isDM ? w.call('GET', '/world-sources/depths') : Promise.resolve({ depths: {} })), [w, isDM, pageId]);
+  const { w, isGM } = useWorld();
+  const d = useLoad<{ depths: Record<string, string> }>(() => (isGM ? w.call('GET', '/world-sources/depths') : Promise.resolve({ depths: {} })), [w, isGM, pageId]);
   const v = d.data?.depths?.[pageId];
-  if (!isDM || !v) return null;
+  if (!isGM || !v) return null;
   const text = v === 'index' ? 'Listed only' : v === 'summary' ? 'Excerpt only' : 'Changed at source';
   return <span className="chip" title="Pages are read from their source when opened; this view is from before that.">{text}</span>;
 }

@@ -1,7 +1,7 @@
 // The world mirror, as the admin sees it: each world's folder of copies on disk (vault, party, _api), how many files, when one was last
 // written, and the copies that could not be written. The database is the truth; the folder is a copy for people who read it.
 //
-// A non-DM admin gets counts only: the paths of failed copies are page paths, and a DM-only page's path is DM-only.
+// A non-GM admin gets counts only: the paths of failed copies are page paths, and a GM-only page's path is GM-only.
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Deps } from '../../app.ts';
@@ -67,7 +67,7 @@ function walk(dir: string): { files: number; bytes: number; newest: number } {
 }
 
 export interface MirrorWorld {
-  id: string; name: string; slug: string; view: 'dm' | 'counts'; folder: string | null; exists: boolean;
+  id: string; name: string; slug: string; view: 'gm' | 'counts'; folder: string | null; exists: boolean;
   pages: number; shared: number;
   copies: Record<'vault' | 'party' | 'api', { files: number; bytes: number }>;
   lastWrittenAt: string | null; failures: number; failed: { copy: string; path: string; error: string; at: string; attempts: number }[] | null;
@@ -78,7 +78,7 @@ export function mirrorStatus(d: Deps, accountId: string): { enabled: boolean; wo
   const totals = { files: 0, bytes: 0, failures: 0 };
   const out: MirrorWorld[] = worlds.map((w) => {
     const dir = d.library.mirrorDir(w.id);
-    const isDm = adminViewer(d.db, w.id, accountId).role === 'dm';
+    const isGm = adminViewer(d.db, w.id, accountId).role === 'gm';
     const exists = !!dir && fs.existsSync(dir);
     const copy = (sub: string) => (exists ? walk(path.join(dir!, sub)) : { files: 0, bytes: 0, newest: 0 });
     const v = copy('vault'), p = copy('party'), a = copy('_api');
@@ -86,14 +86,14 @@ export function mirrorStatus(d: Deps, accountId: string): { enabled: boolean; wo
     const newest = Math.max(v.newest, p.newest, a.newest);
     totals.files += v.files + p.files + a.files; totals.bytes += v.bytes + p.bytes + a.bytes; totals.failures += failures;
     return {
-      id: w.id, name: w.name, slug: w.slug, view: isDm ? 'dm' : 'counts',
+      id: w.id, name: w.name, slug: w.slug, view: isGm ? 'gm' : 'counts',
       folder: dir ? `worlds/${w.slug}` : null, exists,
       pages: one<{ n: number }>(d.db, 'SELECT COUNT(*) AS n FROM pages WHERE world_id = ?', w.id)?.n ?? 0,
       shared: one<{ n: number }>(d.db, 'SELECT COUNT(*) AS n FROM pages WHERE world_id = ? AND player_body IS NOT NULL', w.id)?.n ?? 0,
       copies: { vault: { files: v.files, bytes: v.bytes }, party: { files: p.files, bytes: p.bytes }, api: { files: a.files, bytes: a.bytes } },
       lastWrittenAt: newest ? new Date(newest).toISOString() : null,
       failures,
-      failed: isDm ? all<any>(d.db, 'SELECT copy, path, error, at, attempts FROM gwstatus_mirror_failures WHERE world_id = ? ORDER BY at DESC LIMIT 200', w.id) : null,
+      failed: isGm ? all<any>(d.db, 'SELECT copy, path, error, at, attempts FROM gwstatus_mirror_failures WHERE world_id = ? ORDER BY at DESC LIMIT 200', w.id) : null,
     };
   });
   return { enabled: !!d.dataDir, worlds: out, totals };

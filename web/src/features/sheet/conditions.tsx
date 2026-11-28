@@ -1,5 +1,5 @@
 // Conditions on the sheet come from the world's game modules (SRD 5.2, SRD
-// 5.1 or whatever the DM imported): the picker lists every condition those
+// 5.1 or whatever the GM imported): the picker lists every condition those
 // modules define, and hovering a condition shows its rules summary. A tap
 // opens the full text. Common table states that are not rules conditions
 // (Concentrating, Blessed…) stay on the list too.

@@ -1,4 +1,4 @@
-// Pops up over any player screen when the DM sends a quick event that is
+// Pops up over any player screen when the GM sends a quick event that is
 // for me. Flow: answer (choice or roll) -> "sent, waiting" -> outcome.
 // Players only ever see their own outcome; the DC and the other result text
 // never reach the browser (the librarian filters them).
@@ -118,7 +118,7 @@ function Prompt({ ev, onClose, onAnswered }: { ev: QE; onClose: () => void; onAn
                 <button type="button" className="btn" disabled={act.busy} onClick={() => void send({ modifier: Number(mod) || 0 })}>Roll for me</button>
                 <button type="button" className="btn ghost" disabled={act.busy} onClick={() => void send({ pass: true })}>Pass</button>
               </div>
-              <span className="tiny faint">Your total goes to the DM. You only learn the result if the DM shares it.</span>
+              <span className="tiny faint">Your total goes to the GM. You only learn the result if the GM shares it.</span>
             </div>
           ) : (
             <div className="stack">
@@ -130,7 +130,7 @@ function Prompt({ ev, onClose, onAnswered }: { ev: QE; onClose: () => void; onAn
                 </button>
               ))}
               {ev.kind === 'reaction' && <span className="tiny faint">Fastest answer wins.</span>}
-              {ev.kind === 'vote' && <span className="tiny faint">{ev.tally ? 'Votes are shown to everyone.' : 'The DM sees the votes.'}</span>}
+              {ev.kind === 'vote' && <span className="tiny faint">{ev.tally ? 'Votes are shown to everyone.' : 'The GM sees the votes.'}</span>}
             </div>
           )
         )}
@@ -143,13 +143,13 @@ function Prompt({ ev, onClose, onAnswered }: { ev: QE; onClose: () => void; onAn
               {ev.mine!.total !== null ? `You rolled ${ev.mine!.total}${ev.mine!.roll !== null && ev.mine!.roll !== ev.mine!.total ? ` (${ev.mine!.roll} on the die)` : ''}`
                 : ev.mine!.choice !== null ? `You chose: ${ev.options[ev.mine!.choice] ?? 'your answer'}` : 'You passed'}
             </strong>
-            <span className="muted">Sent. Waiting for the DM…</span>
+            <span className="muted">Sent. Waiting for the GM…</span>
           </div>
         )}
 
         {resolved && (
           <div className={ev.mine?.result === 'success' ? 'ok-box' : 'note'} role="status">
-            <strong>{!isCheck && ev.kind !== 'reaction' ? 'The DM has decided' : ev.mine?.result === 'success' ? (ev.kind === 'reaction' ? 'You were first' : 'It works') : ev.mine?.result === 'fail' ? 'Not this time' : 'Resolved'}</strong>
+            <strong>{!isCheck && ev.kind !== 'reaction' ? 'The GM has decided' : ev.mine?.result === 'success' ? (ev.kind === 'reaction' ? 'You were first' : 'It works') : ev.mine?.result === 'fail' ? 'Not this time' : 'Resolved'}</strong>
             {ev.outcome && <p className="read" style={{ marginTop: 6 }}>{ev.outcome}</p>}
           </div>
         )}

@@ -1,6 +1,6 @@
 // Obsidian export and import of the vault (docs/MINERVA.md §9): a zip of
 // Markdown files with front matter in the layout of §2. Import checks every
-// path against that layout and every level (a page without one is dm; dm/ can
+// path against that layout and every level (a page without one is gm; gm/ can
 // never be opened to players).
 import zlib from 'node:zlib';
 import type { Deps } from '../../app.ts';
@@ -71,17 +71,17 @@ export function exportVault(d: Deps, worldId: string): Buffer {
   const files = listPages(d, worldId).map((p) => {
     let rel = p.rel;
     let fm = p.fm;
-    const note = /^dm\/players\/([^/]+)\.md$/.exec(rel)?.[1];
+    const note = /^gm\/players\/([^/]+)\.md$/.exec(rel)?.[1];
     const acc = /^players\/([^/]+)\//.exec(rel)?.[1] ?? note;
     const who = acc ? ps.find((x) => x.accountId === acc) : undefined;
     if (acc && who) {
-      rel = note ? `dm/players/${folder.get(acc)}.md` : `players/${folder.get(acc)}/${rel.slice(`players/${acc}/`.length)}`;
+      rel = note ? `gm/players/${folder.get(acc)}.md` : `players/${folder.get(acc)}/${rel.slice(`players/${acc}/`.length)}`;
       fm = { ...fm, player: acc, player_name: who.name, character: who.character, username: who.username };
     } else if (acc) fm = { ...fm, player: acc };
     return { name: rel, data: Buffer.from(toMarkdown({ fm, body: p.body }), 'utf8') };
   });
   // Every arc, even one with no pages yet, so the import can make its row.
-  for (const a of listArcs(d.db, worldId)) files.push({ name: `chronicle/arcs/${a.slug}/arc.md`, data: Buffer.from(toMarkdown({ fm: { type: 'arc', level: 'dm', arc: a.slug, title: a.title, status: a.status, n: a.n }, body: `# ${a.title}\n` }), 'utf8') });
+  for (const a of listArcs(d.db, worldId)) files.push({ name: `chronicle/arcs/${a.slug}/arc.md`, data: Buffer.from(toMarkdown({ fm: { type: 'arc', level: 'gm', arc: a.slug, title: a.title, status: a.status, n: a.n }, body: `# ${a.title}\n` }), 'utf8') });
   return makeZip(files);
 }
 
@@ -132,7 +132,7 @@ export function importVault(d: Deps, worldId: string, buf: Buffer, by: string | 
     try { text = e.read().toString('utf8'); } catch (err: any) { rep.skipped.push({ path: rel, why: String(err?.message ?? 'unreadable') }); continue; }
     const { fm, body } = fromMarkdown(text);
     const title = body.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? rel.split('/').pop()!.replace(/\.md$/i, '');
-    const folder = /^players\/([^/]+)\//.exec(rel)?.[1] ?? /^dm\/players\/([^/]+)\.md$/.exec(rel)?.[1] ?? null;
+    const folder = /^players\/([^/]+)\//.exec(rel)?.[1] ?? /^gm\/players\/([^/]+)\.md$/.exec(rel)?.[1] ?? null;
     if (folder) {
       const f = folders.get(folder) ?? { name: folder, ids: new Set(), usernames: new Set(), labels: new Set(), files: 0 };
       f.files++;
@@ -182,7 +182,7 @@ export function importVault(d: Deps, worldId: string, buf: Buffer, by: string | 
     if (it.folder) {
       const acc = target.get(it.folder);
       if (!acc) { rep.skipped.push({ path: rel, why: opts.map?.[it.folder] === 'skip' ? 'skipped by choice' : `no player of this world matches "${it.folder}"` }); continue; }
-      rel = rel.startsWith('dm/') ? `dm/players/${acc}.md` : `players/${acc}/${rel.slice(`players/${it.folder}/`.length)}`;
+      rel = rel.startsWith('gm/') ? `gm/players/${acc}.md` : `players/${acc}/${rel.slice(`players/${it.folder}/`.length)}`;
       fm = { ...fm, player: acc };
       for (const k of ['player_name', 'character', 'username']) delete fm[k];
       if (/\/knowledge\.md$/.test(rel)) {
@@ -190,13 +190,13 @@ export function importVault(d: Deps, worldId: string, buf: Buffer, by: string | 
         for (const m of th.matchAll(/^[-*]\s+(.+?)\s+_\((.+), not confirmed\)_\s*$/gm)) theories.push({ player: acc, text: m[1]!, title: m[2]! });
       }
     }
-    // Levels: missing or unknown is dm; the DM's own folder is never opened to players.
-    const lv = typeof fm.level === 'string' && ['party', 'broker', 'dm', 'classified'].includes(fm.level) ? fm.level : 'dm';
-    fm.level = rel.startsWith('dm/') && lv === 'party' ? 'dm' : lv;
+    // Levels: missing or unknown is gm; the GM's own folder is never opened to players.
+    const lv = typeof fm.level === 'string' && ['party', 'broker', 'gm', 'classified'].includes(fm.level) ? fm.level : 'gm';
+    fm.level = rel.startsWith('gm/') && lv === 'party' ? 'gm' : lv;
     delete (fm as any).visibility;
     writePage(d, worldId, rel, { title: it.title, fm, body: it.body, by, batch: true });
     if (existing.has(rel)) rep.updated++; else rep.created++;
-    if (rel.startsWith('dm/revelations/')) revs.push({ slug: slug(rel.split('/').pop()!.replace(/\.md$/i, '')), title: it.title, body: it.body });
+    if (rel.startsWith('gm/revelations/')) revs.push({ slug: slug(rel.split('/').pop()!.replace(/\.md$/i, '')), title: it.title, body: it.body });
     if (/^chronicle\/arcs\/[^/]+\/(summary|sessions\/[^/]+)\.md$/.test(rel)) sessions.push({ rel, fm, title: it.title });
   }
   const ids = all<any>(d.db, `SELECT id FROM pages WHERE world_id = ? AND path LIKE 'Minerva/%'`, worldId).map((r) => r.id as string);

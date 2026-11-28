@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS biblio_articles (
   tags TEXT NOT NULL DEFAULT '[]',
   aliases TEXT NOT NULL DEFAULT '[]',
   fields TEXT NOT NULL DEFAULT '{}',
-  level TEXT NOT NULL DEFAULT 'dm',
+  level TEXT NOT NULL DEFAULT 'gm',
   knowledge TEXT,
   body TEXT NOT NULL DEFAULT '',
   page_id TEXT,
@@ -94,7 +94,7 @@ export function sourceId(d: Deps, worldId: string): string {
   const s = one<{ id: string }>(d.db, 'SELECT id FROM sources WHERE world_id = ? AND kind = ?', worldId, SOURCE_KIND);
   if (s) return s.id;
   const sid = id('src_');
-  run(d.db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility, audience) VALUES (?, ?, ?, 'Biblio', '{}', 'dm', 'auto')`, sid, worldId, SOURCE_KIND);
+  run(d.db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility, audience) VALUES (?, ?, ?, 'Biblio', '{}', 'gm', 'auto')`, sid, worldId, SOURCE_KIND);
   return sid;
 }
 
@@ -147,7 +147,7 @@ export function holdsClassified(a: Pick<Article, 'level' | 'body' | 'tags'>): bo
 
 /** Who is asking: the GM in person, a model working for the GM, or anyone else (players, guests, the broker). */
 export type Reader = 'gm' | 'ai' | 'other';
-export const readerOf = (v: Viewer): Reader => (v.role !== 'dm' ? 'other' : audienceOf(v) === 'dm' ? 'gm' : audienceOf(v) === 'ai' ? 'ai' : 'other');
+export const readerOf = (v: Viewer): Reader => (v.role !== 'gm' ? 'other' : audienceOf(v) === 'gm' ? 'gm' : audienceOf(v) === 'ai' ? 'ai' : 'other');
 
 // ---- writing -------------------------------------------------------------------
 
@@ -221,8 +221,8 @@ export function saveArticle(d: Deps, worldId: string, aid: string | null, input:
   let body = input.body !== undefined ? String(input.body ?? '') : prev?.body ?? '';
   if (input.append) body = body.trimEnd() + (body.trim() ? '\n\n' : '') + String(input.append);
   if (body.length > MAX_BODY) throw new HttpError(413, 'Article too long');
-  const levelRaw = input.level !== undefined ? String(input.level).toLowerCase() : prev?.level ?? 'dm';
-  const level: Level = levelRaw === 'gm' ? 'dm' : isLevel(levelRaw) ? levelRaw : (() => { throw new HttpError(400, 'level must be party, broker, gm (or dm) or classified'); })();
+  const levelRaw = input.level !== undefined ? String(input.level).toLowerCase() : prev?.level ?? 'gm';
+  const level: Level = isLevel(levelRaw) ? levelRaw : levelRaw === 'dm' ? 'gm' : (() => { throw new HttpError(400, 'level must be party, broker, gm or classified'); })();
   const knowledge = input.knowledge !== undefined ? (['common', 'local', 'deep'].includes(String(input.knowledge)) ? input.knowledge as Article['knowledge'] : null) : prev?.knowledge ?? null;
   const parentId = input.parentId !== undefined ? (input.parentId ? String(input.parentId) : null) : prev?.parentId ?? null;
   checkParent(d, worldId, prev?.id ?? null, parentId);
@@ -382,7 +382,7 @@ export function infobox(tpl: Template, fields: Record<string, string>): Property
   }
   // Fields from an earlier template stay GM only: nobody chose to share them under this one.
   for (const [k, v] of Object.entries(fields)) if (!known.has(k) && v) secret.push({ key: k.replace(/_/g, ' '), value: valueInline(v) });
-  return [...(shared.length ? [{ title: tpl.name, rows: shared }] : []), ...(secret.length ? [{ title: 'GM only', dm: true, rows: secret }] : [])];
+  return [...(shared.length ? [{ title: tpl.name, rows: shared }] : []), ...(secret.length ? [{ title: 'GM only', gm: true, rows: secret }] : [])];
 }
 
 /** Frontmatter for the library: tags, aliases, and relations from link fields (GM-only fields under secret:, which never reaches players). */
@@ -441,7 +441,7 @@ export function publish(d: Deps, worldId: string, a: Article, opts: { linksChang
   }
   run(d.db, 'UPDATE sources SET last_sync_at = ?, last_status = ? WHERE id = ?', now(), 'Biblio: saved in Alexandria', sid);
   if (!opts.batch) d.library.rebuildPlayerCopies(worldId, opts.linksChanged ? undefined : [out.id]);
-  d.hub.emit(worldId, 'page', { id: out.id, title: a.title, source: sid }, (v) => v.role === 'dm' || a.level === 'party');
+  d.hub.emit(worldId, 'page', { id: out.id, title: a.title, source: sid }, (v) => v.role === 'gm' || a.level === 'party');
   return out.id;
 }
 
@@ -458,7 +458,7 @@ export function republishAll(d: Deps, worldId: string, only?: (a: Article) => bo
 /** Pages (any source) whose copy for this viewer links to the article by its title or an alias. Only pages the viewer may open. */
 export function backlinks(d: Deps, worldId: string, a: Article, viewer: Viewer): { id: string; title: string; articleId: string | null }[] {
   const aud = audienceOf(viewer);
-  const col = aud === 'dm' ? 'p.body' : aud === 'ai' ? 'p.ai_body' : aud === 'broker' ? 'p.broker_body' : 'p.player_body';
+  const col = aud === 'gm' ? 'p.body' : aud === 'ai' ? 'p.ai_body' : aud === 'broker' ? 'p.broker_body' : 'p.player_body';
   const names = [a.title, ...a.aliases].map((n) => n.toLowerCase());
   const like = names.map(() => `lower(${col}) LIKE ?`).join(' OR ');
   const rows = all<any>(d.db, `SELECT p.id, p.title, p.visibility, ${col} AS text, b.id AS article_id FROM pages p LEFT JOIN biblio_articles b ON b.page_id = p.id
@@ -555,7 +555,7 @@ export function importPages(d: Deps, worldId: string, pageIds: string[], c: Save
     const leftShared: string[] = [];
     const leftSecret: string[] = [];
     for (const g of props) {
-      const secretGroup = g.dm === true || (g.level && g.level !== 'party');
+      const secretGroup = g.gm === true || (g.level && g.level !== 'party');
       for (const row of g.rows ?? []) {
         const text = inlineToMd(row.value, titleOf);
         const f = tpl.fields.find((x) => x.label.toLowerCase() === String(row.key).toLowerCase() || x.key === String(row.key).toLowerCase());

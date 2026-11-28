@@ -20,8 +20,8 @@ import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
 import { HttpError, id, int, now, oneOf, str } from '../../core/util.ts';
-import { dmAnd } from '../../core/events.ts';
-import { ctx, isDM, me } from '../../routes/_shared.ts';
+import { gmAnd } from '../../core/events.ts';
+import { ctx, isGM, me } from '../../routes/_shared.ts';
 import {
   SCHEMA, SOURCE_KIND, backlinks, deleteTemplate, existingSource, exportAll, getArticle, importExport, importPages, listArticles, publish, purgeArticle,
   readerOf, republishAll, restoreArticle, restoreRevision, revision, revisions, saveArticle, saveTemplate, sourceId, templateOf, templates, timeline, trashArticle,
@@ -33,7 +33,7 @@ const audit = (db: any, worldId: string, accountId: string | null, action: strin
 const enc = encodeURIComponent;
 const S = (description: string) => ({ type: 'string', description });
 
-const needGM = (res: any) => { if (!isDM(res)) throw new HttpError(403, 'Only the GM can change Biblio'); };
+const needGM = (res: any) => { if (!isGM(res)) throw new HttpError(403, 'Only the GM can change Biblio'); };
 /** The GM in person: not a model working for them (it never sees classified parts) and not the broker. */
 const needPerson = (res: any) => { needGM(res); if (readerOf(ctx(res).viewer) !== 'gm') throw new HttpError(403, 'Do this in the app'); };
 
@@ -93,14 +93,14 @@ function routes(d: Deps) {
   const r = Router({ mergeParams: true });
   const W = (res: any) => ctx(res).world.id as string;
   const who = (res: any) => ({ by: me(res), reader: readerOf(ctx(res).viewer) });
-  const emitTree = (worldId: string, a: Article) => d.hub.emit(worldId, 'biblio', { id: a.id }, (v) => v.role === 'dm' || a.level === 'party');
+  const emitTree = (worldId: string, a: Article) => d.hub.emit(worldId, 'biblio', { id: a.id }, (v) => v.role === 'gm' || a.level === 'party');
 
   r.get('/', (_req, res) => {
     const c = ctx(res);
     const reader = readerOf(c.viewer);
     res.json({
       articles: tree(d, W(res), reader, c.viewer), templates: templates(d, W(res)),
-      canEdit: isDM(res), gm: reader === 'gm', sourceId: existingSource(d, W(res)),
+      canEdit: isGM(res), gm: reader === 'gm', sourceId: existingSource(d, W(res)),
       ...(reader === 'gm' ? { trash: listArticles(d, W(res), { trash: true }).length } : {}),
     });
   });
@@ -192,10 +192,10 @@ function routes(d: Deps) {
     LEFT JOIN biblio_articles b ON b.page_id = r.page_id WHERE r.world_id = ? AND r.kind IN ('edit', 'new') AND (b.id IS NOT NULL OR r.title LIKE 'Biblio: %')
     ${onlyFor ? 'AND r.author_id = ?' : ''} ORDER BY r.created_at DESC LIMIT 200`, worldId, ...(onlyFor ? [onlyFor] : []))
     .map((x) => ({ id: x.id, kind: x.kind, articleId: x.article_id ?? null, articleTitle: x.article_title ?? null, title: String(x.title).replace(/^Biblio: /, ''), body: x.body, status: x.status, reply: x.reply, author: x.author_id, at: x.created_at }));
-  r.get('/suggestions', (_req, res) => res.json(suggestionRows(W(res), isDM(res) ? null : me(res))));
+  r.get('/suggestions', (_req, res) => res.json(suggestionRows(W(res), isGM(res) ? null : me(res))));
   r.post('/suggestions', (req, res) => {
     const c = ctx(res);
-    if (c.viewer.role !== 'player' && c.viewer.role !== 'dm') throw new HttpError(403, 'Guests cannot suggest changes');
+    if (c.viewer.role !== 'player' && c.viewer.role !== 'gm') throw new HttpError(403, 'Guests cannot suggest changes');
     const b = req.body ?? {};
     const kind = oneOf(b.kind ?? (b.articleId ? 'edit' : 'new'), 'kind', ['edit', 'new'] as const);
     let pageId: string | null = null;
@@ -207,10 +207,10 @@ function routes(d: Deps) {
       pageId = a.pageId;
       title = title || a.title;
     } else if (!title) throw new HttpError(400, 'A new article needs a title');
-    const row = { id: id('req_'), world_id: W(res), author_id: me(res), kind, page_id: pageId, title: `Biblio: ${title}`, body: str(b.body, 'body', { max: 20_000 }), visibility: 'dm', created_at: now() };
+    const row = { id: id('req_'), world_id: W(res), author_id: me(res), kind, page_id: pageId, title: `Biblio: ${title}`, body: str(b.body, 'body', { max: 20_000 }), visibility: 'gm', created_at: now() };
     run(d.db, 'INSERT INTO requests (id, world_id, author_id, kind, page_id, title, body, visibility, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       row.id, row.world_id, row.author_id, row.kind, row.page_id, row.title, row.body, row.visibility, row.created_at);
-    d.hub.emit(W(res), 'request', row, dmAnd(row.author_id));
+    d.hub.emit(W(res), 'request', row, gmAnd(row.author_id));
     res.status(201).json({ id: row.id, kind, title, status: 'open' });
   });
   // Accept: an edit adds the suggestion to the article (under the suggester's name) unless `body` gives the GM's own wording; a new one makes the article.
@@ -229,10 +229,10 @@ function routes(d: Deps) {
       if (!target) throw new HttpError(409, 'The article is gone');
       a = saveArticle(d, W(res), target.id, b.replace === true ? { body: text, note: `Suggestion from ${name}` } : { append: `> [!note] From ${name}\n${String(text).split('\n').map((l) => `> ${l}`).join('\n')}`, note: `Suggestion from ${name}` }, who(res));
     } else {
-      a = saveArticle(d, W(res), null, { title: String(row.title).replace(/^Biblio: /, ''), body: text, template: b.template ?? 'page', parentId: b.parentId ?? null, level: b.level ?? 'dm', note: `Suggested by ${name}` }, who(res));
+      a = saveArticle(d, W(res), null, { title: String(row.title).replace(/^Biblio: /, ''), body: text, template: b.template ?? 'page', parentId: b.parentId ?? null, level: b.level ?? 'gm', note: `Suggested by ${name}` }, who(res));
     }
     run(d.db, 'UPDATE requests SET status = ?, reply = ?, decided_at = ?, decided_by = ? WHERE id = ?', 'accepted', str(b.reply, 'reply', { max: 2000, optional: true }) || null, now(), me(res), row.id);
-    d.hub.emit(W(res), 'request', { ...row, status: 'accepted' }, dmAnd(row.author_id));
+    d.hub.emit(W(res), 'request', { ...row, status: 'accepted' }, gmAnd(row.author_id));
     audit(d.db, W(res), me(res), 'biblio.suggestion', `${row.id} accepted -> ${a.id}`);
     emitTree(W(res), a);
     res.json({ ok: true, article: brief(a) });
@@ -243,7 +243,7 @@ function routes(d: Deps) {
     if (!row) throw new HttpError(404, 'Suggestion not found');
     if (row.status !== 'open') throw new HttpError(409, 'Already decided');
     run(d.db, 'UPDATE requests SET status = ?, reply = ?, decided_at = ?, decided_by = ? WHERE id = ?', 'rejected', str(req.body?.reply, 'reply', { max: 2000, optional: true }) || null, now(), me(res), row.id);
-    d.hub.emit(W(res), 'request', { ...row, status: 'rejected' }, dmAnd(row.author_id));
+    d.hub.emit(W(res), 'request', { ...row, status: 'rejected' }, gmAnd(row.author_id));
     res.json({ ok: true });
   });
 
@@ -262,7 +262,7 @@ function routes(d: Deps) {
     if (ids.length > 5000) throw new HttpError(413, 'At most 5,000 pages at once');
     const out = importPages(d, W(res), ids, { ...who(res), parentId: b.parentId ?? null });
     audit(d.db, W(res), me(res), 'biblio.import', `${out.imported.length} copied, ${out.skipped.length} skipped`);
-    if (out.imported.length) d.hub.emit(W(res), 'biblio', { imported: out.imported.length }, (v) => v.role === 'dm');
+    if (out.imported.length) d.hub.emit(W(res), 'biblio', { imported: out.imported.length }, (v) => v.role === 'gm');
     res.json(out);
   });
   r.get('/export', (_req, res) => {
@@ -274,7 +274,7 @@ function routes(d: Deps) {
     needPerson(res);
     const out = importExport(d, W(res), req.body, who(res));
     audit(d.db, W(res), me(res), 'biblio.load', `${out.articles} articles, ${out.templates} templates`);
-    d.hub.emit(W(res), 'biblio', { loaded: out.articles }, (v) => v.role === 'dm');
+    d.hub.emit(W(res), 'biblio', { loaded: out.articles }, (v) => v.role === 'gm');
     res.json(out);
   });
   // Publish every article to the library again (after the Biblio source was removed, or to repair).
@@ -322,7 +322,7 @@ const feature: Feature = {
       call: () => ({ method: 'GET', path: '/biblio/timeline' }),
     },
     {
-      name: 'biblio_templates', dmOnly: true,
+      name: 'biblio_templates', gmOnly: true,
       description: 'The Biblio article templates (character, location, organisation, item, creature, people, deity, event, quest, lore, session notes, and the GM\'s own) and the infobox fields each has. GM-only fields are marked gm.',
       props: {},
       call: () => ({ method: 'GET', path: '/biblio/templates' }),

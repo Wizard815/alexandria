@@ -34,7 +34,7 @@ export default function VoiceSettings() {
 
   return (
     <div className="stack loose">
-      <p className="small muted" style={{ margin: 0 }}>Select text on any DM page, right-click and choose Speak. A voice preset decides who reads it, how fast, with what effect, and where it plays.
+      <p className="small muted" style={{ margin: 0 }}>Select text on any GM page, right-click and choose Speak. A voice preset decides who reads it, how fast, with what effect, and where it plays.
         Speech comes from the voice model set up in Admin → Models (for example Kokoro).</p>
       <ErrorBox error={list.error || act.error} />
       {presets.length === 0 && !edit && (

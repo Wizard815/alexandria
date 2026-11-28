@@ -140,7 +140,7 @@ export function argosSnippets(models: string[], declared: Record<string, number>
     '    use: group',
     '    settings:',
     '      groups:',
-    '        dnd:',
+    '        alexandria:',
     '          persistent: true   # no other group can unload these',
     '          swap: false        # all members stay loaded at once',
     '          exclusive: false   # loading them does not unload other groups',

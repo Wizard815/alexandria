@@ -1,6 +1,6 @@
 // The information broker, as the player meets them: a persona, a price list
-// the DM set, your coin, the questions you've paid for, and special offers
-// the DM sends ("knowledge of X for 50 gp") that wait here until paid,
+// the GM set, your coin, the questions you've paid for, and special offers
+// the GM sends ("knowledge of X for 50 gp") that wait here until paid,
 // declined, or run out at the end of a session.
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -19,7 +19,7 @@ export default function PlayerBroker() {
   const coin = useLoad(() => w.coin('me') as Promise<{ cp: number }>, [w], ['coin']);
   const offers = useLoad(() => (enabled ? w.call<Offer[]>('GET', '/broker/offers') : Promise.resolve(null)), [w, enabled], ['broker-offer']);
 
-  if (!enabled) return <div className="page"><PageHead title="Information broker" /><Empty>The broker's door is shut. Your DM has not opened the information broker in this world.</Empty></div>;
+  if (!enabled) return <div className="page"><PageHead title="Information broker" /><Empty>The broker's door is shut. Your GM has not opened the information broker in this world.</Empty></div>;
   if (!cfg.data) return <div className="page"><ErrorBox error={cfg.error} />{!cfg.error && <Loading />}</div>;
   const c = cfg.data;
   const p = c.persona;
@@ -56,13 +56,13 @@ export default function PlayerBroker() {
             <span className="tiny faint">{opts.data?.party.allowed ? 'When a price is set, you choose which one pays.' : 'You pay the broker from your own coin.'}</span>
           </section>
           <section className="card" aria-labelledby="prices-h">
-            <div className="card-head"><h2 id="prices-h">Prices</h2><span className="chip">Set by your DM</span></div>
+            <div className="card-head"><h2 id="prices-h">Prices</h2><span className="chip">Set by your GM</span></div>
             <ul className="stack tight" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {c.tiers.map((t) => (
                 <li key={t.id} className="stack tight" style={{ borderBottom: '1px solid var(--line)', paddingBottom: 8 }}>
                   <div className="row between"><strong>{t.name}</strong><span>{t.costCp === null ? 'Ask' : t.costCp === 0 ? 'Free' : coins(t.costCp, info.settings.coins)}</span></div>
                   <span className="tiny muted">{t.description}</span>
-                  <span className="tiny faint">{t.wait ? waitLabel(t.wait) : 'The DM decides the wait'}</span>
+                  <span className="tiny faint">{t.wait ? waitLabel(t.wait) : 'The GM decides the wait'}</span>
                 </li>
               ))}
             </ul>
@@ -107,7 +107,7 @@ function AskCard({ cfg, opts, onAsked }: { cfg: BrokerConfig; opts: PayOptions |
     if (!quote) return;
     const r = await w.call<BrokerRequest>('POST', '/broker/ask', { quoteId: quote.quoteId, ...(showChoice ? { from } : {}) });
     setQuote(null); setQuestion('');
-    toast(r.status === 'noted' ? 'The broker shrugs. Maybe word gets around.' : r.status === 'pricing' ? 'The broker will ask around. Your DM sets the price.' : r.status === 'answered' ? 'The broker answers.' : 'Paid. The broker will have your answer soon.');
+    toast(r.status === 'noted' ? 'The broker shrugs. Maybe word gets around.' : r.status === 'pricing' ? 'The broker will ask around. Your GM sets the price.' : r.status === 'answered' ? 'The broker answers.' : 'Paid. The broker will have your answer soon.');
     await onAsked();
   });
 
@@ -136,9 +136,9 @@ function AskCard({ cfg, opts, onAsked }: { cfg: BrokerConfig; opts: PayOptions |
           <p className="read" style={{ margin: 0, fontStyle: 'italic' }}>{quote.line}</p>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             {!quote.refused && <span className="chip gold">{quote.tier_name}</span>}
-            {!quote.refused && !quote.secret && quote.delivery === 'review' && <span className="chip">The DM looks it over first</span>}
-            {!quote.refused && <span className="chip">{quote.cost_cp === null ? 'Price: the DM decides' : quote.cost_cp === 0 ? 'Free' : coins(quote.cost_cp, info.settings.coins)}</span>}
-            {!quote.refused && <span className="chip">{quote.secret ? 'Wait: the DM decides' : `Wait: ${quote.wait_text}`}</span>}
+            {!quote.refused && !quote.secret && quote.delivery === 'review' && <span className="chip">The GM looks it over first</span>}
+            {!quote.refused && <span className="chip">{quote.cost_cp === null ? 'Price: the GM decides' : quote.cost_cp === 0 ? 'Free' : coins(quote.cost_cp, info.settings.coins)}</span>}
+            {!quote.refused && <span className="chip">{quote.secret ? 'Wait: the GM decides' : `Wait: ${quote.wait_text}`}</span>}
           </div>
           {showChoice && <PayChoice cost={cost} value={from} onChange={setFrom} opts={opts} />}
           {short && <p className="small" style={{ color: 'var(--danger-text)', margin: 0 }}>{from === 'party' ? 'The party pouch' : 'You'} can't cover that.</p>}
@@ -173,7 +173,7 @@ function History({ list, error, reload, opts }: { list: BrokerRequest[] | null; 
           </div>
           <div className="tiny faint">{q.tier_name} · {q.cost_cp ? coins(q.cost_cp, info.settings.coins) : q.cost_cp === 0 ? 'free' : 'unpriced'} · {when(q.created_at)}</div>
           {q.status === 'waiting' && <div className="small muted"><ReadyLabel q={q} /></div>}
-          {q.status === 'pricing' && <div className="small muted">The broker is asking around. Your DM will name a price.</div>}
+          {q.status === 'pricing' && <div className="small muted">The broker is asking around. Your GM will name a price.</div>}
           {q.status === 'offered' && (
             <div className="stack tight" style={{ marginTop: 6 }}>
               <span className="small">The broker can find out, for {coins(q.cost_cp ?? 0, info.settings.coins)}.{q.reply ? ` “${q.reply}”` : ''}</span>
@@ -198,7 +198,7 @@ function History({ list, error, reload, opts }: { list: BrokerRequest[] | null; 
   );
 }
 
-/** Special offers from the DM: knowledge for a price, waiting here until paid, declined or out of time. */
+/** Special offers from the GM: knowledge for a price, waiting here until paid, declined or out of time. */
 function Offers({ list, error, reload, opts }: { list: Offer[] | null; error: string | null; reload: () => Promise<void>; opts: PayOptions | null }) {
   const { w, info } = useWorld();
   const act = useAction();

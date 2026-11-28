@@ -1,6 +1,6 @@
-// End-to-end test of story events and the new template kinds on the demo world (fake models). The DM picks a place
+// End-to-end test of story events and the new template kinds on the demo world (fake models). The GM picks a place
 // and a player on Encounters → Story events and sends a random event; the player gets "Something happens" and
-// answers; the DM sees the choice and the DM-only note, which never reaches the player. On Templates & guides the DM
+// answers; the GM sees the choice and the GM-only note, which never reaches the player. On Templates & guides the GM
 // copies in a quick event starter and a spell starter, drafts a story event and a spell from them and saves both,
 // and the template has its own chat. The pages work at phone width with no sideways scrolling.
 // Run from web/: npm run build && node e2e/storyevents.mjs
@@ -17,7 +17,7 @@ const check = (ok, msg) => { if (!ok) problems.push(msg); return ok; };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--models-port', String(MODELS_PORT), '--data', path.join(tmpDir('story'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json()).token;
-const tok = await login('dm', 'dungeon master 123');
+const tok = await login('gm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + tok } })).json())[0].id;
 const api = async (m, p, b, t = tok) => { const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t }, body: b ? JSON.stringify(b) : undefined }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
 
@@ -29,13 +29,13 @@ const watch = (page, who) => {
 const noSideways = async (page, what) => check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${what} scrolls sideways at phone width`);
 
 try {
-  const { page } = await signIn(browser, base, 'dm', 'dungeon master 123', { width: 1400, height: 900 });
-  watch(page, 'dm');
+  const { page } = await signIn(browser, base, 'gm', 'game master 123', { width: 1400, height: 900 });
+  watch(page, 'gm');
   const player = await signIn(browser, base, 'jess', 'player pass 123', { width: 420, height: 860 }, true);
   watch(player.page, 'player');
 
   // ---- send a random dungeon event to Jessamine ----
-  await page.goto(`${W}/dm/encounters?tab=events`);
+  await page.goto(`${W}/gm/encounters?tab=events`);
   await page.getByTestId('story-place-dungeon').click();
   await page.getByRole('group', { name: 'Players' }).getByRole('button', { name: 'Jessamine' }).click();
   const events = await page.getByTestId('story-event').count();
@@ -62,7 +62,7 @@ try {
 
   // ---- the pickpocket: a timed step, then a roll the player types in ----
   const jess = (await api('GET', '/encounters')).body.find((e) => e.player === 'Jessamine');
-  check(!!jess, 'the DM sees the event');
+  check(!!jess, 'the GM sees the event');
   await api('POST', '/encounters', { accountIds: [jess.accountId], templateId: 'builtin:ev-pickpocket' });
   await player.page.getByText('A quick-fingered urchin').first().waitFor({ timeout: 15_000 });
   await player.page.getByTestId('enc-countdown').waitFor();
@@ -81,16 +81,16 @@ try {
   check(!(await player.page.getByText('picked from', { exact: false }).count()), 'the player saw the DC');
   await player.page.getByTestId('encounter').getByRole('button', { name: 'Hand the extra purse to the watch' }).click();
 
-  // ---- a sure DM note: the pickpocket, let go ----
+  // ---- a sure GM note: the pickpocket, let go ----
   await api('POST', '/encounters', { accountIds: [jess.accountId], templateId: 'builtin:ev-pickpocket' });
   await player.page.getByText('A tug at your belt').first().waitFor({ timeout: 15_000 });
   await player.page.getByTestId('encounter').getByRole('button', { name: 'Let it go' }).click();
   await player.page.getByText('You lose', { exact: false }).first().waitFor();
-  check(!(await player.page.getByText('Let a pickpocket get away').count()), 'the DM note reached the player');
-  await page.goto(`${W}/dm/encounters?tab=events`);
+  check(!(await player.page.getByText('Let a pickpocket get away').count()), 'the GM note reached the player');
+  await page.goto(`${W}/gm/encounters?tab=events`);
   await page.getByText('Let a pickpocket get away', { exact: false }).first().waitFor({ timeout: 10_000 });
-  check((await page.getByText('picked from 10–14', { exact: false }).count()) > 0, 'the DM does not see the picked DC');
-  note('the DM sees the DM-only note; the player does not');
+  check((await page.getByText('picked from 10–14', { exact: false }).count()) > 0, 'the GM does not see the picked DC');
+  note('the GM sees the GM-only note; the player does not');
 
   // ---- favourites, generate new, tweak ----
   await page.getByTestId('story-place-market').click();
@@ -119,7 +119,7 @@ try {
   note('favourites, a generated event sent from its preview');
 
   // ---- templates: starters, a story event and a spell from them, a template chat ----
-  await page.goto(`${W}/dm/templates`);
+  await page.goto(`${W}/gm/templates`);
   await page.getByRole('tab', { name: 'Starters' }).click();
   await page.getByTestId('tpl-pack-events').locator('li', { hasText: 'Town & city temptations' }).getByRole('button', { name: 'Add' }).click();
   await page.getByText('Added Town & city temptations', { exact: false }).waitFor();
@@ -156,10 +156,10 @@ try {
 
   // ---- phone width ----
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${W}/dm/encounters?tab=events`);
+  await page.goto(`${W}/gm/encounters?tab=events`);
   await page.getByText('Make something happen').waitFor();
   await noSideways(page, 'Story events');
-  await page.goto(`${W}/dm/templates`);
+  await page.goto(`${W}/gm/templates`);
   await page.getByRole('tab', { name: 'Template chats' }).click();
   await page.getByTestId('tpl-chats').waitFor();
   await noSideways(page, 'Template chats');

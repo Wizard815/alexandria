@@ -20,7 +20,7 @@ const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursiv
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('biblio'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const gmLogin = await login('dm', 'dungeon master 123');
+const gmLogin = await login('gm', 'game master 123');
 const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + gmLogin.token } })).json())[0].id;
 const api = async (token, method, p, body) => {
   const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: body ? JSON.stringify(body) : undefined });
@@ -54,9 +54,9 @@ try {
   await api(gmLogin.token, 'POST', '/biblio/articles', { title: 'The Drowning War', template: 'event', level: 'party', fields: { date: '1040 AR' } });
 
   // 2. The GM opens /Biblio and writes a character inside the town.
-  const { page: gm } = await signIn('dm', 'dungeon master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
+  const { page: gm } = await signIn('gm', 'game master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
   await gm.goto(`${base}/Biblio`);
-  await gm.waitForURL(/\/dm\/biblio/, { timeout: 8000 });
+  await gm.waitForURL(/\/gm\/biblio/, { timeout: 8000 });
   await gm.locator('.bib-tree').getByRole('button', { name: 'Saltreach' }).click();
   await gm.getByText('Not written yet').waitFor({ timeout: 8000 });
   await gm.getByRole('button', { name: 'Harbourmaster Odda' }).click(); // the red link starts the article
@@ -110,7 +110,7 @@ try {
   note('player: read without secrets, suggested an edit, saw the timeline');
 
   // 5. The GM adds the suggestion to the article.
-  await gm.goto(`${W}/dm/biblio?tab=suggestions`);
+  await gm.goto(`${W}/gm/biblio?tab=suggestions`);
   await gm.getByRole('button', { name: 'Add it to the article' }).click();
   await gm.getByText('Decided (1)').waitFor({ timeout: 8000 });
   const after = await api(gmLogin.token, 'GET', `/biblio/articles/${odda.id}`);

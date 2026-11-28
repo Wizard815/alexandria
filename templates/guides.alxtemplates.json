@@ -18,7 +18,7 @@
       "enabled": true,
       "spec": {
         "task": "Make a town",
-        "instructions": "Ground the town in the world: who rules it, what it trades, what it fears. Give three named NPCs with a want each, two places to visit, and three rumours (one true, one half true, one false, marked for the DM).",
+        "instructions": "Ground the town in the world: who rules it, what it trades, what it fears. Give three named NPCs with a want each, two places to visit, and three rumours (one true, one half true, one false, marked for the GM).",
         "steps": [
           {
             "kind": "library",
@@ -30,7 +30,7 @@
           },
           {
             "kind": "instruction",
-            "text": "Write the page with the sections below; put secrets in a DM-only callout."
+            "text": "Write the page with the sections below; put secrets in a GM-only callout."
           }
         ],
         "sections": [
@@ -61,7 +61,7 @@
       "enabled": true,
       "spec": {
         "task": "Make an NPC",
-        "instructions": "Every NPC gets a look in one line, a voice or habit the DM can act out, something they want, something they fear and a secret. Tie them to at least one place or faction already in the library.",
+        "instructions": "Every NPC gets a look in one line, a voice or habit the GM can act out, something they want, something they fear and a secret. Tie them to at least one place or faction already in the library.",
         "steps": [
           {
             "kind": "library",
@@ -69,7 +69,7 @@
           },
           {
             "kind": "instruction",
-            "text": "Write the page; keep the secret in a DM-only callout."
+            "text": "Write the page; keep the secret in a GM-only callout."
           }
         ],
         "sections": [
@@ -150,7 +150,7 @@
           },
           {
             "kind": "instruction",
-            "text": "Write the faction page; secrets go in a DM-only callout."
+            "text": "Write the faction page; secrets go in a GM-only callout."
           }
         ],
         "sections": [
@@ -220,7 +220,7 @@
       "enabled": true,
       "spec": {
         "task": "Write a session recap",
-        "instructions": "Write a short recap in past tense from the players' view: what they did, who they met, what they learned, and open threads. Never reveal DM-only facts.",
+        "instructions": "Write a short recap in past tense from the players' view: what they did, who they met, what they learned, and open threads. Never reveal GM-only facts.",
         "steps": [
           {
             "kind": "library",
@@ -256,7 +256,7 @@
       "enabled": true,
       "spec": {
         "task": "Make a magic item",
-        "instructions": "Give the item a rarity, what it does in 5e terms (keep it balanced for the rarity), how it looks, who made it and a hook. Optional: a quirk or a curse marked for the DM.",
+        "instructions": "Give the item a rarity, what it does in 5e terms (keep it balanced for the rarity), how it looks, who made it and a hook. Optional: a quirk or a curse marked for the GM.",
         "steps": [
           {
             "kind": "library",

@@ -1,6 +1,6 @@
 // "Statblock": copy a module monster (no model needed), or have the chat
 // model write one from a prompt or the library page on screen. It is saved
-// as a DM-only page in Statblocks; "Add to combat" puts it in initiative.
+// as a GM-only page in Statblocks; "Add to combat" puts it in initiative.
 import { useState } from 'react';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';

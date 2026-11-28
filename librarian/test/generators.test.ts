@@ -1,8 +1,8 @@
 // Generators hub: names, NPCs, monsters, taverns and maps work from tables with no
 // model; they are seeded and repeat; monster numbers stay near the CR table; maps
-// are valid, deterministic, connected and small; saving makes a DM page and a map
+// are valid, deterministic, connected and small; saving makes a GM page and a map
 // file; the world only ever lends a place or faction that a model could see (never
-// classified); players are refused everywhere and only get what the DM shares.
+// classified); players are refused everywhere and only get what the GM shares.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -61,14 +61,14 @@ async function boot(opts: { model?: (body: any) => unknown } = {}) {
   };
   const T: Record<string, string> = {};
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Genland', dmAccountId: dm.account.id })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Genland', gmAccountId: gm.account.id })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
-  const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  await page('Places/Saltmarsh.md', 'party', `---\nkind: place\ntags: [place]\n---\n# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] DM\n> ${SECRET}.\n`);
-  await page('Places/Hollow Mill.md', 'dm', `---\nkind: place\ntags: [place]\n---\n# Hollow Mill\nA dm-only ruin upriver.\n`);
+  const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown });
+  await page('Places/Saltmarsh.md', 'party', `---\nkind: place\ntags: [place]\n---\n# Saltmarsh\nSaltmarsh is a fishing town of grey roofs and gulls.\n\n> [!secret] GM\n> ${SECRET}.\n`);
+  await page('Places/Hollow Mill.md', 'gm', `---\nkind: place\ntags: [place]\n---\n# Hollow Mill\nA gm-only ruin upriver.\n`);
   await page('Places/Blackwater Reliquary.md', 'classified', `---\nkind: place\ntags: [place]\n---\n# ${CLASSIFIED_PLACE}\nThe sunken bell opens only when three silver keys turn together at the ebb tide.\n`);
   await page('Factions/Lantern Guild.md', 'party', `---\nkind: faction\ntags: [faction]\n---\n# Lantern Guild\nA guild of lamplighters.\n`);
   const G = `/api/worlds/${W}/generators`;
@@ -134,10 +134,10 @@ test('Generators_npc: locking a field keeps it while the rest is rerolled', () =
 test('Generators_npc: world ties come only from places and factions the AI view lists, and are skipped when there are none', () => {
   const rows = [
     { id: 'p1', title: 'Saltmarsh', path: 'Places/Saltmarsh.md', kind: 'place', tags: [], visibility: 'party' },
-    { id: 'p2', title: 'Hollow Mill', path: 'Places/Hollow Mill.md', kind: 'place', tags: [], visibility: 'dm' },
+    { id: 'p2', title: 'Hollow Mill', path: 'Places/Hollow Mill.md', kind: 'place', tags: [], visibility: 'gm' },
     { id: 'f1', title: 'Lantern Guild', path: 'Factions/Lantern Guild.md', kind: 'faction', tags: [], visibility: 'party' },
-    { id: 'x1', title: 'A generated tavern', path: 'Generated/Taverns/A generated tavern.md', kind: 'tavern', tags: ['generated', 'gen-tavern'], visibility: 'dm' },
-    { id: 'y1', title: 'Captain Orsk', path: 'People/Captain Orsk.md', kind: 'person', tags: [], visibility: 'dm' },
+    { id: 'x1', title: 'A generated tavern', path: 'Generated/Taverns/A generated tavern.md', kind: 'tavern', tags: ['generated', 'gen-tavern'], visibility: 'gm' },
+    { id: 'y1', title: 'Captain Orsk', path: 'People/Captain Orsk.md', kind: 'person', tags: [], visibility: 'gm' },
   ];
   const { places, factions } = tiesFrom(rows);
   assert.deepEqual(places.map((p) => p.title).sort(), ['Hollow Mill', 'Saltmarsh']);
@@ -271,17 +271,17 @@ test('Generators_maps: every kind and size is deterministic, valid SVG and PNG, 
     for (const size of ['small', 'medium', 'large'] as const) {
       const t0 = Date.now();
       const a = genMap(kind, { seed: 'det', size });
-      const svg = toSvg(a.canvas, { dm: true });
+      const svg = toSvg(a.canvas, { gm: true });
       assert.ok(Date.now() - t0 < 1000, `${kind} ${size} took ${Date.now() - t0} ms`);
-      assert.equal(svg, toSvg(genMap(kind, { seed: 'det', size }).canvas, { dm: true }), `${kind} ${size} repeats by seed`);
-      assert.notEqual(svg, toSvg(genMap(kind, { seed: 'other', size }).canvas, { dm: true }), `${kind} ${size} differs by seed`);
+      assert.equal(svg, toSvg(genMap(kind, { seed: 'det', size }).canvas, { gm: true }), `${kind} ${size} repeats by seed`);
+      assert.notEqual(svg, toSvg(genMap(kind, { seed: 'other', size }).canvas, { gm: true }), `${kind} ${size} differs by seed`);
       wellFormed(svg);
       assert.ok(svg.length < 600_000, `${kind} ${size} svg is ${svg.length}`);
       assert.ok(a.canvas.w <= 1800 && a.canvas.h <= 1400, `${kind} ${size} canvas ${a.canvas.w}x${a.canvas.h}`);
       assert.ok(a.key.length >= 1 && a.title && a.seed === 'det');
       assert.ok(a.key.every((k) => k.n && k.name && k.text));
     }
-    const png = toPng(genMap(kind, { seed: 'det', size: 'medium' }).canvas, { dm: true });
+    const png = toPng(genMap(kind, { seed: 'det', size: 'medium' }).canvas, { gm: true });
     assert.ok(isPng(png) && png.length < 1_500_000, `${kind} png ${png.length}`);
   }
   assert.throws(() => genMap('spaceship'), RangeError);
@@ -298,12 +298,12 @@ test('Generators_maps: dungeon and cave rooms connect, and the player view hides
   }
   const d = genMap('dungeon', { seed: 'secret-door', size: 'large' });
   assert.ok(Number(d.stats.secretDoors) >= 1);
-  const dmSvg = toSvg(d.canvas, { dm: true });
-  const playerSvg = toSvg(d.canvas, { dm: false });
-  assert.match(dmSvg, /fill="#c9a0e8"/);
+  const gmSvg = toSvg(d.canvas, { gm: true });
+  const playerSvg = toSvg(d.canvas, { gm: false });
+  assert.match(gmSvg, /fill="#c9a0e8"/);
   assert.doesNotMatch(playerSvg, /#c9a0e8|#f2b8b0/);
-  assert.ok(playerSvg.length < dmSvg.length);
-  assert.notDeepEqual(toPng(d.canvas, { dm: true }), toPng(d.canvas, { dm: false }));
+  assert.ok(playerSvg.length < gmSvg.length);
+  assert.notDeepEqual(toPng(d.canvas, { gm: true }), toPng(d.canvas, { gm: false }));
   // options pick the flavour and theme
   assert.equal(genMap('dungeon', { seed: 1, flavour: 'crypt' }).flavour, 'crypt');
   assert.equal(genMap('battlemap', { seed: 1, theme: 'river' }).flavour, 'river');
@@ -313,28 +313,28 @@ test('Generators_maps: dungeon and cave rooms connect, and the player view hides
 
 // ---- the app --------------------------------------------------------------
 
-test('Generators_routes: the DM generates every kind; players are refused everywhere', async () => {
+test('Generators_routes: the GM generates every kind; players are refused everywhere', async () => {
   const e = await boot();
-  const out = await e.ok('GET', `${e.G}/options`, e.T.dm);
+  const out = await e.ok('GET', `${e.G}/options`, e.T.gm);
   assert.ok(out.npc.presets.includes('villain') && out.map.kinds.includes('region') && out.model === false);
   for (const spec of [
     { kind: 'npc', preset: 'villain', options: { statblock: true } }, { kind: 'monster', preset: 'dragon', options: { cr: 8 } }, { kind: 'tavern', preset: 'haunted' },
     { kind: 'map', preset: 'dungeon', options: { size: 'small' } }, { kind: 'names', options: { nameKind: 'tavern', flavour: 'pirate' } }, { kind: 'names', options: { nameKind: 'person', style: 'dark', race: 'dwarf' } },
   ]) {
-    const r = await e.ok('POST', `${e.G}/generate`, e.T.dm, { ...spec, seed: 'abc' });
+    const r = await e.ok('POST', `${e.G}/generate`, e.T.gm, { ...spec, seed: 'abc' });
     assert.equal(r.kind, spec.kind);
     assert.equal(r.seed, 'abc');
     assert.ok(r.title && r.sections.length && r.md.length > 20);
-    assert.deepEqual(r, await e.ok('POST', `${e.G}/generate`, e.T.dm, { ...spec, seed: 'abc' }), 'a seed repeats');
+    assert.deepEqual(r, await e.ok('POST', `${e.G}/generate`, e.T.gm, { ...spec, seed: 'abc' }), 'a seed repeats');
   }
-  const map = await e.ok('POST', `${e.G}/generate`, e.T.dm, { kind: 'map', preset: 'city', seed: 'q' });
+  const map = await e.ok('POST', `${e.G}/generate`, e.T.gm, { kind: 'map', preset: 'city', seed: 'q' });
   assert.ok(map.map.svg.startsWith('<svg'));
-  assert.equal((await e.ok('POST', `${e.G}/generate?compact=1`, e.T.dm, { kind: 'map', preset: 'city', seed: 'q' })).map.svg, undefined);
+  assert.equal((await e.ok('POST', `${e.G}/generate?compact=1`, e.T.gm, { kind: 'map', preset: 'city', seed: 'q' })).map.svg, undefined);
   // bad input is a 400, not a crash
-  assert.equal((await e.call('POST', `${e.G}/generate`, e.T.dm, { kind: 'npc', preset: 'dragonlord' })).status, 400);
-  assert.equal((await e.call('POST', `${e.G}/generate`, e.T.dm, { kind: 'spaceship' })).status, 400);
-  assert.equal((await e.call('POST', `${e.G}/generate`, e.T.dm, { kind: 'map', preset: 'spaceship' })).status, 400);
-  assert.equal((await e.call('POST', `${e.G}/generate`, e.T.dm, { kind: 'monster', preset: 'homebrew' })).status, 400);
+  assert.equal((await e.call('POST', `${e.G}/generate`, e.T.gm, { kind: 'npc', preset: 'dragonlord' })).status, 400);
+  assert.equal((await e.call('POST', `${e.G}/generate`, e.T.gm, { kind: 'spaceship' })).status, 400);
+  assert.equal((await e.call('POST', `${e.G}/generate`, e.T.gm, { kind: 'map', preset: 'spaceship' })).status, 400);
+  assert.equal((await e.call('POST', `${e.G}/generate`, e.T.gm, { kind: 'monster', preset: 'homebrew' })).status, 400);
   // players: refused on every route
   for (const [m, u, b] of [
     ['GET', '/options'], ['POST', '/generate', { kind: 'npc' }], ['POST', '/save', { kind: 'npc' }], ['POST', '/stage', { kind: 'npc' }],
@@ -351,35 +351,35 @@ test('Generators_world: ties use visible places and factions only, never a class
   const e = await boot();
   const seen = new Set<string>();
   for (let i = 0; i < 40; i++) {
-    const r = await e.ok('POST', `${e.G}/generate`, e.T.dm, { kind: 'npc', preset: 'random', seed: `w${i}` });
+    const r = await e.ok('POST', `${e.G}/generate`, e.T.gm, { kind: 'npc', preset: 'random', seed: `w${i}` });
     if (r.tie) seen.add(r.tie.title);
     assert.ok(!JSON.stringify(r).includes(CLASSIFIED_PLACE), 'a classified title never appears');
     assert.ok(!JSON.stringify(r).includes('ebb tide'), 'classified text never appears');
   }
   assert.ok(seen.has('Saltmarsh') && seen.has('Lantern Guild'), [...seen].join(','));
   assert.ok(!seen.has(CLASSIFIED_PLACE));
-  const opts = await e.ok('GET', `${e.G}/options`, e.T.dm);
+  const opts = await e.ok('GET', `${e.G}/options`, e.T.gm);
   assert.equal(opts.world.places, 2, 'Saltmarsh and Hollow Mill, not the classified place');
   assert.equal(opts.world.factions, 1);
   // used titles are skipped in generated names
-  const taken = await e.ok('GET', `${e.G}/names?nameKind=town&count=40&seed=1`, e.T.dm);
+  const taken = await e.ok('GET', `${e.G}/names?nameKind=town&count=40&seed=1`, e.T.gm);
   assert.ok(!taken.names.includes('Saltmarsh'));
 });
 
-test('Generators_save: a result is saved as a DM page, a map also as a map file, nothing reaches players, and the library lists it', async () => {
+test('Generators_save: a result is saved as a GM page, a map also as a map file, nothing reaches players, and the library lists it', async () => {
   const e = await boot();
   const spec = { kind: 'map', preset: 'dungeon', seed: 'save1', options: { size: 'small' } };
-  const saved = await e.ok('POST', `${e.G}/save`, e.T.dm, spec);
-  assert.equal(saved.page.level, 'dm');
+  const saved = await e.ok('POST', `${e.G}/save`, e.T.gm, spec);
+  assert.equal(saved.page.level, 'gm');
   assert.match(saved.page.path, /^Generated\/Maps\//);
   assert.equal(saved.files.length, 2);
   const png = saved.files.find((f: any) => f.kind === 'map');
-  assert.ok(png && png.level === 'dm' && png.mime === 'image/png');
-  // the page is DM level with the key; the Map page can use the picture
-  const page = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${saved.page.id}`, e.T.dm);
-  assert.equal(page.visibility, 'dm');
+  assert.ok(png && png.level === 'gm' && png.mime === 'image/png');
+  // the page is GM level with the key; the Map page can use the picture
+  const page = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${saved.page.id}`, e.T.gm);
+  assert.equal(page.visibility, 'gm');
   assert.match(page.body, /Key/);
-  const maps = await e.ok('GET', `/api/worlds/${e.W}/files/maps`, e.T.dm);
+  const maps = await e.ok('GET', `/api/worlds/${e.W}/files/maps`, e.T.gm);
   assert.ok(maps.some((m: any) => m.name.startsWith(saved.page.title)), 'the Map page lists it');
   const bytes = await fetch(`http://127.0.0.1:${(e.made.app as any).address?.()?.port ?? ''}`).catch(() => null);
   void bytes;
@@ -389,59 +389,59 @@ test('Generators_save: a result is saved as a DM page, a map also as a map file,
   assert.equal((await e.call('GET', `/api/worlds/${e.W}/library/pages/${saved.page.id}`, e.T.jess)).status, 404);
   assert.doesNotMatch(JSON.stringify((await e.ok('GET', `/api/worlds/${e.W}/library/pages`, e.T.jess))), /Generated/);
   // a second save of the same spec gets its own path
-  const again = await e.ok('POST', `${e.G}/save`, e.T.dm, spec);
+  const again = await e.ok('POST', `${e.G}/save`, e.T.gm, spec);
   assert.notEqual(again.page.path, saved.page.path);
   // NPC and monster pages, with a statblock the combat importer can read
-  const npc = await e.ok('POST', `${e.G}/save`, e.T.dm, { kind: 'npc', preset: 'wizard', seed: 'n1', options: { statblock: true } });
-  const npcPage = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${npc.page.id}`, e.T.dm);
+  const npc = await e.ok('POST', `${e.G}/save`, e.T.gm, { kind: 'npc', preset: 'wizard', seed: 'n1', options: { statblock: true } });
+  const npcPage = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${npc.page.id}`, e.T.gm);
   assert.match(npcPage.body, /statblock-json/);
-  const mon = await e.ok('POST', `${e.G}/save`, e.T.dm, { kind: 'monster', preset: 'boss', seed: 'm1', options: { type: 'dragon', cr: 10, base: 'builtin' } });
-  const combat = await e.ok('POST', `/api/worlds/${e.W}/agent/statblock/${mon.page.id}/combat`, e.T.dm, { initiative: 12 });
+  const mon = await e.ok('POST', `${e.G}/save`, e.T.gm, { kind: 'monster', preset: 'boss', seed: 'm1', options: { type: 'dragon', cr: 10, base: 'builtin' } });
+  const combat = await e.ok('POST', `/api/worlds/${e.W}/agent/statblock/${mon.page.id}/combat`, e.T.gm, { initiative: 12 });
   assert.ok(combat.combatant.hp > 100, 'added to combat from the saved page');
-  const lib = await e.ok('GET', `${e.G}/library`, e.T.dm);
+  const lib = await e.ok('GET', `${e.G}/library`, e.T.gm);
   assert.equal(lib.total, 4);
   assert.deepEqual(lib.pages.map((p: any) => p.kind).sort(), ['map', 'map', 'monster', 'npc']);
-  assert.equal((await e.ok('GET', `${e.G}/library?q=wizard`, e.T.dm)).total, 1, 'search covers title, path and preset');
-  assert.equal((await e.ok('GET', `${e.G}/library?q=zzzzqq`, e.T.dm)).total, 0);
-  assert.equal((await e.ok('GET', `${e.G}/library?kind=map`, e.T.dm)).total, 2);
+  assert.equal((await e.ok('GET', `${e.G}/library?q=wizard`, e.T.gm)).total, 1, 'search covers title, path and preset');
+  assert.equal((await e.ok('GET', `${e.G}/library?q=zzzzqq`, e.T.gm)).total, 0);
+  assert.equal((await e.ok('GET', `${e.G}/library?kind=map`, e.T.gm)).total, 2);
   // generated pages are never used as world ties
-  const opts = await e.ok('GET', `${e.G}/options`, e.T.dm);
+  const opts = await e.ok('GET', `${e.G}/options`, e.T.gm);
   assert.equal(opts.world.places, 2);
 });
 
-test('Generators_save: at party level players read the public part only; the secrets stay in secret blocks; a party map has no DM marks', async () => {
+test('Generators_save: at party level players read the public part only; the secrets stay in secret blocks; a party map has no GM marks', async () => {
   const e = await boot();
-  const gen = await e.ok('POST', `${e.G}/generate`, e.T.dm, { kind: 'npc', preset: 'villain', seed: 'party1', options: { statblock: true } });
-  const npc = await e.ok('POST', `${e.G}/save`, e.T.dm, { kind: 'npc', preset: 'villain', seed: 'party1', level: 'party', options: { statblock: true } });
+  const gen = await e.ok('POST', `${e.G}/generate`, e.T.gm, { kind: 'npc', preset: 'villain', seed: 'party1', options: { statblock: true } });
+  const npc = await e.ok('POST', `${e.G}/save`, e.T.gm, { kind: 'npc', preset: 'villain', seed: 'party1', level: 'party', options: { statblock: true } });
   assert.equal(npc.page.level, 'party');
-  assert.equal(npc.title, gen.title, 'saving gives the result the DM saw');
+  assert.equal(npc.title, gen.title, 'saving gives the result the GM saw');
   const asPlayer = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${npc.page.id}`, e.T.jess);
   const text = JSON.stringify(asPlayer);
   assert.ok(text.includes(gen.title), 'the name is public');
   assert.ok(text.includes(gen.fields.look.slice(0, 20)), 'the look is public');
   for (const k of ['secret', 'want', 'hook']) assert.ok(!text.includes(gen.fields[k]), `${k} is not in the player copy`);
   assert.doesNotMatch(text, /statblock-json/);
-  // the DM still has the secrets on the page
-  const asDm = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${npc.page.id}`, e.T.dm);
-  assert.ok(asDm.body.includes(gen.fields.secret));
-  // a party map: picture at party level, without the DM's marks
-  const m = await e.ok('POST', `${e.G}/save`, e.T.dm, { kind: 'map', preset: 'dungeon', seed: 'secret-door', level: 'party', options: { size: 'large' } });
+  // the GM still has the secrets on the page
+  const asGm = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${npc.page.id}`, e.T.gm);
+  assert.ok(asGm.body.includes(gen.fields.secret));
+  // a party map: picture at party level, without the GM's marks
+  const m = await e.ok('POST', `${e.G}/save`, e.T.gm, { kind: 'map', preset: 'dungeon', seed: 'secret-door', level: 'party', options: { size: 'large' } });
   assert.equal(m.files.find((f: any) => f.kind === 'map').level, 'party');
   const pm = await e.ok('GET', `/api/worlds/${e.W}/files/maps`, e.T.jess);
   assert.equal(pm.length, 1);
   const mp = JSON.stringify(await e.ok('GET', `/api/worlds/${e.W}/library/pages/${m.page.id}`, e.T.jess));
-  assert.doesNotMatch(mp, /Occupants|Treasure|DM:/);
-  // a result that repeats DM-only words is refused at party level
-  const leak = await e.call('POST', `${e.G}/save`, e.T.dm, { kind: 'npc', preset: 'noble', seed: 'x', level: 'party', locks: { look: `Looks like ${SECRET}` } });
+  assert.doesNotMatch(mp, /Occupants|Treasure|GM:/);
+  // a result that repeats GM-only words is refused at party level
+  const leak = await e.call('POST', `${e.G}/save`, e.T.gm, { kind: 'npc', preset: 'noble', seed: 'x', level: 'party', locks: { look: `Looks like ${SECRET}` } });
   assert.equal(leak.status, 409);
 });
 
-test('Generators_stage: send to table stages a card with the public text only, and the map picture without DM marks', async () => {
+test('Generators_stage: send to table stages a card with the public text only, and the map picture without GM marks', async () => {
   const e = await boot();
-  const gen = await e.ok('POST', `${e.G}/generate`, e.T.dm, { kind: 'npc', preset: 'cleric', seed: 'stg' });
-  const r = await e.ok('POST', `${e.G}/stage`, e.T.dm, { kind: 'npc', preset: 'cleric', seed: 'stg' });
+  const gen = await e.ok('POST', `${e.G}/generate`, e.T.gm, { kind: 'npc', preset: 'cleric', seed: 'stg' });
+  const r = await e.ok('POST', `${e.G}/stage`, e.T.gm, { kind: 'npc', preset: 'cleric', seed: 'stg' });
   assert.ok(r.cardId && r.shown === false);
-  const board = await e.ok('GET', `/api/worlds/${e.W}/stage`, e.T.dm);
+  const board = await e.ok('GET', `/api/worlds/${e.W}/stage`, e.T.gm);
   const card = board.cards.find((c: any) => c.id === r.cardId);
   assert.ok(card);
   assert.ok(card.text.includes(gen.fields.look.slice(0, 20)));
@@ -449,32 +449,32 @@ test('Generators_stage: send to table stages a card with the public text only, a
   // not shown yet: a player's board has nothing
   const pb = await e.ok('GET', `/api/worlds/${e.W}/stage`, e.T.jess);
   assert.equal(pb.cards.length, 0);
-  const shown = await e.ok('POST', `${e.G}/stage`, e.T.dm, { kind: 'map', preset: 'cave', seed: 'c', show: true });
+  const shown = await e.ok('POST', `${e.G}/stage`, e.T.gm, { kind: 'map', preset: 'cave', seed: 'c', show: true });
   assert.ok(shown.imageCardId && shown.shown === true);
   assert.equal((await e.ok('GET', `/api/worlds/${e.W}/stage`, e.T.jess)).cards.length, 1);
 });
 
 test('Generators_bestiary: module monsters filter by CR and type', async () => {
   const e = await boot();
-  const all = await e.ok('GET', `${e.G}/bestiary?limit=5`, e.T.dm);
+  const all = await e.ok('GET', `${e.G}/bestiary?limit=5`, e.T.gm);
   assert.ok(all.total > 100 && all.monsters.length === 5 && all.types.includes('dragon'));
-  const low = await e.ok('GET', `${e.G}/bestiary?crMax=0.5&type=undead&limit=200`, e.T.dm);
+  const low = await e.ok('GET', `${e.G}/bestiary?crMax=0.5&type=undead&limit=200`, e.T.gm);
   assert.ok(low.monsters.length > 2 && low.monsters.every((m: any) => m.cr <= 0.5 && m.type.startsWith('undead')));
-  const dragons = await e.ok('GET', `${e.G}/bestiary?crMin=10&crMax=20&type=dragon&limit=200`, e.T.dm);
+  const dragons = await e.ok('GET', `${e.G}/bestiary?crMin=10&crMax=20&type=dragon&limit=200`, e.T.gm);
   assert.ok(dragons.monsters.length > 3 && dragons.monsters.every((m: any) => m.cr >= 10 && m.cr <= 20 && m.type === 'dragon'));
-  assert.equal((await e.call('GET', `${e.G}/bestiary?crMin=x`, e.T.dm)).status, 400);
+  assert.equal((await e.call('GET', `${e.G}/bestiary?crMin=x`, e.T.gm)).status, 400);
   // reskinned from the built-in module when one fits, with its attribution
-  const m = await e.ok('POST', `${e.G}/generate`, e.T.dm, { kind: 'monster', preset: 'undead', seed: 'mod', options: { cr: 1 } });
+  const m = await e.ok('POST', `${e.G}/generate`, e.T.gm, { kind: 'monster', preset: 'undead', seed: 'mod', options: { cr: 1 } });
   assert.match(m.attribution, /System Reference Document/);
   assert.match(m.notes.join(' '), /Based on/);
 });
 
 test('Generators_model: without a chat model the tables fill everything; with one the text is improved, locks are kept, and nothing classified is sent', async () => {
   const none = await boot();
-  const plain = await none.ok('POST', `${none.G}/generate`, none.T.dm, { kind: 'npc', preset: 'rogue', seed: 'm', enrich: true });
+  const plain = await none.ok('POST', `${none.G}/generate`, none.T.gm, { kind: 'npc', preset: 'rogue', seed: 'm', enrich: true });
   assert.equal(plain.enriched, false);
   const withModel = await boot({ model: (body) => { const u = JSON.parse(body.messages[1].content); return Object.fromEntries(Object.keys(u.fields).map((k) => [k, `improved ${k}`])); } });
-  const r = await withModel.ok('POST', `${withModel.G}/generate`, withModel.T.dm, { kind: 'npc', preset: 'rogue', seed: 'm', enrich: true, locks: { want: 'a locked want' } });
+  const r = await withModel.ok('POST', `${withModel.G}/generate`, withModel.T.gm, { kind: 'npc', preset: 'rogue', seed: 'm', enrich: true, locks: { want: 'a locked want' } });
   assert.equal(r.enriched, true);
   assert.equal(r.fields.look, 'improved look');
   assert.equal(r.fields.want, 'a locked want');
@@ -483,31 +483,31 @@ test('Generators_model: without a chat model the tables fill everything; with on
   assert.ok(withModel.calls.every((c) => !JSON.stringify(c).includes('ebb tide') && !JSON.stringify(c).includes(CLASSIFIED_PLACE)), 'no classified text in a model request');
   // enrich is off by default: no model call
   const before = withModel.calls.length;
-  await withModel.ok('POST', `${withModel.G}/generate`, withModel.T.dm, { kind: 'npc', preset: 'rogue', seed: 'm2' });
+  await withModel.ok('POST', `${withModel.G}/generate`, withModel.T.gm, { kind: 'npc', preset: 'rogue', seed: 'm2' });
   assert.equal(withModel.calls.length, before);
   // a model that answers badly leaves the table text alone
   const bad = await boot({ model: () => 'not an object' });
-  const b = await bad.ok('POST', `${bad.G}/generate`, bad.T.dm, { kind: 'tavern', preset: 'elven', seed: 'x', enrich: true });
+  const b = await bad.ok('POST', `${bad.G}/generate`, bad.T.gm, { kind: 'tavern', preset: 'elven', seed: 'x', enrich: true });
   assert.equal(b.enriched, false);
   assert.ok(b.fields.atmosphere.length > 10);
 });
 
-test('Generators_mcp: generate, generate_map and save_generated are DM-only tools', async () => {
+test('Generators_mcp: generate, generate_map and save_generated are GM-only tools', async () => {
   const e = await boot();
   const { toolsFor } = await import('../src/routes/mcpServer.ts');
-  const dm = toolsFor(true).map((t: any) => t.name);
+  const gm = toolsFor(true).map((t: any) => t.name);
   const read = toolsFor(false).map((t: any) => t.name);
-  for (const n of ['generate', 'generate_map', 'save_generated']) assert.ok(dm.includes(n), n);
+  for (const n of ['generate', 'generate_map', 'save_generated']) assert.ok(gm.includes(n), n);
   assert.ok(read.includes('generate') && read.includes('generate_map') && !read.includes('save_generated'), 'saving needs a write key');
-  for (const t of toolsFor(true).filter((x: any) => ['generate', 'generate_map', 'save_generated'].includes(x.name))) assert.equal(t.dmOnly, true, `${t.name} is dmOnly`);
+  for (const t of toolsFor(true).filter((x: any) => ['generate', 'generate_map', 'save_generated'].includes(x.name))) assert.equal(t.gmOnly, true, `${t.name} is gmOnly`);
   // what a tool call does against the real route
   const t = toolsFor(true).find((x: any) => x.name === 'generate_map')!;
   const c = t.call({ kind: 'castle', seed: 's', size: 'small' });
-  const r = await e.ok(c.method, `/api/worlds/${e.W}${c.path}`, e.T.dm, c.body);
+  const r = await e.ok(c.method, `/api/worlds/${e.W}${c.path}`, e.T.gm, c.body);
   assert.equal(r.map.kind, 'castle');
   assert.equal(r.map.svg, undefined, 'the agent gets the key, not the picture');
   const sv = toolsFor(true).find((x: any) => x.name === 'save_generated')!.call({ kind: 'map', map_kind: 'cave', seed: 'k' });
-  const saved = await e.ok(sv.method, `/api/worlds/${e.W}${sv.path}`, e.T.dm, sv.body);
-  assert.equal(saved.page.level, 'dm');
+  const saved = await e.ok(sv.method, `/api/worlds/${e.W}${sv.path}`, e.T.gm, sv.body);
+  assert.equal(saved.page.level, 'gm');
   assert.equal((await e.call(sv.method, `/api/worlds/${e.W}${sv.path}`, e.T.jess, sv.body)).status, 403);
 });

@@ -8,15 +8,15 @@ import { useAuth } from './auth.tsx';
 import { check, onReconnect } from './net.ts';
 import { prefetchWorld } from './prefetch.ts';
 
-export type Role = 'dm' | 'player' | 'guest';
+export type Role = 'gm' | 'player' | 'guest';
 
 export interface WorldSettings {
-  trackWeight: boolean; coins: 'gsc' | 'all' | 'gold'; partyPurse: boolean; dmEditsInventory: boolean;
+  trackWeight: boolean; coins: 'gsc' | 'all' | 'gold'; partyPurse: boolean; gmEditsInventory: boolean;
   monsterHealth: 'none' | 'words' | 'bar' | 'exact'; initiativeVisible: boolean;
-  mapPins: boolean; mapDraw: boolean; mapStops: boolean; whiteboardWipe: 'dm' | 'all';
-  messageDays: number | null; captions: boolean; rules: string; requestDefault: 'dm' | 'party';
+  mapPins: boolean; mapDraw: boolean; mapStops: boolean; whiteboardWipe: 'gm' | 'all';
+  messageDays: number | null; captions: boolean; rules: string; requestDefault: 'gm' | 'party';
   quickEventTimer: number | null; themeEffects: boolean; calendar: 'builtin' | 'off';
-  playerChangesNeedApproval?: boolean; dmChangeReason?: boolean; brokerEnabled?: boolean; brokerPayer?: 'self' | 'party'; brokerPartyPay?: boolean;
+  playerChangesNeedApproval?: boolean; gmChangeReason?: boolean; brokerEnabled?: boolean; brokerPayer?: 'self' | 'party'; brokerPartyPay?: boolean;
   playerTransfers?: boolean;
 }
 
@@ -30,7 +30,7 @@ export interface WorldState {
   info: WorldInfo;
   members: Member[];
   me: string;
-  isDM: boolean;
+  isGM: boolean;
   /** Display name for an account id: character name first. */
   nameOf: (accountId: string | null | undefined) => string;
   on: (types: string[], fn: (e: LiveEvent) => void) => () => void;
@@ -113,7 +113,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
   if (error) return <div className="page"><div className="error-box">This world could not be opened: {error}</div></div>;
   if (!info || !me) return <div className="page"><p className="muted">Opening the world…</p></div>;
   return (
-    <Ctx.Provider value={{ w, info, members, me: me.account.id, isDM: info.role === 'dm', nameOf, on, reloadInfo, connected }}>
+    <Ctx.Provider value={{ w, info, members, me: me.account.id, isGM: info.role === 'gm', nameOf, on, reloadInfo, connected }}>
       {children}
     </Ctx.Provider>
   );

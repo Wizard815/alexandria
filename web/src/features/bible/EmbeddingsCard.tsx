@@ -18,7 +18,7 @@ export function progressText(p: Progress | undefined): string {
   return `Indexing ${p.indexed} of ${p.eligible} · ${eta}`;
 }
 interface Cov { configured: boolean; model: string | null; location: string | null; chat: boolean; worlds: WorldCov[] }
-const SCOPES: [string, string][] = [['dm', 'DM copy'], ['broker', 'Broker copy'], ['party', 'Party copy'], ['lifted', 'Shared with some']];
+const SCOPES: [string, string][] = [['gm', 'GM copy'], ['broker', 'Broker copy'], ['party', 'Party copy'], ['lifted', 'Shared with some']];
 
 export default function EmbeddingsCard() {
   const { client } = useAuth();

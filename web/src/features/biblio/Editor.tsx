@@ -14,7 +14,7 @@ export function Editor({ initial, draft, templates, tree, onSaved, onCancel }: {
   const act = useAction();
   const [title, setTitle] = useState(initial?.title ?? draft?.title ?? '');
   const [template, setTemplate] = useState(initial?.template ?? draft?.template ?? 'page');
-  const [level, setLevel] = useState(initial?.level ?? 'dm');
+  const [level, setLevel] = useState(initial?.level ?? 'gm');
   const [parentId, setParentId] = useState<string>(initial?.parentId ?? draft?.parentId ?? '');
   const [icon, setIcon] = useState(initial?.icon ?? '');
   const [cover, setCover] = useState(initial?.cover ?? '');

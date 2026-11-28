@@ -14,9 +14,9 @@ const describe = (side: { item: string | null; qty: number; cp: number }, mode: 
   [side.item && `${side.qty} × ${side.item}`, side.cp ? coins(side.cp, mode) : ''].filter(Boolean).join(' + ');
 
 export function TradeButton() {
-  const { isDM, info } = useWorld();
+  const { isGM, info } = useWorld();
   const [open, setOpen] = useState(false);
-  if (isDM || info.role !== 'player' || info.settings.playerTransfers === false) return null;
+  if (isGM || info.role !== 'player' || info.settings.playerTransfers === false) return null;
   return (
     <>
       <button type="button" className="btn small" onClick={() => setOpen(true)}>Trade…</button>

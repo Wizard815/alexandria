@@ -1,4 +1,4 @@
-// DM page: the template library (categories, search, favourites, recently used,
+// GM page: the template library (categories, search, favourites, recently used,
 // import and export), and a template at work. Other screens link here with
 // ?tpl=<key> and optional ?page=<page id> or ?name=<text> to pre-fill it.
 import { useMemo, useState } from 'react';
@@ -94,7 +94,7 @@ export default function SculptPage() {
                   <button type="button" className="btn ghost sculpt-open" onClick={() => open(t.id)}>
                     <strong style={{ paddingRight: 28 }}>{t.name}</strong>
                     <span className="small muted">{t.description}</span>
-                    <span className="tiny faint">{t.category} · {t.perspective === 'player' ? 'Players’ view' : 'DM notes'}{t.builtin ? '' : ' · yours'}{t.uses ? ` · used ${t.uses}×` : ''}</span>
+                    <span className="tiny faint">{t.category} · {t.perspective === 'player' ? 'Players’ view' : 'GM notes'}{t.builtin ? '' : ' · yours'}{t.uses ? ` · used ${t.uses}×` : ''}</span>
                   </button>
                 </div>
               ))}
@@ -128,7 +128,7 @@ function ImportPanel({ onDone }: { onDone: (id?: string) => void }) {
       {prev && (
         <div className="stack tight" role="status">
           <strong>{prev.preview.name}</strong>
-          <span className="small muted">{prev.preview.category} · {prev.preview.perspective === 'player' ? 'players’ view' : 'DM notes'}{prev.nameTaken ? ' · the name is taken, so it will be numbered' : ''}</span>
+          <span className="small muted">{prev.preview.category} · {prev.preview.perspective === 'player' ? 'players’ view' : 'GM notes'}{prev.nameTaken ? ' · the name is taken, so it will be numbered' : ''}</span>
           <span className="small">Fields: {prev.preview.fields.map((f) => `${f.label} (${f.type})`).join(', ')}</span>
           {prev.preview.generators.length > 0 && <span className="small">Generators: {prev.preview.generators.join(', ')}</span>}
           {prev.preview.outputs.length > 0 && <span className="small">Outputs: {prev.preview.outputs.join(', ')}</span>}

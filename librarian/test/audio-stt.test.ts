@@ -59,7 +59,7 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
 };
 const WEBM = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
 const audio = (text: string) => Buffer.concat([WEBM, Buffer.from('FAKE:' + text)]);
-const setting = (k: string, v: unknown) => ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { [k]: v });
+const setting = (k: string, v: unknown) => ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { [k]: v });
 
 /** Upload a chunk. `wait`: the device promises its own text. `sent`: the device's own clock reading at sending. */
 async function upload(who: string, sid: string, mic: string, start: number, serverText: string, o: { wait?: boolean; end?: number; level?: number; sent?: number } = {}) {
@@ -77,9 +77,9 @@ const deviceText = (text: string, from = 0, step = 400) => ({
 const sendText = (who: string, sid: string, mic: string, start: number, body: unknown) => call('POST', `${A()}/sessions/${sid}/chunks/${Math.floor(start / 10)}/text?mic=${MIC[mic]}`, T[who], body);
 const chunkRow = (sid: string, mic: string, start: number) => one<any>(deps.db, 'SELECT * FROM audio_chunks WHERE session_id = ? AND mic_id = ? AND start_ms = ?', sid, MIC[mic], start);
 async function newSession(name = 'Device test') {
-  const act = await ok('GET', `${A()}/status`, T.dm);
-  if (act.session) await ok('POST', `${A()}/sessions/${act.session.id}/stop`, T.dm);
-  return (await ok('POST', `${A()}/sessions`, T.dm, { name })).id as string;
+  const act = await ok('GET', `${A()}/status`, T.gm);
+  if (act.session) await ok('POST', `${A()}/sessions/${act.session.id}/stop`, T.gm);
+  return (await ok('POST', `${A()}/sessions`, T.gm, { name })).id as string;
 }
 const lines = async (who: string, sid: string, q = '') => (await ok('GET', `${A()}/sessions/${sid}/lines${q}`, T[who])).lines as any[];
 
@@ -97,19 +97,19 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Deviceland', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Deviceland', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : 'Tomas' });
     T[name] = j.token;
     ID[name] = j.account.id;
     await ok('POST', `${A()}/consent`, T[name], { agree: true });
   }
   const mic = async (who: string, key: string, body: any) => { MIC[key] = (await ok('POST', `${A()}/mics`, T[who], { deviceId: 'dev-' + key, ...body })).id; };
-  await mic('dm', 'table', { label: 'Table mic', mode: 'always' });
+  await mic('gm', 'table', { label: 'Table mic', mode: 'always' });
   await mic('jess', 'jess', { label: 'Jess phone', mode: 'always' });
   await mic('tom', 'tom', { label: 'Tom phone', mode: 'always' });
 });
@@ -118,11 +118,11 @@ after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true });
 
 // ---- the mode ----------------------------------------------------------------------------------------------------
 
-test('Stt_mode: server by default; the DM picks server, device or auto; players read it but cannot change it', async () => {
+test('Stt_mode: server by default; the GM picks server, device or auto; players read it but cannot change it', async () => {
   assert.equal((await ok('GET', `${A()}/status`, T.jess)).transcription.stt, 'server');
   await setting('speechToText', 'auto');
   assert.equal((await ok('GET', `${A()}/status`, T.jess)).transcription.stt, 'auto');
-  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.dm, { speechToText: 'device-first' })).status, 400, 'only the three modes');
+  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.gm, { speechToText: 'device-first' })).status, 400, 'only the three modes');
   assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.jess, { speechToText: 'server' })).status, 403);
   await setting('speechToText', 'server');
 });
@@ -135,7 +135,7 @@ test('Stt_device: a chunk promised by its device waits; the device text becomes 
   const before = asked;
   const up = await upload('jess', sid, 'jess', 0, 'server words here', { wait: true });
   assert.equal(up.status, 'awaiting');
-  assert.equal((await lines('dm', sid)).length, 0, 'nothing yet');
+  assert.equal((await lines('gm', sid)).length, 0, 'nothing yet');
   const r = await sendText('jess', sid, 'jess', 0, deviceText('The ferryman wants twelve silver pieces'));
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual([r.body.accepted, r.body.status, r.body.words], [true, 'done', 6]);
@@ -147,11 +147,11 @@ test('Stt_device: a chunk promised by its device waits; the device text becomes 
   const row = chunkRow(sid, 'jess', 0);
   assert.equal(row.source, 'device');
   assert.deepEqual(JSON.parse(row.stt), { model: 'whisper-base', backend: 'webgpu', ms: 600, rtf: 0.12 });
-  // A second copy of the same text (a retry) changes nothing; the DM sees where each mic's text came from.
+  // A second copy of the same text (a retry) changes nothing; the GM sees where each mic's text came from.
   assert.equal((await sendText('jess', sid, 'jess', 0, deviceText('The ferryman wants twelve silver pieces'))).body.accepted, true);
   assert.equal((await lines('jess', sid)).length, 1);
   await ok('POST', `${A()}/mics/${MIC.jess}/stt`, T.jess, { state: 'running', model: 'whisper-base', backend: 'webgpu', rtf: 0.12, backlog: 0 });
-  const mics = await ok('GET', `${A()}/mics`, T.dm);
+  const mics = await ok('GET', `${A()}/mics`, T.gm);
   const jm = mics.find((m: any) => m.id === MIC.jess);
   assert.equal(jm.stt.mode, 'device');
   assert.deepEqual(jm.stt.chunks, { device: 1, server: 0, awaiting: 0, pending: 0 });
@@ -166,7 +166,7 @@ test('Stt_device: device text goes through the same filters as the server model 
   await upload('tom', sid, 'tom', 0, '', { wait: true });
   const r = await sendText('tom', sid, 'tom', 0, { segments: [{ start: 0, end: 2, text: 'Thanks for watching!', words: [{ word: ' Thanks', start: 0, end: 0.5 }, { word: ' for', start: 0.5, end: 1 }, { word: ' watching!', start: 1, end: 2 }] }] });
   assert.equal(r.body.words, 0, 'a known outro never becomes a line');
-  assert.equal((await lines('dm', sid)).length, 0);
+  assert.equal((await lines('gm', sid)).length, 0);
   await upload('tom', sid, 'tom', 5000, '', { wait: true });
   assert.equal((await sendText('tom', sid, 'tom', 5000, { segments: [{ start: 0, end: 999, text: 'x', words: [] }] })).status, 400, 'times outside the chunk are refused');
   assert.equal((await sendText('tom', sid, 'tom', 5000, { words: [{ word: 'hi', start: 'soon', end: 1 }] })).status, 400);
@@ -175,7 +175,7 @@ test('Stt_device: device text goes through the same filters as the server model 
   // A flat word list works too.
   const flat = await sendText('tom', sid, 'tom', 5000, { words: [{ word: 'Roll', start: 0.2, end: 0.5 }, { word: 'for', start: 0.5, end: 0.7 }, { word: 'initiative', start: 0.7, end: 1.3 }] });
   assert.equal(flat.body.accepted, true);
-  assert.equal((await lines('dm', sid))[0].text, 'Roll for initiative');
+  assert.equal((await lines('gm', sid))[0].text, 'Roll for initiative');
 });
 
 test('Stt_device: only the mic\'s owner may send its text, and only for a chunk that was uploaded', async () => {
@@ -183,7 +183,7 @@ test('Stt_device: only the mic\'s owner may send its text, and only for a chunk 
   const sid = await newSession();
   await upload('jess', sid, 'jess', 0, '', { wait: true });
   assert.equal((await sendText('tom', sid, 'jess', 0, deviceText('I am Jess honest'))).status, 403, 'another player cannot speak for Jess');
-  assert.equal((await sendText('dm', sid, 'jess', 0, deviceText('I am Jess honest'))).status, 403, 'nor can the DM');
+  assert.equal((await sendText('gm', sid, 'jess', 0, deviceText('I am Jess honest'))).status, 403, 'nor can the GM');
   assert.equal((await sendText('jess', sid, 'jess', 5000, deviceText('never uploaded'))).status, 404);
   await ok('POST', `${A()}/consent`, T.jess, { agree: false });
   assert.equal((await sendText('jess', sid, 'jess', 0, deviceText('after withdrawing'))).status, 403, 'consent withdrawn: refused');
@@ -191,14 +191,14 @@ test('Stt_device: only the mic\'s owner may send its text, and only for a chunk 
   assert.equal(chunkRow(sid, 'jess', 0).status, 'awaiting');
 });
 
-test('Stt_device: a DM-only title in a device\'s line hides that line from the players, as with the server model', async () => {
+test('Stt_device: a GM-only title in a device\'s line hides that line from the players, as with the server model', async () => {
   await setting('speechToText', 'device');
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'dm/Pale Vault.md', visibility: 'dm', markdown: '# The Pale Vault\nSealed.\n' });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'gm/Pale Vault.md', visibility: 'gm', markdown: '# The Pale Vault\nSealed.\n' });
   engine(deps).resetHint();
   const sid = await newSession();
   await upload('jess', sid, 'jess', 0, '', { wait: true });
   await sendText('jess', sid, 'jess', 0, deviceText('maybe the Pale Vault holds the key'));
-  assert.equal((await lines('dm', sid)).length, 1);
+  assert.equal((await lines('gm', sid)).length, 1);
   assert.equal((await lines('jess', sid)).length, 0, 'the player never reads it');
 });
 
@@ -213,7 +213,7 @@ test('Stt_fallback: in server mode a promise of text is ignored: the server tran
   assert.equal(asked, before + 1);
   const r = await sendText('tom', sid, 'tom', 0, deviceText('something else entirely'));
   assert.equal(r.body.accepted, false);
-  assert.equal((await lines('dm', sid))[0].text, 'goblins burst through the door');
+  assert.equal((await lines('gm', sid))[0].text, 'goblins burst through the door');
   assert.equal(chunkRow(sid, 'tom', 0).source, 'server');
 });
 
@@ -246,7 +246,7 @@ test('Stt_fallback: text that never comes is transcribed by the server after the
   assert.equal(await engine(deps).expireAwaiting(), 1);
   const row = chunkRow(sid, 'jess', 5000);
   assert.deepEqual([row.status, row.source], ['done', 'server']);
-  const text = (await lines('dm', sid)).map((l) => l.text).join(' ');
+  const text = (await lines('gm', sid)).map((l) => l.text).join(' ');
   assert.match(text, /first chunk words.*second chunk the phone dropped.*third chunk/);
 });
 
@@ -263,7 +263,7 @@ test('Stt_fallback: a device that says it is behind or failed has its waiting ch
   assert.equal(chunkRow(sid, 'jess', 0).status, 'awaiting', "only that device's chunks");
   assert.equal((await call('POST', `${A()}/mics/${MIC.tom}/stt`, T.jess, { state: 'error' })).status, 403, "a player cannot report on another's mic");
   assert.equal((await call('POST', `${A()}/mics/${MIC.tom}/stt`, T.tom, { state: 'sleepy' })).status, 400);
-  const m = (await ok('GET', `${A()}/mics`, T.dm)).find((x: any) => x.id === MIC.tom);
+  const m = (await ok('GET', `${A()}/mics`, T.gm)).find((x: any) => x.id === MIC.tom);
   assert.deepEqual([m.stt.device.state, m.stt.device.rtf, m.stt.device.backlog, m.stt.chunks.server], ['behind', 2.4, 9, 2]);
 });
 
@@ -297,44 +297,44 @@ test('Final_api: two phones with clocks seconds apart give one line per sentence
   await say('tom', 1000 + LATE, S1, 0.15);
   await say('tom', 10000 + LATE, S2, 0.8);
   await say('jess', 10000, S2, 0.15);
-  const live = await lines('dm', sid);
+  const live = await lines('gm', sid);
   assert.ok(live.filter((l) => l.text.includes('ferryman')).length >= 2, `live has S1 twice: ${live.map((l) => l.text).join(' / ')}`);
 
-  assert.equal((await call('POST', `${A()}/sessions/${sid}/final`, T.dm, {})).status, 409, 'stop the recording first');
-  await ok('POST', `${A()}/sessions/${sid}/stop`, T.dm);
+  assert.equal((await call('POST', `${A()}/sessions/${sid}/final`, T.gm, {})).status, 409, 'stop the recording first');
+  await ok('POST', `${A()}/sessions/${sid}/stop`, T.gm);
   assert.equal((await call('POST', `${A()}/sessions/${sid}/final`, T.jess, {})).status, 403);
   await engine(deps).finalize(sid);
-  const fin = (await ok('GET', `${A()}/sessions/${sid}/final`, T.dm)).final;
+  const fin = (await ok('GET', `${A()}/sessions/${sid}/final`, T.gm)).final;
   assert.equal(fin.status, 'done');
   assert.equal(fin.stats.mics, 2);
   assert.ok(Math.abs(fin.offsets[MIC.tom].ms + LATE) <= 50 || Math.abs(fin.offsets[MIC.jess].ms - LATE) <= 50, JSON.stringify(fin.offsets));
-  const after = await lines('dm', sid);
+  const after = await lines('gm', sid);
   assert.deepEqual(after.map((l) => l.text), [S1, S2], after.map((l) => `${l.start} ${l.text}`).join(' / '));
   assert.deepEqual(after.map((l) => l.speaker), ['Jessamine', 'Tomas'], 'each line is credited to the closest phone');
   assert.ok(after[1].start - after[0].start > 7000 && after[1].start - after[0].start < 11000, 'the two sentences are ~9 s apart on one clock');
-  // Players read the final transcript too; the live version is the DM's.
+  // Players read the final transcript too; the live version is the GM's.
   assert.deepEqual((await lines('tom', sid)).map((l) => l.text), [S1, S2]);
   assert.equal((await call('GET', `${A()}/sessions/${sid}/lines?version=live`, T.tom)).status, 403);
-  assert.ok((await lines('dm', sid, '?version=live')).length >= 3);
+  assert.ok((await lines('gm', sid, '?version=live')).length >= 3);
   assert.equal((await call('GET', `${A()}/sessions/${sid}/final`, T.tom)).status, 403);
 
-  const undo = await ok('POST', `${A()}/sessions/${sid}/final/undo`, T.dm);
+  const undo = await ok('POST', `${A()}/sessions/${sid}/final/undo`, T.gm);
   assert.ok(undo.restored >= 3);
   assert.equal(undo.final.status, 'undone');
-  assert.ok((await lines('dm', sid)).filter((l) => l.text.includes('ferryman')).length >= 2, 'the live lines are back');
+  assert.ok((await lines('gm', sid)).filter((l) => l.text.includes('ferryman')).length >= 2, 'the live lines are back');
   // Again: the second pass starts from the live version, not from the first final.
   await engine(deps).finalize(sid);
-  assert.deepEqual((await lines('dm', sid)).map((l) => l.text), [S1, S2]);
+  assert.deepEqual((await lines('gm', sid)).map((l) => l.text), [S1, S2]);
 });
 
-test('Final_api: DM-only stays DM-only through the final pass; Transcript.md and session.json are rewritten', async () => {
+test('Final_api: GM-only stays GM-only through the final pass; Transcript.md and session.json are rewritten', async () => {
   await setting('speechToText', 'device');
   const sid = await newSession('Final files');
-  await ok('POST', `${A()}/mics`, T.dm, { deviceId: 'dev-table', label: 'Table mic', mode: 'always', playersTranscript: false });
-  await upload('dm', sid, 'table', 0, '', { wait: true, level: 0.6 });
-  await sendText('dm', sid, 'table', 0, deviceText('secret plans for the drowned chapel'));
+  await ok('POST', `${A()}/mics`, T.gm, { deviceId: 'dev-table', label: 'Table mic', mode: 'always', playersTranscript: false });
+  await upload('gm', sid, 'table', 0, '', { wait: true, level: 0.6 });
+  await sendText('gm', sid, 'table', 0, deviceText('secret plans for the drowned chapel'));
   await upload('tom', sid, 'tom', 5000, 'the tavern is warm', { level: 0.6 });
-  await ok('POST', `${A()}/sessions/${sid}/stop`, T.dm);
+  await ok('POST', `${A()}/sessions/${sid}/stop`, T.gm);
   // A recording folder as the build leaves it.
   const rel = path.join('recordings', 'Deviceland', 'test Final files');
   const dir = path.join(deps.dataDir, rel);
@@ -342,27 +342,27 @@ test('Final_api: DM-only stays DM-only through the final pass; Transcript.md and
   fs.writeFileSync(path.join(dir, 'session.json'), '{}');
   run(deps.db, 'UPDATE audio_sessions SET rec_dir = ? WHERE id = ?', rel, sid);
   await engine(deps).finalize(sid);
-  const ls = await lines('dm', sid);
-  assert.equal(ls.find((l) => /secret/.test(l.text))?.audience, 'dm');
-  assert.ok(!(await lines('tom', sid)).some((l) => /secret/.test(l.text)), 'players never read the DM-only line');
+  const ls = await lines('gm', sid);
+  assert.equal(ls.find((l) => /secret/.test(l.text))?.audience, 'gm');
+  assert.ok(!(await lines('tom', sid)).some((l) => /secret/.test(l.text)), 'players never read the GM-only line');
   const md = fs.readFileSync(path.join(dir, 'Transcript.md'), 'utf8');
   assert.match(md, /Final transcript: 2 microphones synced onto one timeline/);
-  assert.match(md, /\(\*\*DM only\*\*\): secret plans for the drowned chapel/);
+  assert.match(md, /\(\*\*GM only\*\*\): secret plans for the drowned chapel/);
   assert.match(md, /\*\*Tomas\*\*: the tavern is warm/);
   const doc = JSON.parse(fs.readFileSync(path.join(dir, 'session.json'), 'utf8'));
   assert.equal(doc.transcript.status, 'done');
   assert.equal(doc.transcript.mics, 2);
-  await ok('POST', `${A()}/mics`, T.dm, { deviceId: 'dev-table', label: 'Table mic', mode: 'always', playersTranscript: true });
+  await ok('POST', `${A()}/mics`, T.gm, { deviceId: 'dev-table', label: 'Table mic', mode: 'always', playersTranscript: true });
 });
 
 test('Final_api: chunks still waiting for a device when the pass starts are transcribed by the server first', async () => {
   await setting('speechToText', 'device');
   const sid = await newSession('Final waits');
   await upload('jess', sid, 'jess', 0, 'the phone never answered', { wait: true });
-  await ok('POST', `${A()}/sessions/${sid}/stop`, T.dm);
+  await ok('POST', `${A()}/sessions/${sid}/stop`, T.gm);
   await engine(deps).finalize(sid);
   assert.equal(chunkRow(sid, 'jess', 0).source, 'server');
-  assert.deepEqual((await lines('dm', sid)).map((l) => l.text), ['the phone never answered']);
+  assert.deepEqual((await lines('gm', sid)).map((l) => l.text), ['the phone never answered']);
 });
 
 // ---- model files --------------------------------------------------------------------------------------------------
@@ -452,7 +452,7 @@ test('Stt_csp: the app page allows WebAssembly from its own origin and nothing e
   await new Promise((r) => srv.once('listening', r));
   try {
     const b = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
-    const csp = (await fetch(b + '/w/x/dm/audio')).headers.get('content-security-policy') ?? '';
+    const csp = (await fetch(b + '/w/x/gm/audio')).headers.get('content-security-policy') ?? '';
     assert.match(csp, /script-src 'self' 'wasm-unsafe-eval';/);
     assert.match(csp, /connect-src 'self';/);
     assert.ok(!/unsafe-eval'/.test(csp.replace("'wasm-unsafe-eval'", '')), 'no plain unsafe-eval');

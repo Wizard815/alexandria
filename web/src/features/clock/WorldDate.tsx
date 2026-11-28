@@ -1,4 +1,4 @@
-// The world date in the top bar, e.g. "3 Frostmoot 1492 DR · evening".
+// The world date in the top bar, e.g. "3 Frostmoot 1492 AR · evening".
 import { useClock } from './shared.tsx';
 
 export default function WorldDate() {

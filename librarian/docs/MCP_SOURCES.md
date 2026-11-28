@@ -21,10 +21,10 @@ curl -X POST localhost:8090/api/admin/sources/$SOURCE/sync -H "Authorization: Be
   Only commands the operator listed in `ALX_MCP_STDIO` can be started, for
   example `{"kanka": {"command": ["uvx", "mcp-kanka"], "env": {"KANKA_TOKEN": "…", "KANKA_CAMPAIGN_ID": "…"}}}`.
 - `defaultVisibility` applies only to things the source itself shows to
-  players. Anything hidden there is always DM-only.
+  players. Anything hidden there is always GM-only.
 - Kanka only: set `trustPostVisibility: true` once the server runs
   mcp-kanka with the post-visibility fix described below. Until then, every
-  post is imported as DM-only.
+  post is imported as GM-only.
 
 ## Read-only
 
@@ -36,7 +36,7 @@ note or journal tree; see docs/CONNECTORS.md): `find_entities`, `get_entities`,
 Any other call is refused before it is sent. LegendKeeper keys can be
 write-enabled, so use a read-only key where you can.
 
-## How each server marks DM-only content
+## How each server marks GM-only content
 
 Checked against the official docs in November 2026: LegendKeeper's
 [developer guide](https://www.legendkeeper.com/developers/guide/) and
@@ -56,14 +56,14 @@ Kanka `visibility_id`: 1 = all, 5 = members, which players see. 2, 3 and
 4 are admin, admin-self and self (the
 [visibilities page](https://app.kanka.io/api-docs/1.0/misc/visibilities);
 the posts page numbers them 2 self, 3 admin, 4 self-admin). Either way
-only 1 and 5 are shared; any other or missing value is DM-only.
+only 1 and 5 are shared; any other or missing value is GM-only.
 
 ## What the importer does
 
 1. **Fails closed.** A missing or unknown hidden flag, an entity it
    couldn't load, an unknown parent, a property without `isHidden: false`,
    or a resource whose permissions it couldn't read: each makes the page,
-   or that part of it, DM-only.
+   or that part of it, GM-only.
 2. **Kanka API**
    - Lists each module with `?related=1&page=N` (45 to 100 per page, set
      by the account) until `links.next` is null. It builds each page URL
@@ -92,16 +92,16 @@ only 1 and 5 are shared; any other or missing value is DM-only.
    - Maps every block kind of schema 1. Layout columns and text fields are
      flattened; `map` and `unsupported` blocks are dropped for players.
    - Use an Admin key. A Member key never receives hidden resources,
-     documents, properties or secret blocks, so nothing leaks, but the DM
+     documents, properties or secret blocks, so nothing leaks, but the GM
      doesn't see them either.
    - REST: 429 `RATE_LIMITED` is retried after `Retry-After` (up to a
      minute). 402 means the project owner's plan doesn't allow API keys.
-5. **Rebuilds player copies after every sync.** Links to DM-only pages
+5. **Rebuilds player copies after every sync.** Links to GM-only pages
    become `(hidden)`, or keep the link's own label, so players don't learn
    those pages' names.
 6. **Keys page paths on source ids**, because names repeat.
 7. **Lint:** `GET /api/worlds/:world/library/lint` lists shared pages that
-   still read like DM notes ("The secret:", "DM note:", "GM only"). Those
+   still read like GM notes ("The secret:", "GM note:", "GM only"). Those
    are secrets written as plain text, which no format marks.
 
 ## Known server quirks
@@ -140,17 +140,17 @@ kept in the `intake_*` tables and shown only to players when shared.
   - Relations (`GET relations`), with attitude. Shared only for
     `visibility_id` 1 or 5, not `is_private`, **and** when both pages are
     shared.
-  - Timelines (eras and elements). Private timeline: all DM-only. An
+  - Timelines (eras and elements). Private timeline: all GM-only. An
     element is shared only for `visibility_id` 1 or 5 in a shared timeline.
   - Calendars, with the current date, in the world clock's shape.
   - Map markers (`maps/<id>/map_markers`). Shared only on a shared map, not
     private, `visibility_id` 1 or 5, and not linked to a private entity.
 - **LegendKeeper** (MCP `api_request` or API key):
-  - Calendars (`GET calendars`). No hidden flag exists, so they are DM-only.
+  - Calendars (`GET calendars`). No hidden flag exists, so they are GM-only.
   - Timelines (`time` documents): lanes become groups. An event is shared
     only when its own `isHidden` is false inside a shared timeline.
   - Maps (`map` documents) become pages with a `map` block (image and
-    pins). A pin is DM-only when hidden, under a hidden folder pin, or for
+    pins). A pin is GM-only when hidden, under a hidden folder pin, or for
     a hidden page; the player guard also drops pins for pages players
     can't open.
 

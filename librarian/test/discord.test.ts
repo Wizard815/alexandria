@@ -1,7 +1,7 @@
 // The Discord bot against a stand-in Discord (discord-fake.ts): setting it up,
 // linking a player with a code, /roll, /ask (the quick helper), /recap, and
 // what Alexandria posts by itself (recaps, table rolls, broker messages),
-// with nothing DM-only or party-only ever leaving.
+// with nothing GM-only or party-only ever leaving.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -80,16 +80,16 @@ before(async () => {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   managerOf(deps).start();
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Saltmarsh', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Saltmarsh', gmAccountId: ID.gm })).id;
   for (const [name, ch] of [['jess', 'Brindle'], ['tom', 'Oskar']]) {
-    const inv = await ok('POST', w('/invites'), T.dm, { role: 'player' });
+    const inv = await ok('POST', w('/invites'), T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: ch });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  await ok('PUT', w('/library/pages'), T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `# Saltmarsh\nSaltmarsh is a fishing town ruled by a council of seven captains.\n\n> [!secret] DM\n> ${SECRET}.\n` });
+  await ok('PUT', w('/library/pages'), T.gm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `# Saltmarsh\nSaltmarsh is a fishing town ruled by a council of seven captains.\n\n> [!secret] GM\n> ${SECRET}.\n` });
 });
 
 after(async () => {
@@ -118,25 +118,25 @@ test('TestDiscord_PlayersCannotSeeOrChangeTheBot', async () => {
   assert.equal((await call('POST', w('/discord/me/code'), T.jess)).status, 409);
 });
 
-test('TestDiscord_DMConnectsTheBotAndCommandsAreRegistered', async () => {
-  assert.equal((await call('PUT', w('/discord'), T.dm, { token: 'not a token' })).status, 400);
-  assert.equal((await call('PUT', w('/discord'), T.dm, { guildId: 'my server' })).status, 400);
-  const v = await ok('PUT', w('/discord'), T.dm, { token: GOOD_TOKEN, guildId: GUILD, recapChannel: RECAPS, rollChannel: ROLLS });
+test('TestDiscord_GMConnectsTheBotAndCommandsAreRegistered', async () => {
+  assert.equal((await call('PUT', w('/discord'), T.gm, { token: 'not a token' })).status, 400);
+  assert.equal((await call('PUT', w('/discord'), T.gm, { guildId: 'my server' })).status, 400);
+  const v = await ok('PUT', w('/discord'), T.gm, { token: GOOD_TOKEN, guildId: GUILD, recapChannel: RECAPS, rollChannel: ROLLS });
   assert.equal(v.tokenSet, true);
   assert.equal(JSON.stringify(v).includes(GOOD_TOKEN), false, 'the token never comes back');
   const reg = await until('commands registered', () => fake.find('PUT', new RegExp(`/applications/${APP_ID}/guilds/${GUILD}/commands`))[0]);
   assert.deepEqual((reg as any).body.map((c: any) => c.name), ['link', 'unlink', 'roll', 'ask', 'recap']);
-  const s = await ok('GET', w('/discord'), T.dm);
+  const s = await ok('GET', w('/discord'), T.gm);
   assert.equal(s.status.connected, true);
   assert.equal(s.status.botName, 'AlexBot');
   assert.equal(s.status.inServer, true);
   assert.match(s.inviteUrl, new RegExp(`client_id=${APP_ID}.*applications\\.commands`));
   assert.equal(fake.identified[0].token, GOOD_TOKEN);
   // A token sent as '' keeps the saved one.
-  assert.equal((await ok('PUT', w('/discord'), T.dm, { token: '', postRolls: true })).tokenSet, true);
-  const ch = await ok('GET', w('/discord/channels'), T.dm);
+  assert.equal((await ok('PUT', w('/discord'), T.gm, { token: '', postRolls: true })).tokenSet, true);
+  const ch = await ok('GET', w('/discord/channels'), T.gm);
   assert.deepEqual(ch.map((c: any) => c.name), ['recaps', 'rolls'], 'text channels only, in order');
-  const t = await ok('POST', w('/discord/test'), T.dm);
+  const t = await ok('POST', w('/discord/test'), T.gm);
   assert.equal(t.results.length, 2);
   assert.ok(t.results.every((r: any) => r.ok));
 });
@@ -158,7 +158,7 @@ test('TestDiscord_LinkingNeedsAFreshCodeFromTheApp', async () => {
   assert.equal(me.serverName, 'The Table');
   const tomCode = await ok('POST', w('/discord/me/code'), T.tom);
   await answerTo(fake.interaction(TOM, 'link', { code: tomCode.code }));
-  assert.equal((await ok('GET', w('/discord'), T.dm)).links.length, 2);
+  assert.equal((await ok('GET', w('/discord'), T.gm)).links.length, 2);
 });
 
 test('TestDiscord_UnlinkedPeopleCanDoNothing', async () => {
@@ -175,11 +175,11 @@ test('TestDiscord_RollGoesToTheTableChatAndIsNotPostedTwice', async () => {
   assert.match(first.content, /not in the table chat/);
   assert.equal(first.flags, 0, 'rolls are public');
 
-  await ok('POST', w('/sessionchat/sessions/start'), T.dm, { title: 'Game night' });
+  await ok('POST', w('/sessionchat/sessions/start'), T.gm, { title: 'Game night' });
   const from = fake.calls.length;
   const r: any = await answerTo(fake.interaction(JESS, 'roll', { dice: '2d6+3 sneak attack' }));
   assert.doesNotMatch(r.content, /not in the table chat/);
-  const chat = await ok('GET', w('/sessionchat/chat/table'), T.dm);
+  const chat = await ok('GET', w('/sessionchat/chat/table'), T.gm);
   const m = chat.messages.at(-1);
   assert.equal(m.kind, 'roll');
   assert.equal(m.authorId, ID.jess);
@@ -198,8 +198,8 @@ test('TestDiscord_TableRollsArePostedPartyRollsAreNot', async () => {
   await ok('POST', w('/sessionchat/chat/table'), T.tom, { body: 'plain words, not a roll' });
   await new Promise((res) => setTimeout(res, 100));
   assert.equal(fake.find('POST', new RegExp(`/channels/${ROLLS}/messages`), from).length, 1, 'party chat and plain text stay home');
-  // The DM hides the roll: it comes down in Discord too.
-  await ok('POST', w(`/sessionchat/messages/${m.id}/hide`), T.dm, {});
+  // The GM hides the roll: it comes down in Discord too.
+  await ok('POST', w(`/sessionchat/messages/${m.id}/hide`), T.gm, {});
   await until('the delete', () => fake.find('DELETE', new RegExp(`/channels/${ROLLS}/messages/${post.body ? '\\d+' : ''}`), from)[0]);
 });
 
@@ -218,24 +218,24 @@ test('TestDiscord_AskUsesTheQuickHelperPrivately', async () => {
   // Shared: posted for the channel.
   const s: any = await answerTo(fake.interaction(JESS, 'ask', { task: 'turn', share: true }));
   assert.equal(s.flags, 0);
-  // The DM is not a player: no quick helper.
-  const dmCode = await ok('POST', w('/discord/me/code'), T.dm);
-  const DM = { id: '500000000000000005', username: 'the_dm' };
-  await answerTo(fake.interaction(DM, 'link', { code: dmCode.code }));
-  assert.match((await answerTo(fake.interaction(DM, 'ask', { question: 'Hi?' })) as any).content, /for players/);
-  // The DM switches the helper off for Discord.
-  await ok('PUT', w('/discord'), T.dm, { helper: false });
+  // The GM is not a player: no quick helper.
+  const gmCode = await ok('POST', w('/discord/me/code'), T.gm);
+  const GM = { id: '500000000000000005', username: 'the_gm' };
+  await answerTo(fake.interaction(GM, 'link', { code: gmCode.code }));
+  assert.match((await answerTo(fake.interaction(GM, 'ask', { question: 'Hi?' })) as any).content, /for players/);
+  // The GM switches the helper off for Discord.
+  await ok('PUT', w('/discord'), T.gm, { helper: false });
   assert.match((await answerTo(fake.interaction(JESS, 'ask', { question: 'What does Dodge do?' })) as any).content, /turned the quick helper off in Discord/);
-  await ok('PUT', w('/discord'), T.dm, { helper: true });
+  await ok('PUT', w('/discord'), T.gm, { helper: true });
 });
 
 test('TestDiscord_PublishedRecapIsPostedOnce', async () => {
   const none: any = await answerTo(fake.interaction(TOM, 'recap'));
   assert.match(none.content, /not published a session recap yet/);
   const from = fake.calls.length;
-  const draft = await ok('POST', w('/sessionlog/drafts'), T.dm, { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), title: 'The Lighthouse' });
-  await ok('PUT', w(`/sessionlog/drafts/${draft.id}`), T.dm, { markdown: '# The Lighthouse\nThe party climbed the old lighthouse and met the keeper.' });
-  const pub = await ok('POST', w(`/sessionlog/drafts/${draft.id}/publish`), T.dm, {});
+  const draft = await ok('POST', w('/sessionlog/drafts'), T.gm, { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), title: 'The Lighthouse' });
+  await ok('PUT', w(`/sessionlog/drafts/${draft.id}`), T.gm, { markdown: '# The Lighthouse\nThe party climbed the old lighthouse and met the keeper.' });
+  const pub = await ok('POST', w(`/sessionlog/drafts/${draft.id}/publish`), T.gm, {});
   const post: any = await until('the recap post', () => fake.find('POST', new RegExp(`/channels/${RECAPS}/messages`), from)[0]);
   assert.match(post.body.content, /Saltmarsh: Session 1: The Lighthouse/);
   assert.match(post.body.content, /met the keeper/);
@@ -244,26 +244,26 @@ test('TestDiscord_PublishedRecapIsPostedOnce', async () => {
   const mine: any = await answerTo(fake.interaction(TOM, 'recap'));
   assert.match(mine.content, /met the keeper/);
   assert.equal(mine.flags, 64);
-  // The DM can post it again on purpose.
+  // The GM can post it again on purpose.
   const entry = pub.entry?.id ?? one<any>(deps.db, 'SELECT id FROM sessionlog_entries WHERE world_id = ?', W).id;
-  await ok('POST', w(`/discord/recap/${entry}`), T.dm);
+  await ok('POST', w(`/discord/recap/${entry}`), T.gm);
   assert.equal(fake.find('POST', new RegExp(`/channels/${RECAPS}/messages`), from).length, 2);
 });
 
 test('TestDiscord_BrokerMessagesGoToTheAskerOnly', async () => {
-  // A guarded question waits for the DM's price.
+  // A guarded question waits for the GM's price.
   const rid = 'brq_discordtest1';
   run(deps.db, `INSERT INTO broker_requests (id, world_id, account_id, question, length, tier, status, created_at) VALUES (?, ?, ?, ?, 'short', 'secret', 'pricing', ?)`, rid, W, ID.jess, 'Who does the council answer to?', new Date().toISOString());
   const jessDm = `7${JESS.id.slice(1)}`;
   const from = fake.calls.length;
-  await ok('POST', w(`/broker/${rid}/price`), T.dm, { costCp: 500, answer: 'To the smuggler queen.', waitAmount: 0, waitUnit: 'minutes', clock: 'real' });
+  await ok('POST', w(`/broker/${rid}/price`), T.gm, { costCp: 500, answer: 'To the smuggler queen.', waitAmount: 0, waitUnit: 'minutes', clock: 'real' });
   const priced: any = await until('the price DM', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from)[0]);
   assert.match(priced.body.content, /names a price/);
   assert.equal(priced.body.content.includes('smuggler queen'), false, 'no answer before paying');
-  await ok('POST', w('/live/ledger'), T.dm, { owner: ID.jess, amountCp: 1000, note: 'Reward' });
+  await ok('POST', w('/live/ledger'), T.gm, { owner: ID.jess, amountCp: 1000, note: 'Reward' });
   await ok('POST', w(`/broker/${rid}/accept`), T.jess, { from: 'me' });
   const st = one<any>(deps.db, 'SELECT status FROM broker_requests WHERE id = ?', rid).status;
-  if (st === 'waiting') await ok('POST', w(`/broker/${rid}/deliver`), T.dm, {});
+  if (st === 'waiting') await ok('POST', w(`/broker/${rid}/deliver`), T.gm, {});
   const answered: any = await until('the answer DM', () => fake.find('POST', new RegExp(`/channels/${jessDm}/messages`), from).find((c) => /has an answer/.test(c.body.content)));
   assert.match(answered.body.content, /To the smuggler queen/);
   assert.equal(fake.find('POST', /\/users\/@me\/channels/, from).every((c) => c.body.recipient_id === JESS.id), true, 'only Jess got a DM');
@@ -271,7 +271,7 @@ test('TestDiscord_BrokerMessagesGoToTheAskerOnly', async () => {
 
 test('TestDiscord_BrokerOffersSendTheTeaserNotTheInfo', async () => {
   const from = fake.calls.length;
-  await ok('POST', w('/broker/offers'), T.dm, { title: 'The vault key', teaser: 'I know where a key is kept.', info: 'Under the third step of the lighthouse.', priceCp: 2000, targets: ['party'] });
+  await ok('POST', w('/broker/offers'), T.gm, { title: 'The vault key', teaser: 'I know where a key is kept.', info: 'Under the third step of the lighthouse.', priceCp: 2000, targets: ['party'] });
   await until('two offer DMs', () => fake.find('POST', /\/channels\/7\d+\/messages/, from).length >= 2);
   const posts = fake.find('POST', /\/channels\/7\d+\/messages/, from);
   assert.ok(posts.every((p) => /The vault key/.test(p.body.content) && /key is kept/.test(p.body.content)));
@@ -292,10 +292,10 @@ test('TestDiscord_PlayerUnlinksFromTheApp', async () => {
 });
 
 test('TestDiscord_WrongTokenStopsWithAReason', async () => {
-  const W2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Other', dmAccountId: ID.dm })).id;
-  assert.equal((await call('PUT', `/api/worlds/${W2}/discord`, T.dm, { guildId: GUILD })).status, 409, 'one world per Discord server');
-  await ok('PUT', `/api/worlds/${W2}/discord`, T.dm, { token: ['fake-test-bot-token-1111', 'wxyz', 'wrong-and-also-not-real-token'].join('.'), guildId: '800000000000000002' });
-  const got: any = await (async () => { for (let k = 0; k < 100; k++) { const v = await ok('GET', `/api/worlds/${W2}/discord`, T.dm); if (v.status?.error) return v; await new Promise((r) => setTimeout(r, 20)); } return null; })();
+  const W2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Other', gmAccountId: ID.gm })).id;
+  assert.equal((await call('PUT', `/api/worlds/${W2}/discord`, T.gm, { guildId: GUILD })).status, 409, 'one world per Discord server');
+  await ok('PUT', `/api/worlds/${W2}/discord`, T.gm, { token: ['fake-test-bot-token-1111', 'wxyz', 'wrong-and-also-not-real-token'].join('.'), guildId: '800000000000000002' });
+  const got: any = await (async () => { for (let k = 0; k < 100; k++) { const v = await ok('GET', `/api/worlds/${W2}/discord`, T.gm); if (v.status?.error) return v; await new Promise((r) => setTimeout(r, 20)); } return null; })();
   assert.ok(got, 'an error shows');
   assert.match(got.status.error, /token/);
   assert.equal(got.status.connected, false);

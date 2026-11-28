@@ -9,7 +9,7 @@ import { one } from '../../core/db.ts';
 import { findArc, openArc, listArcs, currentSession, stateOf } from './store.ts';
 import { STATUS_PATH, listPages, readPage, sectionOf, type VaultPage } from './vault.ts';
 
-const AI: Viewer = { accountId: '', role: 'dm', audience: 'ai' } as Viewer;
+const AI: Viewer = { accountId: '', role: 'gm', audience: 'ai' } as Viewer;
 
 /** A vault page as a model may read it (null when it is classified or gone). */
 export function forAi(d: Deps, worldId: string, p: VaultPage | null): string | null {
@@ -41,7 +41,7 @@ export function contextFor(d: Deps, worldId: string, who: string): Context {
     add('Bonds', forAi(d, worldId, pg('bonds.md')));
     add('Shared with the party', forAi(d, worldId, pg('shared.md')), 1200);
     add('Recent journal', listPages(d, worldId, `${root}journal/`).sort((a, b) => a.rel.localeCompare(b.rel, undefined, { numeric: true })).slice(-2).map((j) => forAi(d, worldId, j) ?? '').join('\n\n'), 2500);
-    add('The DM\'s notes on them', forAi(d, worldId, readPage(d, worldId, `dm/players/${player.accountId}.md`)));
+    add('The GM\'s notes on them', forAi(d, worldId, readPage(d, worldId, `gm/players/${player.accountId}.md`)));
     if (player.codex) add('Codex', forAi(d, worldId, readPage(d, worldId, player.codex)), 2000);
     return { who: q, kind: 'player', title: player.character || player.name, sections, found: true };
   }
@@ -61,7 +61,7 @@ export function contextFor(d: Deps, worldId: string, who: string): Context {
   }
   try {
     const m = findMystery(d, worldId, q);
-    add('Revelation', forAi(d, worldId, readPage(d, worldId, `dm/revelations/${m.slug}.md`)));
+    add('Revelation', forAi(d, worldId, readPage(d, worldId, `gm/revelations/${m.slug}.md`)));
     return { who: q, kind: 'revelation', title: m.title, sections, found: true };
   } catch { /* not a mystery */ }
   const lib = match.find((m) => m.type === 'library');
@@ -82,13 +82,13 @@ export function contextFor(d: Deps, worldId: string, who: string): Context {
 
 export const threadsOf = (d: Deps, worldId: string): { title: string; rel: string; heat: string; kind: 'hook' | 'goal'; owner?: string }[] => {
   const out: { title: string; rel: string; heat: string; kind: 'hook' | 'goal'; owner?: string }[] = [];
-  for (const h of listPages(d, worldId, 'dm/hooks/')) out.push({ title: h.title, rel: h.rel, heat: String(h.fm.heat ?? 'ongoing'), kind: 'hook' });
+  for (const h of listPages(d, worldId, 'gm/hooks/')) out.push({ title: h.title, rel: h.rel, heat: String(h.fm.heat ?? 'ongoing'), kind: 'hook' });
   for (const g of listPages(d, worldId, 'players/').filter((p) => p.fm.type === 'goal')) out.push({ title: g.title, rel: g.rel, heat: String(g.fm.heat ?? 'ongoing'), kind: 'goal', owner: String(g.fm.player ?? '') });
   const rank: Record<string, number> = { on: 0, ongoing: 1, simmering: 2, sleeping: 3 };
   return out.sort((a, b) => (rank[a.heat] ?? 9) - (rank[b.heat] ?? 9) || a.title.localeCompare(b.title));
 };
 
-/** A short block for the DM harness's per-message context: the status doc's top, so the campaign is read before anything else. Empty when Minerva is off. */
+/** A short block for the GM harness's per-message context: the status doc's top, so the campaign is read before anything else. Empty when Minerva is off. */
 export function minervaBrief(d: Deps, worldId: string): string {
   try { if (!stateOf(d.db, worldId).enabled) return ''; } catch { return ''; }
   const status = readPage(d, worldId, STATUS_PATH);
@@ -97,7 +97,7 @@ export function minervaBrief(d: Deps, worldId: string): string {
   const pick = (h: string) => { const t = sectionOf(body, h)?.text ?? ''; return /^_.*_$/.test(t.trim()) ? '' : t; };
   const arc = openArc(d.db, worldId);
   const pending = one<any>(d.db, `SELECT COUNT(*) AS n FROM minerva_drafts WHERE world_id = ? AND status = 'pending'`, worldId)?.n ?? 0;
-  const parts = [`Campaign status (the living doc; context_for has all of it)${arc ? `, arc: ${arc.title}` : ''}:`, pick('Now') && `Now: ${pick('Now')}`, pick('Active threads') && `Active threads:\n${pick('Active threads')}`, pick('Next session') && `Next session:\n${pick('Next session').slice(0, 600)}`, pick('Last session') && `Last session (approved hand-off):\n${pick('Last session').slice(0, 2600)}`, pending ? `${pending} drafts wait on the DM's review page.` : ''].filter(Boolean);
+  const parts = [`Campaign status (the living doc; context_for has all of it)${arc ? `, arc: ${arc.title}` : ''}:`, pick('Now') && `Now: ${pick('Now')}`, pick('Active threads') && `Active threads:\n${pick('Active threads')}`, pick('Next session') && `Next session:\n${pick('Next session').slice(0, 600)}`, pick('Last session') && `Last session (approved hand-off):\n${pick('Last session').slice(0, 2600)}`, pending ? `${pending} drafts wait on the GM's review page.` : ''].filter(Boolean);
   return parts.length > 1 ? parts.join('\n').slice(0, 4200) : '';
 }
 

@@ -1,8 +1,8 @@
-// DM approvals. Players can't change coin or items directly: their changes
-// wait here. The DM's own changes to someone else's items show up for the
+// GM approvals. Players can't change coin or items directly: their changes
+// wait here. The GM's own changes to someone else's items show up for the
 // owner as alerts they can confirm or dispute; a dispute comes back here.
 //
-// DM:      GET /approvals            pending coin, pending items, disputes, open alerts
+// GM:      GET /approvals            pending coin, pending items, disputes, open alerts
 //          POST /approvals/:id       {action: approve | edit | reject | revert, ...}
 // Player:  GET /approvals/mine       my pending changes and the alerts on my (and party) items
 //          POST /approvals/:id/ack   "Looks right"
@@ -11,10 +11,10 @@ import { Router, type Response } from 'express';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
-import { requireDM } from '../core/auth.ts';
-import { dmAnd } from '../core/events.ts';
+import { requireGM } from '../core/auth.ts';
+import { gmAnd } from '../core/events.ts';
 import { HttpError, int, now, oneOf, str } from '../core/util.ts';
-import { ctx, isDM, me, memberIds, settings } from './_shared.ts';
+import { ctx, isGM, me, memberIds, settings } from './_shared.ts';
 import { applyChange, rejectChange, revertChange } from './inventory.ts';
 
 /** Coin held by a pending shop purchase (features/shop) is not a coin request: it is decided with the purchase. */
@@ -24,11 +24,11 @@ export default function approvalsRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const { db } = d;
 
-  const parse = (ch: any, dm: boolean) => {
+  const parse = (ch: any, gm: boolean) => {
     const s = (j: any) => {
       if (!j) return null;
       const o = JSON.parse(j);
-      if (!dm) delete o.dm_note;
+      if (!gm) delete o.gm_note;
       return o;
     };
     return { id: ch.id, type: 'item', item_id: ch.item_id, owner: ch.owner, kind: ch.kind, before: s(ch.before_json), after: s(ch.after_json), reason: ch.reason, by: ch.by_id, at: ch.at, status: ch.status, dispute_note: ch.dispute_note, decided_at: ch.decided_at };
@@ -36,10 +36,10 @@ export default function approvalsRoutes(d: Deps) {
   const coin = (e: any) => ({ id: e.id, type: 'coin', owner: e.owner, amount_cp: e.amount_cp, note: e.note, by: e.by_id, at: e.at, status: e.status, decided_at: e.decided_at ?? null });
   const event = (res: Response, payload: any, owner: string) => {
     const c = ctx(res);
-    d.hub.emit(c.world.id, 'approval', payload, dmAnd(me(res), ...(owner === 'party' ? memberIds(db, c.world.id) : [owner])));
+    d.hub.emit(c.world.id, 'approval', payload, gmAnd(me(res), ...(owner === 'party' ? memberIds(db, c.world.id) : [owner])));
   };
 
-  r.get('/', requireDM, (_req, res) => {
+  r.get('/', requireGM, (_req, res) => {
     const w = ctx(res).world.id;
     const ch = all<any>(db, `SELECT * FROM item_changes WHERE world_id = ? AND status IN ('pending', 'disputed', 'alert') ORDER BY at`, w).map((x) => parse(x, true));
     res.json({
@@ -48,7 +48,7 @@ export default function approvalsRoutes(d: Deps) {
       disputes: ch.filter((x) => x.status === 'disputed'),
       alerts: ch.filter((x) => x.status === 'alert'),
       recent: all<any>(db, `SELECT * FROM item_changes WHERE world_id = ? AND status IN ('approved', 'rejected', 'reverted', 'ok') ORDER BY COALESCE(decided_at, at) DESC LIMIT 30`, w).map((x) => parse(x, true)),
-      // Free gives between players: nothing to approve, shown so the DM knows.
+      // Free gives between players: nothing to approve, shown so the GM knows.
       transfers: all<any>(db, 'SELECT * FROM transfers WHERE world_id = ? ORDER BY at DESC LIMIT 30', w).map((t) => ({ ...t, seen: !!t.seen })),
       counts: {
         coin: one<any>(db, `SELECT COUNT(*) AS n FROM ledger WHERE world_id = ? AND status = 'pending' AND ${NOT_SHOP}`, w)!.n,
@@ -92,7 +92,7 @@ export default function approvalsRoutes(d: Deps) {
     res.json({ ok: true });
   });
 
-  r.post('/:id', requireDM, (req, res) => {
+  r.post('/:id', requireGM, (req, res) => {
     const w = ctx(res).world.id;
     const rid = String(req.params.id);
     const action = oneOf(req.body?.action, 'action', ['approve', 'edit', 'reject', 'revert'] as const);
@@ -110,7 +110,7 @@ export default function approvalsRoutes(d: Deps) {
       } else throw new HttpError(400, 'Coin requests can be approved, edited or rejected');
       audit(db, w, me(res), `coin.${action}`, e.id);
       const balance = one<any>(db, `SELECT COALESCE(SUM(amount_cp), 0) AS cp FROM ledger WHERE world_id = ? AND owner = ? AND status = 'approved'`, w, e.owner)!.cp;
-      d.hub.emit(w, 'coin', { owner: e.owner, balance }, e.owner === 'party' ? () => true : dmAnd(e.owner, e.by_id));
+      d.hub.emit(w, 'coin', { owner: e.owner, balance }, e.owner === 'party' ? () => true : gmAnd(e.owner, e.by_id));
       event(res, { id: e.id, type: 'coin', status: action === 'reject' ? 'rejected' : 'approved' }, e.by_id);
       return res.json(coin(one<any>(db, 'SELECT * FROM ledger WHERE id = ?', e.id)));
     }
@@ -129,7 +129,7 @@ export default function approvalsRoutes(d: Deps) {
           if (b.name !== undefined) over.name = str(b.name, 'name', { max: 120 });
           if (b.qty !== undefined) over.qty = int(b.qty, 'qty', { min: 0, max: 1_000_000 });
           if (b.note !== undefined) over.note = str(b.note, 'note', { max: 500, optional: true });
-          if (b.dmNote !== undefined) over.dm_note = str(b.dmNote, 'dmNote', { max: 500, optional: true });
+          if (b.gmNote !== undefined) over.gm_note = str(b.gmNote, 'gmNote', { max: 500, optional: true });
           if (b.weight !== undefined) over.weight = b.weight === null ? null : Number(b.weight) || 0;
           if (b.owner !== undefined) {
             const o = String(b.owner);
@@ -144,8 +144,8 @@ export default function approvalsRoutes(d: Deps) {
     const after = one<any>(db, 'SELECT * FROM item_changes WHERE id = ?', ch.id);
     event(res, { id: ch.id, type: 'item', status: after.status }, ch.owner);
     if (ch.by_id !== ch.owner) event(res, { id: ch.id, type: 'item', status: after.status }, ch.by_id);
-    d.hub.emit(w, 'item', { id: ch.item_id }, ch.owner === 'party' ? () => true : dmAnd(ch.owner, ch.by_id));
-    res.json(parse(after, isDM(res)));
+    d.hub.emit(w, 'item', { id: ch.item_id }, ch.owner === 'party' ? () => true : gmAnd(ch.owner, ch.by_id));
+    res.json(parse(after, isGM(res)));
   });
 
   return r;

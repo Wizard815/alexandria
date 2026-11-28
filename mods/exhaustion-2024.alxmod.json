@@ -27,7 +27,7 @@
       "exhaustion"
     ]
   },
-  "dmBand": {
+  "gmBand": {
     "chips": [
       "exhaustion"
     ],
@@ -49,7 +49,7 @@
     {
       "id": "gain",
       "label": "Add a level",
-      "by": "dm",
+      "by": "gm",
       "resource": "exhaustion",
       "add": 1,
       "askReason": true,
@@ -60,7 +60,7 @@
     {
       "id": "lose",
       "label": "Remove a level",
-      "by": "dm",
+      "by": "gm",
       "resource": "exhaustion",
       "add": -1
     }
@@ -78,7 +78,7 @@
       "tired",
       "forced march"
     ],
-    "dm": "Exhaustion is the simple version: each level is -2 to all d20 rolls and -5 feet of speed, level 6 is death, a long rest removes one. Remind players of the penalty when they roll.",
+    "gm": "Exhaustion is the simple version: each level is -2 to all d20 rolls and -5 feet of speed, level 6 is death, a long rest removes one. Remind players of the penalty when they roll.",
     "player": "Each level of exhaustion you have is -2 to every d20 roll and -5 feet of speed; a long rest removes one."
   }
 }

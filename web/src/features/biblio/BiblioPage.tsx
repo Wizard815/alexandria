@@ -20,7 +20,7 @@ type Tab = 'articles' | 'timeline' | 'suggestions' | 'templates' | 'move' | 'tra
 const enc = encodeURIComponent;
 
 export default function BiblioPage() {
-  const { w, isDM, nameOf, readOnly } = useWorld();
+  const { w, isGM, nameOf, readOnly } = useWorld();
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
   const ov = useLoad<Overview>(() => w.call('GET', '/biblio'), [w], ['biblio', 'page']);
@@ -79,7 +79,7 @@ export default function BiblioPage() {
             {tab === 'articles' && (editing === 'new' && gm
               ? <Editor draft={{ title: params.get('title') ?? '', parentId: params.get('parent'), template: params.get('template') ?? undefined } as Draft} templates={ov.data!.templates} tree={tree}
                 onSaved={(id) => { void ov.reload(); toast('Saved'); open(id); }} onCancel={() => set({ edit: null })} />
-              : current ? <ArticlePane key={current} id={current} gm={gm} isDM={isDM} tree={tree} templates={ov.data!.templates} editing={editing === '1'}
+              : current ? <ArticlePane key={current} id={current} gm={gm} isGM={isGM} tree={tree} templates={ov.data!.templates} editing={editing === '1'}
                 setEditing={(on) => set({ edit: on ? '1' : null })} open={open} openPage={(pid) => nav(`../library?page=${enc(pid)}`)}
                 newChild={(title, parent) => set({ edit: 'new', a: null, title, parent: parent ?? null })} onChanged={() => void ov.reload()} toast={toast} />
                 : <Home tree={tree} open={open} gm={gm} />)}
@@ -148,8 +148,8 @@ function Home({ tree, open, gm }: { tree: TreeItem[]; open: (id: string) => void
   );
 }
 
-function ArticlePane({ id, gm, isDM, tree, templates, editing, setEditing, open, openPage, newChild, onChanged, toast }: {
-  id: string; gm: boolean; isDM: boolean; tree: TreeItem[]; templates: Overview['templates']; editing: boolean; setEditing: (on: boolean) => void;
+function ArticlePane({ id, gm, isGM, tree, templates, editing, setEditing, open, openPage, newChild, onChanged, toast }: {
+  id: string; gm: boolean; isGM: boolean; tree: TreeItem[]; templates: Overview['templates']; editing: boolean; setEditing: (on: boolean) => void;
   open: (id: string) => void; openPage: (pageId: string) => void; newChild: (title: string, parent?: string) => void; onChanged: () => void; toast: (m: string) => void;
 }) {
   const { w, nameOf } = useWorld();
@@ -166,7 +166,7 @@ function ArticlePane({ id, gm, isDM, tree, templates, editing, setEditing, open,
   if (editing && gm && a.article) {
     return <Editor initial={a.article} templates={templates} tree={tree} onSaved={() => { setEditing(false); void v.reload(); onChanged(); toast('Saved'); }} onCancel={() => setEditing(false)} />;
   }
-  const ctx: RenderCtx = { links: pg.links ?? {}, titles: pg.linkTitles ?? {}, isDM, children: [], open: (pid) => { const art = byPage.get(pid); if (art) open(art); else openPage(pid); } };
+  const ctx: RenderCtx = { links: pg.links ?? {}, titles: pg.linkTitles ?? {}, isGM, children: [], open: (pid) => { const art = byPage.get(pid); if (art) open(art); else openPage(pid); } };
   // Red links: [[names]] in the text that no article or page answers to. The GM can make each one.
   const missing = gm && a.article ? [...new Set([...a.article.body.matchAll(/\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]/g)].map((m) => m[1].trim()))].filter((n) => !pg.links?.[`name:${n.toLowerCase()}`]) : [];
   const trash = () => act.run(async () => {
@@ -196,7 +196,7 @@ function ArticlePane({ id, gm, isDM, tree, templates, editing, setEditing, open,
           {gm && <button type="button" className="btn small primary" onClick={() => setEditing(true)}><i className="fa-solid fa-pen" aria-hidden="true" /> Edit</button>}
           {gm && <button type="button" className="btn small" onClick={() => newChild('', a.id)}><i className="fa-solid fa-plus" aria-hidden="true" /> Article inside</button>}
           {gm && a.article && <button type="button" className="btn small" onClick={() => setHistory(true)}><i className="fa-solid fa-clock-rotate-left" aria-hidden="true" /> History</button>}
-          {!gm && !isDM && <button type="button" className="btn small" onClick={() => setSuggest(true)}><i className="fa-solid fa-pen-to-square" aria-hidden="true" /> Suggest an edit</button>}
+          {!gm && !isGM && <button type="button" className="btn small" onClick={() => setSuggest(true)}><i className="fa-solid fa-pen-to-square" aria-hidden="true" /> Suggest an edit</button>}
           <button type="button" className="btn small" onClick={() => openPage(a.pageId)}><i className="fa-solid fa-book" aria-hidden="true" /> In the library</button>
           {gm && <button type="button" className="btn small" onClick={() => void trash()} disabled={act.busy}><i className="fa-solid fa-trash" aria-hidden="true" /> Trash</button>}
         </div>

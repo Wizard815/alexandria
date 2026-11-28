@@ -1,4 +1,4 @@
-// DM page: the pages in the AI's wiki, who wrote them, and where to open them.
+// GM page: the pages in the AI's wiki, who wrote them, and where to open them.
 import { Link, useParams } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { Empty, ErrorBox, Loading, PageHead } from '../../ui/index.tsx';
@@ -17,7 +17,7 @@ export default function WorldLorePage() {
       </PageHead>
       <ErrorBox error={st.error ?? pages.error} />
       {!st.data ? <Loading /> : !st.data.enabled ? (
-        <Empty>WorldLore is off. Turn it on in <Link to={`/w/${world}/dm/settings`}>Settings</Link>.</Empty>
+        <Empty>WorldLore is off. Turn it on in <Link to={`/w/${world}/gm/settings`}>Settings</Link>.</Empty>
       ) : !pages.data ? <Loading /> : !pages.data.length ? (
         <Empty>Nothing here yet. Ask the assistant to write something to the WorldLore wiki.</Empty>
       ) : (
@@ -26,9 +26,9 @@ export default function WorldLorePage() {
             <div key={p.id} role="row" className="row between" style={{ padding: '10px 16px', gap: 8, flexWrap: 'wrap' }}>
               <div className="stack tight" style={{ flex: '1 1 220px' }}>
                 <strong style={{ fontWeight: 500 }}>{p.title}</strong>
-                <span className="tiny muted">{LEVEL_LABEL[p.level] ?? p.level} · {p.writtenBy === 'agent' ? 'written by the AI' : 'written by the DM'} · {new Date(p.updatedAt).toLocaleString()}</span>
+                <span className="tiny muted">{LEVEL_LABEL[p.level] ?? p.level} · {p.writtenBy === 'agent' ? 'written by the AI' : 'written by the GM'} · {new Date(p.updatedAt).toLocaleString()}</span>
               </div>
-              <Link className="btn small" to={`/w/${world}/dm/library?page=${encodeURIComponent(p.id)}`}>Open in library</Link>
+              <Link className="btn small" to={`/w/${world}/gm/library?page=${encodeURIComponent(p.id)}`}>Open in library</Link>
             </div>
           ))}
         </div>

@@ -35,7 +35,7 @@ async function boot() {
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
   const gmId = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'gamemaster', password: 'gm password 123' })).account.id;
   T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'gamemaster', password: 'gm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Bibland', dmAccountId: gmId })).id;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Bibland', gmAccountId: gmId })).id;
   const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   T.jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
   const B = `/api/worlds/${W}/biblio`;
@@ -53,7 +53,7 @@ test('TestBiblio_PlayersGetOnlyTheirCopy', async () => {
       body: 'Odda works the forge by the river.\n\n> [!secret]\n> GMSECRET_CALLOUT she owes the Hand a debt.',
     });
     const plot = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'The Crown Plot', body: 'GMSECRET_PAGE the duke means to crown a puppet.' });
-    assert.equal(plot.article.level, 'dm', 'a new article is GM only by default');
+    assert.equal(plot.article.level, 'gm', 'a new article is GM only by default');
 
     // The GM gets the article itself and the full copy.
     assert.equal(odda.article.fields.secret, 'GMSECRET_FIELD she forged the false crown');
@@ -158,7 +158,7 @@ test('TestBiblio_ModelsNeverSeeOrOverwriteClassified', async () => {
   const t = await boot();
   try {
     const cls = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'The Bell', level: 'classified', body: 'CLASSIFIED_BELL three silver keys at the ebb tide.' });
-    const mixed = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'Harbour', level: 'dm', body: 'The harbour.\n\n> [!classified]\n> CLASSIFIED_MIXED the keeper is the queen.' });
+    const mixed = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'Harbour', level: 'gm', body: 'The harbour.\n\n> [!classified]\n> CLASSIFIED_MIXED the keeper is the queen.' });
     const plain = await t.ok('POST', `${t.B}/articles`, t.T.gm, { title: 'Lighthouse', body: 'A tall tower.' });
     const list = await t.ok('GET', t.B, t.T.gm, undefined, t.MODEL);
     assert.ok(!t.text(list).includes('The Bell'), 'a model does not list classified articles');
@@ -238,7 +238,7 @@ test('TestBiblio_ImportExportAndGuards', async () => {
     assert.equal(dump.articles.length, 2);
     const gm2 = (await t.ok('POST', '/api/admin/accounts', t.T.admin, { username: 'gm2', password: 'gm password 456' })).account.id;
     const tok2 = (await t.ok('POST', '/api/auth/login', undefined, { username: 'gm2', password: 'gm password 456' })).token;
-    const W2 = (await t.ok('POST', '/api/admin/worlds', t.T.admin, { name: 'Otherland', dmAccountId: gm2 })).id;
+    const W2 = (await t.ok('POST', '/api/admin/worlds', t.T.admin, { name: 'Otherland', gmAccountId: gm2 })).id;
     assert.equal((await t.ok('POST', `/api/worlds/${W2}/biblio/export`, tok2, dump)).articles, 2);
     const tree2 = (await t.ok('GET', `/api/worlds/${W2}/biblio`, tok2)).articles;
     const cell = tree2.find((a: any) => a.title === "Tamsin's Cell");
@@ -286,7 +286,7 @@ test('TestBiblio_McpTools', async () => {
     assert.equal(made.isError, false, JSON.stringify(made));
     const gm = await t.ok('GET', t.B, t.T.gm);
     const inn = gm.articles.find((a: any) => a.title === 'Gull Inn');
-    assert.ok(inn && inn.level === 'dm');
+    assert.ok(inn && inn.level === 'gm');
     const revs = await t.ok('GET', `${t.B}/articles/${inn.id}/revisions`, t.T.gm);
     assert.equal(revs[0].byKind, 'ai', 'an MCP client counts as an AI');
   } finally { t.close(); }

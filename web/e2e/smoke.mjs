@@ -17,7 +17,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-e2e-'));
 const problems = [];
 const note = (m) => console.log('  ' + m);
 
-// The DM and every player run from 127.0.0.1 here, so the per-IP API limit (900 a minute) would count the whole
+// The GM and every player run from 127.0.0.1 here, so the per-IP API limit (900 a minute) would count the whole
 // table as one client; it is off unless ALX_RATE_LIMIT is set.
 const srv = spawn(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: path.join(root, 'librarian'),
@@ -44,30 +44,30 @@ function watch(page, who) {
 
 try {
   // 1. First run: setup through the UI.
-  const dmCtx = await browser.newContext({ viewport: { width: 1366, height: 900 } });
-  const dm = await dmCtx.newPage();
-  watch(dm, 'DM');
-  await dm.goto(base + '/');
-  await dm.waitForURL('**/setup');
-  await dm.getByLabel('Username', { exact: true }).fill('wizard');
-  await dm.getByLabel('Password', { exact: true }).fill('correct horse battery');
-  await dm.getByRole('button', { name: 'Create the admin account' }).click();
-  await dm.waitForURL('**/admin/worlds');
+  const gmCtx = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+  const gm = await gmCtx.newPage();
+  watch(gm, 'GM');
+  await gm.goto(base + '/');
+  await gm.waitForURL('**/setup');
+  await gm.getByLabel('Username', { exact: true }).fill('wizard');
+  await gm.getByLabel('Password', { exact: true }).fill('correct horse battery');
+  await gm.getByRole('button', { name: 'Create the admin account' }).click();
+  await gm.waitForURL('**/admin/worlds');
   note('setup ok');
 
-  // 2. Make a world in Library admin, the admin is its DM.
-  await dm.getByRole('button', { name: 'New empty world' }).click(); // the guided setup is the other button
-  await dm.getByLabel('Name', { exact: true }).fill('BloodEarth');
-  await dm.getByRole('button', { name: 'Create world' }).click();
-  await dm.getByRole('link', { name: 'Open' }).click();
-  await dm.waitForURL('**/w/bloodearth/dm');
-  note('world made, DM table open');
-  const dmToken = await dm.evaluate(() => localStorage.getItem('alx.token'));
+  // 2. Make a world in Library admin, the admin is its GM.
+  await gm.getByRole('button', { name: 'New empty world' }).click(); // the guided setup is the other button
+  await gm.getByLabel('Name', { exact: true }).fill('BloodEarth');
+  await gm.getByRole('button', { name: 'Create world' }).click();
+  await gm.getByRole('link', { name: 'Open' }).click();
+  await gm.waitForURL('**/w/bloodearth/gm');
+  note('world made, GM table open');
+  const gmToken = await gm.evaluate(() => localStorage.getItem('alx.token'));
 
   // Some content via the API.
-  await api('PUT', '/api/worlds/bloodearth/library/pages', dmToken, { path: 'Old Kesh', visibility: 'party', markdown: '# Old Kesh\nA port.\n\n> [!secret]\n> Smugglers own it.\n' });
-  await api('PUT', '/api/worlds/bloodearth/library/pages', dmToken, { path: 'Plot', markdown: 'The twist.' });
-  const { code } = await api('POST', '/api/worlds/bloodearth/invites', dmToken, { role: 'player' });
+  await api('PUT', '/api/worlds/bloodearth/library/pages', gmToken, { path: 'Old Kesh', visibility: 'party', markdown: '# Old Kesh\nA port.\n\n> [!secret]\n> Smugglers own it.\n' });
+  await api('PUT', '/api/worlds/bloodearth/library/pages', gmToken, { path: 'Plot', markdown: 'The twist.' });
+  const { code } = await api('POST', '/api/worlds/bloodearth/invites', gmToken, { role: 'player' });
 
   // 3. A player joins with the code and gets their AI connection.
   const plCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
@@ -91,23 +91,23 @@ try {
   await pl.waitForTimeout(800);
   const lore = await pl.locator('main').innerText();
   if (!lore.includes('Old Kesh')) problems.push('player library misses a shared page');
-  if (lore.includes('Plot')) problems.push('player lore lists a DM-only page');
+  if (lore.includes('Plot')) problems.push('player lore lists a GM-only page');
   if (lore.includes('Smugglers')) problems.push('player lore shows secret text');
 
   // 5. Quick event reaches the player.
   await pl.goto(base + '/w/bloodearth/live');
   await pl.waitForTimeout(500);
   const me = await api('GET', '/api/me', plToken);
-  await api('POST', '/api/worlds/bloodearth/quick-events', dmToken, { kind: 'vote', title: 'Where tonight?', prompt: 'Sleep where?', options: ['The Gull', 'Camp'], audience: [me.account.id], timerS: 120 });
+  await api('POST', '/api/worlds/bloodearth/quick-events', gmToken, { kind: 'vote', title: 'Where tonight?', prompt: 'Sleep where?', options: ['The Gull', 'Camp'], audience: [me.account.id], timerS: 120 });
   try {
     await pl.getByRole('dialog').waitFor({ timeout: 6000 });
     note('quick event prompt appeared');
   } catch { problems.push('quick event prompt did not appear for the player'); }
 
   // 6. Every screen, both roles, no errors; phones have no sideways scroll.
-  const dmRoutes = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'settings', 'connect'];
+  const gmRoutes = ['', 'combat', 'quick', 'party', 'approvals', 'broker', 'library', 'people', 'relations', 'map', 'requests', 'messages', 'calendar', 'whiteboard', 'settings', 'connect'];
   const plRoutes = ['', 'live', 'library', 'broker', 'people', 'me', 'inventory', 'map', 'messages', 'calendar', 'ask', 'whiteboard', 'connect'];
-  for (const r of dmRoutes) { await dm.goto(`${base}/w/bloodearth/dm/${r}`); await dm.waitForTimeout(400); }
+  for (const r of gmRoutes) { await gm.goto(`${base}/w/bloodearth/gm/${r}`); await gm.waitForTimeout(400); }
   await pl.keyboard.press('Escape');
   for (const r of plRoutes) {
     await pl.goto(`${base}/w/bloodearth/${r}`);
@@ -115,10 +115,10 @@ try {
     const over = await pl.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (over > 2) problems.push(`phone: /${r} scrolls sideways by ${over}px`);
   }
-  for (const r of ['', 'accounts', 'worlds', 'sources', 'keys', 'audit']) { await dm.goto(`${base}/admin/${r}`); await dm.waitForTimeout(300); }
+  for (const r of ['', 'accounts', 'worlds', 'sources', 'keys', 'audit']) { await gm.goto(`${base}/admin/${r}`); await gm.waitForTimeout(300); }
   note('visited every screen');
-  await dm.goto(base + '/w/bloodearth/dm');
-  await dm.screenshot({ path: path.join(tmp, 'dm-table.png'), fullPage: true });
+  await gm.goto(base + '/w/bloodearth/gm');
+  await gm.screenshot({ path: path.join(tmp, 'gm-table.png'), fullPage: true });
   await pl.goto(base + '/w/bloodearth');
   await pl.screenshot({ path: path.join(tmp, 'player-home.png'), fullPage: true });
   console.log('screenshots in ' + tmp);

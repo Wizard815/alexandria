@@ -1,5 +1,5 @@
-// The DM agent and the player harness: tools over loopback with the caller's
-// own token, pending writes the DM confirms, the leak check, combat tools and
+// The GM agent and the player harness: tools over loopback with the caller's
+// own token, pending writes the GM confirms, the leak check, combat tools and
 // statblocks. The chat model is an in-test fake fetch (never a real model).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +12,7 @@ import { all, run } from '../src/core/db.ts';
 import { toolsFor } from '../src/routes/mcpServer.ts';
 
 const SECRET = 'Velmira the smuggler queen keeps her treasury beneath the lighthouse';
-const DM_LINE = 'The vault code is seven seven three nine and nobody must learn it yet';
+const GM_LINE = 'The vault code is seven seven three nine and nobody must learn it yet';
 const OPEN_LINE = 'We arrive at the harbour of Saltmarsh as the evening bells ring';
 
 type Handler = (req: any) => any | Promise<any>;
@@ -60,23 +60,23 @@ async function boot(withModel: boolean): Promise<Env> {
   const T: Record<string, string> = {};
   const ID: Record<string, string> = {};
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Agentland', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Agentland', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown });
-  const saltmarsh = await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] DM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
-  const velmira = await page('dm/Velmira', 'dm', `# Velmira\n${SECRET}.\n`);
-  // A session with one line for everyone and one DM-only aside.
+  const page = (p: string, visibility: string, markdown: string) => ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown });
+  const saltmarsh = await page('places/Saltmarsh', 'party', `# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n\n> [!secret] GM\n> The harbour council secretly answers to the smuggler queen Velmira.\n`);
+  const velmira = await page('gm/Velmira', 'gm', `# Velmira\n${SECRET}.\n`);
+  // A session with one line for everyone and one GM-only aside.
   run(made.deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at) VALUES (?, ?, ?, ?)', 'as_1', W, 'Session 1', new Date().toISOString());
   run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_1', 'as_1', ?, 0, 1000, 'Narrator', ?, 'players', ?)`, W, OPEN_LINE, new Date().toISOString());
-  run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_2', 'as_1', ?, 2000, 3000, 'Whisper', ?, 'dm', ?)`, W, DM_LINE, new Date().toISOString());
+  run(made.deps.db, `INSERT INTO audio_lines (id, session_id, world_id, start_ms, end_ms, speaker_label, text, audience, updated_at) VALUES ('ln_2', 'as_1', ?, 2000, 3000, 'Whisper', ?, 'gm', ?)`, W, GM_LINE, new Date().toISOString());
   ID.saltmarsh = saltmarsh.id;
   ID.velmira = velmira.id;
   return { base, server, deps: made.deps, T, ID, W, model, call, ok };
@@ -102,19 +102,19 @@ const A = (e: Env) => `/api/worlds/${e.W}/agent`;
 const env = await boot(true);
 const bare = await boot(false);
 
-test('Agent: the DM harness runs a read tool and answers with a citation', async () => {
+test('Agent: the GM harness runs a read tool and answers with a citation', async () => {
   const e = env;
   e.model.seen.length = 0;
-  e.model.queue.push(() => toolCall('read_page', { page: e.ID.velmira }), () => say('Velmira keeps her treasury under the lighthouse (dm/Velmira).'));
-  const { reply, chat } = await ask(e, e.T.dm, 'Where is the smuggler treasury?');
+  e.model.queue.push(() => toolCall('read_page', { page: e.ID.velmira }), () => say('Velmira keeps her treasury under the lighthouse (gm/Velmira).'));
+  const { reply, chat } = await ask(e, e.T.gm, 'Where is the smuggler treasury?');
   assert.equal(reply.status, 'done');
   assert.match(reply.text, /lighthouse/);
-  assert.ok(reply.citations.some((c: any) => c.kind === 'page' && c.id === e.ID.velmira && c.path === 'dm/Velmira.md'), JSON.stringify(reply.citations));
+  assert.ok(reply.citations.some((c: any) => c.kind === 'page' && c.id === e.ID.velmira && c.path === 'gm/Velmira.md'), JSON.stringify(reply.citations));
   // Only the tools that fit are offered (16, plus up to 3 the words match), and the library search is always among them.
   assert.ok(toolNames(e.model.seen[0]).length <= MAX_TOOLS + 3 && toolNames(e.model.seen[0]).includes('search_library') && toolNames(e.model.seen[0]).includes('read_page'));
-  // The library matches for the question came with it (DM copies), so the model could answer in one round.
+  // The library matches for the question came with it (GM copies), so the model could answer in one round.
   assert.ok(e.model.seen[0].messages.at(-1).content.includes('Library matches'));
-  // The tool result the model got is the DM copy of the page.
+  // The tool result the model got is the GM copy of the page.
   assert.ok(e.model.seen[1].messages.some((m: any) => m.role === 'tool' && m.content.includes(SECRET)));
   assert.equal(chat.actions.length, 0);
   assert.ok(all<any>(e.deps.db, `SELECT * FROM audit WHERE world_id = ? AND action = 'agent.read'`, e.W).length >= 1);
@@ -123,16 +123,16 @@ test('Agent: the DM harness runs a read tool and answers with a citation', async
 test('Agent: it answers from the transcript with a citation', async () => {
   const e = env;
   e.model.queue.push(() => toolCall('search_transcript', { query: 'harbour' }), () => say('You arrived at the harbour as the evening bells rang.'));
-  const { reply } = await ask(e, e.T.dm, 'What happened when we arrived?');
-  // The latest transcript (with the DM-only line) rides in the user message for a question about the session.
-  assert.ok(e.model.seen.at(-2).messages.at(-1).content.includes(DM_LINE));
+  const { reply } = await ask(e, e.T.gm, 'What happened when we arrived?');
+  // The latest transcript (with the GM-only line) rides in the user message for a question about the session.
+  assert.ok(e.model.seen.at(-2).messages.at(-1).content.includes(GM_LINE));
   assert.ok(reply.citations.some((c: any) => c.kind === 'transcript' && c.id === 'ln_1' && c.snippet.includes('harbour')), JSON.stringify(reply.citations));
 });
 
 test('Agent: a write tool becomes a pending action and runs only after approval', async () => {
   const e = env;
   e.model.queue.push(() => toolCall('add_combatant', { name: 'Goblin Boss', hp: 52, initiative: 14 }), () => say('I proposed adding the Goblin Boss.'));
-  const { chat } = await ask(e, e.T.dm, 'Add a goblin boss with 52 HP');
+  const { chat } = await ask(e, e.T.gm, 'Add a goblin boss with 52 HP');
   assert.equal(chat.actions.length, 1);
   const act = chat.actions[0];
   assert.equal(act.status, 'pending');
@@ -140,47 +140,47 @@ test('Agent: a write tool becomes a pending action and runs only after approval'
   assert.equal(act.tool, 'add_combatant');
   assert.deepEqual(act.call, { method: 'POST', path: '/live/combatants', body: { name: 'Goblin Boss', initiative: 14, hp: 52, maxHp: 52 } });
   // Nothing happened yet.
-  assert.equal((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.length, 0);
-  assert.equal((await e.ok('GET', `${A(e)}/actions`, e.T.dm)).actions.length, 1);
+  assert.equal((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm)).combatants.length, 0);
+  assert.equal((await e.ok('GET', `${A(e)}/actions`, e.T.gm)).actions.length, 1);
   // A player cannot decide it.
   assert.equal((await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.jess, { decision: 'approve' })).status, 403);
-  const done = await e.ok('POST', `${A(e)}/actions/${act.id}`, e.T.dm, { decision: 'approve' });
+  const done = await e.ok('POST', `${A(e)}/actions/${act.id}`, e.T.gm, { decision: 'approve' });
   assert.equal(done.status, 'done');
-  const combat = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm);
+  const combat = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm);
   assert.equal(combat.combatants.length, 1);
   assert.equal(combat.combatants[0].name, 'Goblin Boss');
   assert.equal(combat.combatants[0].hp, 52);
   // It cannot run twice.
-  assert.equal((await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.dm, { decision: 'approve' })).status, 409);
-  assert.equal((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.length, 1);
+  assert.equal((await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.gm, { decision: 'approve' })).status, 409);
+  assert.equal((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm)).combatants.length, 1);
   const log = all<any>(e.deps.db, `SELECT action, detail FROM audit WHERE world_id = ? AND action LIKE 'agent.%'`, e.W);
   assert.ok(log.some((l) => l.action === 'agent.propose' && l.detail.includes('add_combatant')));
   assert.ok(log.some((l) => l.action === 'agent.action' && l.detail.includes('add_combatant') && l.detail.includes('done')));
-  const after = await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.dm);
+  const after = await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.gm);
   assert.ok(after.messages.some((m: any) => m.text.startsWith('Done: Add Goblin Boss')));
 });
 
 test('Agent: a rejected action never runs', async () => {
   const e = env;
   e.model.queue.push(() => toolCall('add_item', { owner: 'party', name: 'Cursed Ring' }), () => say('Proposed.'));
-  const { chat } = await ask(e, e.T.dm, 'Give the party a ring');
-  const rej = await e.ok('POST', `${A(e)}/actions/${chat.actions[0].id}`, e.T.dm, { decision: 'reject' });
+  const { chat } = await ask(e, e.T.gm, 'Give the party a ring');
+  const rej = await e.ok('POST', `${A(e)}/actions/${chat.actions[0].id}`, e.T.gm, { decision: 'reject' });
   assert.equal(rej.status, 'rejected');
-  const inv = await e.ok('GET', `/api/worlds/${e.W}/inventory?owner=party`, e.T.dm);
+  const inv = await e.ok('GET', `/api/worlds/${e.W}/inventory?owner=party`, e.T.gm);
   assert.ok(!inv.items.some((i: any) => i.name === 'Cursed Ring'));
 });
 
 test('Agent: tool names set to auto-approve run at once, and are audited', async () => {
   const e = env;
-  assert.equal((await e.call('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: 'next_turn' })).status, 400);
-  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: ['next_turn'] });
+  assert.equal((await e.call('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentAutoApprove: 'next_turn' })).status, 400);
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentAutoApprove: ['next_turn'] });
   e.model.queue.push(() => toolCall('next_turn', {}), () => say('Next turn.'));
-  const { chat } = await ask(e, e.T.dm, 'Move combat along to the following creature and tell me how it went');
+  const { chat } = await ask(e, e.T.gm, 'Move combat along to the following creature and tell me how it went');
   assert.deepEqual(chat.actions.map((a: any) => [a.tool, a.status, a.auto]), [["next_turn", "done", true]], "applied at once, shown as a settled auto card");
-  const now = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm);
+  const now = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm);
   assert.ok(now.active);
   assert.ok(all<any>(e.deps.db, `SELECT detail FROM audit WHERE world_id = ? AND action = 'agent.action' AND detail LIKE 'next_turn%auto-approved%'`, e.W).length === 1);
-  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: [] });
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentAutoApprove: [] });
 });
 
 test('Agent: at most 8 tool rounds, then a final reply without tools', async () => {
@@ -188,7 +188,7 @@ test('Agent: at most 8 tool rounds, then a final reply without tools', async () 
   e.model.seen.length = 0;
   for (let i = 0; i < 8; i++) e.model.queue.push(() => toolCall('world_info', {}, `c${i}`));
   e.model.queue.push(() => say('Here is what I found.'));
-  const { reply } = await ask(e, e.T.dm, 'Keep looking');
+  const { reply } = await ask(e, e.T.gm, 'Keep looking');
   assert.equal(reply.text, 'Here is what I found.');
   assert.equal(e.model.seen.length, 9);
   assert.equal(e.model.seen[8].tools, undefined);
@@ -206,41 +206,41 @@ test('Agent: the player harness never lists or calls write tools', async () => {
   assert.ok(listed.length > 5);
   for (const w of writeNames) assert.ok(!listed.includes(w), `${w} listed to a player`);
   // The refused calls did nothing: no page, no combatant, no pending action.
-  assert.equal((await e.call('GET', `/api/worlds/${e.W}/library/pages/people%2FHacked`, e.T.dm)).status, 404);
-  assert.ok(!(await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.some((c: any) => c.name === 'Sneak'));
+  assert.equal((await e.call('GET', `/api/worlds/${e.W}/library/pages/people%2FHacked`, e.T.gm)).status, 404);
+  assert.ok(!(await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm)).combatants.some((c: any) => c.name === 'Sneak'));
   assert.equal(all(e.deps.db, `SELECT 1 FROM agent_actions WHERE tool IN ('save_page') AND world_id = ?`, e.W).length, 0);
   assert.ok(e.model.seen[1].messages.some((m: any) => m.role === 'tool' && /Unknown tool/.test(m.content)));
 });
 
-test('Agent: a player never gets DM text in the model input or in a tool result', async () => {
+test('Agent: a player never gets GM text in the model input or in a tool result', async () => {
   const e = env;
   e.model.seen.length = 0;
   e.model.queue.push(() => toolCall('read_page', { page: e.ID.velmira }), () => toolCall('search_library', { query: 'smuggler queen Velmira' }, 'c2'), () => toolCall('read_page', { page: e.ID.saltmarsh }, 'c3'), () => toolCall('search_transcript', { query: 'vault code' }, 'c4'), () => say('I do not know about that.'));
   const { reply } = await ask(e, e.T.jess, 'Who is the smuggler queen Velmira, and what happened at Saltmarsh?');
   assert.equal(reply.text, 'I do not know about that.');
   const everything = JSON.stringify(e.model.seen.map((r) => r.messages));
-  for (const secret of ['treasury beneath the lighthouse', 'secretly answers', DM_LINE, 'seven seven three nine']) assert.ok(!everything.includes(secret), `the model input held DM text: ${secret}`);
+  for (const secret of ['treasury beneath the lighthouse', 'secretly answers', GM_LINE, 'seven seven three nine']) assert.ok(!everything.includes(secret), `the model input held GM text: ${secret}`);
   // It did get what a player may read: the shared page, and the players' transcript.
   assert.ok(everything.includes('fishing town ruled by the harbour council'));
   assert.ok(everything.includes(OPEN_LINE));
-  // The DM-only page was a 404 to the player's own token.
+  // The GM-only page was a 404 to the player's own token.
   assert.ok(e.model.seen[1].messages.some((m: any) => m.role === 'tool' && /Error 404/.test(m.content)));
   assert.deepEqual(reply.citations.map((c: any) => c.id).filter((id: string) => id === e.ID.velmira), []);
 });
 
-test('Agent: the leak check blocks a player reply that echoes DM-only text', async () => {
+test('Agent: the leak check blocks a player reply that echoes GM-only text', async () => {
   const e = env;
   e.model.queue.push(() => say(`Well, ${SECRET}, so I hear.`));
   const { reply } = await ask(e, e.T.jess, 'Tell me something secret');
   assert.equal(reply.text, "I can't answer that from what you know.");
   assert.deepEqual(reply.citations, []);
-  const leaks = await e.ok('GET', `${A(e)}/leaks`, e.T.dm);
+  const leaks = await e.ok('GET', `${A(e)}/leaks`, e.T.gm);
   assert.equal(leaks.leaks.length, 1);
   assert.equal(leaks.leaks[0].accountId, e.ID.jess);
   assert.equal((await e.call('GET', `${A(e)}/leaks`, e.T.jess)).status, 403);
   assert.ok(all(e.deps.db, `SELECT 1 FROM audit WHERE world_id = ? AND action = 'agent.leak_blocked'`, e.W).length === 1);
-  // A DM-only transcript line is blocked too, and a secret block in a shared page.
-  e.model.queue.push(() => say(`They whispered: ${DM_LINE}.`));
+  // A GM-only transcript line is blocked too, and a secret block in a shared page.
+  e.model.queue.push(() => say(`They whispered: ${GM_LINE}.`));
   assert.equal((await ask(e, e.T.jess, 'What was whispered?')).reply.text, "I can't answer that from what you know.");
   e.model.queue.push(() => say('The harbour council secretly answers to the smuggler queen Velmira, they say.'));
   assert.equal((await ask(e, e.T.jess, 'Who runs the council?')).reply.text, "I can't answer that from what you know.");
@@ -256,60 +256,60 @@ test('Agent: chats are private to their owner and the player assistant can be tu
   const e = env;
   const c = await e.ok('POST', `${A(e)}/chats`, e.T.jess, { title: 'mine' });
   assert.equal((await e.call('GET', `${A(e)}/chats/${c.id}`, e.T.tom)).status, 404);
-  assert.equal((await e.call('GET', `${A(e)}/chats/${c.id}`, e.T.dm)).status, 404);
+  assert.equal((await e.call('GET', `${A(e)}/chats/${c.id}`, e.T.gm)).status, 404);
   assert.equal((await e.ok('GET', `${A(e)}/chats`, e.T.tom)).chats.length, 0);
-  assert.equal((await e.call('POST', `${A(e)}/chats/${c.id}/messages`, e.T.dm, { text: 'hi' })).status, 404);
+  assert.equal((await e.call('POST', `${A(e)}/chats/${c.id}/messages`, e.T.gm, { text: 'hi' })).status, 404);
   assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.jess, { moduleTermId: 'dnd-2024:monster-goblin-warrior' })).status, 403);
   assert.equal((await e.call('GET', `${A(e)}/actions`, e.T.jess)).status, 403);
-  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentPlayerChat: false });
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentPlayerChat: false });
   assert.equal((await e.call('POST', `${A(e)}/chats`, e.T.jess, {})).status, 403);
-  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentPlayerChat: true });
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentPlayerChat: true });
 });
 
 test('Agent: statblock from a module monster, without any model', async () => {
   const e = bare;
-  const r = await e.ok('POST', `${A(e)}/statblock`, e.T.dm, { moduleTermId: 'dnd-2024:monster-goblin-warrior' });
+  const r = await e.ok('POST', `${A(e)}/statblock`, e.T.gm, { moduleTermId: 'dnd-2024:monster-goblin-warrior' });
   assert.equal(r.statblock.name, 'Goblin Warrior');
   assert.equal(r.statblock.ac, 15);
   assert.equal(r.statblock.hp, 10);
   assert.ok(r.statblock.actions.length >= 1 && r.statblock.abilities.dex === 15);
   assert.equal(r.page.path, 'Statblocks/Goblin Warrior.md');
-  const pg = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${r.page.id}`, e.T.dm);
-  assert.equal(pg.visibility, 'dm');
+  const pg = await e.ok('GET', `/api/worlds/${e.W}/library/pages/${r.page.id}`, e.T.gm);
+  assert.equal(pg.visibility, 'gm');
   assert.ok(pg.body.includes('**AC** 15'));
-  // DM-only: a player cannot open or find it.
+  // GM-only: a player cannot open or find it.
   assert.equal((await e.call('GET', `/api/worlds/${e.W}/library/pages/${r.page.id}`, e.T.jess)).status, 404);
   assert.ok(!JSON.stringify((await e.ok('GET', `/api/worlds/${e.W}/library/pages`, e.T.jess))).includes('Goblin Warrior'));
   // Another copy gets its own page.
-  assert.equal((await e.ok('POST', `${A(e)}/statblock`, e.T.dm, { moduleTermId: 'dnd-2024:monster-goblin-warrior' })).page.path, 'Statblocks/Goblin Warrior 2.md');
+  assert.equal((await e.ok('POST', `${A(e)}/statblock`, e.T.gm, { moduleTermId: 'dnd-2024:monster-goblin-warrior' })).page.path, 'Statblocks/Goblin Warrior 2.md');
   // Add to combat from the saved page: HP, AC and an initiative.
-  const added = await e.ok('POST', `${A(e)}/statblock/${r.page.id}/combat`, e.T.dm, { initiative: 11 });
+  const added = await e.ok('POST', `${A(e)}/statblock/${r.page.id}/combat`, e.T.gm, { initiative: 11 });
   assert.equal(added.combatant.hp, 10);
-  const combat = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm);
+  const combat = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm);
   const cb = combat.combatants.find((c: any) => c.id === added.combatant.id);
   assert.deepEqual([cb.name, cb.hp, cb.max_hp, cb.ac, cb.initiative, cb.statblock_page], ['Goblin Warrior', 10, 10, 15, 11, r.page.id]);
   // Players never see armor class.
   assert.ok(!JSON.stringify(await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.jess)).includes('"ac"'));
   // Straight into combat in one call.
-  const both = await e.ok('POST', `${A(e)}/statblock`, e.T.dm, { moduleTermId: 'dnd-2024:monster-goblin-warrior', addToCombat: true, initiative: 19 });
+  const both = await e.ok('POST', `${A(e)}/statblock`, e.T.gm, { moduleTermId: 'dnd-2024:monster-goblin-warrior', addToCombat: true, initiative: 19 });
   assert.equal(both.combatant.initiative, 19);
-  assert.equal((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants[0].initiative, 19);
+  assert.equal((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm)).combatants[0].initiative, 19);
   // Bad requests.
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, {})).status, 400);
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, { moduleTermId: 'dnd-2024:spell-fireball' })).status, 422);
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, { moduleTermId: 'nope:nothing' })).status, 404);
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, {})).status, 400);
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, { moduleTermId: 'dnd-2024:spell-fireball' })).status, 422);
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, { moduleTermId: 'nope:nothing' })).status, 404);
 });
 
 test('Agent: a missing chat model gives 503, and the module copy still works', async () => {
   const e = bare;
-  const c = await e.ok('POST', `${A(e)}/chats`, e.T.dm, {});
-  const m = await e.call('POST', `${A(e)}/chats/${c.id}/messages`, e.T.dm, { text: 'hello' });
+  const c = await e.ok('POST', `${A(e)}/chats`, e.T.gm, {});
+  const m = await e.call('POST', `${A(e)}/chats/${c.id}/messages`, e.T.gm, { text: 'hello' });
   assert.equal(m.status, 503);
   assert.match(m.body.error, /No chat model/);
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, { prompt: 'a cave troll' })).status, 503);
-  const pg = await e.ok('PUT', `/api/worlds/${e.W}/library/pages`, e.T.dm, { path: 'monsters/Troll', visibility: 'dm', markdown: '# Troll\nBig and green.' });
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, { pageId: pg.id })).status, 503);
-  assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.dm)).model, false);
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, { prompt: 'a cave troll' })).status, 503);
+  const pg = await e.ok('PUT', `/api/worlds/${e.W}/library/pages`, e.T.gm, { path: 'monsters/Troll', visibility: 'gm', markdown: '# Troll\nBig and green.' });
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, { pageId: pg.id })).status, 503);
+  assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.gm)).model, false);
   assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.jess)).model, false);
 });
 
@@ -317,45 +317,45 @@ test('Agent: statblocks from a prompt and from a page use the chat model and are
   const e = env;
   const good = { name: 'Cave Troll', size: 'Large', type: 'giant', alignment: 'chaotic evil', cr: 5, ac: 15, hp: 84, hitDice: '8d10+40', speed: { walk: '30 ft.' }, abilities: { str: 18, dex: 8, con: 20, int: 7, wis: 9, cha: 7 }, actions: [{ name: 'Club', text: 'Melee Attack Roll: +7, reach 10 ft. Hit: 13 (2d8 + 4) Bludgeoning damage.' }] };
   e.model.queue.push(() => say(JSON.stringify(good)));
-  const r = await e.ok('POST', `${A(e)}/statblock`, e.T.dm, { prompt: 'a cave troll', addToCombat: true, initiative: 6 });
+  const r = await e.ok('POST', `${A(e)}/statblock`, e.T.gm, { prompt: 'a cave troll', addToCombat: true, initiative: 6 });
   assert.equal(r.statblock.hp, 84);
   assert.equal(r.combatant.ac, 15);
   assert.equal(r.page.path, 'Statblocks/Cave Troll.md');
   // From a library page.
-  const pg = await e.ok('PUT', `/api/worlds/${e.W}/library/pages`, e.T.dm, { path: 'monsters/Troll', visibility: 'dm', markdown: '# Mossback\nA troll with 90 hit points and AC 14.' });
+  const pg = await e.ok('PUT', `/api/worlds/${e.W}/library/pages`, e.T.gm, { path: 'monsters/Troll', visibility: 'gm', markdown: '# Mossback\nA troll with 90 hit points and AC 14.' });
   e.model.queue.push((req: any) => { assert.ok(req.messages.at(-1).content.includes('troll with 90 hit points')); return say(JSON.stringify({ ...good, name: 'Mossback', hp: 90, ac: 14 })); });
-  const r2 = await e.ok('POST', `${A(e)}/statblock`, e.T.dm, { pageId: pg.id });
+  const r2 = await e.ok('POST', `${A(e)}/statblock`, e.T.gm, { pageId: pg.id });
   assert.equal(r2.statblock.name, 'Mossback');
   assert.equal(r2.statblock.hp, 90);
   // An invalid statblock is refused and saves nothing.
-  const pages = (await e.ok('GET', `/api/worlds/${e.W}/library/pages`, e.T.dm)).length;
+  const pages = (await e.ok('GET', `/api/worlds/${e.W}/library/pages`, e.T.gm)).length;
   e.model.queue.push(() => say(JSON.stringify({ ...good, abilities: undefined })));
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, { prompt: 'a broken thing' })).status, 422);
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, { prompt: 'a broken thing' })).status, 422);
   e.model.queue.push(() => say(JSON.stringify({ ...good, ac: 'high' })));
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, { prompt: 'a broken thing' })).status, 422);
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, { prompt: 'a broken thing' })).status, 422);
   e.model.queue.push(() => say(JSON.stringify({ ...good, actions: [] })));
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, { prompt: 'a broken thing' })).status, 422);
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, { prompt: 'a broken thing' })).status, 422);
   e.model.queue.push(() => say('not json at all'));
-  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.dm, { prompt: 'a broken thing' })).status, 502);
-  assert.equal((await e.ok('GET', `/api/worlds/${e.W}/library/pages`, e.T.dm)).length, pages);
+  assert.equal((await e.call('POST', `${A(e)}/statblock`, e.T.gm, { prompt: 'a broken thing' })).status, 502);
+  assert.equal((await e.ok('GET', `/api/worlds/${e.W}/library/pages`, e.T.gm)).length, pages);
 });
 
 test('Agent: combat tools through MCP place a creature in initiative and read as the caller may see', async () => {
   const e = bare;
   const key = async (t: string, access: string) => (await e.ok('POST', '/api/keys', t, { scope: 'scribe', label: access, worldId: e.W, access })).key;
-  const dmKey = await key(e.T.dm, 'write');
+  const gmKey = await key(e.T.gm, 'write');
   const rpc = async (k: string, name: string, args: any = {}) => (await e.call('POST', '/mcp', k, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body;
   const names = async (k: string) => (await e.call('POST', '/mcp', k, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).body.result.tools.map((t: any) => t.name);
   const writes = ['add_combatant', 'damage_combatant', 'heal_combatant', 'set_conditions', 'next_turn', 'make_statblock'];
-  const dmNames = await names(dmKey);
-  for (const w of [...writes, 'get_combat', 'search_transcript']) assert.ok(dmNames.includes(w), w);
+  const gmNames = await names(gmKey);
+  for (const w of [...writes, 'get_combat', 'search_transcript']) assert.ok(gmNames.includes(w), w);
   // Clear the earlier combatants so order is easy to read.
-  for (const c of (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants) await e.ok('DELETE', `/api/worlds/${e.W}/live/combatants/${c.id}`, e.T.dm);
-  const add = async (args: any) => JSON.parse((await rpc(dmKey, 'add_combatant', args)).result.content[0].text);
+  for (const c of (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm)).combatants) await e.ok('DELETE', `/api/worlds/${e.W}/live/combatants/${c.id}`, e.T.gm);
+  const add = async (args: any) => JSON.parse((await rpc(gmKey, 'add_combatant', args)).result.content[0].text);
   const slow = await add({ name: 'Ogre', hp: 59, initiative: 3, ac: 11 }); // below the Archer's lowest roll (1 + 3), so always last
   const fast = await add({ name: 'Wolf', hp: 11, initiative: 18, ac: 13 });
   const fromSb = await add({ name: 'Archer', statblock: { hp: 13, ac: 15, abilities: { dex: 16 } }, hidden: true });
-  const read = JSON.parse((await rpc(dmKey, 'get_combat')).result.content[0].text);
+  const read = JSON.parse((await rpc(gmKey, 'get_combat')).result.content[0].text);
   assert.equal(read.combatants.length, 3);
   const order = read.combatants.map((c: any) => c.name);
   assert.equal(order.indexOf('Wolf') < order.indexOf('Ogre'), true);
@@ -365,12 +365,12 @@ test('Agent: combat tools through MCP place a creature in initiative and read as
   assert.ok(archer.initiative >= 4 && archer.initiative <= 23, `rolled ${archer.initiative}`);
   assert.equal(order[0] === 'Archer' || order[0] === 'Wolf', true);
   // Damage, heal (capped), conditions, next turn.
-  await rpc(dmKey, 'damage_combatant', { combatant: slow.id, amount: 20 });
-  await rpc(dmKey, 'heal_combatant', { combatant: slow.id, amount: 500 });
-  await rpc(dmKey, 'damage_combatant', { combatant: fast.id, amount: 4 });
-  await rpc(dmKey, 'set_conditions', { combatant: fast.id, conditions: ['Prone', 'Poisoned'] });
-  await rpc(dmKey, 'next_turn');
-  const after = JSON.parse((await rpc(dmKey, 'get_combat')).result.content[0].text);
+  await rpc(gmKey, 'damage_combatant', { combatant: slow.id, amount: 20 });
+  await rpc(gmKey, 'heal_combatant', { combatant: slow.id, amount: 500 });
+  await rpc(gmKey, 'damage_combatant', { combatant: fast.id, amount: 4 });
+  await rpc(gmKey, 'set_conditions', { combatant: fast.id, conditions: ['Prone', 'Poisoned'] });
+  await rpc(gmKey, 'next_turn');
+  const after = JSON.parse((await rpc(gmKey, 'get_combat')).result.content[0].text);
   assert.equal(after.active, true);
   assert.equal(after.combatants.find((c: any) => c.id === slow.id).hp, 59);
   const wolf = after.combatants.find((c: any) => c.id === fast.id);
@@ -383,12 +383,12 @@ test('Agent: combat tools through MCP place a creature in initiative and read as
   assert.ok(!jessSees.includes('Archer') && !jessSees.includes('"ac"') && !jessSees.includes('"hp":') && !jessSees.includes('statblock'));
   assert.ok(jessSees.includes('Wolf'));
   // Read keys get no write tools, and cannot call them.
-  const readKey = await key(e.T.dm, 'read');
+  const readKey = await key(e.T.gm, 'read');
   const readNames = await names(readKey);
   for (const w of writes) assert.ok(!readNames.includes(w), `${w} listed for a read key`);
   assert.ok(readNames.includes('get_combat') && readNames.includes('search_transcript'));
   assert.ok((await rpc(readKey, 'add_combatant', { name: 'Nope', hp: 1, initiative: 1 })).error);
-  // The DM-only transcript line is not in a player's search.
+  // The GM-only transcript line is not in a player's search.
   const tr = await e.ok('GET', `${A(e)}/transcript?q=vault`, e.T.jess);
   assert.deepEqual(tr.lines, []);
 });
@@ -457,7 +457,7 @@ test('Agent: most questions are answered in ONE model round, from the library ma
     assert.ok(last.includes('[Saltmarsh]') && last.includes('fishing town'), 'the snippet is in the prompt');
     return say('Saltmarsh is ruled by the harbour council of seven captains [Saltmarsh].');
   });
-  const { reply } = await ask(e, e.T.dm, 'Who rules Saltmarsh?', { page: e.ID.saltmarsh, selection: 'seven captains' });
+  const { reply } = await ask(e, e.T.gm, 'Who rules Saltmarsh?', { page: e.ID.saltmarsh, selection: 'seven captains' });
   assert.equal(e.model.seen.length, 1, 'one round, no tool calls');
   assert.match(reply.text, /harbour council/);
   assert.ok(reply.citations.some((c: any) => c.id === e.ID.saltmarsh && c.kind === 'page'), 'a prefetched page the reply names is cited');
@@ -474,15 +474,15 @@ test('Agent: the system prompt is static and first, so a server can cache it; th
   const e = env;
   e.model.seen.length = 0;
   e.model.queue.push(() => say('One.'), () => say('Two.'));
-  await ask(e, e.T.dm, 'Tell me about Saltmarsh');
-  await ask(e, e.T.dm, 'Who is Velmira and what does she want');
+  await ask(e, e.T.gm, 'Tell me about Saltmarsh');
+  await ask(e, e.T.gm, 'Who is Velmira and what does she want');
   const [a, b] = e.model.seen;
   assert.equal(a.messages[0].role, 'system');
   assert.equal(a.messages[0].content, b.messages[0].content);
   assert.ok(!/World date|Library matches/.test(a.messages[0].content));
   assert.match(a.messages[0].content, /never invent/i);
   assert.match(a.messages[0].content, /\[Page title\]/);
-  assert.ok(b.messages.at(-1).content.includes('Velmira'), 'the DM sees the DM-only page match');
+  assert.ok(b.messages.at(-1).content.includes('Velmira'), 'the GM sees the GM-only page match');
   const p = e.model.seen.length;
   e.model.queue.push(() => say('Player.'));
   await ask(e, e.T.jess, 'Tell me about Saltmarsh');
@@ -490,17 +490,17 @@ test('Agent: the system prompt is static and first, so a server can cache it; th
   assert.match(e.model.seen[p].messages[0].content, /information broker/);
 });
 
-test('Agent: the combat state rides along for the DM only, while a fight is running', async () => {
+test('Agent: the combat state rides along for the GM only, while a fight is running', async () => {
   const e = env;
-  const goblin = await e.ok('POST', `/api/worlds/${e.W}/live/combatants`, e.T.dm, { name: 'Prefetch Goblin', initiative: 12, hp: 7, maxHp: 7 });
+  const goblin = await e.ok('POST', `/api/worlds/${e.W}/live/combatants`, e.T.gm, { name: 'Prefetch Goblin', initiative: 12, hp: 7, maxHp: 7 });
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Going well.'), () => say('Fine.'));
-  await ask(e, e.T.dm, 'How is the fight going?');
+  await ask(e, e.T.gm, 'How is the fight going?');
   await ask(e, e.T.jess, 'How is the fight going?');
-  const dmText = e.model.seen[0].messages.at(-1).content;
-  assert.ok(dmText.includes('Prefetch Goblin') && dmText.includes(goblin.id) && /Combat:/.test(dmText));
+  const gmText = e.model.seen[0].messages.at(-1).content;
+  assert.ok(gmText.includes('Prefetch Goblin') && gmText.includes(goblin.id) && /Combat:/.test(gmText));
   assert.ok(!/Prefetch Goblin|Combat:/.test(JSON.stringify(e.model.seen[1].messages)), 'a player is not handed combat state');
-  await e.ok('DELETE', `/api/worlds/${e.W}/live/combatants/${goblin.id}`, e.T.dm);
+  await e.ok('DELETE', `/api/worlds/${e.W}/live/combatants/${goblin.id}`, e.T.gm);
 });
 
 test('Agent: only the tools that fit are offered (at most 16), and search_library and read_page always are', async () => {
@@ -531,7 +531,7 @@ test('Agent: only the tools that fit are offered (at most 16), and search_librar
   const e = env;
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Done.'));
-  await ask(e, e.T.dm, 'Add a goblin to the fight and then deal 4 damage to it');
+  await ask(e, e.T.gm, 'Add a goblin to the fight and then deal 4 damage to it');
   const offered = toolNames(e.model.seen[0]);
   assert.ok(offered.length <= MAX_TOOLS + 3 && offered.includes('add_combatant') && offered.includes('search_library'), offered.join(','));
   assert.equal(e.model.seen[0].parallel_tool_calls, true);
@@ -551,7 +551,7 @@ test('Agent: several tool calls in one turn run at the same time', async () => {
       ] }),
       () => say('Looked at all three.'),
     );
-    const { reply } = await ask(e, e.T.dm, 'Look into the harbour, the lighthouse and Saltmarsh');
+    const { reply } = await ask(e, e.T.gm, 'Look into the harbour, the lighthouse and Saltmarsh');
     assert.equal(reply.text, 'Looked at all three.');
     const calls = e.model.log.filter((l) => /\/library\/(search|pages)/.test(l.url));
     assert.equal(calls.length, 3);
@@ -568,7 +568,7 @@ test('Agent: several tool calls in one turn run at the same time', async () => {
 test('Agent: dice, the date, next turn and adding creatures need no model at all', async () => {
   const e = bare;
   // Rolling.
-  const roll = await ask(e, e.T.dm, 'roll 2d6+3');
+  const roll = await ask(e, e.T.gm, 'roll 2d6+3');
   assert.equal(roll.reply.status, 'done');
   const m = roll.reply.text.match(/= \*\*(\d+)\*\*/);
   assert.ok(m && Number(m[1]) >= 5 && Number(m[1]) <= 15, roll.reply.text);
@@ -578,31 +578,31 @@ test('Agent: dice, the date, next turn and adding creatures need no model at all
   const date = await ask(e, e.T.jess, "what's the date?");
   assert.match(date.reply.text, /^It is \*\*.+\*\*\.$/);
   // Next turn is a write: a pending action, not done.
-  const next = await ask(e, e.T.dm, 'next turn');
+  const next = await ask(e, e.T.gm, 'next turn');
   assert.equal(next.chat.actions.length, 1);
   assert.equal(next.chat.actions[0].tool, 'next_turn');
   assert.equal(next.chat.actions[0].status, 'pending');
   assert.match(next.reply.text, /Waiting for your approval/);
-  const state = async () => { const c = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm); return JSON.stringify([c.active, c.round, c.turn]); };
+  const state = async () => { const c = await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm); return JSON.stringify([c.active, c.round, c.turn]); };
   const before = await state();
   assert.equal(await state(), before, 'nothing ran yet');
-  assert.equal((await e.ok('POST', `${A(e)}/actions/${next.chat.actions[0].id}`, e.T.dm, { decision: 'approve' })).status, 'done');
+  assert.equal((await e.ok('POST', `${A(e)}/actions/${next.chat.actions[0].id}`, e.T.gm, { decision: 'approve' })).status, 'done');
   assert.notEqual(await state(), before, 'approving ran it');
   // "add 1d4 goblins": one pending add per goblin rolled.
-  const count = async () => (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.length;
+  const count = async () => (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm)).combatants.length;
   const had = await count();
-  const add = await ask(e, e.T.dm, 'add 1d4 goblins');
+  const add = await ask(e, e.T.gm, 'add 1d4 goblins');
   const n = add.chat.actions.length;
   assert.ok(n >= 1 && n <= 4, `${n} goblins`);
   assert.ok(add.chat.actions.every((a: any) => a.tool === 'add_combatant' && a.status === 'pending' && /^Goblin( \d)?$/.test(a.args.name) && a.args.initiative >= 1 && a.args.initiative <= 20));
   assert.match(add.reply.text, new RegExp(`Adding ${n} Goblin`));
   assert.equal(await count(), had, 'not added until approved');
   // By name: damage a creature that is there.
-  const sb = await e.ok('POST', `/api/worlds/${e.W}/live/combatants`, e.T.dm, { name: 'Fast Ogre', initiative: 9, hp: 30, maxHp: 30 });
-  const hit = await ask(e, e.T.dm, 'damage fast ogre for 7');
+  const sb = await e.ok('POST', `/api/worlds/${e.W}/live/combatants`, e.T.gm, { name: 'Fast Ogre', initiative: 9, hp: 30, maxHp: 30 });
+  const hit = await ask(e, e.T.gm, 'damage fast ogre for 7');
   assert.equal(hit.chat.actions.at(-1).tool, 'damage_combatant');
   assert.deepEqual(hit.chat.actions.at(-1).args, { combatant: sb.id, amount: 7 });
-  const who = await ask(e, e.T.dm, "who's up?");
+  const who = await ask(e, e.T.gm, "who's up?");
   assert.match(who.reply.text, /turn \(round/);
   // A player gets dice and the date only; a command needs the model, which is not set.
   assert.equal((await e.call('POST', `${A(e)}/chats/${(await e.ok('POST', `${A(e)}/chats`, e.T.jess, {})).id}/messages`, e.T.jess, { text: 'next turn' })).status, 503);
@@ -612,32 +612,32 @@ test('Agent: dice, the date, next turn and adding creatures need no model at all
 
 test('Agent: a fast command that is set to auto-approve runs at once', async () => {
   const e = bare;
-  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: ['add_combatant'] });
-  const { chat, reply } = await ask(e, e.T.dm, 'add 3 orcs to combat');
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentAutoApprove: ['add_combatant'] });
+  const { chat, reply } = await ask(e, e.T.gm, 'add 3 orcs to combat');
   assert.equal(chat.actions.filter((a: any) => a.status === "pending").length, 0);
   assert.match(reply.text, /Done: Add Orc 1 to combat/);
-  const names = (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.map((c: any) => c.name);
+  const names = (await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm)).combatants.map((c: any) => c.name);
   for (const n of ['Orc 1', 'Orc 2', 'Orc 3']) assert.ok(names.includes(n), names.join(','));
-  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentAutoApprove: [] });
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentAutoApprove: [] });
 });
 
 test('Agent: what is and is not a fast command', () => {
-  const dm = (t: string) => fastPlan(t, true);
-  assert.equal(dm('roll 2d6+3')?.kind, 'reply');
-  assert.equal(dm('Roll a d20 with advantage')?.kind, 'reply');
-  assert.equal(dm('please roll 4d6')?.kind, 'reply');
-  assert.equal(dm('2d8+1')?.kind, 'reply');
-  assert.equal(dm("What's the date today?")?.kind, 'date');
-  assert.equal(dm('what time is it')?.kind, 'date');
-  assert.equal(dm('next turn')?.kind, 'calls');
-  assert.equal(dm('Next turn!')?.kind, 'calls');
-  assert.equal(dm('add 3 orcs')?.kind, 'calls');
-  assert.equal(dm('add a goblin to combat')?.kind, 'calls');
-  assert.equal((dm('add 1d4 goblins') as any).calls.every((c: any) => c.tool === 'add_combatant'), true);
-  assert.equal(dm('hit goblin 2 for 5')?.kind, 'combat');
-  assert.equal(dm('heal Aria for 8')?.kind, 'combat');
+  const gm = (t: string) => fastPlan(t, true);
+  assert.equal(gm('roll 2d6+3')?.kind, 'reply');
+  assert.equal(gm('Roll a d20 with advantage')?.kind, 'reply');
+  assert.equal(gm('please roll 4d6')?.kind, 'reply');
+  assert.equal(gm('2d8+1')?.kind, 'reply');
+  assert.equal(gm("What's the date today?")?.kind, 'date');
+  assert.equal(gm('what time is it')?.kind, 'date');
+  assert.equal(gm('next turn')?.kind, 'calls');
+  assert.equal(gm('Next turn!')?.kind, 'calls');
+  assert.equal(gm('add 3 orcs')?.kind, 'calls');
+  assert.equal(gm('add a goblin to combat')?.kind, 'calls');
+  assert.equal((gm('add 1d4 goblins') as any).calls.every((c: any) => c.tool === 'add_combatant'), true);
+  assert.equal(gm('hit goblin 2 for 5')?.kind, 'combat');
+  assert.equal(gm('heal Aria for 8')?.kind, 'combat');
   // Questions and bigger asks go to the model.
-  for (const t of ['roll initiative for the goblins and tell me the order', 'add a page about goblins', 'add a goblin', 'add 2 items to the party', 'what is the date of the festival?', 'what happened last session', 'roll the dice on whether the guards notice, and describe it', 'add 99 goblins', 'add 0 goblins']) assert.equal(dm(t), null, t);
+  for (const t of ['roll initiative for the goblins and tell me the order', 'add a page about goblins', 'add a goblin', 'add 2 items to the party', 'what is the date of the festival?', 'what happened last session', 'roll the dice on whether the guards notice, and describe it', 'add 99 goblins', 'add 0 goblins']) assert.equal(gm(t), null, t);
   // A player: dice and the date only.
   assert.equal(fastPlan('roll d20', false)?.kind, 'reply');
   assert.equal(fastPlan('next turn', false), null);
@@ -658,60 +658,60 @@ test('Agent: what is and is not a fast command', () => {
 
 test('Agent: the reply streams to its owner as it is written, and only to the owner', async () => {
   const e = env;
-  const dm = await listen(e, e.T.dm);
+  const gm = await listen(e, e.T.gm);
   const tom = await listen(e, e.T.tom);
   try {
     const pieces = ['Saltmarsh ', 'is a fishing ', 'town. ', 'Its council ', 'has seven captains.'];
     e.model.queue.push(() => streamOf(pieces, 25));
-    const { id, reply } = await ask(e, e.T.dm, 'Describe Saltmarsh');
+    const { id, reply } = await ask(e, e.T.gm, 'Describe Saltmarsh');
     assert.equal(reply.text, pieces.join(''));
-    const deltas = agentEvents(dm, 'delta').filter((x) => x.chatId === id);
+    const deltas = agentEvents(gm, 'delta').filter((x) => x.chatId === id);
     assert.ok(deltas.length >= 2, `${deltas.length} bursts`);
     assert.equal(deltas.map((x) => x.text).join(''), pieces.join(''));
     assert.ok(deltas.every((x) => x.messageId === reply.id));
-    const firstDelta = dm.events.findIndex((x) => x.type === 'agent' && x.data.kind === 'delta');
-    const done = dm.events.findIndex((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === id);
+    const firstDelta = gm.events.findIndex((x) => x.type === 'agent' && x.data.kind === 'delta');
+    const done = gm.events.findIndex((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === id);
     assert.ok(firstDelta >= 0 && firstDelta < done, 'text arrived before the message was finished');
     assert.deepEqual(agentEvents(tom), [], 'another player gets nothing');
     assert.ok(reply.timings.firstTokenMs < reply.timings.totalMs, `first text ${reply.timings.firstTokenMs}ms of ${reply.timings.totalMs}ms`);
     // The chat view of a message being written shows what has come so far.
     e.model.queue.push(() => streamOf(['Part one. ', 'Part two. ', 'Part three.'], 120));
-    const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.dm, {})).id;
-    await e.ok('POST', `${A(e)}/chats/${cid}/messages`, e.T.dm, { text: 'Go on' });
-    await dm.until((x) => x.type === 'agent' && x.data.kind === 'delta' && x.data.chatId === cid);
-    const mid = await e.ok('GET', `${A(e)}/chats/${cid}`, e.T.dm);
+    const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.gm, {})).id;
+    await e.ok('POST', `${A(e)}/chats/${cid}/messages`, e.T.gm, { text: 'Go on' });
+    await gm.until((x) => x.type === 'agent' && x.data.kind === 'delta' && x.data.chatId === cid);
+    const mid = await e.ok('GET', `${A(e)}/chats/${cid}`, e.T.gm);
     assert.equal(mid.busy, true);
     assert.match(mid.messages.at(-1).text, /^Part one/);
-    await dm.until((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === cid);
-  } finally { dm.close(); tom.close(); }
+    await gm.until((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === cid);
+  } finally { gm.close(); tom.close(); }
 });
 
 test('Agent: Stop ends the answer and keeps what was shown', async () => {
   const e = env;
-  const dm = await listen(e, e.T.dm);
+  const gm = await listen(e, e.T.gm);
   try {
     e.model.queue.push(() => streamOf(['First part. ', 'Second part. ', 'Third part. ', 'Fourth part. ', 'Fifth part.'], 150));
-    const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.dm, {})).id;
-    await e.ok('POST', `${A(e)}/chats/${cid}/messages`, e.T.dm, { text: 'Tell a long tale' });
-    await dm.until((x) => x.type === 'agent' && x.data.kind === 'delta' && x.data.chatId === cid);
-    assert.equal((await e.ok('POST', `${A(e)}/chats/${cid}/stop`, e.T.dm)).stopped, true);
-    await dm.until((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === cid);
-    const c = await e.ok('GET', `${A(e)}/chats/${cid}`, e.T.dm);
+    const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.gm, {})).id;
+    await e.ok('POST', `${A(e)}/chats/${cid}/messages`, e.T.gm, { text: 'Tell a long tale' });
+    await gm.until((x) => x.type === 'agent' && x.data.kind === 'delta' && x.data.chatId === cid);
+    assert.equal((await e.ok('POST', `${A(e)}/chats/${cid}/stop`, e.T.gm)).stopped, true);
+    await gm.until((x) => x.type === 'agent' && x.data.kind === 'message' && x.data.chatId === cid);
+    const c = await e.ok('GET', `${A(e)}/chats/${cid}`, e.T.gm);
     const last = c.messages.at(-1);
     assert.equal(last.status, 'done');
     assert.match(last.text, /^First part\./);
     assert.match(last.text, /_Stopped\._$/);
     assert.ok(!last.text.includes('Fifth'));
     assert.equal(c.busy, false);
-    assert.equal((await e.ok('POST', `${A(e)}/chats/${cid}/stop`, e.T.dm)).stopped, false, 'nothing left to stop');
+    assert.equal((await e.ok('POST', `${A(e)}/chats/${cid}/stop`, e.T.gm)).stopped, false, 'nothing left to stop');
     assert.equal((await e.call('POST', `${A(e)}/chats/${cid}/stop`, e.T.jess)).status, 404);
-  } finally { dm.close(); }
+  } finally { gm.close(); }
 });
 
-test('Agent: the player stream never sends a sentence that leaks DM-only text', async () => {
+test('Agent: the player stream never sends a sentence that leaks GM-only text', async () => {
   const e = env;
   const jess = await listen(e, e.T.jess);
-  const dm = await listen(e, e.T.dm);
+  const gm = await listen(e, e.T.gm);
   try {
     // The secret arrives in the third sentence, split mid-word across chunks.
     const text = `Greetings, traveller. The harbour is busy today. Also, ${SECRET}. Anyway, that is all.`;
@@ -728,10 +728,10 @@ test('Agent: the player stream never sends a sentence that leaks DM-only text', 
     assert.equal(sent, 'Greetings, traveller. ');
     assert.ok(agentEvents(jess, 'replace').some((x) => x.chatId === id && x.text === "I can't answer that from what you know."), 'the screen is told to replace what it has');
     assert.equal(agentEvents(jess).filter((x) => JSON.stringify(x).includes('treasury')).length, 0);
-    // The DM hears about it, the player does not.
-    await dm.until((x) => x.type === 'agent' && x.data.kind === 'leak' && x.data.chatId === id);
+    // The GM hears about it, the player does not.
+    await gm.until((x) => x.type === 'agent' && x.data.kind === 'leak' && x.data.chatId === id);
     assert.ok(!agentEvents(jess, 'leak').length);
-    assert.equal((await e.ok('GET', `${A(e)}/leaks`, e.T.dm)).leaks.filter((l: any) => l.chatId === id).length, 1);
+    assert.equal((await e.ok('GET', `${A(e)}/leaks`, e.T.gm)).leaks.filter((l: any) => l.chatId === id).length, 1);
     // A clean answer streams through whole, sentence by sentence.
     const clean = 'Saltmarsh is a fishing town. Its harbour council has seven captains. They meet at dusk.';
     const ps: string[] = [];
@@ -742,7 +742,7 @@ test('Agent: the player stream never sends a sentence that leaks DM-only text', 
     const sent2 = agentEvents(jess, 'delta').filter((x) => x.chatId === ok2.id).map((x) => x.text).join('');
     assert.equal(sent2.trim(), clean);
     assert.equal(ok2.reply.timings.gateMs >= 0, true);
-  } finally { jess.close(); dm.close(); }
+  } finally { jess.close(); gm.close(); }
 });
 
 test('Agent: the leak gate holds a sentence until the next is complete, so a run across the boundary is caught', () => {
@@ -765,8 +765,8 @@ test('Agent: the leak gate holds a sentence until the next is complete, so a run
 
 test('Agent: long chats are sent as a summary plus the last 8 messages', async () => {
   const e = bare;
-  const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.dm, {})).id;
-  for (let i = 0; i < 7; i++) await ask(e, e.T.dm, `roll d${6 + i}`, {}, cid);
+  const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.gm, {})).id;
+  for (let i = 0; i < 7; i++) await ask(e, e.T.gm, `roll d${6 + i}`, {}, cid);
   const { historyFor } = await import('../src/features/agent/harness.ts');
   const { summarize } = await import('../src/features/agent/summary.ts');
   const row = () => all<any>(e.deps.db, 'SELECT summary, summary_upto FROM agent_chats WHERE id = ?', cid)[0];
@@ -781,13 +781,13 @@ test('Agent: long chats are sent as a summary plus the last 8 messages', async (
 
 test('Agent: a history summary goes into the system prompt, and the window stays small', async () => {
   const e = env;
-  const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.dm, {})).id;
-  for (let i = 0; i < 6; i++) { e.model.queue.push(() => say(`Answer ${i}.`)); await ask(e, e.T.dm, `Question number ${i} about Saltmarsh`, {}, cid); }
+  const cid = (await e.ok('POST', `${A(e)}/chats`, e.T.gm, {})).id;
+  for (let i = 0; i < 6; i++) { e.model.queue.push(() => say(`Answer ${i}.`)); await ask(e, e.T.gm, `Question number ${i} about Saltmarsh`, {}, cid); }
   const { summarize } = await import('../src/features/agent/summary.ts');
   await summarize(e.deps, cid);
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Latest.'));
-  await ask(e, e.T.dm, 'And one more thing about Saltmarsh', {}, cid);
+  await ask(e, e.T.gm, 'And one more thing about Saltmarsh', {}, cid);
   const m = e.model.seen[0].messages;
   assert.match(m[0].content, /Earlier in this chat \(summary\):[\s\S]*Question number 0/);
   assert.ok(m.length <= 1 + 16 + 1, `${m.length} messages sent`);
@@ -799,7 +799,7 @@ test('Agent: the gateway adds under 50 ms per model round (fake model, instant t
   const per: number[] = [];
   for (let i = 0; i < 4; i++) {
     e.model.queue.push(() => toolCall('world_info', {}, `ov${i}`), () => say('Done.'));
-    const { reply } = await ask(e, e.T.dm, `Check the world for overhead run ${i}`);
+    const { reply } = await ask(e, e.T.gm, `Check the world for overhead run ${i}`);
     assert.equal(reply.timings.rounds, 2);
     per.push(reply.timings.gatewayMs / reply.timings.rounds);
   }
@@ -819,14 +819,14 @@ test('Agent: a reply whose stream stops after a word with no finish is asked for
     return new Response(new ReadableStream<Uint8Array>({ start(ctl) { ctl.enqueue(enc.encode(c({ role: 'assistant', content: 'The' }))); ctl.close(); } }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   };
   e.model.queue.push(cut, () => streamOf(['The vote is out to the table.']));
-  const { reply } = await ask(e, e.T.dm, 'Tell me about the vote');
+  const { reply } = await ask(e, e.T.gm, 'Tell me about the vote');
   assert.equal(reply.text, 'The vote is out to the table.');
 });
 
-test('Agent: a player\'s table helper is out of character, knows whose helper it is, reads only, and the DM can turn it off', async () => {
+test('Agent: a player\'s table helper is out of character, knows whose helper it is, reads only, and the GM can turn it off', async () => {
   const e = env;
   const h = await e.ok('POST', `${A(e)}/chats`, e.T.jess, { mode: 'helper' });
-  assert.equal((await e.ok('POST', `${A(e)}/chats`, e.T.dm, { mode: 'helper' })).id ? true : false, true, 'a DM chat ignores the mode');
+  assert.equal((await e.ok('POST', `${A(e)}/chats`, e.T.gm, { mode: 'helper' })).id ? true : false, true, 'a GM chat ignores the mode');
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Shield is a reaction: +5 AC until the start of your next turn.'));
   const r = await ask(e, e.T.jess, 'What does Shield do?', {}, h.id);
@@ -836,69 +836,69 @@ test('Agent: a player\'s table helper is out of character, knows whose helper it
   assert.ok(!/broker/i.test(sys.split('\n')[0]), 'not the broker voice');
   assert.match(e.model.seen[0].messages.at(-1).content, /You are helping/);
   assert.ok(toolNames(e.model.seen[0]).every((t: string) => !/^(add_|damage_|set_|save_page|send_)/.test(t)), 'read tools only');
-  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentPlayerHelper: false });
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentPlayerHelper: false });
   assert.equal((await e.call('POST', `${A(e)}/chats`, e.T.jess, { mode: 'helper' })).status, 403);
   assert.equal((await e.call('POST', `${A(e)}/chats/${h.id}/messages`, e.T.jess, { text: 'hi' })).status, 403, 'an old helper chat stops too');
-  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.dm, { agentPlayerHelper: true });
+  await e.ok('PATCH', `/api/worlds/${e.W}/settings`, e.T.gm, { agentPlayerHelper: true });
 });
 
 // ---- Auto mode and the approve path --------------------------------------------------------------------------------
 
-test('Agent: Auto mode is a DM-only world setting that applies to the very next action', async () => {
+test('Agent: Auto mode is a GM-only world setting that applies to the very next action', async () => {
   const e = env;
   const S = `/api/worlds/${e.W}/settings`;
-  assert.equal((await e.call('PATCH', S, e.T.dm, { agentAuto: 'yes' })).status, 400, 'a non-boolean is refused');
+  assert.equal((await e.call('PATCH', S, e.T.gm, { agentAuto: 'yes' })).status, 400, 'a non-boolean is refused');
   assert.equal((await e.call('PATCH', S, e.T.jess, { agentAuto: true })).status, 403, 'a player cannot switch it');
-  assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.dm)).auto, false);
-  const pend = async () => (await e.ok('GET', `${A(e)}/actions`, e.T.dm)).actions;
+  assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.gm)).auto, false);
+  const pend = async () => (await e.ok('GET', `${A(e)}/actions`, e.T.gm)).actions;
 
   // Ask first: a card waits.
   e.model.queue.push(() => toolCall('add_combatant', { name: 'Auto Goblin A', hp: 7, initiative: 3 }), () => say('Proposed.'));
-  const first = await ask(e, e.T.dm, 'Add Auto Goblin A');
+  const first = await ask(e, e.T.gm, 'Add Auto Goblin A');
   assert.deepEqual(first.chat.actions.map((a: any) => a.status), ['pending']);
-  await e.ok('POST', `${A(e)}/actions/${first.chat.actions[0].id}`, e.T.dm, { decision: 'approve' });
+  await e.ok('POST', `${A(e)}/actions/${first.chat.actions[0].id}`, e.T.gm, { decision: 'approve' });
 
-  // Auto: the next change is applied with no card for it (a settled, automatic one is kept for the record), and the DM can read the mode.
-  await e.ok('PATCH', S, e.T.dm, { agentAuto: true });
-  assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.dm)).auto, true);
-  assert.equal((await e.ok('GET', S, e.T.dm)).agentAuto, true);
-  assert.equal((await e.ok('GET', S, e.T.jess)).agentAuto, undefined, 'players never see the DM-only mode');
+  // Auto: the next change is applied with no card for it (a settled, automatic one is kept for the record), and the GM can read the mode.
+  await e.ok('PATCH', S, e.T.gm, { agentAuto: true });
+  assert.equal((await e.ok('GET', `${A(e)}/status`, e.T.gm)).auto, true);
+  assert.equal((await e.ok('GET', S, e.T.gm)).agentAuto, true);
+  assert.equal((await e.ok('GET', S, e.T.jess)).agentAuto, undefined, 'players never see the GM-only mode');
   e.model.queue.push(() => toolCall('add_combatant', { name: 'Auto Goblin B', hp: 7, initiative: 2 }), () => say('Added.'));
-  const second = await ask(e, e.T.dm, 'Add Auto Goblin B');
+  const second = await ask(e, e.T.gm, 'Add Auto Goblin B');
   const auto = second.chat.actions.find((a: any) => a.args.name === 'Auto Goblin B');
   assert.deepEqual([auto.status, auto.auto], ['done', true]);
   assert.equal((await pend()).length, 0);
-  assert.ok((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.dm)).combatants.some((c: any) => c.name === 'Auto Goblin B'));
+  assert.ok((await e.ok('GET', `/api/worlds/${e.W}/live/combat`, e.T.gm)).combatants.some((c: any) => c.name === 'Auto Goblin B'));
 
   // A tool that always asks still waits, and says so.
   e.model.queue.push(() => toolCall('delete_map_mark', { markId: 'nope' }), () => say('Proposed.'));
-  const del = await ask(e, e.T.dm, 'Remove the mark');
+  const del = await ask(e, e.T.gm, 'Remove the mark');
   assert.deepEqual([del.chat.actions.at(-1).status, del.chat.actions.at(-1).alwaysAsk], ['pending', true]);
-  assert.ok((await e.ok('GET', `${A(e)}/status`, e.T.dm)).alwaysAsk.includes('delete_*'));
-  await e.ok('POST', `${A(e)}/actions/${del.chat.actions.at(-1).id}`, e.T.dm, { decision: 'reject' });
+  assert.ok((await e.ok('GET', `${A(e)}/status`, e.T.gm)).alwaysAsk.includes('delete_*'));
+  await e.ok('POST', `${A(e)}/actions/${del.chat.actions.at(-1).id}`, e.T.gm, { decision: 'reject' });
 
   // Switched off again: the very next change is a card once more.
-  await e.ok('PATCH', S, e.T.dm, { agentAuto: false });
+  await e.ok('PATCH', S, e.T.gm, { agentAuto: false });
   e.model.queue.push(() => toolCall('add_combatant', { name: 'Auto Goblin C', hp: 7, initiative: 1 }), () => say('Proposed.'));
-  const third = await ask(e, e.T.dm, 'Add Auto Goblin C');
+  const third = await ask(e, e.T.gm, 'Add Auto Goblin C');
   assert.equal(third.chat.actions.at(-1).status, 'pending');
-  await e.ok('POST', `${A(e)}/actions/${third.chat.actions.at(-1).id}`, e.T.dm, { decision: 'reject' });
+  await e.ok('POST', `${A(e)}/actions/${third.chat.actions.at(-1).id}`, e.T.gm, { decision: 'reject' });
 });
 
 test('Agent: flipping Auto on during a reply applies to the next tool call of that same reply', async () => {
   const e = env;
   const S = `/api/worlds/${e.W}/settings`;
-  await e.ok('PATCH', S, e.T.dm, { agentAuto: false });
-  // Round 1 proposes (a card); the DM switches Auto on while the model is still "thinking"; round 2 applies with no card.
+  await e.ok('PATCH', S, e.T.gm, { agentAuto: false });
+  // Round 1 proposes (a card); the GM switches Auto on while the model is still "thinking"; round 2 applies with no card.
   e.model.queue.push(
     () => toolCall('add_combatant', { name: 'Mid Goblin A', hp: 5, initiative: 4 }, 'c1'),
-    async () => { await e.ok('PATCH', S, e.T.dm, { agentAuto: true }); return toolCall('add_combatant', { name: 'Mid Goblin B', hp: 5, initiative: 3 }, 'c2'); },
+    async () => { await e.ok('PATCH', S, e.T.gm, { agentAuto: true }); return toolCall('add_combatant', { name: 'Mid Goblin B', hp: 5, initiative: 3 }, 'c2'); },
     () => say('Done.'),
   );
-  const { chat } = await ask(e, e.T.dm, 'Add two goblins, one after the other');
+  const { chat } = await ask(e, e.T.gm, 'Add two goblins, one after the other');
   assert.deepEqual(chat.actions.map((a: any) => [a.args.name, a.status]), [['Mid Goblin A', 'pending'], ['Mid Goblin B', 'done']]);
-  await e.ok('PATCH', S, e.T.dm, { agentAuto: false });
-  await e.ok('POST', `${A(e)}/actions/${chat.actions[0].id}`, e.T.dm, { decision: 'reject' });
+  await e.ok('PATCH', S, e.T.gm, { agentAuto: false });
+  await e.ok('POST', `${A(e)}/actions/${chat.actions[0].id}`, e.T.gm, { decision: 'reject' });
 });
 
 test('Agent: approving answers at once and never waits for a model turn', async () => {
@@ -907,11 +907,11 @@ test('Agent: approving answers at once and never waits for a model turn', async 
   let release: () => void = () => {};
   const slow = new Promise<void>((r) => { release = r; });
   e.model.queue.push(() => toolCall('add_combatant', { name: 'Quick Goblin', hp: 5, initiative: 9 }), () => say('Proposed.'));
-  const { chat, id } = await ask(e, e.T.dm, 'Add Quick Goblin');
+  const { chat, id } = await ask(e, e.T.gm, 'Add Quick Goblin');
   e.model.queue.push(async () => { await slow; return say('Finally.'); });
-  await e.ok('POST', `${A(e)}/chats/${id}/messages`, e.T.dm, { text: 'Tell me a long story' });
+  await e.ok('POST', `${A(e)}/chats/${id}/messages`, e.T.gm, { text: 'Tell me a long story' });
   const t0 = performance.now();
-  const done = await e.ok('POST', `${A(e)}/actions/${chat.actions[0].id}`, e.T.dm, { decision: 'approve' });
+  const done = await e.ok('POST', `${A(e)}/actions/${chat.actions[0].id}`, e.T.gm, { decision: 'approve' });
   const ms = performance.now() - t0;
   assert.equal(done.status, 'done');
   assert.ok(ms < 500, `approving took ${Math.round(ms)} ms while a model turn was running`);
@@ -922,35 +922,35 @@ test('Agent: an approved change that needs the model answers "running" and finis
   const e = env;
   const good = { name: 'Slow Troll', size: 'Large', type: 'giant', alignment: 'chaotic evil', cr: 5, ac: 15, hp: 84, hitDice: '8d10+40', speed: { walk: '30 ft.' }, abilities: { str: 18, dex: 8, con: 20, int: 7, wis: 9, cha: 7 }, actions: [{ name: 'Club', text: 'Melee Attack Roll: +7, reach 10 ft. Hit: 13 (2d8 + 4) Bludgeoning damage.' }] };
   e.model.queue.push(() => toolCall('make_statblock', { prompt: 'a slow troll' }), () => say('Proposed.'));
-  const { chat, id } = await ask(e, e.T.dm, 'Make a statblock for a slow troll');
+  const { chat, id } = await ask(e, e.T.gm, 'Make a statblock for a slow troll');
   const act = chat.actions[0];
   assert.equal(act.status, 'pending');
   e.model.queue.push(async () => { await new Promise((r) => setTimeout(r, 2200)); return say(JSON.stringify(good)); });
   const t0 = performance.now();
-  const r = await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.dm, { decision: 'approve' });
+  const r = await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.gm, { decision: 'approve' });
   const ms = performance.now() - t0;
   assert.equal(r.status, 202);
   assert.equal(r.body.status, 'running');
   assert.ok(ms < 2000, `the answer waited for the model (${Math.round(ms)} ms)`);
   // A second click on the same card is refused, not run again.
-  assert.equal((await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.dm, { decision: 'approve' })).status, 409);
+  assert.equal((await e.call('POST', `${A(e)}/actions/${act.id}`, e.T.gm, { decision: 'approve' })).status, 409);
   // It finishes by itself; the chat shows the card done.
   let status = 'running';
   for (let i = 0; i < 100 && status === 'running'; i++) {
     await new Promise((x) => setTimeout(x, 100));
-    status = (await e.ok('GET', `${A(e)}/chats/${id}`, e.T.dm)).actions.find((a: any) => a.id === act.id).status;
+    status = (await e.ok('GET', `${A(e)}/chats/${id}`, e.T.gm)).actions.find((a: any) => a.id === act.id).status;
   }
   assert.equal(status, 'done');
 });
 
 test('Agent: Stop closes a reply whose run is gone, so the chat unlocks', async () => {
   const e = env;
-  const chat = await e.ok('POST', `${A(e)}/chats`, e.T.dm, {});
+  const chat = await e.ok('POST', `${A(e)}/chats`, e.T.gm, {});
   const { addMessage } = await import('../src/features/agent/store.ts');
   addMessage(e.deps.db, chat.id, 'assistant', '', { status: 'working' });
-  assert.equal((await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.dm)).busy, true);
-  assert.equal((await e.ok('POST', `${A(e)}/chats/${chat.id}/stop`, e.T.dm, {})).stopped, false);
-  assert.equal((await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.dm)).busy, false);
+  assert.equal((await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.gm)).busy, true);
+  assert.equal((await e.ok('POST', `${A(e)}/chats/${chat.id}/stop`, e.T.gm, {})).stopped, false);
+  assert.equal((await e.ok('GET', `${A(e)}/chats/${chat.id}`, e.T.gm)).busy, false);
 });
 
 // ---- Minerva's Assistant overhaul: tool arguments, cards, thoughts -----------------------------------------------
@@ -963,7 +963,7 @@ test('Agent: garbled or loose tool arguments are repaired, and the rest go back 
     () => ({ role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'add_combatant', arguments: '```json\n{"name": "Bandit", "hp": "11", "initiative": "9",}\n```' } }] }),
     () => say('I proposed adding the bandit.'),
   );
-  const one = await ask(e, e.T.dm, 'Add a bandit with 11 HP');
+  const one = await ask(e, e.T.gm, 'Add a bandit with 11 HP');
   assert.equal(one.chat.actions.length, 1);
   assert.deepEqual(one.chat.actions[0].args, { name: 'Bandit', hp: 11, initiative: 9 });
   // Not JSON at all, then a wrong number: each is sent back, nothing is proposed until the call is right.
@@ -974,7 +974,7 @@ test('Agent: garbled or loose tool arguments are repaired, and the rest go back 
     () => toolCall('add_combatant', { name: 'Bandit Two', hp: 11 }, 'c4'),
     () => say('Proposed.'),
   );
-  const two = await ask(e, e.T.dm, 'Add another bandit with 11 HP');
+  const two = await ask(e, e.T.gm, 'Add another bandit with 11 HP');
   const toolMsgs = e.model.seen.flatMap((s: any) => s.messages.filter((m: any) => m.role === 'tool').map((m: any) => m.content));
   assert.ok(toolMsgs.some((t: string) => /not valid JSON/.test(t)), 'garbled arguments are named');
   assert.ok(toolMsgs.some((t: string) => /hp must be a number/.test(t)), 'a bad number is named');
@@ -985,11 +985,11 @@ test('Agent: an unknown tool name gets the nearest real one, and an enum in the 
   const e = env;
   e.model.seen.length = 0;
   e.model.queue.push(() => toolCall('search', { query: 'Saltmarsh' }), () => say('Done looking.'));
-  await ask(e, e.T.dm, 'Find Saltmarsh');
+  await ask(e, e.T.gm, 'Find Saltmarsh');
   const t = e.model.seen[1].messages.find((m: any) => m.role === 'tool').content;
   assert.match(t, /Unknown tool "search"\. Did you mean .*"search_library"/);
   e.model.queue.push(() => toolCall('play_music', { mood: 'Tense' }), () => say('Proposed.'));
-  const { chat } = await ask(e, e.T.dm, 'Play something tense');
+  const { chat } = await ask(e, e.T.gm, 'Play something tense');
   assert.equal(chat.actions[0].args.mood, 'tense');
 });
 
@@ -1002,23 +1002,23 @@ test('Agent: the same change proposed twice is one card; a card can be edited be
     ] }),
     () => say('Proposed the rope.'),
   );
-  const { chat } = await ask(e, e.T.dm, 'Give the party a rope');
+  const { chat } = await ask(e, e.T.gm, 'Give the party a rope');
   assert.equal(chat.actions.length, 1, 'one card for the same change');
   const act = chat.actions[0];
   // Edit: the qty becomes 3 (sent as text, put right), and the words follow.
   assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.jess, { args: { owner: 'party', name: 'Rope', qty: 3 } })).status, 403);
-  assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.dm, { args: { owner: 'party', qty: 'many' } })).status, 400);
-  const edited = await e.ok('PATCH', `${A(e)}/actions/${act.id}`, e.T.dm, { args: { owner: 'party', name: 'Silk Rope', qty: '3' } });
+  assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.gm, { args: { owner: 'party', qty: 'many' } })).status, 400);
+  const edited = await e.ok('PATCH', `${A(e)}/actions/${act.id}`, e.T.gm, { args: { owner: 'party', name: 'Silk Rope', qty: '3' } });
   assert.equal(edited.summary, 'Give 3 x Silk Rope to party');
   assert.deepEqual(edited.args, { owner: 'party', name: 'Silk Rope', qty: 3 });
-  const done = await e.ok('POST', `${A(e)}/actions/${act.id}`, e.T.dm, { decision: 'approve' });
+  const done = await e.ok('POST', `${A(e)}/actions/${act.id}`, e.T.gm, { decision: 'approve' });
   assert.equal(done.status, 'done');
-  const inv = await e.ok('GET', `/api/worlds/${e.W}/inventory?owner=party`, e.T.dm);
+  const inv = await e.ok('GET', `/api/worlds/${e.W}/inventory?owner=party`, e.T.gm);
   assert.equal(inv.items.find((i: any) => i.name === 'Silk Rope')?.qty, 3);
-  assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.dm, { args: { owner: 'party', name: 'X' } })).status, 409, 'a decided card cannot change');
+  assert.equal((await e.call('PATCH', `${A(e)}/actions/${act.id}`, e.T.gm, { args: { owner: 'party', name: 'X' } })).status, 409, 'a decided card cannot change');
 });
 
-test("Agent: Minerva's thoughts follow a run (DM only): the plan, the look-ups, the proposal and the end", async () => {
+test("Agent: Minerva's thoughts follow a run (GM only): the plan, the look-ups, the proposal and the end", async () => {
   const e = env;
   const { clearThoughts } = await import('../src/features/active/thoughts.ts');
   clearThoughts(e.deps, e.W);
@@ -1027,8 +1027,8 @@ test("Agent: Minerva's thoughts follow a run (DM only): the plan, the look-ups, 
     () => toolCall('add_coin', { owner: 'party', amountCp: 500 }, 't2'),
     () => say('Proposed 5 gold for the party.'),
   );
-  const { reply } = await ask(e, e.T.dm, 'Give the party 5 gold for the Saltmarsh job');
-  const th = (await e.ok('GET', `/api/worlds/${e.W}/active/thoughts`, e.T.dm)).thoughts as any[];
+  const { reply } = await ask(e, e.T.gm, 'Give the party 5 gold for the Saltmarsh job');
+  const th = (await e.ok('GET', `/api/worlds/${e.W}/active/thoughts`, e.T.gm)).thoughts as any[];
   const mine = th.filter((t) => t.runId === reply.id);
   assert.deepEqual([...new Set(mine.map((t) => t.kind))], ['plan', 'look', 'ask', 'done']);
   assert.ok(mine.some((t) => t.kind === 'plan' && t.text === 'I will look up Saltmarsh first.'), "the model's own words before its tools");
@@ -1038,13 +1038,13 @@ test("Agent: Minerva's thoughts follow a run (DM only): the plan, the look-ups, 
   assert.equal((await e.call('GET', `/api/worlds/${e.W}/active/thoughts`, e.T.jess)).status, 403, 'players never see them');
 });
 
-test('Agent: a house rule the message is about gives the helper and the DM their own guidance, the exact calls and the tools', async () => {
+test('Agent: a house rule the message is about gives the helper and the GM their own guidance, the exact calls and the tools', async () => {
   const e = env;
   const M = `/api/worlds/${e.W}/mods`;
   const file = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '../../mods/examples/downtime-lite.alxmod.json'), 'utf8'));
-  await e.ok('POST', `${M}/import`, e.T.dm, { mod: { ...file, id: 'agent-downtime' } });
-  await e.ok('PUT', `${M}/agent-downtime/enabled`, e.T.dm, { on: true });
-  const acts = (await e.ok('GET', `${M}/agent-downtime/records?kind=activity`, e.T.dm)).records.activity;
+  await e.ok('POST', `${M}/import`, e.T.gm, { mod: { ...file, id: 'agent-downtime' } });
+  await e.ok('PUT', `${M}/agent-downtime/enabled`, e.T.gm, { on: true });
+  const acts = (await e.ok('GET', `${M}/agent-downtime/records?kind=activity`, e.T.gm)).records.activity;
   const carouse = acts.find((r: any) => r.name === 'Carouse');
   await e.ok('POST', `${M}/agent-downtime/records/start`, e.T.tom, { values: { activity: carouse.id } });
   const h = await e.ok('POST', `${A(e)}/chats`, e.T.jess, { mode: 'helper' });
@@ -1054,23 +1054,23 @@ test('Agent: a house rule the message is about gives the helper and the DM their
   const pctx = e.model.seen[0].messages.at(-1).content;
   assert.match(pctx, /House rule "Downtime lite" \(mod id agent-downtime\) is on/);
   assert.match(pctx, /Help the player choose downtime/);
-  assert.ok(!/open the Downtime day prompt/.test(pctx), 'no DM guidance for a player');
+  assert.ok(!/open the Downtime day prompt/.test(pctx), 'no GM guidance for a player');
   assert.match(pctx, /house_rule_my_record \{"mod":"agent-downtime","action":"start","values":\{"activity":<activity: the id of a activity>\}\}/);
   assert.match(pctx, new RegExp(`Carouse \\(id ${carouse.id}`));
   assert.ok(!/Their tasks/.test(pctx), "Tom's task is not Jess's");
   assert.ok(toolNames(e.model.seen[0]).includes('house_rule_my_record'));
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Open a downtime day.'));
-  await ask(e, e.T.dm, 'A day passes between adventures, run downtime');
+  await ask(e, e.T.gm, 'A day passes between adventures, run downtime');
   const dctx = e.model.seen[0].messages.at(-1).content;
   assert.match(dctx, /open the Downtime day prompt/);
-  assert.ok(!/Help the player choose downtime/.test(dctx), 'no player guidance for the DM');
+  assert.ok(!/Help the player choose downtime/.test(dctx), 'no player guidance for the GM');
   assert.match(dctx, /house_rule_prompt \{"mod":"agent-downtime","prompt":"downtime-day"\}/);
   assert.match(dctx, /tom: Carouse/);
   assert.ok(toolNames(e.model.seen[0]).includes('house_rule_prompt'));
   e.model.seen.length = 0;
   e.model.queue.push(() => say('Hello.'));
-  await ask(e, e.T.dm, 'Who is the mayor of Saltmarsh?');
+  await ask(e, e.T.gm, 'Who is the mayor of Saltmarsh?');
   assert.ok(!/House rule "Downtime lite"/.test(e.model.seen[0].messages.at(-1).content), 'only when the message is about it');
-  await e.ok('DELETE', `${M}/agent-downtime`, e.T.dm);
+  await e.ok('DELETE', `${M}/agent-downtime`, e.T.gm);
 });

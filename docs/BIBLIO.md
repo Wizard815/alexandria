@@ -7,7 +7,7 @@ and every assistant (Minerva, Squire, the broker, outside AI apps over MCP)
 reads Biblio and can write to it through tools.
 
 - **The Game Master** opens **`/biblio`** (also `/Biblio`), which goes to
-  *World → Biblio* (`/w/<world>/dm/biblio`). There you write, arrange and
+  *World → Biblio* (`/w/<world>/gm/biblio`). There you write, arrange and
   manage articles.
 - **Players** find it under *More → Biblio* (`/w/<world>/biblio`), and
   `/biblio` takes them there too.

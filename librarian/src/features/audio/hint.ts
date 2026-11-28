@@ -1,8 +1,8 @@
 // The vocabulary prompt sent with each chunk to the speech model, and the list
-// of DM-only terms a player's transcript must never repeat.
+// of GM-only terms a player's transcript must never repeat.
 //
 // The prompt is built ONLY from what every player may already read: pages
-// with a player copy, player and character names, and dice words. A DM-only,
+// with a player copy, player and character names, and dice words. A GM-only,
 // broker or classified title never goes in it (the prompt also leaves this
 // machine when the audio job is a cloud provider). It is short (150 chars):
 // a long list of names slowed decoding and cost accuracy, and Whisper reads
@@ -80,12 +80,12 @@ export function buildHint(db: DB, worldId: string, max = HINT_MAX): string {
 }
 
 /**
- * Titles and aliases of everything a player cannot read (DM-only, broker and
+ * Titles and aliases of everything a player cannot read (GM-only, broker and
  * classified pages, and pages with no player copy), as token lists. A title
- * that is also a player-visible name is left out. Used to catch a DM-only
+ * that is also a player-visible name is left out. Used to catch a GM-only
  * name turning up in a players' line.
  */
-export function dmOnlyTerms(db: DB, worldId: string): string[][] {
+export function gmOnlyTerms(db: DB, worldId: string): string[][] {
   const hidden = new Map<string, string[]>();
   const open = new Set<string>();
   try {
@@ -102,8 +102,8 @@ export function dmOnlyTerms(db: DB, worldId: string): string[][] {
     }
   } catch { /* no pages table */ }
   // The table's own names are never secret: player and character names (whole and each part), and the titles
-  // of Minerva's notes about the player characters. Without this, Minerva filing "Anselm" as a DM-only codex
-  // page turned every line naming the PC DM-only on a one-mic table.
+  // of Minerva's notes about the player characters. Without this, Minerva filing "Anselm" as a GM-only codex
+  // page turned every line naming the PC GM-only on a one-mic table.
   try {
     for (const m of all<any>(db, "SELECT a.display_name AS d, m.character_name AS c FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.role = 'player'", worldId)) {
       for (const n of [m.d, m.c]) {

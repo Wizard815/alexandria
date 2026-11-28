@@ -51,8 +51,8 @@ async function build(year: '2014' | '2024'): Promise<Term[]> {
 const ATTRIBUTION = SRD_ATTRIBUTION;
 
 const META = {
-  '2024': { id: 'dnd-2024', name: 'D&D 2024 (SRD 5.2)', version: '5.2.1', file: 'srd-2024.json' },
-  '2014': { id: 'dnd-2014', name: 'D&D 5e 2014 (SRD 5.1)', version: '5.1', file: 'srd-2014.json' },
+  '2024': { id: 'dnd-2024', name: '5e 2024 (SRD 5.2)', version: '5.2.1', file: 'srd-2024.json' },
+  '2014': { id: 'dnd-2014', name: '5e 2014 (SRD 5.1)', version: '5.1', file: 'srd-2014.json' },
 } as const;
 
 void NAMES;

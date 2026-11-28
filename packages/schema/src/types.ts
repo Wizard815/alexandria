@@ -1,4 +1,4 @@
-// Shared data schemas for Alexandria D&D World App
+// Shared data schemas for Alexandria TTRPG World App
 
 // Base types
 export interface Id {
@@ -13,13 +13,13 @@ export interface World extends Id {
   description?: string;
   ownerId: string;
   rootNodeId?: string;
-  role: 'owner' | 'dm' | 'player' | 'guest';
+  role: 'owner' | 'gm' | 'player' | 'guest';
 }
 
 // User types
 export interface User extends Id {
   username: string;
-  role: 'owner' | 'dm' | 'player' | 'guest';
+  role: 'owner' | 'gm' | 'player' | 'guest';
   worldId: string;
 }
 
@@ -29,7 +29,7 @@ export interface Node extends Id {
   parentId?: string;
   title: string;
   type: string;
-  visibility: 'public' | 'members' | 'dm';
+  visibility: 'public' | 'members' | 'gm';
   content?: string;
   sortKey: string;
 }
@@ -67,7 +67,7 @@ export interface Session extends Id {
   worldId: string;
   title: string;
   date: string;
-  dmNotes?: string;
+  gmNotes?: string;
   playerNotes?: string;
   location?: string;
 }
@@ -118,12 +118,12 @@ export interface Transcript extends Id {
   type: 'text' | 'audio' | 'video';
 }
 
-// DM Notes
-export interface DmNote extends Id {
+// GM Notes
+export interface GmNote extends Id {
   worldId: string;
   nodeId?: string;
   content: string;
-  visibility: 'dm-only' | 'owner-only';
+  visibility: 'gm-only' | 'owner-only';
 }
 
 // Auth types

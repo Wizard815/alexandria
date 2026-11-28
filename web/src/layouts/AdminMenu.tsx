@@ -1,9 +1,9 @@
-// The admin side menu, built like the DM menu: a few task-based groups that fold away (and remember it) and a
+// The admin side menu, built like the GM menu: a few task-based groups that fold away (and remember it) and a
 // "Find a page" filter ("/" focuses it). Names, icons and descriptions come from lib/adminnames.ts.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import * as F from '../features/registry.ts';
-import './dmmenu.css';
+import './gmmenu.css';
 import { ADMIN_GROUPS, ADMIN_NAMES, type AdminGroupId } from '../lib/adminnames.ts';
 
 export interface AdminEntry { to: string; label: string; icon: string; desc: string; group: AdminGroupId | 'top' }

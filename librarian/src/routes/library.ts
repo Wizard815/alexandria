@@ -1,9 +1,9 @@
-// The library (mirror) for one world. DMs read and write everything;
+// The library (mirror) for one world. GMs read and write everything;
 // players and guests only get the player copy of shared pages ("Lore").
 import { Router } from 'express';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
-import { requireDM } from '../core/auth.ts';
+import { requireGM } from '../core/auth.ts';
 import { splitFrontmatter } from '../core/frontmatter.ts';
 import { HttpError, int, str } from '../core/util.ts';
 import { safePagePath } from '../core/library.ts';
@@ -25,8 +25,8 @@ export default function libraryRoutes(d: Deps) {
   const L = d.library;
 
   r.use('/pages/:id/share', shareRoutes(d));
-  // DM: who was given which page, in one list.
-  r.get('/shares', requireDM, (_req, res) => res.json({ shares: allShares(d, ctx(res).world.id) }));
+  // GM: who was given which page, in one list.
+  r.get('/shares', requireGM, (_req, res) => res.json({ shares: allShares(d, ctx(res).world.id) }));
   r.get('/pages', (_req, res) => res.json(L.list(ctx(res).world.id, ctx(res).viewer)));
   // A page held only at index depth (a tiered crawl) is read from its source first, then served.
   r.get('/pages/:id/related', (req, res) => {
@@ -45,7 +45,7 @@ export default function libraryRoutes(d: Deps) {
     if (pg.tags?.length) fm.tags = pg.tags;
     if (pg.aliases?.length) fm.aliases = pg.aliases;
     if (pg.source) fm.source = pg.source;
-    if (ctx(res).viewer.role === 'dm') fm.visibility = pg.visibility;
+    if (ctx(res).viewer.role === 'gm') fm.visibility = pg.visibility;
     fm.downloaded = new Date().toISOString().slice(0, 10);
     const name = String(pg.title).replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').trim().slice(0, 80) || 'page';
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
@@ -69,18 +69,18 @@ export default function libraryRoutes(d: Deps) {
     const log = (found: { id: string }[]) => logSearch(d.db, { worldId: c.world.id, role: roleOf(c.viewer, model), origin: model ? 'agent' : 'library', q, hitIds: found.map((h) => h.id) });
     if (req.query.semantic === '1') { const found = await hybridPages(d, c.world.id, q, scopeFor(c.viewer), 20, c.viewer); log(found); return void res.json(found); }
     let hits = L.search(c.world.id, q, c.viewer);
-    // The DM's search reads the best few pages that are only held at index depth, so the answer comes from the page.
-    if (c.viewer.role === 'dm' && await readSearchHits(d, c.world.id, hits)) hits = L.search(c.world.id, q, c.viewer);
+    // The GM's search reads the best few pages that are only held at index depth, so the answer comes from the page.
+    if (c.viewer.role === 'gm' && await readSearchHits(d, c.world.id, hits)) hits = L.search(c.world.id, q, c.viewer);
     log(hits);
     res.json(hits);
   });
-  // DM: shared pages that look like they contain DM notes written as prose.
-  r.get('/lint', requireDM, (_req, res) => res.json(L.lint(ctx(res).world.id)));
+  // GM: shared pages that look like they contain GM notes written as prose.
+  r.get('/lint', requireGM, (_req, res) => res.json(L.lint(ctx(res).world.id)));
   r.get('/relations', (_req, res) => res.json(L.relations(ctx(res).world.id, ctx(res).viewer)));
 
   // Write a page: either { markdown } with frontmatter in it, or
   // { body, frontmatter, title, visibility }.
-  r.put('/pages', requireDM, (req, res) => {
+  r.put('/pages', requireGM, (req, res) => {
     const c = ctx(res);
     const b = req.body ?? {};
     let fm = b.frontmatter && typeof b.frontmatter === 'object' ? b.frontmatter : {};
@@ -93,21 +93,21 @@ export default function libraryRoutes(d: Deps) {
     if (target && biblioPage(d, c.world.id, target)) throw new HttpError(409, 'This page is a Biblio article: change it in Biblio (PATCH /biblio/articles/<id>, or the biblio_write tool).');
     const saved = L.save(c.world.id, { path: str(b.path, 'path', { max: 300 }), title: b.title, body, frontmatter: fm, visibility: b.visibility ?? fm.visibility }, me(res));
     audit(d.db, c.world.id, me(res), 'page.save', `${saved.path} ${saved.visibility}`);
-    d.hub.emit(c.world.id, 'page', { id: saved.id, path: saved.path, title: saved.title }, (v) => v.role === 'dm' || saved.visibility === 'party');
+    d.hub.emit(c.world.id, 'page', { id: saved.id, path: saved.path, title: saved.title }, (v) => v.role === 'gm' || saved.visibility === 'party');
     res.json(saved);
   });
 
-  // Set a page's level: party, broker, dm or classified (Alexandria's own pages).
-  r.put('/pages/:id/level', requireDM, (req, res) => {
+  // Set a page's level: party, broker, gm or classified (Alexandria's own pages).
+  r.put('/pages/:id/level', requireGM, (req, res) => {
     const c = ctx(res);
     if (c.viewer.audience === 'ai') throw new HttpError(403, 'Levels are set in the app');
     const saved = L.setLevel(c.world.id, String(req.params.id), req.body?.level, me(res));
     audit(d.db, c.world.id, me(res), 'page.level', `${saved.path} ${saved.visibility}`);
-    d.hub.emit(c.world.id, 'page', { id: saved.id, path: saved.path, title: saved.title }, (v) => v.role === 'dm' || saved.visibility === 'party');
+    d.hub.emit(c.world.id, 'page', { id: saved.id, path: saved.path, title: saved.title }, (v) => v.role === 'gm' || saved.visibility === 'party');
     res.json(saved);
   });
 
-  r.delete('/pages/:id', requireDM, (req, res) => {
+  r.delete('/pages/:id', requireGM, (req, res) => {
     const c = ctx(res);
     L.remove(c.world.id, String(req.params.id));
     audit(d.db, c.world.id, me(res), 'page.delete', String(req.params.id));

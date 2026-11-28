@@ -84,7 +84,7 @@ export function genTavernMap(o: MapOpts = {}): MapResult {
   if (fname === 'dwarven') { for (let i = 0; i < 5; i++) c.ops.push({ t: 'circle', x: X(G, 3 + i * 2) + 8, y: Y(0) + 15, r: 9, fill: '#8a6b45', stroke: pal.wall, sw: 1.4 }); fixtures.push('a row of ale barrels along the north wall'); }
   if (fname === 'elven') { for (const px of [4, cw - 9]) { c.ops.push({ t: 'circle', x: X(G, px), y: Y(H / 2) - 4, r: 15, fill: '#9bb07c', stroke: pal.wall, sw: 2 }); } fixtures.push('two living tree trunks growing through the floor'); }
   if (fname === 'pirate') { c.ops.push({ t: 'circle', x: X(G, 3), y: Y(3), r: 16, stroke: pal.wall, sw: 2.4 }); for (let k = 0; k < 4; k++) { const a = (k / 4) * Math.PI; c.ops.push({ t: 'lines', segs: [X(G, 3) - Math.cos(a) * 16, Y(3) - Math.sin(a) * 16, X(G, 3) + Math.cos(a) * 16, Y(3) + Math.sin(a) * 16], stroke: pal.wall, sw: 2 }); } fixtures.push('a ship\'s wheel bolted to the wall'); }
-  if (fname === 'haunted') { c.ops.push({ t: 'circle', x: X(G, 2.5), y: Y(15), r: 9, fill: '#d8d8e8', stroke: pal.wall, sw: 1.4 }); c.ops.push({ t: 'text', x: X(G, 2.5), y: Y(15) + 3.5, s: 'X', size: 10, fill: '#5a2a6a', anchor: 'middle', bold: true, dm: true }); fixtures.push('one chair that is always cold, and is never moved'); }
+  if (fname === 'haunted') { c.ops.push({ t: 'circle', x: X(G, 2.5), y: Y(15), r: 9, fill: '#d8d8e8', stroke: pal.wall, sw: 1.4 }); c.ops.push({ t: 'text', x: X(G, 2.5), y: Y(15) + 3.5, s: 'X', size: 10, fill: '#5a2a6a', anchor: 'middle', bold: true, gm: true }); fixtures.push('one chair that is always cold, and is never moved'); }
   if (fname === 'common' || fname === 'elven' || fname === 'pirate') { c.ops.push({ t: 'rect', x: X(G, 1), y: Y(1), w: 5 * CELL, h: 2.5 * CELL, fill: '#8d6a3c', stroke: pal.wall, sw: 1.6, a: 0.85 }); label(G, 3.5, 2.4, 'STAGE', 8, '#fff5e0'); fixtures.push('a small stage in the north-west corner'); }
   // kitchen and store
   label(G, cw + 5, 4.6, 'KITCHEN', 9);
@@ -115,7 +115,7 @@ export function genTavernMap(o: MapOpts = {}): MapResult {
     { n: '2', name: 'Bar', text: 'A long counter with stools, taps and a hatch into the kitchen. Coin goes in the strongbox under the till.' },
     { n: '3', name: 'Kitchen', text: 'Hearth, oven and a long prep table. A back door opens onto the yard.' },
     { n: '4', name: 'Store', text: 'Sacks, crates and the stair to the guest floor. A good place to be unseen.' },
-    { n: '5', name: 'Cellar', text: 'A hatch down to barrels, kegs and a cold store.', dm: chance(r, 0.5) ? 'Something here is not on the owner\'s inventory.' : undefined },
+    { n: '5', name: 'Cellar', text: 'A hatch down to barrels, kegs and a cold store.', gm: chance(r, 0.5) ? 'Something here is not on the owner\'s inventory.' : undefined },
   ];
   const ws = Math.floor(W / per);
   let roomNo = 1;
@@ -134,7 +134,7 @@ export function genTavernMap(o: MapOpts = {}): MapResult {
       const by = side === 'n' ? Y(y0 + 0.6) : Y(y1 - 3.6);
       c.ops.push({ t: 'rect', x: X(U, x0 + 0.6), y: by, w: bw, h: bh, fill: '#e8dcc0', stroke: pal.wall, sw: 1.2 });
       if (!owner && chance(r, 0.5)) c.ops.push({ t: 'rect', x: X(U, x1) - 0.6 * CELL - bw, y: by, w: bw, h: bh, fill: '#e8dcc0', stroke: pal.wall, sw: 1.2 });
-      roomKeys.push({ n: `R${n}`, name: owner ? 'Owner\'s room' : `Guest room ${n}`, text: owner ? `A big bed, a locked chest and a window over the road. ${(x1 - x0) * 5} by ${(y1 - y0) * 5} ft.` : `${cap(pick(r, TAVERN_ROOM_NOTES))}. ${(x1 - x0) * 5} by ${(y1 - y0) * 5} ft.`, dm: owner ? 'The chest holds the tavern\'s takings and a letter its owner would rather not have read.' : chance(r, 0.3) ? 'The current guest is not who they say they are.' : undefined });
+      roomKeys.push({ n: `R${n}`, name: owner ? 'Owner\'s room' : `Guest room ${n}`, text: owner ? `A big bed, a locked chest and a window over the road. ${(x1 - x0) * 5} by ${(y1 - y0) * 5} ft.` : `${cap(pick(r, TAVERN_ROOM_NOTES))}. ${(x1 - x0) * 5} by ${(y1 - y0) * 5} ft.`, gm: owner ? 'The chest holds the tavern\'s takings and a letter its owner would rather not have read.' : chance(r, 0.3) ? 'The current guest is not who they say they are.' : undefined });
     }
   }
   for (let i = 0; i < 5; i++) c.ops.push({ t: 'lines', segs: [X(U, W - 6) + i * 8, Y(cy0 + 0.6), X(U, W - 6) + i * 8, Y(cy1 - 0.6)], stroke: pal.wall, sw: 1.4 });
