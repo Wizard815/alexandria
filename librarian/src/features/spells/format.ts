@@ -1,5 +1,5 @@
 // The spell format: one record per spell, the same for the bundled SRD 5.2.1
-// spells, a DM's homebrew and anything imported (JSON, CSV, a game module, a
+// spells, a GM's homebrew and anything imported (JSON, CSV, a game module, a
 // library page). This file checks and normalises one, and works out the
 // fields the search filters use (components, costly or consumed materials,
 // damage types, saving throws) from the text when a source does not give them.

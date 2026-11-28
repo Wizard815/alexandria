@@ -249,7 +249,7 @@ export const waWrite: ConnectorWrite = {
     const world = idIn(root.raw?.world) ?? '';
     return waArticleEntry(target.raw, world, lookups(ctx, cfg), new Map());
   },
-  /** Every category of the world: the DM picks one as the WorldLore home. */
+  /** Every category of the world: the GM picks one as the WorldLore home. */
   async roots(cfg, ctx) {
     const be = backend(cfg, ctx);
     const world = await worldOf(be, cfg);

@@ -7,7 +7,7 @@ with the same account as in a browser; nothing here bypasses the server's auth.
 
 What it adds over the browser:
 
-- **Assistant window.** A separate window that shows the DM assistant
+- **Assistant window.** A separate window that shows the GM assistant
   (`/w/<world>/assistant-window`) for the world open in the main window. The
   assistant's pop-out button opens it too.
 - **Always on top.** Menu: Alexandria, "Assistant always on top". Remembered.

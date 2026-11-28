@@ -1,5 +1,5 @@
 // Confirm cards (an "ask" action waiting for a tap) and the undo toast for what
-// ran by itself. Used on the desktop (an overlay) and the DM phone.
+// ran by itself. Used on the desktop (an overlay) and the GM phone.
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useWorld } from '../../lib/world.tsx';
@@ -63,7 +63,7 @@ export default function ActiveOverlay() {
   const { info } = useWorld();
   const loc = useLocation();
   const th = useThoughtPrefs();
-  if (info?.role !== 'dm' || /\/dm\/phone\/?$/.test(loc.pathname)) return null;
+  if (info?.role !== 'gm' || /\/gm\/phone\/?$/.test(loc.pathname)) return null;
   // With Minerva's thoughts open, the cards and what she did are in that window: not twice on screen.
   return <><ThoughtsIsland />{!th.open && <><ConfirmCards /><UndoToasts /></>}</>;
 }

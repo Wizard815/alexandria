@@ -1,4 +1,4 @@
-// The DM's short commands for Active mode: typed in the Minerva chat, spoken
+// The GM's short commands for Active mode: typed in the Minerva chat, spoken
 // after the wake word, or run by a macro action. One parser, one executor.
 //   /takeover                switch everything to auto (again: put the old settings back)
 //   /takeover-<n>            apply saved preset n (1 Mood only, 2 Combat helper, 3 Full takeover)
@@ -38,7 +38,7 @@ export function parseCommand(text: string): Command | null {
 
 const same = (a: Cats, b: Cats) => CATEGORIES.every((c) => a[c] === b[c]);
 
-/** Run a command. Returns a sentence for the DM. */
+/** Run a command. Returns a sentence for the GM. */
 export function runCommand(d: Deps, worldId: string, c: Command): string {
   const st = getState(d, worldId);
   switch (c.cmd) {

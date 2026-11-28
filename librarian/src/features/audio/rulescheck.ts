@@ -1,6 +1,6 @@
 // Minerva quietly checks the table's rules calls. When a rules term from the enabled modules (a spell, a condition,
 // an action, a rule) is said while recording, the lines around it and the rule's own text go to the audit model,
-// which answers only "fine" or one short sentence on what the rule says. A clear mistake becomes a note for the DM
+// which answers only "fine" or one short sentence on what the rule says. A clear mistake becomes a note for the GM
 // alone (a live event and GET /audio/sessions/:sid/rule-notes); nothing is said to the players, nothing is changed.
 // Each term is checked at most once every ten minutes in a session, two per pass, and a line that repeats classified
 // text is never sent. World setting rulesCheck: 'off' turns it off.
@@ -42,7 +42,7 @@ export function ruleNotes(d: Deps, sessionId: string, opts: { onlyFlags?: boolea
 const SYSTEM = [
   'You check how a tabletop RPG table used one rule, against the rule text you are given.',
   'Flag only a clear mistake that matters at the table: the wrong action type, the wrong save or check, the wrong range, duration or damage, a condition applied with the wrong effect.',
-  'Do not flag flavour, jokes, a house rule the DM states, a rule from another edition the DM chose, or anything the transcript does not show.',
+  'Do not flag flavour, jokes, a house rule the GM states, a rule from another edition the GM chose, or anything the transcript does not show.',
   'Answer with JSON only: {"ok": true} or {"ok": false, "note": "one short sentence on what the rule says"}.',
 ].join('\n');
 
@@ -58,12 +58,12 @@ export async function rulesPass(d: Deps, worldId: string, sessionId: string): Pr
     // Only the lines that came in since the last pass are tested one by one (testing the whole night every 20 seconds froze the server);
     // the lines around a match are tested when they are read for the excerpt.
     const secret = (t: string) => d.library.containsClassified(worldId, t) || wouldBeRefused(d, t);
-    const lines = sessionLines(d.db, worldId, sessionId, { includeDm: true });
+    const lines = sessionLines(d.db, worldId, sessionId, { includeGm: true });
     const fresh = lines.filter((l) => l.updatedAt > seen && !secret(l.text));
     if (!fresh.length) return { checked: 0, flagged: 0 };
     const newest = fresh.reduce((m, l) => (l.updatedAt > m ? l.updatedAt : m), seen);
     run(d.db, 'INSERT INTO audio_rule_seen (session_id, upto) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET upto = excluded.upto', sessionId, newest);
-    const viewer = { role: 'dm', accountId: '', audience: 'ai' } as any;
+    const viewer = { role: 'gm', accountId: '', audience: 'ai' } as any;
     const recent = new Map(all<any>(d.db, 'SELECT term, max(created_at) AS at FROM audio_rule_notes WHERE session_id = ? GROUP BY term', sessionId).map((r) => [String(r.term), Date.parse(r.at)]));
     const by = worldModules(d.db, worldId).byRef;
     const todo: { term: string; ref: string; line: TranscriptLine }[] = [];
@@ -95,7 +95,7 @@ export async function rulesPass(d: Deps, worldId: string, sessionId: string): Pr
       run(d.db, 'INSERT INTO audio_rule_notes (id, session_id, world_id, term, term_ref, line_id, ok, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', row.id, sessionId, worldId, t.term, t.ref, t.line.id, j.ok ? 1 : 0, note, row.at);
       if (!j.ok) {
         flagged++;
-        d.hub.emit(worldId, 'rules-note', { sessionId, id: row.id, term: t.term, ref: t.ref, lineId: t.line.id, note, at: row.at }, (v) => v.role === 'dm');
+        d.hub.emit(worldId, 'rules-note', { sessionId, id: row.id, term: t.term, ref: t.ref, lineId: t.line.id, note, at: row.at }, (v) => v.role === 'gm');
       }
     }
     return { checked, flagged };

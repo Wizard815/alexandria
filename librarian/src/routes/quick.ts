@@ -1,17 +1,17 @@
 // Quick events (recall, notice, saving throw, timed choice, party vote,
-// reaction...). The DM sends one, the chosen players get a prompt with a
-// timer, answer, and the DM resolves it. Players never see the DC or the
+// reaction...). The GM sends one, the chosen players get a prompt with a
+// timer, answer, and the GM resolves it. Players never see the DC or the
 // success/fail text until it is resolved, and then only their own outcome.
 import { Router } from 'express';
 import { randomInt } from 'node:crypto';
 import type { Deps } from '../app.ts';
 import { audit } from '../app.ts';
 import { one, all, run } from '../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../core/auth.ts';
-import { dmAnd } from '../core/events.ts';
+import { requireGM, requirePlayerOrGM } from '../core/auth.ts';
+import { gmAnd } from '../core/events.ts';
 import type { Viewer } from '../core/policy.ts';
 import { HttpError, id, int, now, oneOf, parseJson, str } from '../core/util.ts';
-import { ctx, isDM, me, memberIds, settings } from './_shared.ts';
+import { ctx, isGM, me, memberIds, settings } from './_shared.ts';
 
 const KINDS = ['recall', 'notice', 'save', 'read', 'group', 'contest', 'choice', 'vote', 'reaction', 'twist'] as const;
 const CHECKS: string[] = ['recall', 'notice', 'save', 'read', 'group', 'contest'];
@@ -28,7 +28,7 @@ export default function quickRoutes(d: Deps) {
   function view(ev: any, v: Viewer, worldId: string) {
     const responses = all<any>(db, 'SELECT * FROM quick_responses WHERE event_id = ? ORDER BY at', ev.id);
     const base = { id: ev.id, kind: ev.kind, title: ev.title, prompt: ev.prompt, options: parseJson(ev.options, []), skill: ev.skill, timer_s: ev.timer_s, closes_at: ev.closes_at, status: ev.status, created_at: ev.created_at };
-    if (v.role === 'dm') return { ...base, audience: audienceIds(ev, worldId), dc: ev.dc, success_text: ev.success_text, fail_text: ev.fail_text, public_votes: !!ev.public_votes, responses };
+    if (v.role === 'gm') return { ...base, audience: audienceIds(ev, worldId), dc: ev.dc, success_text: ev.success_text, fail_text: ev.fail_text, public_votes: !!ev.public_votes, responses };
     if (!audienceIds(ev, worldId).includes(v.accountId)) return null;
     const mine = responses.find((x) => x.account_id === v.accountId) ?? null;
     const out: any = { ...base, mine: mine && { choice: mine.choice, roll: mine.roll, total: mine.total, result: ev.status === 'resolved' ? mine.result : null } };
@@ -50,7 +50,7 @@ export default function quickRoutes(d: Deps) {
     res.json(rows.map((ev) => view(ev, c.viewer, c.world.id)).filter(Boolean));
   });
 
-  r.post('/', requireDM, (req, res) => {
+  r.post('/', requireGM, (req, res) => {
     const c = ctx(res);
     const b = req.body ?? {};
     const kind = oneOf(b.kind, 'kind', KINDS);
@@ -80,7 +80,7 @@ export default function quickRoutes(d: Deps) {
   // A player answers. { choice } for choices/votes/reactions, { roll?, modifier? }
   // for checks: send the roll from real dice, or leave it out and the
   // librarian rolls a d20.
-  r.post('/:eid/respond', requirePlayerOrDM, (req, res) => {
+  r.post('/:eid/respond', requirePlayerOrGM, (req, res) => {
     const c = ctx(res);
     const ev = load(res, String(req.params.eid));
     if (!audienceIds(ev, c.world.id).includes(me(res))) throw new HttpError(404, 'Event not found');
@@ -102,9 +102,9 @@ export default function quickRoutes(d: Deps) {
     res.json(view(ev, c.viewer, c.world.id));
   });
 
-  // DM resolves. Results default to total >= DC for checks, first answer for
+  // GM resolves. Results default to total >= DC for checks, first answer for
   // reactions, and the top option for votes. { results: { accountId: 'success'|'fail' } } overrides.
-  r.post('/:eid/resolve', requireDM, (req, res) => {
+  r.post('/:eid/resolve', requireGM, (req, res) => {
     const c = ctx(res);
     const ev = load(res, String(req.params.eid));
     if (ev.status !== 'open') throw new HttpError(409, 'Already closed');
@@ -125,12 +125,12 @@ export default function quickRoutes(d: Deps) {
     res.json(view(done, c.viewer, c.world.id));
   });
 
-  r.post('/:eid/cancel', requireDM, (req, res) => {
+  r.post('/:eid/cancel', requireGM, (req, res) => {
     const c = ctx(res);
     const ev = load(res, String(req.params.eid));
     run(db, `UPDATE quick_events SET status = 'cancelled' WHERE id = ?`, ev.id);
-    d.hub.emit(c.world.id, 'quick-event-cancelled', { id: ev.id }, dmAnd(...audienceIds(ev, c.world.id)));
-    res.json({ ok: true, dm: isDM(res) });
+    d.hub.emit(c.world.id, 'quick-event-cancelled', { id: ev.id }, gmAnd(...audienceIds(ev, c.world.id)));
+    res.json({ ok: true, gm: isGM(res) });
   });
 
   return r;

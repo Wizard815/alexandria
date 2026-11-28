@@ -8,7 +8,7 @@ import { ctx } from '../../routes/_shared.ts';
  * Check a pageId from a request body. undefined = not sent (leave alone),
  * null = clear the link. A page must exist in this world; players may only
  * link pages they can open (shared pages), so a player can never point an
- * item at a DM-only page.
+ * item at a GM-only page.
  */
 export function checkPageId(d: Deps, res: Response, raw: unknown): string | null | undefined {
   if (raw === undefined) return undefined;

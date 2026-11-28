@@ -26,7 +26,7 @@
       "dragon",
       "mount a monster"
     ],
-    "dm": "Climbing onto big creatures is on: a character can climb a creature two sizes larger with Athletics or Acrobatics against its Acrobatics, then gains advantage on attacks against it until shaken off (its contest on its turn).",
+    "gm": "Climbing onto big creatures is on: a character can climb a creature two sizes larger with Athletics or Acrobatics against its Acrobatics, then gains advantage on attacks against it until shaken off (its contest on its turn).",
     "player": "At this table you can try to climb onto a creature two sizes bigger (Athletics or Acrobatics against it) and attack with advantage from its back."
   }
 }

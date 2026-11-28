@@ -1,4 +1,4 @@
-// The world clock at the top of the DM's Table: the date, the hour and its light, the moons, and one-tap time moves.
+// The world clock at the top of the GM's Table: the date, the hour and its light, the moons, and one-tap time moves.
 import { useState, type FormEvent } from 'react';
 import { useWorld, useLoad } from '../../lib/world.tsx';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
@@ -7,7 +7,7 @@ import { useClock, type LogEntry } from './shared.tsx';
 import { EventList, type Upcoming } from './TodayCard.tsx';
 
 const pad = (n: number) => String(n).padStart(2, '0');
-const H12_KEY = 'alx.dm.clock12';
+const H12_KEY = 'alx.gm.clock12';
 const read12 = () => { try { return localStorage.getItem(H12_KEY) !== '0'; } catch { return true; } };
 const hm = (h: number, m: number, h12: boolean) => (h12 ? `${((h + 11) % 12) + 1}:${pad(m)} ${h < 12 ? 'AM' : 'PM'}` : `${pad(h)}:${pad(m)}`);
 const lightIcon = (h: number) => (h >= 5 && h < 8 ? 'fa-cloud-sun' : h >= 8 && h < 18 ? 'fa-sun' : h >= 18 && h < 21 ? 'fa-cloud-moon' : 'fa-moon');

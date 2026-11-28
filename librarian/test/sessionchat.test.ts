@@ -1,4 +1,4 @@
-// Session chats: table and party channels, the DM kept out of party chat
+// Session chats: table and party channels, the GM kept out of party chat
 // (REST, live events, MCP), mentions, server-side dice, hidden page links,
 // the edit window, moderation, retention, sessions that end, and trades.
 import { test, before, after } from 'node:test';
@@ -73,28 +73,28 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Chatland', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Chatland', gmAccountId: ID.gm })).id;
   for (const [name, role] of [['jess', 'player'], ['tom', 'player'], ['gus', 'guest']] as const) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : name });
     T[name] = j.token;
     ID[name] = j.account.id;
   }
-  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown })).id;
+  const page = async (p: string, visibility: string, markdown: string) => (await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown })).id;
   P.open = await page('places/Saltmarsh', 'party', '# Saltmarsh\nA fishing town.\n');
-  P.secret = await page('dm/Velmira', 'dm', '# Velmira\nSecret queen.\n');
+  P.secret = await page('gm/Velmira', 'gm', '# Velmira\nSecret queen.\n');
   for (const who of ['jess', 'tom']) {
     const k = await ok('POST', '/api/keys', T[who], { scope: 'scribe', worldId: W, label: 'ai', access: 'read' });
     T[`${who}Key`] = k.key;
   }
-  T.dmKey = (await ok('POST', '/api/keys', T.dm, { scope: 'scribe', worldId: W, label: 'dm', access: 'write' })).key;
-  T.dmReadKey = (await ok('POST', '/api/keys', T.dm, { scope: 'scribe', worldId: W, label: 'dmr', access: 'read' })).key;
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 2000, note: 'start' });
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.tom, amountCp: 500, note: 'start' });
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { playerTransfers: true, playerChangesNeedApproval: false });
+  T.gmKey = (await ok('POST', '/api/keys', T.gm, { scope: 'scribe', worldId: W, label: 'gm', access: 'write' })).key;
+  T.gmReadKey = (await ok('POST', '/api/keys', T.gm, { scope: 'scribe', worldId: W, label: 'dmr', access: 'read' })).key;
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.jess, amountCp: 2000, note: 'start' });
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.tom, amountCp: 500, note: 'start' });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { playerTransfers: true, playerChangesNeedApproval: false });
 });
 
 after(async () => {
@@ -102,17 +102,17 @@ after(async () => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-test('TestSessionChat_NeedsASessionAndTheDMStartsOne', async () => {
+test('TestSessionChat_NeedsASessionAndTheGMStartsOne', async () => {
   const cur = await ok('GET', C('/current'), T.jess);
   assert.equal(cur.session, null);
   const r = await call('POST', C('/chat/table'), T.jess, { body: 'hello?' });
   assert.equal(r.status, 409);
   assert.equal((await call('POST', C('/sessions/start'), T.jess, {})).status, 403);
-  const s = await ok('POST', C('/sessions/start'), T.dm, { title: 'Night one' });
+  const s = await ok('POST', C('/sessions/start'), T.gm, { title: 'Night one' });
   assert.equal(s.open, true);
-  assert.equal((await call('POST', C('/sessions/start'), T.dm, {})).status, 409);
+  assert.equal((await call('POST', C('/sessions/start'), T.gm, {})).status, 409);
   // The assistant asking to open an open table gets the session back, marked as already running.
-  const viaModel = await fetch(base + C('/sessions/start'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${T.dm}`, 'X-Alexandria-Caller': 'model' }, body: '{}' });
+  const viaModel = await fetch(base + C('/sessions/start'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${T.gm}`, 'X-Alexandria-Caller': 'model' }, body: '{}' });
   assert.equal(viaModel.status, 200);
   const vm = await viaModel.json() as any;
   assert.equal(vm.alreadyRunning, true);
@@ -120,12 +120,12 @@ test('TestSessionChat_NeedsASessionAndTheDMStartsOne', async () => {
   const after = await ok('GET', C('/current'), T.jess);
   assert.equal(after.session.id, s.id);
   assert.deepEqual(after.channels.map((c: any) => c.channel), ['table', 'party']);
-  const dmCur = await ok('GET', C('/current'), T.dm);
-  assert.deepEqual(dmCur.channels.map((c: any) => c.channel), ['table']);
+  const gmCur = await ok('GET', C('/current'), T.gm);
+  assert.deepEqual(gmCur.channels.map((c: any) => c.channel), ['table']);
 });
 
-test('TestSessionChat_DMCannotReadListOrReceivePartyChat', async () => {
-  const dmEvents = listen(T.dm);
+test('TestSessionChat_GMCannotReadListOrReceivePartyChat', async () => {
+  const gmEvents = listen(T.gm);
   const jessEvents = listen(T.jess);
   const adminEvents = listen(T.admin);
   await settle();
@@ -133,50 +133,50 @@ test('TestSessionChat_DMCannotReadListOrReceivePartyChat', async () => {
   const m = await say('jess', 'party', secret);
   await say('tom', 'table', 'table hello');
   await settle();
-  // REST: the DM, the guest and the admin are all refused; messages by id too.
-  for (const who of ['dm', 'gus']) {
+  // REST: the GM, the guest and the admin are all refused; messages by id too.
+  for (const who of ['gm', 'gus']) {
     assert.equal((await call('GET', C('/chat/party'), T[who])).status, 403, who);
     assert.equal((await call('POST', C('/chat/party'), T[who], { body: 'hi' })).status, 403, who);
   }
   assert.equal((await call('GET', C('/chat/party'), T.admin)).status, 404); // not a member of the world
-  assert.equal((await call('PATCH', C(`/messages/${m.id}`), T.dm, { body: 'x' })).status, 404);
-  assert.equal((await call('POST', C(`/messages/${m.id}/hide`), T.dm, {})).status, 404);
-  assert.equal((await call('POST', C(`/messages/${m.id}/react`), T.dm, { emoji: '+' })).status, 404);
-  assert.equal((await call('POST', C('/read'), T.dm, { channel: 'party' })).status, 403);
-  // Nothing in the DM's other views mentions it.
-  const dmSees = JSON.stringify([await ok('GET', C('/current'), T.dm), await ok('GET', C('/sessions'), T.dm), await ok('GET', C('/chat/table'), T.dm)]);
-  assert.ok(!dmSees.includes(secret));
-  // Live events: the DM never gets a party event; players do; the table event reaches everyone.
-  assert.ok(!JSON.stringify(dmEvents.events).includes(secret));
-  assert.ok(!dmEvents.events.some((e) => e.type === 'chat' && e.data.channel === 'party'));
-  assert.ok(dmEvents.events.some((e) => e.type === 'chat' && e.data.channel === 'table'));
+  assert.equal((await call('PATCH', C(`/messages/${m.id}`), T.gm, { body: 'x' })).status, 404);
+  assert.equal((await call('POST', C(`/messages/${m.id}/hide`), T.gm, {})).status, 404);
+  assert.equal((await call('POST', C(`/messages/${m.id}/react`), T.gm, { emoji: '+' })).status, 404);
+  assert.equal((await call('POST', C('/read'), T.gm, { channel: 'party' })).status, 403);
+  // Nothing in the GM's other views mentions it.
+  const gmSees = JSON.stringify([await ok('GET', C('/current'), T.gm), await ok('GET', C('/sessions'), T.gm), await ok('GET', C('/chat/table'), T.gm)]);
+  assert.ok(!gmSees.includes(secret));
+  // Live events: the GM never gets a party event; players do; the table event reaches everyone.
+  assert.ok(!JSON.stringify(gmEvents.events).includes(secret));
+  assert.ok(!gmEvents.events.some((e) => e.type === 'chat' && e.data.channel === 'party'));
+  assert.ok(gmEvents.events.some((e) => e.type === 'chat' && e.data.channel === 'table'));
   assert.ok(jessEvents.events.some((e) => e.type === 'chat' && e.data.channel === 'party' && e.data.message.body === secret));
   assert.ok(!JSON.stringify(adminEvents.events).includes(secret));
-  // MCP: a DM's write key and read key cannot list or call it; a player key can.
-  for (const key of [T.dmKey, T.dmReadKey]) {
+  // MCP: a GM's write key and read key cannot list or call it; a player key can.
+  for (const key of [T.gmKey, T.gmReadKey]) {
     assert.ok(!(await mcpTools(key)).includes('read_party_chat'));
     const r = await mcp(key, 'read_party_chat', {});
-    assert.ok(r.error, 'unknown tool for a DM key');
+    assert.ok(r.error, 'unknown tool for a GM key');
     assert.ok(!JSON.stringify(r).includes(secret));
   }
-  assert.ok((await mcpTools(T.dmKey)).includes('read_table_chat'));
-  assert.ok((await mcpTools(T.dmKey)).includes('send_table_chat'));
+  assert.ok((await mcpTools(T.gmKey)).includes('read_table_chat'));
+  assert.ok((await mcpTools(T.gmKey)).includes('send_table_chat'));
   assert.ok(!(await mcpTools(T.jessKey)).includes('send_table_chat'));
   assert.ok((await mcpTools(T.jessKey)).includes('read_party_chat'));
   const mine = await mcp(T.jessKey, 'read_party_chat', {});
   assert.ok(JSON.stringify(mine).includes(secret));
   assert.ok(!(await mcp(T.jessKey, 'send_table_chat', { body: 'x' })).result);
-  // Even calling the REST route directly with the DM's key (the agent's path) fails.
-  assert.equal((await call('GET', C('/chat/party'), T.dmKey)).status, 403);
-  assert.ok(!toolsFor(true).some((t) => t.name === 'read_party_chat'), 'the DM agent never gets the party chat tool');
+  // Even calling the REST route directly with the GM's key (the agent's path) fails.
+  assert.equal((await call('GET', C('/chat/party'), T.gmKey)).status, 403);
+  assert.ok(!toolsFor(true).some((t) => t.name === 'read_party_chat'), 'the GM agent never gets the party chat tool');
   assert.ok(toolsFor(false).some((t) => t.name === 'read_party_chat'));
-  // The DM's MCP can read and send table chat.
-  const sent = await mcp(T.dmKey, 'send_table_chat', { body: 'Welcome, adventurers' });
+  // The GM's MCP can read and send table chat.
+  const sent = await mcp(T.gmKey, 'send_table_chat', { body: 'Welcome, adventurers' });
   assert.ok(!sent.result.isError, JSON.stringify(sent));
   const tbl = await mcp(T.tomKey, 'read_table_chat', { limit: 10 });
   assert.ok(JSON.stringify(tbl).includes('Welcome, adventurers'));
   assert.ok(!JSON.stringify(tbl).includes(secret));
-  dmEvents.close(); jessEvents.close(); adminEvents.close();
+  gmEvents.close(); jessEvents.close(); adminEvents.close();
 });
 
 test('TestSessionChat_MentionsReplyAndUnread', async () => {
@@ -193,7 +193,7 @@ test('TestSessionChat_MentionsReplyAndUnread', async () => {
   const ev = jess.events.find((e) => e.type === 'chat' && e.data.message.id === first.id);
   assert.equal(ev?.data.message.mentionsMe, true);
   assert.equal(tom.events.find((e) => e.type === 'chat' && e.data.message.id === first.id)?.data.message.mentionsMe, false);
-  // The DM cannot be pinged into a party message they can't read, nor can a mention leak the channel.
+  // The GM cannot be pinged into a party message they can't read, nor can a mention leak the channel.
   const pm = await say('jess', 'party', '@dungeon psst @tom');
   assert.deepEqual(pm.mentions, [ID.tom]);
   // Unread counts per channel.
@@ -232,7 +232,7 @@ test('TestSessionChat_RollIsRolledOnTheServer', async () => {
   // A party roll stays in the party channel.
   const pr = await say('tom', 'party', '/roll d20');
   assert.equal(pr.channel, 'party');
-  assert.ok(!JSON.stringify(await ok('GET', C('/chat/table'), T.dm)).includes(pr.id));
+  assert.ok(!JSON.stringify(await ok('GET', C('/chat/table'), T.gm)).includes(pr.id));
 });
 
 test('TestSessionChat_LinksToPagesPlayersCannotSeeAreHidden', async () => {
@@ -241,14 +241,14 @@ test('TestSessionChat_LinksToPagesPlayersCannotSeeAreHidden', async () => {
   assert.ok(ok1.body.includes(`[[page:${P.open}|Saltmarsh]]`));
   assert.equal((await call('POST', C('/chat/table'), T.jess, { body: `see [[page:${P.secret}]]` })).status, 400);
   assert.equal((await call('POST', C('/chat/party'), T.jess, { body: `see [[page:nope]]` })).status, 400);
-  // The DM may link a DM-only page; players read "(hidden)", the DM sees the title.
-  const dmMsg = await say('dm', 'table', `Remember [[page:${P.secret}]]`);
-  assert.ok(dmMsg.body.includes('Velmira'));
-  const asPlayer = (await ok('GET', C('/chat/table'), T.tom)).messages.find((m: any) => m.id === dmMsg.id);
+  // The GM may link a GM-only page; players read "(hidden)", the GM sees the title.
+  const gmMsg = await say('gm', 'table', `Remember [[page:${P.secret}]]`);
+  assert.ok(gmMsg.body.includes('Velmira'));
+  const asPlayer = (await ok('GET', C('/chat/table'), T.tom)).messages.find((m: any) => m.id === gmMsg.id);
   assert.equal(asPlayer.body, 'Remember (hidden)');
   assert.ok(!JSON.stringify(asPlayer).includes('Velmira'));
-  // The page is made DM-only after the fact: it turns "(hidden)" for players.
-  run(deps.db, `UPDATE pages SET visibility = 'dm' WHERE id = ?`, P.open);
+  // The page is made GM-only after the fact: it turns "(hidden)" for players.
+  run(deps.db, `UPDATE pages SET visibility = 'gm' WHERE id = ?`, P.open);
   const later = (await ok('GET', C('/chat/table'), T.tom)).messages.find((m: any) => m.id === ok1.id);
   assert.ok(later.body.includes('(hidden)') && !later.body.includes('Saltmarsh'));
   run(deps.db, `UPDATE pages SET visibility = 'party' WHERE id = ?`, P.open);
@@ -261,7 +261,7 @@ test('TestSessionChat_EditAndDeleteWithinTenMinutes', async () => {
   assert.ok(edited.editedAt);
   assert.deepEqual(edited.mentions, [ID.tom]);
   assert.equal((await call('PATCH', C(`/messages/${m.id}`), T.tom, { body: 'hax' })).status, 403);
-  assert.equal((await call('DELETE', C(`/messages/${m.id}`), T.dm)).status, 403);
+  assert.equal((await call('DELETE', C(`/messages/${m.id}`), T.gm)).status, 403);
   assert.equal((await call('PATCH', C(`/messages/${m.id}`), T.jess, { body: 'x'.repeat(2001) })).status, 400);
   // 11 minutes later it is locked.
   run(deps.db, 'UPDATE sessionchat_messages SET at = ? WHERE id = ?', new Date(Date.now() - 11 * 60_000).toISOString(), m.id);
@@ -276,17 +276,17 @@ test('TestSessionChat_EditAndDeleteWithinTenMinutes', async () => {
   assert.equal((await say('jess', 'table', 'y'.repeat(2000))).body.length, 2000);
 });
 
-test('TestSessionChat_DMModeratesTableChatOnly', async () => {
+test('TestSessionChat_GMModeratesTableChatOnly', async () => {
   const m = await say('tom', 'table', 'something rude');
   assert.equal((await call('POST', C(`/messages/${m.id}/hide`), T.jess, {})).status, 403);
-  const hidden = await ok('POST', C(`/messages/${m.id}/hide`), T.dm, {});
+  const hidden = await ok('POST', C(`/messages/${m.id}/hide`), T.gm, {});
   assert.equal(hidden.hidden, true);
-  assert.equal(hidden.body, 'something rude', 'the DM still sees what was hidden');
+  assert.equal(hidden.body, 'something rude', 'the GM still sees what was hidden');
   const asPlayer = (await ok('GET', C('/chat/table'), T.jess)).messages.find((x: any) => x.id === m.id);
   assert.equal(asPlayer.hidden, true);
   assert.equal(asPlayer.body, '');
   assert.ok(one(deps.db, `SELECT 1 FROM audit WHERE action = 'sessionchat.hide'`));
-  const unhidden = await ok('POST', C(`/messages/${m.id}/hide`), T.dm, { hidden: false });
+  const unhidden = await ok('POST', C(`/messages/${m.id}/hide`), T.gm, { hidden: false });
   assert.equal(unhidden.hidden, false);
   // Reactions.
   const re = await ok('POST', C(`/messages/${m.id}/react`), T.jess, { emoji: '👍' });
@@ -300,26 +300,26 @@ test('TestSessionChat_RetentionFollowsMessageDays', async () => {
   const oldParty = await say('jess', 'party', 'ancient party words');
   const stamp = new Date(Date.now() - 20 * 864e5).toISOString();
   run(deps.db, 'UPDATE sessionchat_messages SET at = ? WHERE id IN (?, ?)', stamp, old.id, oldParty.id);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { messageDays: 30 });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { messageDays: 30 });
   await ok('GET', C('/current'), T.jess);
   assert.ok(one(deps.db, 'SELECT 1 FROM sessionchat_messages WHERE id = ?', old.id), '30 days keeps a 20 day old message');
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { messageDays: 14 });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { messageDays: 14 });
   await ok('GET', C('/current'), T.jess);
   assert.ok(!one(deps.db, 'SELECT 1 FROM sessionchat_messages WHERE id = ?', old.id));
   assert.ok(!one(deps.db, 'SELECT 1 FROM sessionchat_messages WHERE id = ?', oldParty.id));
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { messageDays: 14 });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { messageDays: 14 });
 });
 
 test('TestSessionChat_TradeAcceptMovesBothSidesAtOnce', async () => {
   const i = (who: string) => `/api/worlds/${W}/inventory`;
-  const rope = await ok('POST', i('jess'), T.dm, { owner: ID.jess, name: 'Silk rope', qty: 3, reason: 'test' });
-  const gem = await ok('POST', i('tom'), T.dm, { owner: ID.tom, name: 'Ruby', qty: 2, reason: 'test' });
+  const rope = await ok('POST', i('jess'), T.gm, { owner: ID.jess, name: 'Silk rope', qty: 3, reason: 'test' });
+  const gem = await ok('POST', i('tom'), T.gm, { owner: ID.tom, name: 'Ruby', qty: 2, reason: 'test' });
   const jessCoin = await coin('jess'), tomCoin = await coin('tom');
   // Offer rope x2 + 50 cp for a ruby.
   const t = await ok('POST', C('/trades'), T.jess, { to: ID.tom, offerItemId: rope.id, offerQty: 2, offerCp: 50, wantItem: 'ruby', wantQty: 1, note: 'deal?' });
   assert.equal(t.status, 'open');
   assert.equal((await call('POST', C(`/trades/${t.id}/accept`), T.jess, {})).status, 403, 'the offerer cannot accept their own');
-  assert.equal((await call('GET', C('/trades'), T.dm)).status, 403);
+  assert.equal((await call('GET', C('/trades'), T.gm)).status, 403);
   const acc = await ok('POST', C(`/trades/${t.id}/accept`), T.tom, {});
   assert.equal(acc.status, 'accepted');
   const jI = await items('jess'), tI = await items('tom');
@@ -331,8 +331,8 @@ test('TestSessionChat_TradeAcceptMovesBothSidesAtOnce', async () => {
   assert.equal(await coin('tom'), tomCoin + 50);
   assert.ok(gem.id);
   assert.equal((await call('POST', C(`/trades/${t.id}/accept`), T.tom, {})).status, 409, 'cannot accept twice');
-  // The DM sees the swaps in the transfer log.
-  const log = (await ok('GET', `/api/worlds/${W}/inventory/transfers`, T.dm)).transfers;
+  // The GM sees the swaps in the transfer log.
+  const log = (await ok('GET', `/api/worlds/${W}/inventory/transfers`, T.gm)).transfers;
   assert.ok(log.some((x: any) => x.kind === 'item' && x.item_name === 'Silk rope' && x.note === 'Trade'));
 });
 
@@ -346,7 +346,7 @@ test('TestSessionChat_TradeDeclineCancelAndOwnership', async () => {
   assert.equal((await call('POST', C('/trades'), T.jess, { to: ID.tom, offerItemId: ruby.id, offerQty: 5, wantCp: 10 })).status, 400);
   assert.equal((await call('POST', C('/trades'), T.jess, { to: ID.tom, offerCp: 9_999_999, wantCp: 10 })).status, 402);
   assert.equal((await call('POST', C('/trades'), T.jess, { to: ID.jess, offerCp: 5, wantCp: 10 })).status, 400);
-  assert.equal((await call('POST', C('/trades'), T.jess, { to: ID.dm, offerCp: 5, wantCp: 10 })).status, 400, 'with players only');
+  assert.equal((await call('POST', C('/trades'), T.jess, { to: ID.gm, offerCp: 5, wantCp: 10 })).status, 400, 'with players only');
   assert.equal((await call('POST', C('/trades'), T.jess, { to: ID.tom, offerCp: 5 })).status, 400, 'must ask for something');
   // Decline: nothing moves.
   const before = JSON.stringify([await items('jess'), await items('tom'), await coin('jess'), await coin('tom')]);
@@ -360,7 +360,7 @@ test('TestSessionChat_TradeDeclineCancelAndOwnership', async () => {
   assert.equal((await call('POST', C(`/trades/${c.id}/accept`), T.tom, {})).status, 409);
   // Third parties cannot touch it.
   const x = await ok('POST', C('/trades'), T.jess, { to: ID.tom, offerCp: 5, wantCp: 6 });
-  assert.equal((await call('POST', C(`/trades/${x.id}/accept`), T.dm, {})).status, 403);
+  assert.equal((await call('POST', C(`/trades/${x.id}/accept`), T.gm, {})).status, 403);
 });
 
 test('TestSessionChat_TradeIsAtomicWhenOneSideFails', async () => {
@@ -368,22 +368,22 @@ test('TestSessionChat_TradeIsAtomicWhenOneSideFails', async () => {
   const ruby = (await items('jess')).find((x) => x.name === 'Ruby');
   const t = await ok('POST', C('/trades'), T.jess, { to: ID.tom, offerItemId: ruby.id, offerQty: 1, wantCp: 100 });
   const tomCoin = await coin('tom');
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.tom, amountCp: -(tomCoin - 10), note: 'spent' });
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.tom, amountCp: -(tomCoin - 10), note: 'spent' });
   const snapshot = JSON.stringify([await items('jess'), await items('tom'), await coin('jess'), await coin('tom')]);
   const r = await call('POST', C(`/trades/${t.id}/accept`), T.tom, {});
   assert.equal(r.status, 402);
   assert.equal(JSON.stringify([await items('jess'), await items('tom'), await coin('jess'), await coin('tom')]), snapshot, 'nothing moved');
   assert.equal(one<any>(deps.db, 'SELECT status FROM sessionchat_trades WHERE id = ?', t.id)!.status, 'open');
   // Now the failure comes on the last step: the item side would already have moved. Break it with a coin shortfall for A.
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.tom, amountCp: 500, note: 'refund' });
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.tom, amountCp: 500, note: 'refund' });
   const t2 = await ok('POST', C('/trades'), T.jess, { to: ID.tom, offerItemId: ruby.id, offerQty: 1, offerCp: 20, wantCp: 100 });
   const jessCoin = await coin('jess');
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: -(jessCoin - 5), note: 'spent' });
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.jess, amountCp: -(jessCoin - 5), note: 'spent' });
   const snap2 = JSON.stringify([await items('jess'), await items('tom'), await coin('jess'), await coin('tom')]);
   assert.equal((await call('POST', C(`/trades/${t2.id}/accept`), T.tom, {})).status, 409);
   assert.equal(JSON.stringify([await items('jess'), await items('tom'), await coin('jess'), await coin('tom')]), snap2);
   // A trade whose offered item was given away since is no longer possible.
-  await ok('POST', `/api/worlds/${W}/live/ledger`, T.dm, { owner: ID.jess, amountCp: 1000, note: 'refund' });
+  await ok('POST', `/api/worlds/${W}/live/ledger`, T.gm, { owner: ID.jess, amountCp: 1000, note: 'refund' });
   await ok('POST', `/api/worlds/${W}/inventory/${ruby.id}/move`, T.jess, { to: 'party' });
   assert.equal((await call('POST', C(`/trades/${t2.id}/accept`), T.tom, {})).status, 409);
 });
@@ -393,7 +393,7 @@ test('TestSessionChat_GivingWorksBetweenTwoPlayers', async () => {
   await ok('POST', `/api/worlds/${W}/inventory/coin/transfer`, T.jess, { to: ID.tom, amountCp: 30, note: 'thanks' });
   assert.equal(await coin('jess'), before.jess - 30);
   assert.equal(await coin('tom'), before.tom + 30);
-  const lamp = await ok('POST', `/api/worlds/${W}/inventory`, T.dm, { owner: ID.jess, name: 'Lamp', qty: 1, reason: 'test' });
+  const lamp = await ok('POST', `/api/worlds/${W}/inventory`, T.gm, { owner: ID.jess, name: 'Lamp', qty: 1, reason: 'test' });
   await ok('POST', `/api/worlds/${W}/inventory/${lamp.id}/move`, T.jess, { to: ID.tom });
   assert.ok((await items('tom')).some((x) => x.name === 'Lamp'));
   assert.equal((await call('POST', `/api/worlds/${W}/inventory/${lamp.id}/move`, T.jess, { to: ID.jess })).status, 403, 'not hers any more');
@@ -407,9 +407,9 @@ test('TestSessionChat_EndingTheSessionMakesChatsReadOnly', async () => {
   const pm = await say('jess', 'party', 'last party words');
   const cur = (await ok('GET', C('/current'), T.jess)).session;
   assert.equal((await call('POST', C('/sessions/end'), T.jess, {})).status, 403);
-  const ended = await ok('POST', C('/sessions/end'), T.dm, {});
+  const ended = await ok('POST', C('/sessions/end'), T.gm, {});
   assert.equal(ended.open, false);
-  assert.equal((await call('POST', C('/sessions/end'), T.dm, {})).status, 409);
+  assert.equal((await call('POST', C('/sessions/end'), T.gm, {})).status, 409);
   assert.equal((await call('POST', C('/chat/table'), T.jess, { body: 'more' })).status, 409);
   assert.equal((await call('POST', C('/chat/party'), T.jess, { body: 'more' })).status, 409);
   assert.equal((await call('PATCH', C(`/messages/${m.id}`), T.jess, { body: 'edit' })).status, 409);
@@ -419,17 +419,17 @@ test('TestSessionChat_EndingTheSessionMakesChatsReadOnly', async () => {
   // History stays readable by the right people.
   const hist = await ok('GET', C(`/chat/party?session=${cur.id}`), T.tom);
   assert.ok(hist.messages.some((x: any) => x.id === pm.id));
-  assert.equal((await call('GET', C(`/chat/party?session=${cur.id}`), T.dm)).status, 403);
-  assert.ok((await ok('GET', C(`/chat/table?session=${cur.id}`), T.dm)).messages.some((x: any) => x.id === m.id));
-  const list = await ok('GET', C('/sessions'), T.dm);
+  assert.equal((await call('GET', C(`/chat/party?session=${cur.id}`), T.gm)).status, 403);
+  assert.ok((await ok('GET', C(`/chat/table?session=${cur.id}`), T.gm)).messages.some((x: any) => x.id === m.id));
+  const list = await ok('GET', C('/sessions'), T.gm);
   assert.deepEqual(Object.keys(list[0].counts), ['table']);
 });
 
 test('TestSessionChat_RecordingOrPresenceStartsASession', async () => {
-  // The DM just ended the last one; nothing restarts on its own.
+  // The GM just ended the last one; nothing restarts on its own.
   assert.equal((await ok('GET', C('/current'), T.jess)).session, null);
   // A recording that starts afterwards makes one; it ends when the recording stops.
-  run(deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by) VALUES (?, ?, ?, ?, ?)', 'aud_1', W, 'Recorded night', new Date(Date.now() + 1000).toISOString(), ID.dm);
+  run(deps.db, 'INSERT INTO audio_sessions (id, world_id, name, started_at, started_by) VALUES (?, ?, ?, ?, ?)', 'aud_1', W, 'Recorded night', new Date(Date.now() + 1000).toISOString(), ID.gm);
   const s = (await ok('GET', C('/current'), T.jess)).session;
   assert.equal(s.source, 'audio');
   assert.equal(s.title, 'Recorded night');

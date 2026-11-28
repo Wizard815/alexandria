@@ -2,8 +2,8 @@
 // sheet. It never calls D&D Beyond: the player uses the "paste the JSON"
 // fallback with a made-up character. The warning that this is not an official
 // API shows before anything is read and on the Character module; the import
-// sets HP and conditions, sends items to Inventory for the DM to approve, and
-// the DM sees the Character module on the player's sheet.
+// sets HP and conditions, sends items to Inventory for the GM to approve, and
+// the GM sees the Character module on the player's sheet.
 // Run from web/: npm run build && node e2e/ddb.mjs   (DDB_PORT, default 19813)
 // DDB_SHOTS=<dir> also saves screenshots there.
 import fs from 'node:fs';
@@ -40,11 +40,11 @@ const character = {
 };
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('ddb'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
-// The import is a house rule: the DM turns it on first (World → House rules).
+// The import is a house rule: the GM turns it on first (World → House rules).
 {
-  const dmTok = (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'dm', password: 'dungeon master 123' }) })).json()).token;
-  const wid = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmTok } })).json())[0].id;
-  const r = await fetch(`${base}/api/worlds/${wid}/mods/dndbeyond-import/enabled`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dmTok }, body: JSON.stringify({ on: true }) });
+  const gmTok = (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'gm', password: 'game master 123' }) })).json()).token;
+  const wid = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + gmTok } })).json())[0].id;
+  const r = await fetch(`${base}/api/worlds/${wid}/mods/dndbeyond-import/enabled`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + gmTok }, body: JSON.stringify({ on: true }) });
   if (!r.ok) throw new Error(`turning on the house rule: ${r.status} ${await r.text()}`);
 }
 const browser = await chromium.launch();
@@ -111,21 +111,21 @@ try {
   if (SHOTS) await mod.screenshot({ path: path.join(SHOTS, '3b-character-module-full.png') });
   note('player: Character module, HP 27/32, Poisoned');
 
-  // 4. The DM sees the module on the player's sheet and the items waiting for approval.
-  const { page: dm } = await signIn('dm', 'dungeon master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: 2 });
-  await dm.goto(`${W}/dm/sheets`);
-  await closeQuick(dm);
-  const tab = dm.getByRole('tab', { name: /Brindle Ashvale/ });
-  if (!check(await tab.waitFor({ timeout: 8000 }).then(() => true, () => false), 'the DM has a tab for Brindle Ashvale')) await shot(dm, 'x-dm-sheets');
+  // 4. The GM sees the module on the player's sheet and the items waiting for approval.
+  const { page: gm } = await signIn('gm', 'game master 123', { viewport: { width: 1366, height: 900 }, deviceScaleFactor: 2 });
+  await gm.goto(`${W}/gm/sheets`);
+  await closeQuick(gm);
+  const tab = gm.getByRole('tab', { name: /Brindle Ashvale/ });
+  if (!check(await tab.waitFor({ timeout: 8000 }).then(() => true, () => false), 'the GM has a tab for Brindle Ashvale')) await shot(gm, 'x-gm-sheets');
   else await tab.click();
-  await dm.getByTestId('ddb-character').first().waitFor({ timeout: 10000 });
-  check(await dm.getByTestId('sheet-import').count() > 0, 'the DM can import onto the player sheet');
-  await shot(dm, '4-dm-sees-character');
-  note('DM: sees the Character module');
-  await dm.goto(`${W}/dm/approvals`);
-  await dm.getByText('Potion of Healing').first().waitFor({ timeout: 10000 });
-  await shot(dm, '5-dm-approves-items');
-  note('DM: the imported items wait for approval');
+  await gm.getByTestId('ddb-character').first().waitFor({ timeout: 10000 });
+  check(await gm.getByTestId('sheet-import').count() > 0, 'the GM can import onto the player sheet');
+  await shot(gm, '4-gm-sees-character');
+  note('GM: sees the Character module');
+  await gm.goto(`${W}/gm/approvals`);
+  await gm.getByText('Potion of Healing').first().waitFor({ timeout: 10000 });
+  await shot(gm, '5-gm-approves-items');
+  note('GM: the imported items wait for approval');
 } catch (e) {
   problems.push('crashed: ' + (e.stack || e));
 } finally {

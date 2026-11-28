@@ -1,6 +1,6 @@
-// NPC encounters: the DM sends a talk to one player, the player answers in
+// NPC encounters: the GM sends a talk to one player, the player answers in
 // their app, options give coin, items or a shop, small games run on the
-// server, the reward cap, the DM speaking live, wandering, and what other
+// server, the reward cap, the GM speaking live, wandering, and what other
 // players and guests never see.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,11 +34,11 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
   assert.ok(r.status < 300, `${method} ${url} -> ${r.status} ${JSON.stringify(r.body)}`);
   return r.body;
 };
-const set = (patch: Record<string, unknown>) => ok('PATCH', `/api/worlds/${W}/settings`, T.dm, patch);
-const setCoin = (owner: string, cp: number) => { run(deps.db, 'DELETE FROM ledger WHERE world_id = ? AND owner = ?', W, owner); if (cp) run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Test', ?, ?, 'approved')`, `led_t${Math.random()}`, W, owner, cp, ID.dm, new Date().toISOString()); };
+const set = (patch: Record<string, unknown>) => ok('PATCH', `/api/worlds/${W}/settings`, T.gm, patch);
+const setCoin = (owner: string, cp: number) => { run(deps.db, 'DELETE FROM ledger WHERE world_id = ? AND owner = ?', W, owner); if (cp) run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Test', ?, ?, 'approved')`, `led_t${Math.random()}`, W, owner, cp, ID.gm, new Date().toISOString()); };
 const coin = (owner: string) => balance(deps.db, W, owner);
 const invQty = (owner: string, name: string) => all<any>(deps.db, `SELECT qty FROM items WHERE world_id = ? AND owner = ? AND name = ? AND status = 'approved'`, W, owner, name).reduce((n, x) => n + x.qty, 0);
-const send = (body: Record<string, unknown>) => ok('POST', P(), T.dm, body);
+const send = (body: Record<string, unknown>) => ok('POST', P(), T.gm, body);
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-enc-'));
@@ -48,15 +48,15 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Streetland', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Streetland', gmAccountId: ID.gm })).id;
   for (const [u, c] of [['jess', 'Jess'], ['tom', 'Tom']]) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: u, password: 'player pass 123', characterName: c });
     T[u] = j.token; ID[u] = j.account.id;
   }
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'guest' });
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'guest' });
   T.guest = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'visitor', password: 'guest pass 1234', characterName: 'Visitor' })).token;
 });
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -107,8 +107,8 @@ test('TestEncounters_QuickTalkReachesOnlyThatPlayer', async () => {
   assert.equal(done.status, 'done');
   assert.equal(done.log.at(-1).text, 'Sorry, busy');
   assert.equal((await call('POST', `${P()}/${e.id}/choose`, T.jess, { option: 0 })).status, 409);
-  const dm = await ok('GET', `${P()}/${e.id}`, T.dm);
-  assert.equal(dm.log.at(-1).who, 'you');
+  const gm = await ok('GET', `${P()}/${e.id}`, T.gm);
+  assert.equal(gm.log.at(-1).who, 'you');
 });
 
 test('TestEncounters_GiftsPayCoinAndItemsUpToTheCap', async () => {
@@ -139,7 +139,7 @@ test('TestEncounters_StakedSkillCheckWinsAndLoses', async () => {
   const [e] = await send({ accountIds: [ID.tom], npcName: 'Hollis', script });
   const p = await ok('GET', `${P()}/${e.id}`, T.tom);
   assert.deepEqual(p.game, { kind: 'check', label: 'Skill check', stakeCp: 10, winCp: 25, skill: 'Athletics' });
-  assert.equal(p.dc, undefined, 'the DC stays with the DM');
+  assert.equal(p.dc, undefined, 'the DC stays with the GM');
   assert.equal((await call('POST', `${P()}/${e.id}/choose`, T.tom, { play: true, roll: 20 })).status, 409, 'cannot cover the stake');
   setCoin(ID.tom, 100);
   let v = await ok('POST', `${P()}/${e.id}/choose`, T.tom, { play: true, roll: 2, modifier: 1 });
@@ -167,23 +167,23 @@ test('TestEncounters_ShopOptionOpensOnlyAnOpenShop', async () => {
   const [b] = await send({ accountIds: [ID.jess], templateId: 'builtin:peddler', shopId: 'shp_open' });
   v = await ok('POST', `${P()}/${b.id}/choose`, T.jess, { option: 0 });
   assert.deepEqual(v.shop, { id: 'shp_open', name: "Quill's Pack" });
-  assert.equal((await call('POST', P(), T.dm, { accountIds: [ID.jess], templateId: 'builtin:peddler', shopId: 'shp_nope' })).status, 400);
+  assert.equal((await call('POST', P(), T.gm, { accountIds: [ID.jess], templateId: 'builtin:peddler', shopId: 'shp_nope' })).status, 400);
 });
 
-test('TestEncounters_DmSpeaksLiveAndANewTalkReplacesTheOld', async () => {
+test('TestEncounters_GmSpeaksLiveAndANewTalkReplacesTheOld', async () => {
   const [a] = await send({ accountIds: [ID.jess], npcName: 'Guard', line: 'Halt!', answers: ['Why?'] });
-  const said = await ok('POST', `${P()}/${a.id}/say`, T.dm, { text: 'Papers, please.', answers: ['Here', 'Run'] });
+  const said = await ok('POST', `${P()}/${a.id}/say`, T.gm, { text: 'Papers, please.', answers: ['Here', 'Run'] });
   assert.equal(said.text, 'Papers, please.');
   const v = await ok('GET', `${P()}/${a.id}`, T.jess);
   assert.deepEqual(v.options.map((o: any) => o.label), ['Here', 'Run']);
-  assert.equal(v.log.at(-1).who, 'dm');
+  assert.equal(v.log.at(-1).who, 'gm');
   assert.equal((await call('POST', `${P()}/${a.id}/say`, T.jess, { text: 'x' })).status, 403);
 
   const [b] = await send({ accountIds: [ID.jess], npcName: 'Beggar', line: 'Alms?' });
   assert.equal((await ok('GET', `${P()}/${a.id}`, T.jess)).status, 'cancelled', 'one NPC at a time');
   const bv = await ok('GET', `${P()}/${b.id}`, T.jess);
   assert.deepEqual(bv.options, [{ label: 'Farewell' }]);
-  const ended = await ok('POST', `${P()}/${b.id}/end`, T.dm);
+  const ended = await ok('POST', `${P()}/${b.id}/end`, T.gm);
   assert.equal(ended.status, 'cancelled');
 });
 
@@ -202,33 +202,33 @@ test('TestEncounters_WanderingNeedsTheSettingAndWaits', async () => {
   assert.ok((await ok('GET', `${P()}/config`, T.tom)).nextWanderAt);
 
   // A saved wander encounter replaces the starters as the pool.
-  await ok('POST', `${P()}/templates/all`, T.dm, { name: 'Fishwife', npcName: 'Nell', wander: true, script: { nodes: [{ id: 's', text: 'Fresh fish!' }] } });
+  await ok('POST', `${P()}/templates/all`, T.gm, { name: 'Fishwife', npcName: 'Nell', wander: true, script: { nodes: [{ id: 's', text: 'Fresh fish!' }] } });
   await set({ encounterWanderMinutes: 0 });
   const f = await ok('POST', `${P()}/wander`, T.jess);
   assert.equal(f.npc.name, 'Nell');
 });
 
-test('TestEncounters_TemplatesAreDmOnly', async () => {
+test('TestEncounters_TemplatesAreGmOnly', async () => {
   assert.equal((await call('GET', `${P()}/templates/all`, T.jess)).status, 403);
-  const t = await ok('POST', `${P()}/templates/all`, T.dm, { name: 'Riddler', npcName: 'Sphinx', script: { nodes: [{ id: 'q', text: 'What walks on four legs…?', options: [{ label: 'A person', next: 'r', effects: [{ kind: 'gold', cp: 5 }] }, { label: 'A dog', next: null }] }, { id: 'r', text: 'Correct.' }] } });
-  const list = await ok('GET', `${P()}/templates/all`, T.dm);
+  const t = await ok('POST', `${P()}/templates/all`, T.gm, { name: 'Riddler', npcName: 'Sphinx', script: { nodes: [{ id: 'q', text: 'What walks on four legs…?', options: [{ label: 'A person', next: 'r', effects: [{ kind: 'gold', cp: 5 }] }, { label: 'A dog', next: null }] }, { id: 'r', text: 'Correct.' }] } });
+  const list = await ok('GET', `${P()}/templates/all`, T.gm);
   assert.ok(list.templates.some((x: any) => x.id === t.id));
   assert.ok(list.starters.length >= 5);
-  await ok('PUT', `${P()}/templates/all/${t.id}`, T.dm, { ...t, name: 'The Riddler' });
-  assert.equal((await call('POST', `${P()}/templates/all`, T.dm, { name: 'Bad', npcName: 'x', script: { nodes: [{ id: 'a', text: 'x', options: [{ label: 'y', next: 'zz' }] }] } })).status, 400);
+  await ok('PUT', `${P()}/templates/all/${t.id}`, T.gm, { ...t, name: 'The Riddler' });
+  assert.equal((await call('POST', `${P()}/templates/all`, T.gm, { name: 'Bad', npcName: 'x', script: { nodes: [{ id: 'a', text: 'x', options: [{ label: 'y', next: 'zz' }] }] } })).status, 400);
   const [e] = await send({ accountIds: 'party', templateId: t.id });
   assert.equal(e.templateName, 'The Riddler');
-  await ok('DELETE', `${P()}/templates/all/${t.id}`, T.dm);
-  assert.equal((await call('DELETE', `${P()}/templates/all/${t.id}`, T.dm)).status, 404);
+  await ok('DELETE', `${P()}/templates/all/${t.id}`, T.gm);
+  assert.equal((await call('DELETE', `${P()}/templates/all/${t.id}`, T.gm)).status, 404);
 });
 
 test('TestEncounters_DraftWithoutAModelIsAPlainStart', async () => {
-  const r = await ok('POST', `${P()}/templates/draft`, T.dm, { prompt: 'A nervous fence offers a dice game behind the tannery.' });
+  const r = await ok('POST', `${P()}/templates/draft`, T.gm, { prompt: 'A nervous fence offers a dice game behind the tannery.' });
   assert.equal(r.usedModel, false);
   assert.ok(r.note);
   assert.doesNotThrow(() => parseScript(r.script));
   assert.equal((await call('POST', `${P()}/templates/draft`, T.jess, { prompt: 'x' })).status, 403);
-  assert.equal((await call('POST', `${P()}/templates/draft`, T.dm, { prompt: ' ' })).status, 400);
+  assert.equal((await call('POST', `${P()}/templates/draft`, T.gm, { prompt: ' ' })).status, 400);
 });
 
 test('TestEncounters_RecapsListWhoMetWhom', async () => {

@@ -32,14 +32,14 @@ async function boot() {
     return r.body;
   };
   const admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', admin, { username: 'dungeon', password: 'dm password 123' });
-  const dmT = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', admin, { name: 'Folderland', dmAccountId: dm.account.id })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, dmT, { role: 'player' });
+  const gm = await ok('POST', '/api/admin/accounts', admin, { username: 'dungeon', password: 'gm password 123' });
+  const gmT = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', admin, { name: 'Folderland', gmAccountId: gm.account.id })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, gmT, { role: 'player' });
   const jess = (await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).token;
   const A = `/api/worlds/${W}/agent`;
   (globalThis as any).__alxFolders = { deps: made.deps };
-  return { call, ok, dmT, jess, A };
+  return { call, ok, gmT, jess, A };
 }
 
 test('AgentFolders: a folder path is cleaned and limited', () => {
@@ -52,71 +52,71 @@ test('AgentFolders: a folder path is cleaned and limited', () => {
 });
 
 test('AgentFolders: chats carry a folder, can be moved, and keep their place when moved', async () => {
-  const { ok, call, dmT, A } = await boot();
-  const a = await ok('POST', `${A}/chats`, dmT, { title: 'Bandits', folder: 'Bloodearth / Session 1' });
-  const b = await ok('POST', `${A}/chats`, dmT, { title: 'Loose' });
-  let list = (await ok('GET', `${A}/chats`, dmT)).chats;
+  const { ok, call, gmT, A } = await boot();
+  const a = await ok('POST', `${A}/chats`, gmT, { title: 'Bandits', folder: 'Bloodearth / Session 1' });
+  const b = await ok('POST', `${A}/chats`, gmT, { title: 'Loose' });
+  let list = (await ok('GET', `${A}/chats`, gmT)).chats;
   assert.deepEqual(list.map((c: any) => [c.title, c.folder, c.template]), [['Loose', '', ''], ['Bandits', 'Bloodearth/Session 1', '']]);
-  await ok('PATCH', `${A}/chats/${b.id}`, dmT, { folder: 'Bloodearth' });
-  list = (await ok('GET', `${A}/chats`, dmT)).chats;
+  await ok('PATCH', `${A}/chats/${b.id}`, gmT, { folder: 'Bloodearth' });
+  list = (await ok('GET', `${A}/chats`, gmT)).chats;
   assert.equal(list.find((c: any) => c.id === b.id).folder, 'Bloodearth');
   assert.equal(list[0].id, b.id, 'moving is not new activity: the order stays');
   // Title alone still works; neither is refused.
-  await ok('PATCH', `${A}/chats/${a.id}`, dmT, { title: 'Bandit ambush' });
-  assert.equal((await call('PATCH', `${A}/chats/${a.id}`, dmT, {})).status, 400);
-  assert.equal((await call('PATCH', `${A}/chats/${a.id}`, dmT, { folder: 7 })).status, 400);
+  await ok('PATCH', `${A}/chats/${a.id}`, gmT, { title: 'Bandit ambush' });
+  assert.equal((await call('PATCH', `${A}/chats/${a.id}`, gmT, {})).status, 400);
+  assert.equal((await call('PATCH', `${A}/chats/${a.id}`, gmT, { folder: 7 })).status, 400);
   // Back to the top level.
-  await ok('PATCH', `${A}/chats/${b.id}`, dmT, { folder: '' });
-  assert.equal((await ok('GET', `${A}/chats`, dmT)).chats.find((c: any) => c.id === b.id).folder, '');
+  await ok('PATCH', `${A}/chats/${b.id}`, gmT, { folder: '' });
+  assert.equal((await ok('GET', `${A}/chats`, gmT)).chats.find((c: any) => c.id === b.id).folder, '');
 });
 
 test('AgentFolders: renaming a folder moves the chats in it and in its subfolders, and nothing else', async () => {
-  const { ok, call, dmT, jess, A } = await boot();
-  const x = await ok('POST', `${A}/chats`, dmT, { folder: 'Arc' });
-  const y = await ok('POST', `${A}/chats`, dmT, { folder: 'Arc/Session 2' });
-  const z = await ok('POST', `${A}/chats`, dmT, { folder: 'Arcane' });
+  const { ok, call, gmT, jess, A } = await boot();
+  const x = await ok('POST', `${A}/chats`, gmT, { folder: 'Arc' });
+  const y = await ok('POST', `${A}/chats`, gmT, { folder: 'Arc/Session 2' });
+  const z = await ok('POST', `${A}/chats`, gmT, { folder: 'Arcane' });
   const p = await ok('POST', `${A}/chats`, jess, { folder: 'Arc' });
-  assert.equal((await ok('POST', `${A}/chats/folders/rename`, dmT, { from: 'Arc', to: 'Bloodearth/Arc one' })).moved, 2);
-  const f = Object.fromEntries((await ok('GET', `${A}/chats`, dmT)).chats.map((c: any) => [c.id, c.folder]));
+  assert.equal((await ok('POST', `${A}/chats/folders/rename`, gmT, { from: 'Arc', to: 'Bloodearth/Arc one' })).moved, 2);
+  const f = Object.fromEntries((await ok('GET', `${A}/chats`, gmT)).chats.map((c: any) => [c.id, c.folder]));
   assert.equal(f[x.id], 'Bloodearth/Arc one');
   assert.equal(f[y.id], 'Bloodearth/Arc one/Session 2');
   assert.equal(f[z.id], 'Arcane', 'a folder that only starts with the same letters is left alone');
   assert.equal((await ok('GET', `${A}/chats`, jess)).chats.find((c: any) => c.id === p.id).folder, 'Arc', "another account's chats are never moved");
-  assert.equal((await call('POST', `${A}/chats/folders/rename`, dmT, { from: 'Bloodearth', to: 'Bloodearth/inside' })).status, 400);
-  assert.equal((await call('POST', `${A}/chats/folders/rename`, dmT, { from: '', to: 'x' })).status, 400);
+  assert.equal((await call('POST', `${A}/chats/folders/rename`, gmT, { from: 'Bloodearth', to: 'Bloodearth/inside' })).status, 400);
+  assert.equal((await call('POST', `${A}/chats/folders/rename`, gmT, { from: '', to: 'x' })).status, 400);
 });
 
 test('AgentFolders: template chats are listed apart from the main chats', async () => {
-  const { ok, dmT, A } = await boot();
-  const main = await ok('POST', `${A}/chats`, dmT, { title: 'Main' });
-  const t1 = await ok('POST', `${A}/chats`, dmT, { title: 'Quick event', template: 'starter:quick-event' });
-  const t2 = await ok('POST', `${A}/chats`, dmT, { title: 'Spell', template: 'tpl_abc' });
-  const ids = async (q = '') => (await ok('GET', `${A}/chats${q}`, dmT)).chats.map((c: any) => c.id).sort();
+  const { ok, gmT, A } = await boot();
+  const main = await ok('POST', `${A}/chats`, gmT, { title: 'Main' });
+  const t1 = await ok('POST', `${A}/chats`, gmT, { title: 'Quick event', template: 'starter:quick-event' });
+  const t2 = await ok('POST', `${A}/chats`, gmT, { title: 'Spell', template: 'tpl_abc' });
+  const ids = async (q = '') => (await ok('GET', `${A}/chats${q}`, gmT)).chats.map((c: any) => c.id).sort();
   assert.deepEqual(await ids(), [main.id]);
   assert.deepEqual(await ids('?template=only'), [t1.id, t2.id].sort());
   assert.deepEqual(await ids('?template=tpl_abc'), [t2.id]);
-  assert.equal((await ok('GET', `${A}/chats?template=only`, dmT)).chats.find((c: any) => c.id === t1.id).template, 'starter:quick-event');
+  assert.equal((await ok('GET', `${A}/chats?template=only`, gmT)).chats.find((c: any) => c.id === t1.id).template, 'starter:quick-event');
 });
 
 test('AgentFolders: an incognito chat is never listed, and starting another or going idle deletes it', async () => {
-  const { ok, call, dmT, A } = await boot();
+  const { ok, call, gmT, A } = await boot();
   const { deps } = (globalThis as any).__alxFolders;
-  const kept = await ok('POST', `${A}/chats`, dmT, { title: 'Saved' });
-  const a = await ok('POST', `${A}/chats`, dmT, { incognito: true });
+  const kept = await ok('POST', `${A}/chats`, gmT, { title: 'Saved' });
+  const a = await ok('POST', `${A}/chats`, gmT, { incognito: true });
   assert.equal(a.incognito, true);
-  assert.equal((await ok('GET', `${A}/chats/${a.id}`, dmT)).incognito, true, 'it works like any chat while open');
-  assert.deepEqual((await ok('GET', `${A}/chats`, dmT)).chats.map((c: any) => c.id), [kept.id], 'never in the list');
+  assert.equal((await ok('GET', `${A}/chats/${a.id}`, gmT)).incognito, true, 'it works like any chat while open');
+  assert.deepEqual((await ok('GET', `${A}/chats`, gmT)).chats.map((c: any) => c.id), [kept.id], 'never in the list');
   // Starting another incognito chat ends the first (a screen closed without leaving it).
-  const b = await ok('POST', `${A}/chats`, dmT, { incognito: true });
-  assert.equal((await call('GET', `${A}/chats/${a.id}`, dmT)).status, 404);
+  const b = await ok('POST', `${A}/chats`, gmT, { incognito: true });
+  assert.equal((await call('GET', `${A}/chats/${a.id}`, gmT)).status, 404);
   // One nobody has written to for hours is cleared when the list is read; a saved chat that old is not.
   const old = new Date(Date.now() - 7 * 3600_000).toISOString();
   deps.db.prepare('UPDATE agent_chats SET updated_at = ?').run(old);
-  await ok('GET', `${A}/chats`, dmT);
-  assert.equal((await call('GET', `${A}/chats/${b.id}`, dmT)).status, 404);
-  assert.equal((await call('GET', `${A}/chats/${kept.id}`, dmT)).status, 200);
+  await ok('GET', `${A}/chats`, gmT);
+  assert.equal((await call('GET', `${A}/chats/${b.id}`, gmT)).status, 404);
+  assert.equal((await call('GET', `${A}/chats/${kept.id}`, gmT)).status, 200);
   // Leaving one deletes it (the screen calls DELETE).
-  const c = await ok('POST', `${A}/chats`, dmT, { incognito: true });
-  await ok('DELETE', `${A}/chats/${c.id}`, dmT);
-  assert.equal((await call('GET', `${A}/chats/${c.id}`, dmT)).status, 404);
+  const c = await ok('POST', `${A}/chats`, gmT, { incognito: true });
+  await ok('DELETE', `${A}/chats/${c.id}`, gmT);
+  assert.equal((await call('GET', `${A}/chats/${c.id}`, gmT)).status, 404);
 });

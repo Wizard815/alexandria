@@ -1,4 +1,4 @@
-// What a player may see of a monster card. The DM's card is the whole statblock;
+// What a player may see of a monster card. The GM's card is the whole statblock;
 // a player's has no armor class, ability scores or challenge rating, and no hit
 // points unless the world shows monster health exactly (monsterHealth: exact).
 // Applied to the card route, the term route and the rules search.

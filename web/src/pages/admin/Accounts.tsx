@@ -22,7 +22,7 @@ export default function AdminAccounts() {
 
   return (
     <div className="page">
-      <PageHead title="Accounts" lead="Admin is an extra flag on an account. Roles in a world (DM, player, guest) are set on the Worlds page. Players usually make their own account with an invite code.">
+      <PageHead title="Accounts" lead="Admin is an extra flag on an account. Roles in a world (GM, player, guest) are set on the Worlds page. Players usually make their own account with an invite code.">
         <button type="button" className="btn primary" onClick={() => setAdding(true)}>Add account</button>
       </PageHead>
       <ErrorBox error={a.error || list.error} />

@@ -172,13 +172,13 @@ export function formatYear(def: CalendarDef, year: number) {
   return def.yearSuffix ? `${year} ${def.yearSuffix}` : String(year);
 }
 
-/** "3 Frostmoot 1492 DR · evening" */
+/** "3 Frostmoot 1492 AR · evening" */
 export function formatDate(def: CalendarDef, minutes: number): string {
   const p = minutesToDate(def, minutes);
   return `${p.day} ${p.monthName} ${formatYear(def, p.year)} · ${p.timeOfDay}`;
 }
 
-/** Just the day part, e.g. "3 Frostmoot 1492 DR". */
+/** Just the day part, e.g. "3 Frostmoot 1492 AR". */
 export function formatDay(def: CalendarDef, minutes: number): string {
   const p = minutesToDate(def, minutes);
   return `${p.day} ${p.monthName} ${formatYear(def, p.year)}`;
@@ -199,14 +199,14 @@ export const WAKE_HOUR = 7;
 export const BUILTIN_CALENDARS: Record<string, CalendarDef> = {
   // Twelve 30-day months and a ten-day week.
   harptos: {
-    name: 'Twelve months of 30 days', epochYear: 1492, yearSuffix: 'DR',
+    name: 'Twelve months of 30 days', epochYear: 1492, yearSuffix: 'AR',
     months: [
       { name: 'Frostmoot', days: 30 }, { name: 'Thawing', days: 30 }, { name: 'Seedfall', days: 30 }, { name: 'Rainwake', days: 30 },
       { name: 'Bloomtide', days: 30 }, { name: 'Highsun', days: 30 }, { name: 'Emberfall', days: 30 }, { name: 'Harvest', days: 30 },
       { name: 'Mistwane', days: 30 }, { name: 'Leaffall', days: 30 }, { name: 'Duskmoot', days: 30 }, { name: 'Deepwinter', days: 30 },
     ],
     weekdays: ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'],
-    moons: [{ name: 'Selune', cycleDays: 30, offsetDays: 0 }],
+    moons: [{ name: 'The Pale Moon', cycleDays: 30, offsetDays: 0 }],
     seasons: [{ name: 'Winter', month: 12, day: 1 }, { name: 'Spring', month: 3, day: 1 }, { name: 'Summer', month: 6, day: 1 }, { name: 'Autumn', month: 9, day: 1 }],
   },
   gregorian: {

@@ -1,4 +1,4 @@
-// DM: what the story bible is doing now, how far it is, start, pause and check it.
+// GM: what the story bible is doing now, how far it is, start, pause and check it.
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useWorld, useLoad } from '../../lib/world.tsx';
@@ -10,8 +10,8 @@ interface Status { chat: boolean; building?: boolean; configured: boolean; model
   log: { at: string; pageId: string; title: string; scope: string; ok: boolean; facts: number; ms: number }[]; scopes: Record<string, Scope>; progress?: Progress }
 interface Finding { kind: string; pageId: string; title: string; scope: string; note: string }
 interface Audit { facts: number; counts: Record<string, number>; findings: Finding[] }
-const READERS: [string, string][] = [['party', 'Players'], ['broker', 'Broker'], ['dm', 'DM']];
-const WHO: Record<string, string> = { party: 'players', broker: 'broker', dm: 'DM', lifted: 'shared with some' };
+const READERS: [string, string][] = [['party', 'Players'], ['broker', 'Broker'], ['gm', 'GM']];
+const WHO: Record<string, string> = { party: 'players', broker: 'broker', gm: 'GM', lifted: 'shared with some' };
 const KINDS: Record<string, string> = { failed: 'Could not be read', empty: 'Read, but nothing found', unsupported: 'Names something the page does not' };
 
 export function BibleControls({ left, onChanged }: { left: string; onChanged: () => void }) {
@@ -30,7 +30,7 @@ export function BibleControls({ left, onChanged }: { left: string; onChanged: ()
   const readAll = () => act.run(async () => { await w.call('POST', '/bible/read-now', { all: true }); toast('Reading every waiting page, several at once'); await st.reload(); });
   const check = () => act.run(async () => { setAudit(await w.call<Audit>('GET', '/bible/audit')); setOpen('audit'); });
   const reread = (ids: string[]) => act.run(async () => { const r = await w.call<{ pages: number }>('POST', '/bible/reread', { pageIds: [...new Set(ids)].slice(0, 500) }); toast(`${r.pages} will be read again`); setAudit(await w.call<Audit>('GET', '/bible/audit')); await st.reload(); onChanged(); });
-  const href = (id: string) => `/w/${info.slug}/dm/library?page=${encodeURIComponent(id)}`;
+  const href = (id: string) => `/w/${info.slug}/gm/library?page=${encodeURIComponent(id)}`;
   const state = s.now ? `Reading “${s.now.title}” (${WHO[s.now.scope] ?? s.now.scope} copy)${s.now.reading && s.now.reading > 1 ? ` and ${s.now.reading - 1} more` : ''}` : s.building ? 'Reading the whole world' : !s.configured ? 'No model is set' : s.runs === 'off' ? 'Paused' : s.reading ? 'Ready, between pages' : 'Waiting for the next session';
   return (
     <section className="card" aria-label="Story bible progress" data-testid="bible-controls">

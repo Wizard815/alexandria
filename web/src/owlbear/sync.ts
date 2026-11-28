@@ -111,7 +111,7 @@ export function startWorker(): () => void {
   async function step() {
     if ((await OBR.player.getRole()) !== 'GM') { say({ state: 'player', text: 'Only the GM links the room to Alexandria.' }); return; }
     const key = getKey();
-    if (!key) { hello = null; say({ state: 'no-key', text: 'Paste the link key from Alexandria (DM, Setup, Owlbear Rodeo).' }); return; }
+    if (!key) { hello = null; say({ state: 'no-key', text: 'Paste the link key from Alexandria (GM, Setup, Owlbear Rodeo).' }); return; }
     if (!(await OBR.scene.isReady())) { say({ state: 'no-scene', text: 'Open a scene in Owlbear Rodeo.' }); return; }
     if (!hello || helloKey !== key) {
       const q = new URLSearchParams({ room: OBR.room.id, player: await OBR.player.getName() });

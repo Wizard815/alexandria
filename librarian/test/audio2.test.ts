@@ -13,7 +13,7 @@ import { createApp } from '../src/app.ts';
 import { one, run } from '../src/core/db.ts';
 import { engine } from '../src/features/audio/engine.ts';
 import { cleanWords, collapseRuns, echoesPrompt, junkReason, normaliseDice, type Pw } from '../src/features/audio/clean.ts';
-import { buildHint, containsTerm, dmOnlyTerms, HINT_MAX } from '../src/features/audio/hint.ts';
+import { buildHint, containsTerm, gmOnlyTerms, HINT_MAX } from '../src/features/audio/hint.ts';
 import { utterances, type Word } from '../src/features/audio/merge.ts';
 
 let base = '';
@@ -25,7 +25,7 @@ const ID: Record<string, string> = {};
 const MIC: Record<string, string> = {};
 let W = '';
 const A = () => `/api/worlds/${W}/audio`;
-const DM_TITLE = 'The Drowned King';
+const GM_TITLE = 'The Drowned King';
 
 interface Asked { prompt: string; model: string; temperature: string | null; format: string }
 const asked: Asked[] = [];
@@ -81,15 +81,15 @@ async function send(who: string, sid: string, mic: string, seq: number, start: n
   return r.body;
 }
 async function newSession() {
-  const act = await ok('GET', `${A()}/status`, T.dm);
-  if (act.session) await ok('POST', `${A()}/sessions/${act.session.id}/stop`, T.dm);
-  return (await ok('POST', `${A()}/sessions`, T.dm, { name: 'Speech test' })).id as string;
+  const act = await ok('GET', `${A()}/status`, T.gm);
+  if (act.session) await ok('POST', `${A()}/sessions/${act.session.id}/stop`, T.gm);
+  return (await ok('POST', `${A()}/sessions`, T.gm, { name: 'Speech test' })).id as string;
 }
 const lines = async (who: string, sid: string) => (await ok('GET', `${A()}/sessions/${sid}/lines`, T[who])).lines as any[];
 const wordsOf = (ls: any[]) => ls.flatMap((l) => String(l.text).split(/\s+/));
 const total = (ls: any[]) => ls.reduce((a, l) => a + (l.end - l.start), 0);
-const page = (p: string, visibility: string, markdown: string, fm = '') => ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: p, visibility, markdown: fm + markdown });
-const setting = (k: string, v: unknown) => ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { [k]: v });
+const page = (p: string, visibility: string, markdown: string, fm = '') => ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: p, visibility, markdown: fm + markdown });
+const setting = (k: string, v: unknown) => ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { [k]: v });
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-audio2-'));
@@ -102,20 +102,20 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Speechland', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Speechland', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : 'Tomas' });
     T[name] = j.token;
     ID[name] = j.account.id;
     await ok('POST', `${A()}/consent`, T[name], { agree: true });
   }
   const mic = async (who: string, key: string, body: any) => { MIC[key] = (await ok('POST', `${A()}/mics`, T[who], { deviceId: 'dev-' + key, ...body })).id; };
-  await mic('dm', 'table', { label: 'Table mic', mode: 'always' });
-  await mic('dm', 'mix', { label: 'mix', mode: 'always' });
+  await mic('gm', 'table', { label: 'Table mic', mode: 'always' });
+  await mic('gm', 'mix', { label: 'mix', mode: 'always' });
   await mic('jess', 'jess', { label: 'Jess phone', mode: 'always' });
   await mic('tom', 'tom', { label: 'Tom phone', mode: 'always' });
   // Pages at every level; only the party ones (with a player copy) may reach the speech model.
@@ -124,7 +124,7 @@ before(async () => {
   await page('misc/Calendar.md', 'party', '# Calendar\nDays.\n');
   await page('misc/Session 21.md', 'party', '# Session 21\nWhat happened.\n');
   await page('misc/Bonds.md', 'party', '# Bonds\nBonds.\n');
-  await page('dm/Drowned King.md', 'dm', `# ${DM_TITLE}\nThe tide cult serves him.\n`, '---\naliases: [Lord of Brine]\n---\n');
+  await page('gm/Drowned King.md', 'gm', `# ${GM_TITLE}\nThe tide cult serves him.\n`, '---\naliases: [Lord of Brine]\n---\n');
   await page('broker/Tide Cult.md', 'broker', '# Tide Cult Elders\nThey whisper.\n');
   await page('classified/Pale Vault.md', 'classified', '# Pale Vault Chamber\nSealed.\n');
   engine(deps).resetHint();
@@ -137,40 +137,40 @@ after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true });
 test('Audio2_hint: built only from what players may read; short; no junk; dice words in', async () => {
   const h = buildHint(deps.db, W);
   assert.ok(h.length <= HINT_MAX, `${h.length} chars: ${h}`);
-  for (const secret of [DM_TITLE, 'Lord of Brine', 'Tide Cult', 'Pale Vault', 'Drowned']) assert.ok(!h.includes(secret), `the hint leaked "${secret}": ${h}`);
+  for (const secret of [GM_TITLE, 'Lord of Brine', 'Tide Cult', 'Pale Vault', 'Drowned']) assert.ok(!h.includes(secret), `the hint leaked "${secret}": ${h}`);
   for (const junk of ['Calendar', 'Bonds', 'Session 21']) assert.ok(!h.includes(junk), `junk "${junk}" in the hint: ${h}`);
   assert.ok(h.includes('Jessamine') && h.includes('Tomas'), `character names: ${h}`);
   assert.ok(h.includes('Saltmarsh') && h.includes('Odda Brightwater'), `party-visible names: ${h}`);
   for (const w of ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'nat 20', 'advantage', 'disadvantage']) assert.ok(h.includes(w), `dice word ${w}`);
 });
 
-test('Audio2_hint: the speech model is never sent a DM-only title, and a chunk of quiet gets no prompt', async () => {
+test('Audio2_hint: the speech model is never sent a GM-only title, and a chunk of quiet gets no prompt', async () => {
   const sid = await newSession();
   asked.length = 0;
-  await send('dm', sid, 'table', 0, 0, [seg('hello there everyone')], 0.5);
-  await send('dm', sid, 'table', 1, 5000, [seg('hello again')], 0.01);
+  await send('gm', sid, 'table', 0, 0, [seg('hello there everyone')], 0.5);
+  await send('gm', sid, 'table', 1, 5000, [seg('hello again')], 0.01);
   assert.equal(asked.length, 2);
   assert.match(asked[0].prompt, /Saltmarsh/);
   assert.equal(asked[0].format, 'verbose_json');
-  assert.ok(!/Drowned|Lord of Brine|Tide Cult|Pale Vault/i.test(asked.map((a) => a.prompt).join('\n')), 'no DM-only title in any prompt');
+  assert.ok(!/Drowned|Lord of Brine|Tide Cult|Pale Vault/i.test(asked.map((a) => a.prompt).join('\n')), 'no GM-only title in any prompt');
   assert.equal(asked[1].prompt, '', 'a quiet chunk is sent no vocabulary');
 });
 
 test('Audio2_hint: the world setting transcriptHint turns it off; default is on', async () => {
   const sid = await newSession();
-  assert.equal((await ok('GET', `${A()}/status`, T.dm)).transcription.hint, 'on');
-  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.dm, { transcriptHint: 'maybe' })).status, 400);
+  assert.equal((await ok('GET', `${A()}/status`, T.gm)).transcription.hint, 'on');
+  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.gm, { transcriptHint: 'maybe' })).status, 400);
   await setting('transcriptHint', 'off');
   try {
     asked.length = 0;
-    await send('dm', sid, 'table', 0, 0, [seg('hello there everyone')], 0.5);
+    await send('gm', sid, 'table', 0, 0, [seg('hello there everyone')], 0.5);
     assert.equal(asked[0].prompt, '', 'off: no prompt at all');
   } finally { await setting('transcriptHint', 'on'); }
 });
 
 test('Audio2_hint: ranked by recency and how often the table said it; capped when there are many names', async () => {
-  const w2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Many names', dmAccountId: ID.dm })).id;
-  for (let i = 0; i < 40; i++) await ok('PUT', `/api/worlds/${w2}/library/pages`, T.dm, { path: `n/Person${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}.md`, visibility: 'party', markdown: `# Person${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))} \nx\n` });
+  const w2 = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Many names', gmAccountId: ID.gm })).id;
+  for (let i = 0; i < 40; i++) await ok('PUT', `/api/worlds/${w2}/library/pages`, T.gm, { path: `n/Person${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}.md`, visibility: 'party', markdown: `# Person${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))} \nx\n` });
   const h = buildHint(deps.db, w2);
   assert.ok(h.length <= HINT_MAX, h);
   // The table keeps saying one name: it jumps to the front.
@@ -179,44 +179,44 @@ test('Audio2_hint: ranked by recency and how often the table said it; capped whe
   assert.ok(buildHint(deps.db, w2).startsWith('PersonZa') || buildHint(deps.db, w2).includes('PersonZa'), buildHint(deps.db, w2));
 });
 
-test('Audio2_leak: a DM-only title that turns up in a players line (hint echo) makes the line DM-only; players never read it', async () => {
+test('Audio2_leak: a GM-only title that turns up in a players line (hint echo) makes the line GM-only; players never read it', async () => {
   const sid = await newSession();
-  // The model "hears" the DM-only title that nobody said and no other mic heard.
-  await send('jess', sid, 'jess', 0, 0, [seg(`we sail to ${DM_TITLE} tonight`)], 0.6);
-  await send('dm', sid, 'table', 0, 10_000, [seg('we sail to Saltmarsh tonight')], 0.6);
-  const dmLines = await lines('dm', sid);
-  const bad = dmLines.find((l) => l.text.includes(DM_TITLE))!;
-  assert.equal(bad.audience, 'dm', 'fail closed');
-  assert.equal(dmLines.find((l) => l.text.includes('Saltmarsh'))!.audience, 'players');
+  // The model "hears" the GM-only title that nobody said and no other mic heard.
+  await send('jess', sid, 'jess', 0, 0, [seg(`we sail to ${GM_TITLE} tonight`)], 0.6);
+  await send('gm', sid, 'table', 0, 10_000, [seg('we sail to Saltmarsh tonight')], 0.6);
+  const gmLines = await lines('gm', sid);
+  const bad = gmLines.find((l) => l.text.includes(GM_TITLE))!;
+  assert.equal(bad.audience, 'gm', 'fail closed');
+  assert.equal(gmLines.find((l) => l.text.includes('Saltmarsh'))!.audience, 'players');
   const seen = JSON.stringify(await lines('tom', sid));
-  assert.ok(!seen.includes('Drowned'), 'the player never gets the DM-only title');
+  assert.ok(!seen.includes('Drowned'), 'the player never gets the GM-only title');
   assert.ok(seen.includes('Saltmarsh'));
-  // Heard by two mics it was really said at the table: the DM can still make it public by hand, and it is not hidden by the rule.
+  // Heard by two mics it was really said at the table: the GM can still make it public by hand, and it is not hidden by the rule.
   const sid2 = await newSession();
-  await send('jess', sid2, 'jess', 0, 0, [seg(`the ${DM_TITLE} rises`)], 0.6);
-  await send('tom', sid2, 'tom', 0, 0, [seg(`the ${DM_TITLE} rises`)], 0.5);
-  assert.equal((await lines('dm', sid2))[0].audience, 'players', 'two mics heard it: not an echo');
+  await send('jess', sid2, 'jess', 0, 0, [seg(`the ${GM_TITLE} rises`)], 0.6);
+  await send('tom', sid2, 'tom', 0, 0, [seg(`the ${GM_TITLE} rises`)], 0.5);
+  assert.equal((await lines('gm', sid2))[0].audience, 'players', 'two mics heard it: not an echo');
 });
 
-test('Audio2_leak: dmOnlyTerms and containsTerm see titles and aliases of pages players cannot read', () => {
-  const t = dmOnlyTerms(deps.db, W);
-  assert.ok(containsTerm(`under ${DM_TITLE} flag`, t));
+test('Audio2_leak: gmOnlyTerms and containsTerm see titles and aliases of pages players cannot read', () => {
+  const t = gmOnlyTerms(deps.db, W);
+  assert.ok(containsTerm(`under ${GM_TITLE} flag`, t));
   assert.ok(containsTerm('the lord of brine speaks', t), 'aliases too');
   assert.ok(containsTerm('the Tide Cult Elders gather', t), 'broker pages');
   assert.ok(containsTerm('the pale vault chamber', t), 'classified pages');
-  assert.ok(!containsTerm('a trip to Saltmarsh', t), 'party titles are not DM-only');
+  assert.ok(!containsTerm('a trip to Saltmarsh', t), 'party titles are not GM-only');
 });
 
-test('Audio2_leak: the party\'s own names are never DM-only, even when Minerva files a DM-only page under one', async () => {
-  await page('Minerva/codex/characters/pc/Jessamine.md', 'dm', '# Jessamine\nNotes on the PC.\n');
-  await page('dm/Tomas Backstory.md', 'dm', '# Tomas\nHis secret past.\n');
-  const t = dmOnlyTerms(deps.db, W);
+test('Audio2_leak: the party\'s own names are never GM-only, even when Minerva files a GM-only page under one', async () => {
+  await page('Minerva/codex/characters/pc/Jessamine.md', 'gm', '# Jessamine\nNotes on the PC.\n');
+  await page('gm/Tomas Backstory.md', 'gm', '# Tomas\nHis secret past.\n');
+  const t = gmOnlyTerms(deps.db, W);
   assert.ok(!containsTerm('Jessamine draws her sword', t), 'a PC codex page title');
-  assert.ok(!containsTerm('Tomas pays for the ale', t), 'a character name, even as a DM-only title');
-  assert.ok(containsTerm(`under ${DM_TITLE} flag`, t), 'real secrets still count');
+  assert.ok(!containsTerm('Tomas pays for the ale', t), 'a character name, even as a GM-only title');
+  assert.ok(containsTerm(`under ${GM_TITLE} flag`, t), 'real secrets still count');
   const sid = await newSession();
   await send('jess', sid, 'jess', 0, 0, [seg('Jessamine and Tomas take the ring')], 0.6);
-  assert.equal((await lines('dm', sid))[0].audience, 'players', 'one mic, party names only: players read it');
+  assert.equal((await lines('gm', sid))[0].audience, 'players', 'one mic, party names only: players read it');
 });
 
 // ---- fix 2 and 5: lines, overlap -----------------------------------------------------------------
@@ -234,10 +234,10 @@ test('Audio2_lines: continuous speech over four chunks is one growing line, tota
   const sid = await newSession();
   const seen: string[] = [];
   for (let i = 0; i < 4; i++) {
-    await send('dm', sid, 'table', i, i * 5000, [chunkOf(i)]);
-    seen.push(...(await lines('dm', sid)).map((l) => l.id));
+    await send('gm', sid, 'table', i, i * 5000, [chunkOf(i)]);
+    seen.push(...(await lines('gm', sid)).map((l) => l.id));
   }
-  const ls = await lines('dm', sid);
+  const ls = await lines('gm', sid);
   assert.equal(ls.length, 1, JSON.stringify(ls.map((l) => [l.start, l.end, l.text.length])));
   assert.ok(total(ls) <= 20_000 && total(ls) >= 18_500, `total ${total(ls)} ms for 20 s of audio`);
   assert.equal(new Set(seen).size, 1, 'the same line (same id) grew each time');
@@ -247,8 +247,8 @@ test('Audio2_lines: continuous speech over four chunks is one growing line, tota
 
 test('Audio2_lines: a long run of speech is cut into lines of at most 20 s that do not overlap', async () => {
   const sid = await newSession();
-  for (let i = 0; i < 8; i++) await send('dm', sid, 'table', i, i * 5000, [chunkOf(i)]);
-  const ls = await lines('dm', sid);
+  for (let i = 0; i < 8; i++) await send('gm', sid, 'table', i, i * 5000, [chunkOf(i)]);
+  const ls = await lines('gm', sid);
   assert.ok(ls.length >= 2 && ls.length <= 3, `${ls.length} lines`);
   for (const l of ls) assert.ok(l.end - l.start <= 20_500, `line of ${l.end - l.start} ms`);
   assert.ok(total(ls) <= 40_000, `total ${total(ls)} ms for 40 s of audio`);
@@ -259,19 +259,19 @@ test('Audio2_lines: a long run of speech is cut into lines of at most 20 s that 
 test('Audio2_lines: re-sending later chunks does not add lines (a line is found over what the merge produced)', async () => {
   const sid = await newSession();
   // Chunk 0 ends before chunk 1 starts, speech carries on across the boundary.
-  for (let i = 0; i < 3; i++) await send('dm', sid, 'table', i, i * 5000, [chunkOf(i)]);
-  assert.equal((await lines('dm', sid)).length, 1);
+  for (let i = 0; i < 3; i++) await send('gm', sid, 'table', i, i * 5000, [chunkOf(i)]);
+  assert.equal((await lines('gm', sid)).length, 1);
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM audio_lines WHERE session_id = ?', sid).n, 1, 'no stale rows either');
 });
 
 test('Audio2_overlap: chunks of 8 s every 5 s (3 s overlap) give each word once, from the chunk it is most central in', async () => {
   const sid = await newSession();
-  await send('dm', sid, 'table', 0, 0, [stretch(0, 12, 0)]); // 0..5
+  await send('gm', sid, 'table', 0, 0, [stretch(0, 12, 0)]); // 0..5
   const win = (n: number) => { const start = n * 5000 - 3000; return stretch(Math.ceil(start / 400), Math.floor((start + 8000) / 400) - 1, start); };
-  await send('dm', sid, 'table', 20, 2000, [stretch(5, 24, 2000)], 0.5, 10_000);
-  await send('dm', sid, 'table', 70, 7000, [stretch(18, 37, 7000)], 0.5, 15_000);
+  await send('gm', sid, 'table', 20, 2000, [stretch(5, 24, 2000)], 0.5, 10_000);
+  await send('gm', sid, 'table', 70, 7000, [stretch(18, 37, 7000)], 0.5, 15_000);
   void win;
-  const ls = await lines('dm', sid);
+  const ls = await lines('gm', sid);
   const ws = wordsOf(ls);
   assert.equal(new Set(ws).size, ws.length, `no repeated words: ${ws.join(' ')}`);
   assert.equal(ls.length, 1, JSON.stringify(ls.map((l) => l.text)));
@@ -315,7 +315,7 @@ test('Audio2_hallucination: made-up segments never become lines; real ones aroun
   const sid = await newSession();
   asked.length = 0;
   const hint = buildHint(deps.db, W);
-  await send('dm', sid, 'table', 0, 0, [
+  await send('gm', sid, 'table', 0, 0, [
     seg('I check the door for traps'),
     seg('Thank you.', 3, { lp: -0.9 }),
     seg('We will see you in the next video', 4),
@@ -324,9 +324,9 @@ test('Audio2_hallucination: made-up segments never become lines; real ones aroun
     seg('background noise talk', 9, { ns: 0.95 }),
     seg(hint.split('. d4')[0].replace(/,/g, ''), 10),
   ]);
-  const ls = await lines('dm', sid);
+  const ls = await lines('gm', sid);
   assert.deepEqual(ls.map((l) => l.text), ['I check the door for traps'], JSON.stringify(ls));
-  const st = await ok('GET', `${A()}/status`, T.dm);
+  const st = await ok('GET', `${A()}/status`, T.gm);
   for (const k of ['junk-phrase', 'outro', 'compression', 'logprob', 'no-speech']) assert.ok(st.dropped[k] >= 1, `dropped counter ${k}: ${JSON.stringify(st.dropped)}`);
   assert.equal((await ok('GET', `${A()}/status`, T.jess)).dropped, undefined, 'players are not shown the counters');
 });
@@ -336,12 +336,12 @@ test('Audio2_hallucination: a looping chunk with signal is asked once more, warm
   asked.length = 0;
   let n = 0;
   override = () => { n++; return n <= 2 ? { text: 'x', segments: [{ start: 0, end: 4, text: 'the the the the', avg_logprob: -0.3, no_speech_prob: 0.01, compression_ratio: 5, words: [] }] } : null; };
-  try { await send('dm', sid, 'table', 0, 0, [seg('open the door slowly')], 0.5); } finally { override = null; }
+  try { await send('gm', sid, 'table', 0, 0, [seg('open the door slowly')], 0.5); } finally { override = null; }
   assert.equal(asked.length, 3, 'with the hint, then without it, then warmer');
   assert.equal(asked[0].temperature, null, 'the first ask leaves temperature to the server (its own fallback schedule)');
   assert.ok(asked[0].prompt.length > 0 && asked[1].prompt === '', 'the second ask drops the hint');
   assert.equal(asked[2].temperature, '0.4');
-  assert.equal((await lines('dm', sid))[0].text, 'open the door slowly');
+  assert.equal((await lines('gm', sid))[0].text, 'open the door slowly');
 });
 
 test('Audio2_hallucination: a chunk the hint pulled off course is asked again without it; the surer answer is kept', async () => {
@@ -350,13 +350,13 @@ test('Audio2_hallucination: a chunk the hint pulled off course is asked again wi
   override = (form) => String(form.get('prompt') ?? '')
     ? { text: 'x', segments: [{ start: 0, end: 3, text: 'grocery Target', avg_logprob: -3.9, no_speech_prob: 0.2, compression_ratio: 0.9, words: [] }] }
     : null;
-  try { await send('dm', sid, 'table', 0, 0, [seg('or bats and then there is a door')], 0.5); } finally { override = null; }
+  try { await send('gm', sid, 'table', 0, 0, [seg('or bats and then there is a door')], 0.5); } finally { override = null; }
   assert.equal(asked.length, 2);
   assert.equal(asked[1].prompt, '');
-  assert.deepEqual((await lines('dm', sid)).map((l) => l.text), ['or bats and then there is a door']);
+  assert.deepEqual((await lines('gm', sid)).map((l) => l.text), ['or bats and then there is a door']);
   // A clean first answer costs no second ask.
   asked.length = 0;
-  await send('dm', sid, 'table', 1, 5000, [seg('roll for initiative')], 0.5);
+  await send('gm', sid, 'table', 1, 5000, [seg('roll for initiative')], 0.5);
   assert.equal(asked.length, 1);
 });
 
@@ -384,8 +384,8 @@ test('Audio2_dice: d6, d20, nat 20 and split sums are written the way a table wr
 
 test('Audio2_dice: normalised in the transcript line', async () => {
   const sid = await newSession();
-  await send('dm', sid, 'table', 0, 0, [seg('I attack with a D -6 and it is 16 plus 521 nat twenty')]);
-  assert.equal((await lines('dm', sid))[0].text, 'I attack with a d6 and it is 16 plus 5 is 21 nat 20');
+  await send('gm', sid, 'table', 0, 0, [seg('I attack with a D -6 and it is 16 plus 521 nat twenty')]);
+  assert.equal((await lines('gm', sid))[0].text, 'I attack with a d6 and it is 16 plus 5 is 21 nat 20');
 });
 
 // ---- fix 7 and 8: speakers and cross-mic -------------------------------------------------------------------
@@ -393,44 +393,44 @@ test('Audio2_dice: normalised in the transcript line', async () => {
 test('Audio2_speakers: a phone is credited only when clearly the close mic; otherwise the table', async () => {
   const speech = () => [seg('we cross the old bridge together')];
   let sid = await newSession();
-  await send('dm', sid, 'table', 0, 0, speech(), 0.3);
+  await send('gm', sid, 'table', 0, 0, speech(), 0.3);
   await send('jess', sid, 'jess', 0, 0, speech(), 0.8);
-  let l = (await lines('dm', sid))[0];
+  let l = (await lines('gm', sid))[0];
   assert.equal(l.speaker, 'Jessamine', 'close and clearly louder: her voice');
   assert.equal(l.speakerId, ID.jess);
 
   sid = await newSession();
-  await send('dm', sid, 'table', 0, 0, speech(), 0.3);
+  await send('gm', sid, 'table', 0, 0, speech(), 0.3);
   await send('jess', sid, 'jess', 0, 0, speech(), 0.35);
-  l = (await lines('dm', sid))[0];
+  l = (await lines('gm', sid))[0];
   assert.equal(l.speaker, 'Table', 'a phone that hears the room as loudly is not the speaker');
   assert.equal(l.speakerId, null);
 
   sid = await newSession();
   await send('jess', sid, 'jess', 0, 0, speech(), 0.5);
   await send('tom', sid, 'tom', 0, 0, speech(), 0.55);
-  assert.equal((await lines('dm', sid))[0].speaker, 'Table', 'two phones of similar level: nobody in particular');
+  assert.equal((await lines('gm', sid))[0].speaker, 'Table', 'two phones of similar level: nobody in particular');
 
   sid = await newSession();
-  await send('dm', sid, 'mix', 0, 0, speech(), 0.5);
-  l = (await lines('dm', sid))[0];
+  await send('gm', sid, 'mix', 0, 0, speech(), 0.5);
+  l = (await lines('gm', sid))[0];
   assert.equal(l.speaker, 'Table', 'a room mic alone is the Table, not "mix"');
   assert.equal(l.speakerId, null);
   assert.equal((await lines('tom', sid))[0].speaker, 'Table');
 
   sid = await newSession();
   await send('tom', sid, 'tom', 0, 0, speech(), 0.5);
-  assert.equal((await lines('dm', sid))[0].speaker, 'Tomas', 'a lone personal mic has nothing to be confused with');
+  assert.equal((await lines('gm', sid))[0].speaker, 'Tomas', 'a lone personal mic has nothing to be confused with');
 });
 
 test('Audio2_crossmic: the same speech heard by mics whose chunks begin at different times is one line', async () => {
   const sid = await newSession();
   // Table mic chunks are 0..5 and 5..10; the phone's are 2..7 and 7..12 (the same speech, different cut points).
-  await send('dm', sid, 'table', 0, 0, [stretch(0, 12, 0)], 0.3);
-  await send('dm', sid, 'table', 1, 5000, [stretch(12, 24, 5000)], 0.3);
+  await send('gm', sid, 'table', 0, 0, [stretch(0, 12, 0)], 0.3);
+  await send('gm', sid, 'table', 1, 5000, [stretch(12, 24, 5000)], 0.3);
   await send('jess', sid, 'jess', 0, 2000, [stretch(5, 17, 2000)], 0.9);
   await send('jess', sid, 'jess', 1, 7000, [stretch(17, 29, 7000)], 0.9);
-  const ls = await lines('dm', sid);
+  const ls = await lines('gm', sid);
   assert.equal(ls.length, 1, JSON.stringify(ls.map((l) => [l.start, l.end, l.sources.length, l.text.slice(0, 30)])));
   assert.equal(ls[0].sources.length, 2);
   const ws = ls[0].text.split(' ');
@@ -440,18 +440,18 @@ test('Audio2_crossmic: the same speech heard by mics whose chunks begin at diffe
 
 // ---- fix 10: the second listen -----------------------------------------------------------------------------
 
-test('Audio2_refine: off by default; when on, a bigger model re-listens in long windows and lines keep ids and DM-only flags', async () => {
+test('Audio2_refine: off by default; when on, a bigger model re-listens in long windows and lines keep ids and GM-only flags', async () => {
   const eng = engine(deps);
   const sid = await newSession();
-  await send('dm', sid, 'table', 0, 0, [seg('the quik brown fox')]);
-  await send('dm', sid, 'table', 1, 5000, [seg('jumps ovr the lazy dog')]);
-  await send('dm', sid, 'table', 2, 30_000, [seg('a second spech here')]);
-  await ok('POST', `${A()}/sessions/${sid}/stop`, T.dm);
-  const before = await lines('dm', sid);
+  await send('gm', sid, 'table', 0, 0, [seg('the quik brown fox')]);
+  await send('gm', sid, 'table', 1, 5000, [seg('jumps ovr the lazy dog')]);
+  await send('gm', sid, 'table', 2, 30_000, [seg('a second spech here')]);
+  await ok('POST', `${A()}/sessions/${sid}/stop`, T.gm);
+  const before = await lines('gm', sid);
   assert.equal(before.length, 3);
   assert.equal(await eng.refine(sid), 0, 'transcriptRefine is off by default');
-  // The first line was made DM-only by a rule once; refining must not loosen it.
-  run(deps.db, "UPDATE audio_lines SET audience = 'dm' WHERE id = ?", before[0].id);
+  // The first line was made GM-only by a rule once; refining must not loosen it.
+  run(deps.db, "UPDATE audio_lines SET audience = 'gm' WHERE id = ?", before[0].id);
   await setting('transcriptRefine', 'on');
   const calls: { paths: string[]; trims: number[] }[] = [];
   eng.joiner = async (files) => {
@@ -467,12 +467,12 @@ test('Audio2_refine: off by default; when on, a bigger model re-listens in long 
     assert.deepEqual(calls[0].trims, [0, 0]);
     assert.ok(asked.every((a) => a.model === 'big-model'), 'the refine model asked');
   } finally { eng.joiner = undefined as any; delete (eng as any).joiner; await setting('transcriptRefine', 'off'); }
-  const after = await lines('dm', sid);
+  const after = await lines('gm', sid);
   assert.deepEqual(after.map((l) => l.id).sort(), before.map((l) => l.id).sort(), 'same ids');
   assert.ok(after.some((l) => l.text === 'jumps over the lazy dog'));
   assert.ok(after.some((l) => l.text === 'a second speech here'));
-  assert.equal(after.find((l) => l.id === before[0].id)!.audience, 'dm', 'never loosened');
-  assert.ok(!JSON.stringify(await lines('tom', sid)).includes('quick'), 'the DM-only line is still not the players');
+  assert.equal(after.find((l) => l.id === before[0].id)!.audience, 'gm', 'never loosened');
+  assert.ok(!JSON.stringify(await lines('tom', sid)).includes('quick'), 'the GM-only line is still not the players');
 });
 
 // ---- the pure pieces -------------------------------------------------------------------------------------------

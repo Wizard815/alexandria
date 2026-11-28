@@ -40,7 +40,7 @@ export function makeRest(token: string, opts: { base?: string; fetch?: typeof fe
   };
 }
 
-/** Plain words for the errors a DM will meet setting a bot up. */
+/** Plain words for the errors a GM will meet setting a bot up. */
 function discordMessage(status: number, j: any): string {
   const code = Number(j?.code ?? 0);
   if (status === 401) return 'Discord did not accept the bot token.';

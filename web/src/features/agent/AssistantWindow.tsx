@@ -11,7 +11,7 @@ export function AssistantBody() {
   return (
     <>
       <div className="ag-body" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '0 12px 12px' }}>
-        <Chat harness="dm" placeholder="Ask, or tell it what to do…" />
+        <Chat harness="gm" placeholder="Ask, or tell it what to do…" />
       </div>
       <SpokenNotice />
     </>
@@ -19,9 +19,9 @@ export function AssistantBody() {
 }
 
 export default function AssistantWindow() {
-  const { isDM, info } = useWorld();
+  const { isGM, info } = useWorld();
   useEffect(() => { document.title = `Assistant · ${info?.name ?? 'Alexandria'}`; }, [info?.name]);
-  if (!isDM) return <div className="page"><p className="muted">The popped-out assistant is for the DM.</p></div>;
+  if (!isGM) return <div className="page"><p className="muted">The popped-out assistant is for the GM.</p></div>;
   return (
     <div className="t-fantasy ag-window" style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg, #111)' }}>
       <header className="ag-head" style={{ padding: '8px 12px' }}>

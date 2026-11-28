@@ -40,7 +40,7 @@ function BrokerInBackground({ question, onChat }: { question: string; onChat: (q
     if (!quote) return;
     const r = await w.call<any>('POST', '/broker/ask', { quoteId: quote.quoteId });
     setQuote(null);
-    setDone(r.status === 'pricing' ? 'Sent. The DM sets the price; you will see it on the Broker page.' : r.status === 'noted' ? 'The broker has nothing for you on that.' : 'Sent. The broker is asking around; the answer will show up on the Broker page.');
+    setDone(r.status === 'pricing' ? 'Sent. The GM sets the price; you will see it on the Broker page.' : r.status === 'noted' ? 'The broker has nothing for you on that.' : 'Sent. The broker is asking around; the answer will show up on the Broker page.');
   });
   if (done) return <p className="small" data-testid="quick-broker-done" style={{ margin: '4px 0' }}>{done}</p>;
   return (
@@ -51,7 +51,7 @@ function BrokerInBackground({ question, onChat }: { question: string; onChat: (q
       </div>
       {quote && (
         <div className="row" style={{ gap: 6, marginTop: 6 }}>
-          <span className="small grow">{quote.line} {quote.cost_cp !== null ? <strong>{coins(quote.cost_cp)}</strong> : <strong>the DM sets the price</strong>}{quote.wait_text ? `, ${quote.wait_text}` : ''}.</span>
+          <span className="small grow">{quote.line} {quote.cost_cp !== null ? <strong>{coins(quote.cost_cp)}</strong> : <strong>the GM sets the price</strong>}{quote.wait_text ? `, ${quote.wait_text}` : ''}.</span>
           <button type="button" className="btn small primary" disabled={busy} onClick={() => void pay()} data-testid="quick-broker-pay">{quote.cost_cp ? 'Pay and ask' : 'Ask'}</button>
           <button type="button" className="btn small ghost" disabled={busy} onClick={() => setQuote(null)}>Not now</button>
         </div>

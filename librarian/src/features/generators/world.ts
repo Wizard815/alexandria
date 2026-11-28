@@ -1,5 +1,5 @@
 // What a generator may know about the world: the places and factions in the
-// library that the DM's AI copy can see (never classified), every title already
+// library that the GM's AI copy can see (never classified), every title already
 // used (so generated names do not repeat them), the party's level, and what the
 // party already knows (the party-scope story bible) for rumours. Built from
 // the same views the models get, so a generator can never repeat a secret that
@@ -22,7 +22,7 @@ export interface WorldInfo {
 
 export const emptyWorld = (): WorldInfo => ({ worldId: '', coins: 'gsc', partyLevel: 3, places: [], factions: [], titles: new Set(), rumours: [] });
 
-const AI: Viewer = { accountId: 'generators-ai', role: 'dm', audience: 'ai' };
+const AI: Viewer = { accountId: 'generators-ai', role: 'gm', audience: 'ai' };
 const PARTY: Viewer = { accountId: 'generators-party', role: 'player' };
 const PLACE_RE = /\b(places?|locations?|cit(y|ies)|towns?|village|settlements?|regions?|districts?|landmarks?|dungeons?|taverns?|inns?|keeps?|castles?|realms?)\b/i;
 const FACTION_RE = /\b(factions?|organi[sz]ations?|guilds?|orders?|houses?|cults?|clans?|compan(y|ies)|brotherhoods?|courts?)\b/i;
@@ -48,7 +48,7 @@ export async function loadWorld(d: Deps, worldId: string, coins = 'gsc'): Promis
   const titles = new Set(rows.map((r) => r.title.toLowerCase().trim()));
   const byId = new Map(rows.map((r) => [r.id, r]));
 
-  // The story bible's places and factions (DM scope, AI copy), when facts have been read.
+  // The story bible's places and factions (GM scope, AI copy), when facts have been read.
   const seenTitle = new Set([...places, ...factions].map((t) => t.title.toLowerCase()));
   try {
     for (const kind of ['place', 'faction'] as const) {

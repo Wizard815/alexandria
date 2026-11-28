@@ -1,4 +1,4 @@
-// A compact fog-of-war panel for the side screen and the pop-out window: the same map picture the table screen shows (the DM's
+// A compact fog-of-war panel for the side screen and the pop-out window: the same map picture the table screen shows (the GM's
 // choice, kept on the server), with the fog tools over it, so rooms are uncovered from the side monitor while the players
 // watch the table. Choosing a map or picture here is choosing what the table shows.
 import { useLoad, useWorld } from '../../lib/world.tsx';
@@ -21,7 +21,7 @@ export default function FogPanel() {
   const key = pic?.value ?? 'none';
   const fog = useFog(mapId, key);
   const marks = useLoad<Mark[]>(() => w.marks(mapId) as Promise<Mark[]>, [w, mapId], ['map-mark', 'map-mark-removed', 'fog']);
-  // Using the fog tools pins the display to what the DM is looking at, so the table cannot be showing a different picture.
+  // Using the fog tools pins the display to what the GM is looking at, so the table cannot be showing a different picture.
   const ed = useFogEditor(mapId, key, fog, () => { if (display?.pic == null || display?.mapId == null) void set({ mapId, pic: key }); });
 
   return (

@@ -1,11 +1,11 @@
 // Source keys (PLAN §17): who may read a world's source with which key.
 //
 // A key is a secret for ONE source of ONE world, added by a player (their own)
-// or by the DM (any number, with users, uses and trust set by the DM). The
+// or by the GM (any number, with users, uses and trust set by the GM). The
 // secret is stored here and never returned; every use is audited.
 //
 //   trust  per-user  the source gives each key only what its user may see.
-//          blanket   every key sees everything: treated as DM-level.
+//          blanket   every key sees everything: treated as GM-level.
 //          unsure    not known: treated as blanket (fails closed).
 //
 // Only a verified, live key can be used, and only by an account named in
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS sourcekeys_access (
   PRIMARY KEY (world_id, page_id, account_id, key_id)
 );
 CREATE INDEX IF NOT EXISTS sourcekeys_access_key ON sourcekeys_access (key_id);
--- Page shares: a player (kind share) or the DM (kind dm) lets others open the player copy of a page.
+-- Page shares: a player (kind share) or the GM (kind gm) lets others open the player copy of a page.
 -- to_id is an account id, or '*' for the whole party. A share is read live (core/library.ts liftedInfo): it only counts while the sharer can still see the page.
 CREATE TABLE IF NOT EXISTS sourcekeys_shares (
   world_id TEXT NOT NULL,
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS sourcekeys_shares (
   PRIMARY KEY (world_id, page_id, from_id, to_id)
 );
 CREATE INDEX IF NOT EXISTS sourcekeys_shares_to ON sourcekeys_shares (world_id, to_id);
--- Questions a player's own view could not answer. hidden is for the DM only.
+-- Questions a player's own view could not answer. hidden is for the GM only.
 CREATE TABLE IF NOT EXISTS sourcekeys_escalations (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
@@ -95,7 +95,7 @@ export interface KeyRow {
 }
 
 export const normTrust = (v: unknown): Trust => (v === 'per-user' || v === 'blanket' ? v : 'unsure');
-/** Only `per-user` is trusted. Blanket and unsure are the same thing: DM-level. */
+/** Only `per-user` is trusted. Blanket and unsure are the same thing: GM-level. */
 export const isPerUser = (k: Pick<KeyRow, 'trust'>) => k.trust === 'per-user';
 export const usersOf = (k: Pick<KeyRow, 'users'>): string[] => { const v = parseJson<unknown>(k.users, []); return Array.isArray(v) ? v.map(String) : []; };
 export const usesOf = (k: Pick<KeyRow, 'uses'>): KeyUse[] => { const v = parseJson<unknown>(k.uses, []); return Array.isArray(v) ? v.filter((x): x is KeyUse => USES.includes(x as KeyUse)) : []; };
@@ -140,7 +140,7 @@ export function revokeKey(db: DB, k: KeyRow, by: string) {
 }
 
 /** The key as an API client sees it: the secret is only ever a mask. */
-export function keyView(db: DB, k: KeyRow, names: Record<string, string>, opts: { dm: boolean }) {
+export function keyView(db: DB, k: KeyRow, names: Record<string, string>, opts: { gm: boolean }) {
   const src = one<any>(db, 'SELECT name, kind FROM sources WHERE id = ?', k.source_id);
   const probe = parseJson<Record<string, unknown>>(k.probe, {});
   const out: Record<string, unknown> = {
@@ -152,7 +152,7 @@ export function keyView(db: DB, k: KeyRow, names: Record<string, string>, opts: 
     verified: { matchedWorld: !!k.verified, checkedAt: k.checked_at }, revoked: !!k.revoked, revokedAt: k.revoked_at,
     refreshedAt: k.refreshed_at, createdAt: k.created_at,
   };
-  if (opts.dm) { out.userNames = usersOf(k).map((u) => names[u] ?? 'Someone'); out.probe = probe; out.refreshNote = k.refresh_note; out.pagesSeen = one<any>(db, 'SELECT COUNT(DISTINCT page_id) AS n FROM sourcekeys_access WHERE key_id = ?', k.id)?.n ?? 0; }
+  if (opts.gm) { out.userNames = usersOf(k).map((u) => names[u] ?? 'Someone'); out.probe = probe; out.refreshNote = k.refresh_note; out.pagesSeen = one<any>(db, 'SELECT COUNT(DISTINCT page_id) AS n FROM sourcekeys_access WHERE key_id = ?', k.id)?.n ?? 0; }
   else { out.probe = { verdict: probe.verdict ?? 'unknown' }; out.pagesSeen = one<any>(db, 'SELECT COUNT(DISTINCT page_id) AS n FROM sourcekeys_access WHERE key_id = ?', k.id)?.n ?? 0; }
   return out;
 }

@@ -136,7 +136,7 @@ test('Final_dedupe: crosstalk (different words at the same time) is kept, so is 
 });
 
 test('Final_dedupe: six mics hearing one sentence give one line; output is in time order', () => {
-  const mics = ['dm', 'table', 'p1', 'p2', 'p3', 'p4'];
+  const mics = ['gm', 'table', 'p1', 'p2', 'p3', 'p4'];
   const ls = mics.map((m, i) => line(m, i % 2 ? A.replace('pieces', 'piece') : A, 1000 + i * 60, { level: m === 'p2' ? 0.9 : 0.2 }));
   ls.push(line('p3', B, 12_000));
   const out = dedupeLines(ls.reverse());
@@ -182,7 +182,7 @@ function finalPass(streams: Map<string, Word[]>, skews = new Map<string, number[
 test('Final_chain: six devices with drifting clocks give each sentence once, in order, from the closest mic', () => {
   // Four sentences, each said near one phone; every device hears every sentence (quieter further away), with its own clock error.
   const talk = [{ who: 'p1', text: A, at: 2000 }, { who: 'p2', text: B, at: 9000 }, { who: 'p3', text: C, at: 16_000 }, { who: 'p4', text: D, at: 23_000 }];
-  const clock: Record<string, number> = { table: 0, dm: 150, p1: -1800, p2: 2400, p3: 900, p4: -3100 };
+  const clock: Record<string, number> = { table: 0, gm: 150, p1: -1800, p2: 2400, p3: 900, p4: -3100 };
   const r = rng(11);
   const streams = new Map<string, Word[]>();
   for (const m of Object.keys(clock)) {

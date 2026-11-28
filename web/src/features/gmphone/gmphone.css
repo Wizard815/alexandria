@@ -1,0 +1,129 @@
+/* GM phone assistant. Fixed full-screen so it sits over the GM layout's own
+   chrome. Tokens come from .t-fantasy (the GM layout's root). */
+.gmp { position: fixed; inset: 0; z-index: 1000; display: flex; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 17px; overflow: hidden; overscroll-behavior: contain; touch-action: manipulation; }
+.gmp * { box-sizing: border-box; }
+.gmp-col { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; max-width: 560px; margin: 0 auto; width: 100%; }
+.gmp.wide .gmp-col { max-width: none; margin: 0; }
+.gmp-top { display: flex; align-items: center; gap: 10px; padding: calc(8px + var(--safe-top)) 14px 8px; border-bottom: 1px solid var(--line); background: var(--side); min-height: 48px; }
+.gmp-top .brand { font-family: var(--font-head); font-weight: 700; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gmp-top .date { margin-left: auto; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.gmp-body { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 12px 20px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; }
+.gmp-panes { flex: 1 1 0; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
+.gmp-pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.gmp .ask, .gmp .ask-bar, .gmp .ask-log, .gmp-body { min-width: 0; max-width: 100%; }
+.gmp .ask-bar .flow { max-width: 100%; }
+.gmp.wide .gmp-pane + .gmp-pane { border-left: 1px solid var(--line); }
+
+/* tab bar: bottom on phones, a side rail on the near-square screen */
+.gmp-main { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.gmp-main.rail { flex-direction: row; }
+.gmp-tabs { display: flex; background: var(--side); border-top: 1px solid var(--line-strong); padding-bottom: env(safe-area-inset-bottom, 0px); flex: 0 0 auto; }
+.gmp-main.rail .gmp-tabs { order: -1; flex-direction: column; border-top: 0; border-right: 1px solid var(--line-strong); width: 84px; padding: var(--safe-top) 0 0; }
+.gmp-tab { position: relative; flex: 1 1 0; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; background: transparent; border: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 2px; }
+.gmp-main.rail .gmp-tab { flex: 0 0 auto; min-height: 72px; }
+.gmp-tab i { font-size: 19px; }
+.gmp-tab[aria-selected='true'] { color: var(--accent-strong); background: var(--accent-bg); box-shadow: inset 0 3px 0 var(--accent); }
+.gmp-main.rail .gmp-tab[aria-selected='true'] { box-shadow: inset 3px 0 0 var(--accent); }
+.gmp-badge { position: absolute; top: 4px; left: calc(50% + 8px); min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--danger); color: #12161F; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+/* controls: 48px at least */
+.gmp .b { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; min-width: 48px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 16px; cursor: pointer; text-align: center; -webkit-tap-highlight-color: transparent; }
+.gmp .b:active:not(:disabled) { transform: scale(0.97); border-color: var(--accent); }
+.gmp .b:disabled { opacity: 0.5; cursor: not-allowed; }
+.gmp .b.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+.gmp .b.danger { border-color: var(--danger); color: var(--danger-text); background: var(--danger-bg); }
+.gmp .b.ok { border-color: var(--ok); color: var(--ok-text); background: var(--ok-bg); }
+.gmp .b.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-strong); }
+.gmp .b.big { min-height: 64px; font-size: 20px; font-weight: 700; }
+.gmp .b.full { width: 100%; }
+.gmp .b.chip { border-radius: 999px; font-size: 15px; }
+.gmp .grid { display: grid; gap: 8px; }
+.gmp .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gmp .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.gmp .flow { display: flex; flex-wrap: wrap; gap: 8px; }
+.gmp .c { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.gmp .c.now { border-color: var(--accent); background: var(--accent-bg); }
+.gmp .c h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-family: var(--font); font-weight: 600; margin: 0; }
+.gmp .row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gmp .row.between { justify-content: space-between; }
+.gmp .grow { flex: 1 1 0; min-width: 0; }
+.gmp .tx { min-width: 0; overflow-wrap: anywhere; }
+.gmp .sub { font-size: 13px; color: var(--muted); }
+.gmp .tiny { font-size: 12px; color: var(--faint); }
+.gmp .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--muted); white-space: nowrap; }
+.gmp .pill.red { border-color: var(--danger); color: var(--danger-text); }
+.gmp .pill.green { border-color: var(--ok); color: var(--ok-text); }
+.gmp .pill.gold { border-color: var(--accent); color: var(--accent-strong); }
+.gmp .err { background: var(--danger-bg); border: 1px solid var(--danger); color: var(--danger-text); border-radius: 10px; padding: 8px 12px; font-size: 14px; }
+.gmp input, .gmp textarea, .gmp select { width: 100%; min-height: 48px; font: inherit; font-size: 16px; color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.gmp textarea { min-height: 96px; resize: vertical; }
+.gmp label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.gmp .empty { color: var(--muted); text-align: center; padding: 16px 8px; font-size: 15px; }
+.gmp h2 { font-size: 20px; margin: 0; }
+
+/* Now */
+.gmp .hpbar { height: 8px; border-radius: 6px; background: var(--line); overflow: hidden; }
+.gmp .hpbar > span { display: block; height: 100%; background: var(--ok-text); }
+.gmp .hpbar.mid > span { background: var(--accent); }
+.gmp .hpbar.low > span { background: var(--danger); }
+.gmp .who { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; min-height: 56px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; cursor: pointer; }
+.gmp .who.cur { border-color: var(--accent); background: var(--accent-bg); }
+.gmp .init { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--accent); color: var(--accent-strong); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; }
+.gmp .hpbig { font-family: var(--font-head); font-size: 40px; line-height: 1; color: var(--accent-strong); }
+.gmp .pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.gmp .pad .b { min-height: 54px; font-size: 22px; font-weight: 600; }
+.gmp .amount { text-align: center; font-size: 28px; font-weight: 700; min-height: 56px; }
+
+/* sheets and toasts */
+.gmp-back { position: fixed; inset: 0; z-index: 1010; background: rgba(0, 0, 0, 0.6); display: flex; align-items: flex-end; justify-content: center; }
+.gmp-sheet { width: 100%; max-width: 560px; max-height: 92dvh; overflow-y: auto; background: var(--side); border-top: 1px solid var(--line-strong); border-radius: 18px 18px 0 0; padding: 8px 14px calc(14px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 12px; }
+.gmp-sheet .grab { align-self: center; width: 44px; height: 5px; border-radius: 3px; background: var(--line-strong); margin: 4px 0; flex: 0 0 auto; }
+.gmp-undo { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); z-index: 1020; max-width: 536px; margin: 0 auto; display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 6px 6px 6px 14px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); font-size: 16px; }
+.gmp-undo .b { min-height: 44px; }
+
+/* Remote */
+.gmp .mood { position: relative; height: 170px; border-radius: 12px; border: 1px solid var(--line-strong); background: linear-gradient(135deg, #1c2a2a, #1c222d 50%, #2a1a1a); touch-action: none; overflow: hidden; }
+.gmp .mood span.k { position: absolute; font-size: 12px; color: var(--muted); pointer-events: none; }
+.gmp .mood .dot { position: absolute; width: 22px; height: 22px; margin: -11px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(217, 178, 106, 0.3); pointer-events: none; }
+
+/* Queue, Ask, Notes */
+.gmp .swipe { position: relative; touch-action: pan-y; }
+.gmp .ask { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.gmp .ask-log { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.gmp .ask-bar { border-top: 1px solid var(--line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; background: var(--side); }
+.gmp .ask-bar textarea { min-height: 56px; max-height: 150px; resize: none; line-height: 1.35; }
+.gmp .ask-top { padding: 8px 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.gmp .ask-chats { flex-wrap: nowrap; }
+.gmp .ask-chats select { text-overflow: ellipsis; }
+.gmp .ask-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.gmp .ask-chips > * { flex: 0 0 auto; }
+.gmp .ask-form { align-items: flex-end; gap: 8px; }
+.gmp .ask-form .b { min-width: 56px; min-height: 56px; flex: 0 0 auto; }
+/* hold to talk: no text selection or context menu from the long press */
+.gmp .b.mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.gmp .b.mic[data-state='rec'] { animation: gmp-rec 1s ease-in-out infinite; }
+@keyframes gmp-rec { 50% { box-shadow: 0 0 0 6px rgba(255, 90, 90, 0.35); } }
+@media (prefers-reduced-motion: reduce) { .gmp .b.mic[data-state='rec'] { animation: none; } }
+/* the keyboard is up: the page has been lifted above it, so the tab bar gives its room to the message box */
+.gmp.kb .gmp-tabs { display: none; }
+.gmp .sofar { margin: 8px 12px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+.gmp .sofar-head { border: 0; border-radius: 0; background: transparent; justify-content: flex-start; }
+.gmp .sofar-body { max-height: 34dvh; overflow-y: auto; padding: 4px 14px 12px; border-top: 1px solid var(--line); }
+.gmp .ag-sources { margin: 6px 0 0; padding-left: 16px; }
+.gmp .ag-sources a { display: inline-block; padding: 4px 0; }
+/* the notice for a spoken "Minerva, ..." request sits under the top bar, clear of the message box */
+.gmp .ag-toast { position: fixed; left: 12px; right: 12px; top: calc(64px + var(--safe-top)); bottom: auto; max-width: 536px; margin: 0 auto; z-index: 1030; align-items: center; }
+.gmp .ag-toast-open { flex: 1 1 0; min-height: 48px; font-size: 15px; justify-content: center; }
+.gmp .ag-toast .ag-x { min-width: 48px; min-height: 48px; font-size: 22px; }
+.gmp .msg { max-width: 92%; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); overflow-wrap: anywhere; }
+.gmp .msg.me { align-self: flex-end; border-color: var(--accent); background: var(--accent-bg); }
+.gmp .md p { margin: 0 0 6px; } .gmp .md ul, .gmp .md ol { margin: 0 0 6px; padding-left: 20px; }
+.gmp .line { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+.gmp .line.aside { border-color: var(--danger); background: var(--danger-bg); }
+
+/* the banner on the GM's table page (phone width only) */
+.gmp-banner.t-fantasy { min-height: 0; background: var(--accent-bg); }
+.gmp-banner { display: none; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border: 1px solid var(--accent); background: var(--accent-bg); border-radius: 12px; }
+@media (max-width: 760px) { .gmp-banner { display: flex; } }
+.gmp-banner a { flex: 1 1 0; min-height: 48px; display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--accent-strong); text-decoration: none; }
+.gmp-banner button { min-width: 48px; min-height: 48px; border: 0; background: transparent; color: var(--muted); font-size: 18px; cursor: pointer; }

@@ -1,9 +1,9 @@
 // How a broker question is routed (PLAN §1.5). The audit model, when one is
 // set, labels the question with scope, intent, type and confidence. Its input
-// is only the question, the real-world topics the DM allows and the titles of
-// pages players can read: never DM text. With no audit model (or if it fails),
+// is only the question, the real-world topics the GM allows and the titles of
+// pages players can read: never GM text. With no audit model (or if it fails),
 // plain keyword rules give the same labels. Keyword rules for spoilers and
-// meta-gaming also back the model up: they can only send a question to the DM,
+// meta-gaming also back the model up: they can only send a question to the GM,
 // never let one through.
 import type { Deps } from '../../app.ts';
 import { chat, chatJson, hasJob } from '../../core/ai.ts';
@@ -21,7 +21,7 @@ export interface Labels {
   confidence: number;
   /** Where the labels came from. */
   source: 'audit' | 'audit+rules' | 'rules';
-  /** One line for the DM. */
+  /** One line for the GM. */
   why: string;
 }
 
@@ -153,7 +153,7 @@ export function ruleAnswers(question: string, snippet: string): boolean {
 /**
  * Does the matched snippet (the player's copy, nothing else) answer the question?
  * The audit model says yes or no when there is one; without it the rules above decide.
- * "No" sends the question to the DM.
+ * "No" sends the question to the GM.
  */
 export async function answersQuestion(d: Deps, question: string, snippet: string): Promise<boolean> {
   const j: any = await chatJson(d, 'audit', [
@@ -166,7 +166,7 @@ export async function answersQuestion(d: Deps, question: string, snippet: string
 
 /**
  * An allowed real-world topic: the chat model answers in the broker's voice from general knowledge only.
- * It is given the question and the topic and nothing from the library, so it cannot repeat DM text.
+ * It is given the question and the topic and nothing from the library, so it cannot repeat GM text.
  * Null when there is no chat model (the question then goes the usual way).
  */
 export async function realWorldAnswer(d: Deps, persona: string, question: string, topic: string): Promise<string | null> {

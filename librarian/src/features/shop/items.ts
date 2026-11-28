@@ -1,7 +1,7 @@
 // The world's item database: what shops stock. Rows come from a game module
-// (the built-in SRD 5.2 / 5.1 modules, CC-BY-4.0, or a module the DM imported),
-// from a JSON or CSV file, or from the DM's own hand. Every row keeps where it
-// came from and that source's attribution. dm_notes is for the DM alone.
+// (the built-in SRD 5.2 / 5.1 modules, CC-BY-4.0, or a module the GM imported),
+// from a JSON or CSV file, or from the GM's own hand. Every row keeps where it
+// came from and that source's attribution. gm_notes is for the GM alone.
 //
 // Dedupe: an item's key is its name, lower-cased with punctuation folded
 // ("Thieves' Tools" = "thieves tools"). An import never adds a second row with
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS shop_items (
   source_ref TEXT,
   attribution TEXT NOT NULL DEFAULT '',
   tags TEXT NOT NULL DEFAULT '[]',
-  dm_notes TEXT NOT NULL DEFAULT '',
+  gm_notes TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   updated_by TEXT
@@ -54,15 +54,15 @@ CREATE TABLE IF NOT EXISTS shop_meta (
 export interface ItemRow {
   id: string; world_id: string; name: string; name_key: string; type: string; category: string; rarity: string;
   cost_cp: number | null; weight: number | null; description: string; properties: string; attunement: number;
-  source: string; source_label: string; source_ref: string | null; attribution: string; tags: string; dm_notes: string;
+  source: string; source_label: string; source_ref: string | null; attribution: string; tags: string; gm_notes: string;
   created_at: string; updated_at: string; updated_by: string | null;
 }
 
-/** An item as the DM sees it (the API shape). */
+/** An item as the GM sees it (the API shape). */
 export const itemOut = (r: ItemRow) => ({
   id: r.id, name: r.name, type: r.type, category: r.category, rarity: r.rarity, costCp: r.cost_cp, weight: r.weight,
   description: r.description, properties: r.properties, attunement: !!r.attunement, source: r.source, sourceLabel: r.source_label,
-  sourceRef: r.source_ref, attribution: r.attribution, tags: parseJson<string[]>(r.tags, []), dmNotes: r.dm_notes, updatedAt: r.updated_at,
+  sourceRef: r.source_ref, attribution: r.attribution, tags: parseJson<string[]>(r.tags, []), gmNotes: r.gm_notes, updatedAt: r.updated_at,
 });
 
 /** The key two items are the same by. */
@@ -159,7 +159,7 @@ export function fromTerm(t: Term): Omit<NewItem, 'source' | 'sourceLabel' | 'att
   }
   return {
     name, type, category: category || (magic ? '' : stats.some(([k]) => /damage/i.test(k)) ? 'Weapon' : stats.some(([k]) => /armor class/i.test(k)) ? 'Armor' : ''),
-    rarity, costCp, weight, description: rest.join('\n\n').slice(0, 8000), properties: props.join('; ').slice(0, 1000), attunement, tags: [], dmNotes: '', sourceRef: t.id,
+    rarity, costCp, weight, description: rest.join('\n\n').slice(0, 8000), properties: props.join('; ').slice(0, 1000), attunement, tags: [], gmNotes: '', sourceRef: t.id,
   };
 }
 
@@ -195,7 +195,7 @@ function typeOf(name: string, category: string, text: string, magic: boolean): I
 export interface NewItem {
   name: string; type: ItemType; category: string; rarity: ItemRarity; costCp: number | null; weight: number | null;
   description: string; properties: string; attunement: boolean; source: string; sourceLabel: string; sourceRef?: string | null;
-  attribution: string; tags: string[]; dmNotes: string;
+  attribution: string; tags: string[]; gmNotes: string;
 }
 
 const s = (v: unknown, max: number) => (v === undefined || v === null ? '' : String(v)).trim().slice(0, max);
@@ -228,22 +228,22 @@ export function cleanItem(b: any, defaults: { source?: string; sourceLabel?: str
     description: s(b?.description ?? b?.text ?? b?.desc, 8000), properties: s(Array.isArray(b?.properties) ? b.properties.join('; ') : b?.properties, 1000),
     attunement: boolOf(b?.attunement ?? b?.requiresAttunement), source, sourceLabel: s(b?.sourceLabel ?? b?.source_label, 80) || defaults.sourceLabel || (source === 'custom' ? 'Custom' : source),
     sourceRef: s(b?.sourceRef ?? b?.source_ref, 200) || null, attribution: s(b?.attribution, 1000) || defaults.attribution || '',
-    tags: tagsOf(b?.tags), dmNotes: s(b?.dmNotes ?? b?.dm_notes, 4000),
+    tags: tagsOf(b?.tags), gmNotes: s(b?.gmNotes ?? b?.gm_notes, 4000),
   };
 }
 
 export function insertItem(db: DB, worldId: string, it: NewItem, by: string | null): string {
   const iid = newId('sit_');
   const t = now();
-  run(db, `INSERT INTO shop_items (id, world_id, name, name_key, type, category, rarity, cost_cp, weight, description, properties, attunement, source, source_label, source_ref, attribution, tags, dm_notes, created_at, updated_at, updated_by)
+  run(db, `INSERT INTO shop_items (id, world_id, name, name_key, type, category, rarity, cost_cp, weight, description, properties, attunement, source, source_label, source_ref, attribution, tags, gm_notes, created_at, updated_at, updated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  iid, worldId, it.name, nameKey(it.name), it.type, it.category, it.rarity, it.costCp, it.weight, it.description, it.properties, it.attunement ? 1 : 0, it.source, it.sourceLabel, it.sourceRef ?? null, it.attribution, JSON.stringify(it.tags), it.dmNotes, t, t, by);
+  iid, worldId, it.name, nameKey(it.name), it.type, it.category, it.rarity, it.costCp, it.weight, it.description, it.properties, it.attunement ? 1 : 0, it.source, it.sourceLabel, it.sourceRef ?? null, it.attribution, JSON.stringify(it.tags), it.gmNotes, t, t, by);
   return iid;
 }
 
 export function updateItem(db: DB, iid: string, it: NewItem, by: string | null) {
-  run(db, `UPDATE shop_items SET name = ?, name_key = ?, type = ?, category = ?, rarity = ?, cost_cp = ?, weight = ?, description = ?, properties = ?, attunement = ?, source = ?, source_label = ?, source_ref = ?, attribution = ?, tags = ?, dm_notes = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
-    it.name, nameKey(it.name), it.type, it.category, it.rarity, it.costCp, it.weight, it.description, it.properties, it.attunement ? 1 : 0, it.source, it.sourceLabel, it.sourceRef ?? null, it.attribution, JSON.stringify(it.tags), it.dmNotes, now(), by, iid);
+  run(db, `UPDATE shop_items SET name = ?, name_key = ?, type = ?, category = ?, rarity = ?, cost_cp = ?, weight = ?, description = ?, properties = ?, attunement = ?, source = ?, source_label = ?, source_ref = ?, attribution = ?, tags = ?, gm_notes = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
+    it.name, nameKey(it.name), it.type, it.category, it.rarity, it.costCp, it.weight, it.description, it.properties, it.attunement ? 1 : 0, it.source, it.sourceLabel, it.sourceRef ?? null, it.attribution, JSON.stringify(it.tags), it.gmNotes, now(), by, iid);
 }
 
 export interface ImportResult { added: number; updated: number; skipped: number; errors: string[]; total: number; sample: string[]; duplicates: string[] }
@@ -304,7 +304,7 @@ export function ensureSeeded(db: DB, worldId: string, enabled: string[]) {
 
 // ---- CSV ------------------------------------------------------------------
 
-export const CSV_COLUMNS = ['name', 'type', 'category', 'rarity', 'cost', 'cost_cp', 'weight', 'attunement', 'description', 'properties', 'source', 'attribution', 'tags', 'dm_notes'] as const;
+export const CSV_COLUMNS = ['name', 'type', 'category', 'rarity', 'cost', 'cost_cp', 'weight', 'attunement', 'description', 'properties', 'source', 'attribution', 'tags', 'gm_notes'] as const;
 
 /** RFC 4180-ish: quoted fields, doubled quotes, CRLF or LF, a header row. */
 export function parseCsv(text: string): Record<string, string>[] {
@@ -335,7 +335,7 @@ const gpText = (cp: number | null) => (cp === null ? '' : `${Math.round(cp) / 10
 
 export function toCsv(rows: ItemRow[]): string {
   const L = [CSV_COLUMNS.join(',')];
-  for (const r of rows) L.push([r.name, r.type, r.category, r.rarity, gpText(r.cost_cp), r.cost_cp ?? '', r.weight ?? '', r.attunement ? 'yes' : '', r.description, r.properties, r.source, r.attribution, parseJson<string[]>(r.tags, []).join('; '), r.dm_notes].map(cell).join(','));
+  for (const r of rows) L.push([r.name, r.type, r.category, r.rarity, gpText(r.cost_cp), r.cost_cp ?? '', r.weight ?? '', r.attunement ? 'yes' : '', r.description, r.properties, r.source, r.attribution, parseJson<string[]>(r.tags, []).join('; '), r.gm_notes].map(cell).join(','));
   return L.join('\r\n') + '\r\n';
 }
 

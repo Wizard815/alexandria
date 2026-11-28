@@ -54,7 +54,7 @@ class SqliteVectorStore implements VectorStore {
     if (hit && hit.n === n && hit.max === max && hit.sum === sum) return hit.rows;
     // Only rows that have a state row: chunks cut under an older level scheme or left without state are never read.
     const select = `SELECT c.id, c.page_id, c.idx, c.text, c.vec FROM search_chunks c JOIN search_chunk_state s ON s.page_id = c.page_id AND s.scope = c.scope
-      WHERE c.world_id = ? AND c.scope = ? ${scope === 'dm' ? "AND s.model LIKE '%|lv1'" : ''}`;
+      WHERE c.world_id = ? AND c.scope = ? ${scope === 'gm' ? "AND s.model LIKE '%|lv1'" : ''}`;
     const toRow = (r: any): VectorRow & { id: number } => ({ id: Number(r.id), page: r.page_id as string, idx: Number(r.idx), text: r.text as string, v: fromBlob(r.vec) });
     // While pages are being embedded the rows only grow: read just the new ones (ids above the newest held) and check the totals add up.
     // Anything else (a page re-embedded, rows deleted) reads the scope again.
@@ -110,7 +110,7 @@ class SqliteVectorStore implements VectorStore {
   }
 
   counts(worldId: string): Record<VecScope, number> {
-    const out: Record<VecScope, number> = { dm: 0, broker: 0, party: 0, lifted: 0 };
+    const out: Record<VecScope, number> = { gm: 0, broker: 0, party: 0, lifted: 0 };
     for (const r of all<any>(this.db, 'SELECT scope, count(*) AS n FROM search_chunks WHERE world_id = ? GROUP BY scope', worldId)) if (r.scope in out) out[r.scope as VecScope] = Number(r.n);
     return out;
   }

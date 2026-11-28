@@ -1,6 +1,6 @@
 // The gateway admin's read-only summaries (/api/admin/gateway/*, admins only).
 //
-//   GET /overview      what the Overview page needs on top of /api/admin/overview: people waiting on a DM,
+//   GET /overview      what the Overview page needs on top of /api/admin/overview: people waiting on a GM,
 //                      what the guards stopped, devices, recent activity
 //   GET /source-keys   every world's source keys and escalated questions, as metadata only
 //   GET /guard         the page levels across worlds and what the guards stopped in the last 7 days
@@ -8,7 +8,7 @@
 //   GET /leak-check    the runtime leak check's history; POST /leak-check/run starts one (also nightly)
 //   GET /worlds        per world: player keys, shares, same-thing suggestions, the source trust setting
 //   POST /worlds/:id/links, PUT /worlds/:id/prefs   an admin's decisions for the two last cards
-//   GET /search        the admin's search across worlds (party copies unless the admin is that world's DM)
+//   GET /search        the admin's search across worlds (party copies unless the admin is that world's GM)
 //   GET /mcp           Alexandria's MCP address, tools and the keys that reach it (never a key)
 //
 // Being an admin does not open a world's secrets. These routes never return a key's secret, the hidden
@@ -35,7 +35,7 @@ const count = (db: DB, sql: string, ...args: unknown[]): number => {
 const rows = <T>(db: DB, sql: string, ...args: unknown[]): T[] => { try { return all<T>(db, sql, ...args); } catch { return []; } };
 const ago = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
 
-/** What the guards stopped. The detail text of these audit rows can hold DM-only words, so only the kind and the job are kept. */
+/** What the guards stopped. The detail text of these audit rows can hold GM-only words, so only the kind and the job are kept. */
 const GUARD_ACTIONS = ['agent.leak_blocked', 'ai.classified_refused'];
 function guardEvents(db: DB, since: string, limit: number) {
   return rows<any>(db, `SELECT a.id, a.action, a.detail, a.at, w.name AS world FROM audit a LEFT JOIN worlds w ON w.id = a.world_id
@@ -43,7 +43,7 @@ function guardEvents(db: DB, since: string, limit: number) {
     .map((e) => ({
       id: e.id, at: e.at, world: e.world ?? null, kind: e.action === 'agent.leak_blocked' ? 'player-reply' : 'model-request',
       what: e.action === 'agent.leak_blocked'
-        ? 'A player agent reply repeated text only the DM may see; it was replaced.'
+        ? 'A player agent reply repeated text only the GM may see; it was replaced.'
         : `A model request (${String(e.detail).split(' ')[0] || 'job'}) carried classified text and was refused before sending.`,
     }));
 }
@@ -110,7 +110,7 @@ const feature: Feature = {
         worlds: worlds.map((w) => {
           const nm = names(db, w.id);
           const keys = worldKeys(db, w.id).filter((k) => !k.revoked).map((k) => {
-            const v = keyView(db, k, nm, { dm: false }) as Record<string, any>;
+            const v = keyView(db, k, nm, { gm: false }) as Record<string, any>;
             return { ...v, userNames: (v.users as string[]).map((u) => nm[u] ?? 'Someone') };
           });
           const escalations = rows<EscRow>(db, 'SELECT * FROM sourcekeys_escalations WHERE world_id = ? ORDER BY created_at DESC LIMIT 100', w.id).map((e) => ({
@@ -123,9 +123,9 @@ const feature: Feature = {
     });
 
     r.get('/guard', (_req, res) => {
-      const levels = { party: 0, broker: 0, dm: 0, classified: 0 };
+      const levels = { party: 0, broker: 0, gm: 0, classified: 0 };
       for (const x of rows<{ visibility: string; n: number }>(db, 'SELECT visibility, COUNT(*) AS n FROM pages GROUP BY visibility')) {
-        if (x.visibility in levels) (levels as any)[x.visibility] += x.n; else levels.dm += x.n;
+        if (x.visibility in levels) (levels as any)[x.visibility] += x.n; else levels.gm += x.n;
       }
       res.json({
         levels,
@@ -147,7 +147,7 @@ const feature: Feature = {
           speakers: rows<any>(db, 'SELECT label, seen_at FROM sound_listeners WHERE world_id = ? AND (music = 1 OR ambience = 1 OR sfx = 1) ORDER BY seen_at DESC', w.id)
             .map((s) => ({ label: s.label || 'Unnamed device', seenAt: s.seen_at, connected: s.seen_at >= ago(1) })),
         })),
-        // Nothing registers the DM desktop app with the gateway yet, so there is no count to give.
+        // Nothing registers the GM desktop app with the gateway yet, so there is no count to give.
         desktopApps: null,
       });
     });

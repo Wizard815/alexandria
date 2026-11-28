@@ -1,8 +1,8 @@
 // End-to-end test of the Foundry VTT connection, with the real module:
-// - the DM opens DM → Foundry VTT, copies the manifest URL and makes a key;
+// - the GM opens GM → Foundry VTT, copies the manifest URL and makes a key;
 // - a stand-in Foundry world (librarian/test/foundry-stub.js) runs the real
 //   Alexandria Bridge module with that key, ticking like the GM's tab;
-// - the DM brings a scene in as a map, the tokens show on the Map page, fog
+// - the GM brings a scene in as a map, the tokens show on the Map page, fog
 //   set in Alexandria reaches Foundry, a player drags their own token on a
 //   phone and it moves in Foundry (uncovering fog), and a map goes out to
 //   Foundry as a new scene.
@@ -32,10 +32,10 @@ const until = async (fn, what, ms = 15000) => {
 
 const { srv } = await startScript('librarian/scripts/demo.ts', ['--port', String(PORT), '--data', path.join(tmpDir('foundry'), 'data'), '--web', path.join(root, 'web/dist')], 'Alexandria demo is running', 'demo');
 const login = async (u, p) => (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) })).json());
-const dmLogin = await login('dm', 'dungeon master 123');
-const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + dmLogin.token } })).json())[0].id;
+const gmLogin = await login('gm', 'game master 123');
+const WID = (await (await fetch(base + '/api/worlds', { headers: { Authorization: 'Bearer ' + gmLogin.token } })).json())[0].id;
 const api = async (method, p, body, raw) => {
-  const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': raw ? 'image/png' : 'application/json', Authorization: 'Bearer ' + dmLogin.token }, body: raw ?? (body ? JSON.stringify(body) : undefined) });
+  const r = await fetch(`${base}/api/worlds/${WID}${p}`, { method, headers: { 'Content-Type': raw ? 'image/png' : 'application/json', Authorization: 'Bearer ' + gmLogin.token }, body: raw ?? (body ? JSON.stringify(body) : undefined) });
   const j = await r.json().catch(() => null);
   if (!r.ok) throw new Error(`${method} ${p} -> ${r.status} ${JSON.stringify(j)}`);
   return j;
@@ -72,42 +72,42 @@ async function drawMap(page, w, h, seed) {
 
 let fd = null;
 try {
-  // ---- the DM sets up ----
-  const dmCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
-  const dm = await dmCtx.newPage();
-  watch(dm, 'dm');
-  await dm.goto(base + '/login');
-  await dm.getByLabel(/username/i).fill('dm');
-  await dm.getByLabel(/password/i).fill('dungeon master 123');
-  await dm.getByRole('button', { name: /sign in|log in/i }).click();
-  await dm.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
-  await dm.goto(`${base}/w/saltreach/dm/foundry`);
-  await dm.getByText('Not set up').waitFor();
-  const manifest = (await dm.getByTestId('foundry-manifest').textContent()).trim();
+  // ---- the GM sets up ----
+  const gmCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: SHOTS ? 2 : 1 });
+  const gm = await gmCtx.newPage();
+  watch(gm, 'gm');
+  await gm.goto(base + '/login');
+  await gm.getByLabel(/username/i).fill('gm');
+  await gm.getByLabel(/password/i).fill('game master 123');
+  await gm.getByRole('button', { name: /sign in|log in/i }).click();
+  await gm.waitForURL(/\/w\/saltreach/, { timeout: 15000 });
+  await gm.goto(`${base}/w/saltreach/gm/foundry`);
+  await gm.getByText('Not set up').waitFor();
+  const manifest = (await gm.getByTestId('foundry-manifest').textContent()).trim();
   check(manifest === `${base}/api/foundry/module.json`, `manifest URL shown: ${manifest}`);
   const man = await (await fetch(manifest)).json();
   check(man.id === 'alexandria-bridge' && man.download.endsWith('/api/foundry/module.zip'), 'Foundry can install from the manifest');
-  await dm.getByRole('button', { name: 'Make a bridge key' }).click();
-  const key = (await dm.getByTestId('foundry-key').textContent()).trim();
+  await gm.getByRole('button', { name: 'Make a bridge key' }).click();
+  const key = (await gm.getByTestId('foundry-key').textContent()).trim();
   check(/^alx_fvtt_/.test(key), `key shown once: ${key}`);
-  await shot(dm, '1-dm-setup');
+  await shot(gm, '1-gm-setup');
   note('manifest and key');
 
   // ---- Foundry connects ----
-  const keepPng = await drawMap(dm, 1600, 1000, 7);
+  const keepPng = await drawMap(gm, 1600, 1000, 7);
   fd = foundryWorld(base, key, keepPng);
   await fd.start();
-  await until(async () => /Connected to Sunken Realm/.test(await dm.getByTestId('foundry-state').textContent()), 'DM page shows Connected to the Foundry world');
-  await dm.getByText('Sunken Keep').first().waitFor();
-  check(await dm.getByText('Goblin Warrens').count() > 0, 'every scene listed');
-  check((await dm.getByLabel('Player for Jessamine').inputValue()) !== '', 'Jessamine linked to jess by name');
+  await until(async () => /Connected to Sunken Realm/.test(await gm.getByTestId('foundry-state').textContent()), 'GM page shows Connected to the Foundry world');
+  await gm.getByText('Sunken Keep').first().waitFor();
+  check(await gm.getByText('Goblin Warrens').count() > 0, 'every scene listed');
+  check((await gm.getByLabel('Player for Jessamine').inputValue()) !== '', 'Jessamine linked to jess by name');
   note('module connected; actors linked by name');
 
   // ---- bring the scene in ----
-  await dm.getByTestId('foundry-scene').filter({ hasText: 'Sunken Keep' }).getByRole('button', { name: 'Bring into Alexandria' }).click();
-  await until(async () => (await dm.getByTestId('foundry-scene').filter({ hasText: 'Sunken Keep' }).textContent()).includes('On the map sunken-keep'), 'scene linked to the map sunken-keep');
-  await until(async () => /3 tokens/.test(await dm.getByTestId('foundry-scene').filter({ hasText: 'Sunken Keep' }).textContent()), 'three tokens on the map');
-  await shot(dm, '2-dm-connected-scene-linked');
+  await gm.getByTestId('foundry-scene').filter({ hasText: 'Sunken Keep' }).getByRole('button', { name: 'Bring into Alexandria' }).click();
+  await until(async () => (await gm.getByTestId('foundry-scene').filter({ hasText: 'Sunken Keep' }).textContent()).includes('On the map sunken-keep'), 'scene linked to the map sunken-keep');
+  await until(async () => /3 tokens/.test(await gm.getByTestId('foundry-scene').filter({ hasText: 'Sunken Keep' }).textContent()), 'three tokens on the map');
+  await shot(gm, '2-gm-connected-scene-linked');
   const st = await api('GET', '/foundry');
   const keep = st.scenes.find((s) => s.name === 'Sunken Keep');
   note(`scene brought in as ${keep.pic}`);
@@ -118,12 +118,12 @@ try {
   await until(async () => fd.keep.getFlag('alexandria-bridge', 'fog')?.ops?.length === 2, 'fog reaches Foundry');
   note('fog drawn in Foundry');
 
-  // ---- the DM's map ----
-  await dm.goto(`${base}/w/saltreach/dm/map`);
-  await dm.getByRole('button', { name: 'sunken-keep' }).click();
-  await dm.locator('[data-token]').first().waitFor();
-  check(await dm.locator('[data-token]').count() === 3, 'the DM sees all three tokens');
-  await shot(dm, '3-dm-map-tokens-and-fog');
+  // ---- the GM's map ----
+  await gm.goto(`${base}/w/saltreach/gm/map`);
+  await gm.getByRole('button', { name: 'sunken-keep' }).click();
+  await gm.locator('[data-token]').first().waitFor();
+  check(await gm.locator('[data-token]').count() === 3, 'the GM sees all three tokens');
+  await shot(gm, '3-gm-map-tokens-and-fog');
 
   // ---- a player drags their own token on a phone ----
   const pCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: SHOTS ? 3 : 1 });
@@ -167,7 +167,7 @@ try {
     const px = Array.from(fd.fogPixels(f, W, H, 1));
     const d = fd.keep.dimensions;
     const toks = [...fd.keep.tokens.values()].map((t) => ({ n: t.name, x: (t.x - d.sceneX + 20) / d.sceneWidth, y: (t.y - d.sceneY + 20) / d.sceneHeight, c: t.disposition > 0 ? '#5fb3a8' : '#d06050' }));
-    const view = await dmCtx.newPage();
+    const view = await gmCtx.newPage();
     await view.setViewportSize({ width: 1280, height: 860 });
     await view.setContent(`<!doctype html><body style="margin:0;background:#0b0b0b;font:13px system-ui;color:#ddd"><div style="padding:8px 12px;background:#222;border-bottom:1px solid #444">Stand-in Foundry scene “Sunken Keep”, as a player sees it: Alexandria’s fog drawn by the module</div><div id="b" style="position:relative;width:1280px;height:800px"><img src="data:image/png;base64,${keepPng.toString('base64')}" style="position:absolute;inset:0;width:100%;height:100%"><canvas id="f" width="${W}" height="${H}" style="position:absolute;inset:0;width:100%;height:100%"></canvas></div></body>`);
     await view.evaluate(({ px, W, H, toks }) => {
@@ -181,16 +181,16 @@ try {
   }
 
   // ---- a map goes out to Foundry as a new scene ----
-  const harborPng = await drawMap(dm, 1200, 800, 99);
+  const harborPng = await drawMap(gm, 1200, 800, 99);
   const up = await api('POST', '/files?kind=map&level=party&name=harbor.png&title=Harbor%20map', undefined, harborPng);
-  await dm.goto(`${base}/w/saltreach/dm/foundry`);
-  await dm.getByLabel('Map picture to send').selectOption(`lib:${up.id}`);
-  await dm.getByLabel('Scene name').fill('The Harbor');
-  await dm.getByRole('button', { name: 'Make the scene' }).click();
+  await gm.goto(`${base}/w/saltreach/gm/foundry`);
+  await gm.getByLabel('Map picture to send').selectOption(`lib:${up.id}`);
+  await gm.getByLabel('Scene name').fill('The Harbor');
+  await gm.getByRole('button', { name: 'Make the scene' }).click();
   const made = await until(async () => fd.fv.api.game.scenes.find((s) => s.name === 'The Harbor'), 'the scene is made in Foundry');
   if (made) check(fd.fv.files[made.background.src]?.length === harborPng.length, 'with the picture saved in Foundry');
-  await until(async () => (await dm.getByTestId('foundry-scene').filter({ hasText: 'The Harbor' }).textContent()).includes('On the map the-harbor'), 'the new scene is linked');
-  await shot(dm, '7-dm-map-sent-to-foundry');
+  await until(async () => (await gm.getByTestId('foundry-scene').filter({ hasText: 'The Harbor' }).textContent()).includes('On the map the-harbor'), 'the new scene is linked');
+  await shot(gm, '7-gm-map-sent-to-foundry');
   note('map sent to Foundry as a scene');
 } catch (e) {
   problems.push(`crashed: ${e.stack ?? e}`);

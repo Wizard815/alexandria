@@ -1,4 +1,4 @@
-// The /v1 model gateway: who may spend the DM's provider credit, and how much.
+// The /v1 model gateway: who may spend the GM's provider credit, and how much.
 // And: no route that reaches a model works without a sign-in.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,27 +48,27 @@ test('ModelGateway_NothingReachesAModelWithoutASignIn', async () => {
   assert.equal(upstream.length, 0, 'no request left for a model');
 });
 
-test('ModelGateway_PlayersAndGuestsAreRefusedTheDmAndAdminAreNot', async () => {
+test('ModelGateway_PlayersAndGuestsAreRefusedTheGmAndAdminAreNot', async () => {
   const k = await kit();
   for (const who of ['jess', 'visitor']) {
     for (const [m, p, b] of [['GET', '/v1/models'], ['POST', '/v1/chat/completions', chat], ['POST', '/v1/embeddings', { input: ['a'] }]] as [string, string, unknown?][]) {
       const r = await k.call(m, p, k.T[who], b);
       assert.equal(r.status, 403, `${who} ${m} ${p} -> ${r.status}`);
-      assert.match(r.body.error, /DM and the admin/);
+      assert.match(r.body.error, /GM and the admin/);
     }
   }
   assert.equal(upstream.length, 0, 'a refused caller never reaches the model');
-  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.dm, chat)).status, 200, 'the DM may');
-  assert.equal((await k.call('POST', '/v1/embeddings', k.T.dm, { input: ['a'] })).status, 200);
+  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.gm, chat)).status, 200, 'the GM may');
+  assert.equal((await k.call('POST', '/v1/embeddings', k.T.gm, { input: ['a'] })).status, 200);
   // The admin is not a member of the world, and may.
   assert.equal((await k.call('GET', '/v1/models', k.T.admin)).status, 200);
-  // Another world's DM is a DM too: the gateway is the server's, not a world's.
-  assert.equal((await k.call('GET', '/v1/models', k.T.dm2)).status, 200);
+  // Another world's GM is a GM too: the gateway is the server's, not a world's.
+  assert.equal((await k.call('GET', '/v1/models', k.T.gm2)).status, 200);
 });
 
-test('ModelGateway_AScribeKeyIsRefusedEvenOnTheDmsAccountUntilTheAdminListsIt', async () => {
+test('ModelGateway_AScribeKeyIsRefusedEvenOnTheGmsAccountUntilTheAdminListsIt', async () => {
   const k = await kit();
-  const key = createKey(k.deps.db, k.ID.dm, 'scribe', 'leaky', k.W, 'write');
+  const key = createKey(k.deps.db, k.ID.gm, 'scribe', 'leaky', k.W, 'write');
   const r = await k.call('POST', '/v1/chat/completions', key.key, chat);
   assert.equal(r.status, 403, 'a leaked scribe key cannot spend the credit');
   assert.equal(upstream.length, 0);
@@ -91,7 +91,7 @@ test('ModelGateway_AListedPlayerHasADailyCapWithAClear429', async () => {
   assert.ok(Number(third.headers.get('retry-after')) > 0);
   assert.equal(upstream.length, 2, 'the refused request never reached the model');
   // Someone else is not affected.
-  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.dm, chat)).status, 200);
+  assert.equal((await k.call('POST', '/v1/chat/completions', k.T.gm, chat)).status, 200);
 });
 
 test('ModelGateway_ATokenCapStopsAnAccountThatSpentItsTokens', async () => {
@@ -105,28 +105,28 @@ test('ModelGateway_ATokenCapStopsAnAccountThatSpentItsTokens', async () => {
 });
 
 test('ModelGateway_APerMinuteRateLimitAnswers429', async () => {
-  const k = await kit({ ALX_V1_RATE_PER_MIN_DM: '3' });
-  for (let i = 0; i < 3; i++) assert.equal((await k.call('GET', '/v1/models', k.T.dm)).status, 200);
-  const r = await k.call('GET', '/v1/models', k.T.dm);
+  const k = await kit({ ALX_V1_RATE_PER_MIN_GM: '3' });
+  for (let i = 0; i < 3; i++) assert.equal((await k.call('GET', '/v1/models', k.T.gm)).status, 200);
+  const r = await k.call('GET', '/v1/models', k.T.gm);
   assert.equal(r.status, 429);
   assert.match(r.body.error, /3 a minute/);
 });
 
 test('ModelGateway_EveryCallIsLoggedForTheModelActivityView', async () => {
   const k = await kit();
-  await k.ok('POST', '/v1/chat/completions', k.T.dm, chat);
-  await k.ok('POST', '/v1/embeddings', k.T.dm, { input: ['a', 'b'] });
+  await k.ok('POST', '/v1/chat/completions', k.T.gm, chat);
+  await k.ok('POST', '/v1/embeddings', k.T.gm, { input: ['a', 'b'] });
   const a = await k.ok('GET', '/api/admin/models/activity', k.T.admin);
   const chatJob = a.jobs.find((j: any) => j.job === 'chat');
   assert.ok(chatJob && chatJob.lastHour >= 1, 'the chat call is counted');
   assert.ok(a.jobs.find((j: any) => j.job === 'extra'));
   const row = a.recent.find((r: any) => r.job === 'chat' && r.via === 'gateway');
-  assert.equal(row.accountId, k.ID.dm);
+  assert.equal(row.accountId, k.ID.gm);
   assert.equal(row.tokensIn, 11);
   assert.equal(row.tokensOut, 5);
   assert.ok(a.callers.some((c: any) => c.via === 'gateway' && c.job === 'chat'));
   // Only the admin reads it.
-  assert.equal((await k.call('GET', '/api/admin/models/activity', k.T.dm)).status, 403);
+  assert.equal((await k.call('GET', '/api/admin/models/activity', k.T.gm)).status, 403);
 });
 
 test('ModelGateway_TheRateLimiterAndCorsCoverTheGateway', async () => {
@@ -155,17 +155,17 @@ test('ModelGateway_TheRateLimiterAndCorsCoverTheGateway', async () => {
 test('ModelGateway_TheCallLogShowsWhoWhenModelTokensAndRefusedOrLimitedButNoPrompt', async () => {
   const k = await kit();
   await k.ok('PUT', '/api/admin/models/access', k.T.admin, { kind: 'account', id: k.ID.jess, dailyRequests: 1 });
-  await k.ok('POST', '/v1/chat/completions', k.T.dm, { ...chat, messages: [{ role: 'user', content: 'SECRET-PROMPT-TEXT' }] });
+  await k.ok('POST', '/v1/chat/completions', k.T.gm, { ...chat, messages: [{ role: 'user', content: 'SECRET-PROMPT-TEXT' }] });
   assert.equal((await k.call('POST', '/v1/chat/completions', k.T.jess, chat)).status, 200);
   assert.equal((await k.call('POST', '/v1/chat/completions', k.T.jess, chat)).status, 429, 'over the cap');
   assert.equal((await k.call('POST', '/v1/chat/completions', k.T.tom, chat)).status, 403, 'not listed');
   const g = await k.ok('GET', '/api/admin/models/activity/gateway', k.T.admin);
   assert.ok(!JSON.stringify(g).includes('SECRET-PROMPT-TEXT'), 'the prompt is never in the log');
-  const dmCall = g.calls.find((c: any) => c.accountId === k.ID.dm);
-  assert.equal(dmCall.outcome, 'passed');
-  assert.equal(dmCall.tokensIn, 11);
-  assert.equal(dmCall.model, 'chat-mock');
-  assert.ok(dmCall.username && dmCall.at && dmCall.status === 200);
+  const gmCall = g.calls.find((c: any) => c.accountId === k.ID.gm);
+  assert.equal(gmCall.outcome, 'passed');
+  assert.equal(gmCall.tokensIn, 11);
+  assert.equal(gmCall.model, 'chat-mock');
+  assert.ok(gmCall.username && gmCall.at && gmCall.status === 200);
   assert.ok(g.calls.some((c: any) => c.accountId === k.ID.jess && c.outcome === 'limited' && c.status === 429));
   assert.ok(g.calls.some((c: any) => c.accountId === k.ID.tom && c.outcome === 'refused' && c.status === 403));
   const jess = g.users.find((u: any) => u.accountId === k.ID.jess);
@@ -173,12 +173,12 @@ test('ModelGateway_TheCallLogShowsWhoWhenModelTokensAndRefusedOrLimitedButNoProm
   assert.equal(jess.limited, 1);
   assert.equal(jess.caps.dailyRequests, 1);
   assert.equal(jess.role, 'listed');
-  const dm = g.users.find((u: any) => u.accountId === k.ID.dm);
-  assert.equal(dm.tokens, 16);
-  assert.equal(dm.role, 'dm');
+  const gm = g.users.find((u: any) => u.accountId === k.ID.gm);
+  assert.equal(gm.tokens, 16);
+  assert.equal(gm.role, 'gm');
   assert.equal(g.users.find((u: any) => u.accountId === k.ID.tom).refused, 1);
   // Only the admin reads it; without a sign-in it is 401.
-  assert.equal((await k.call('GET', '/api/admin/models/activity/gateway', k.T.dm)).status, 403);
+  assert.equal((await k.call('GET', '/api/admin/models/activity/gateway', k.T.gm)).status, 403);
   assert.equal((await k.call('GET', '/api/admin/models/activity/gateway', k.T.jess)).status, 403);
   assert.equal((await k.call('GET', '/api/admin/models/activity/gateway', null)).status, 401);
 });

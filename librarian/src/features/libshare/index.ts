@@ -1,31 +1,31 @@
-// Sharing the library with players, made quick for the DM (routes under /api/worlds/:world/libshare).
+// Sharing the library with players, made quick for the GM (routes under /api/worlds/:world/libshare).
 //
 // One answer for every library page, file and folder: who can see it.
 //   party    everyone in the party
 //   players  only the players picked (the per-player shares of features/sourcekeys for a page, libshare_files for a file)
-//   dm       nobody but the DM
+//   gm       nobody but the GM
 // A folder gets a rule that covers its pages and files, also ones added or moved
 // in later (grants.ts reads it live, so nothing goes stale). Broker and classified
 // pages and files are never shared this way: classified can never be shared at all,
 // and a rule skips them. Sharing a page or file that holds classified blocks needs
 // an explicit `confirm`; so does every folder. "Send to players" also records the item
-// so players see it as new from the DM, and sends a live event to the people it is for.
+// so players see it as new from the GM, and sends a live event to the people it is for.
 // A recipient only ever gets what they can open: the same player copy of a page,
-// secret blocks and DM facts already cut.
+// secret blocks and GM facts already cut.
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { all, one, run, tx } from '../../core/db.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { normLevel } from '../../core/levels.ts';
 import { HttpError, id as newId, now } from '../../core/util.ts';
-import { ctx, isDM, me, memberIds, names } from '../../routes/_shared.ts';
+import { ctx, isGM, me, memberIds, names } from '../../routes/_shared.ts';
 import { mintTicket } from '../sound/ticket.ts';
 import { mayRead, pageOpenable } from '../libfiles/index.ts';
 import { SCHEMA, type FolderRule, inRule, liftable, rulesOf } from './grants.ts';
 import type { McpTool } from '../types.ts';
 
-type Mode = 'party' | 'players' | 'dm';
+type Mode = 'party' | 'players' | 'gm';
 interface Aud { mode: Mode | 'broker' | 'classified'; to: string[]; via: string[] }
 
 const enc = encodeURIComponent;
@@ -37,17 +37,17 @@ export default {
   worldRoutes: (d: Deps) => routes(d),
   mcpTools: [
     {
-      name: 'library_sharing', dmOnly: true,
-      description: 'DM: who can see what in the library: pages, files and folder rules shared with the whole party or chosen players, and who each is shared with.',
+      name: 'library_sharing', gmOnly: true,
+      description: 'GM: who can see what in the library: pages, files and folder rules shared with the whole party or chosen players, and who each is shared with.',
       props: {}, call: () => ({ method: 'GET', path: '/libshare/overview' }),
     },
     {
-      name: 'share_library_item', write: true, dmOnly: true,
-      description: "DM: share a library page, file or folder with everyone ('party'), only chosen players (list of player account ids), or nobody ('dm'). A folder rule also covers pages and files added later. Classified items can never be shared. notify=true also tells the players ('new from the DM').",
+      name: 'share_library_item', write: true, gmOnly: true,
+      description: "GM: share a library page, file or folder with everyone ('party'), only chosen players (list of player account ids), or nobody ('gm'). A folder rule also covers pages and files added later. Classified items can never be shared. notify=true also tells the players ('new from the GM').",
       props: {
         kind: { type: 'string', enum: ['page', 'file', 'folder'] }, id: { type: 'string', description: 'Page id or path, or file id (not for a folder)' },
         sourceId: { type: 'string', description: "Folder: the source id ('' for pages written in Alexandria)" }, path: { type: 'string', description: "Folder: its names joined with '/'" }, whole: { type: 'boolean', description: 'Folder: share the whole source (leave path empty)' },
-        to: { type: 'string', enum: ['party', 'players', 'dm'] }, players: { type: 'array', items: { type: 'string' } },
+        to: { type: 'string', enum: ['party', 'players', 'gm'] }, players: { type: 'array', items: { type: 'string' } },
         notify: { type: 'boolean' }, confirm: { type: 'boolean', description: 'Needed for a folder, or an item that holds classified text players never see' },
       },
       required: ['kind', 'to'],
@@ -90,17 +90,17 @@ function routes(d: Deps) {
   };
   const blocked = (what: string, pageLike: { visibility?: unknown; marker_level?: unknown }) => {
     const l = normLevel(pageLike.visibility);
-    if (l === 'classified' || pageLike.marker_level === 'classified') throw new HttpError(409, `${what} is classified and can never be shared. Classified content stays with the DM.`);
-    if (l === 'broker' || pageLike.marker_level === 'broker') throw new HttpError(409, `${what} is at the broker level. Change its level to DM only or Party first.`);
+    if (l === 'classified' || pageLike.marker_level === 'classified') throw new HttpError(409, `${what} is classified and can never be shared. Classified content stays with the GM.`);
+    if (l === 'broker' || pageLike.marker_level === 'broker') throw new HttpError(409, `${what} is at the broker level. Change its level to GM only or Party first.`);
   };
 
   // ---- Who can see what ----
 
-  /** The DM's own shares of pages: page id -> { star, ids }. */
-  const dmShares = (w: string) => {
+  /** The GM's own shares of pages: page id -> { star, ids }. */
+  const gmShares = (w: string) => {
     const map = new Map<string, { star: boolean; ids: Set<string> }>();
     try {
-      for (const s of all<any>(db, `SELECT s.page_id, s.to_id FROM sourcekeys_shares s WHERE s.world_id = ? AND s.kind = 'dm'`, w)) {
+      for (const s of all<any>(db, `SELECT s.page_id, s.to_id FROM sourcekeys_shares s WHERE s.world_id = ? AND s.kind = 'gm'`, w)) {
         const e = map.get(s.page_id) ?? { star: false, ids: new Set<string>() };
         if (s.to_id === '*') e.star = true; else e.ids.add(s.to_id);
         map.set(s.page_id, e);
@@ -118,12 +118,12 @@ function routes(d: Deps) {
     return map;
   };
 
-  function pageAud(pg: any, shares: ReturnType<typeof dmShares>, rules: FolderRule[], valid: Set<string>): Aud {
+  function pageAud(pg: any, shares: ReturnType<typeof gmShares>, rules: FolderRule[], valid: Set<string>): Aud {
     const lvl = normLevel(pg.visibility);
     if (lvl === 'classified' || pg.marker_level === 'classified') return { mode: 'classified', to: [], via: [] };
     if (lvl === 'broker' || pg.marker_level === 'broker') return { mode: 'broker', to: [], via: [] };
     if (lvl === 'party') return { mode: 'party', to: [], via: ['level'] };
-    if (!liftable(pg)) return { mode: 'dm', to: [], via: [] };
+    if (!liftable(pg)) return { mode: 'gm', to: [], via: [] };
     const via: string[] = [];
     let star = false;
     const ids = new Set<string>();
@@ -135,14 +135,14 @@ function routes(d: Deps) {
       if (rule.mode === 'party') star = true; else for (const x of rule.players) ids.add(x);
     }
     const to = [...ids].filter((x) => valid.has(x));
-    return star ? { mode: 'party', to: [], via } : to.length ? { mode: 'players', to, via } : { mode: 'dm', to: [], via: [] };
+    return star ? { mode: 'party', to: [], via } : to.length ? { mode: 'players', to, via } : { mode: 'gm', to: [], via: [] };
   }
 
   function fileAud(f: any, pg: any, page: Aud, fshares: ReturnType<typeof fileShares>, rules: FolderRule[], valid: Set<string>): Aud {
     const lvl = normLevel(f.level);
     if (lvl === 'classified') return { mode: 'classified', to: [], via: [] };
     if (lvl === 'broker') return { mode: 'broker', to: [], via: [] };
-    if (page.mode === 'classified' || page.mode === 'broker') return { mode: 'dm', to: [], via: [] };
+    if (page.mode === 'classified' || page.mode === 'broker') return { mode: 'gm', to: [], via: [] };
     const via: string[] = [];
     let star = false;
     const ids = new Set<string>();
@@ -159,13 +159,13 @@ function routes(d: Deps) {
       if (rule.mode === 'party') star = true; else for (const x of rule.players) ids.add(x);
     }
     const to = [...ids].filter((x) => valid.has(x));
-    return star ? { mode: 'party', to: [], via } : to.length ? { mode: 'players', to, via } : { mode: 'dm', to: [], via: [] };
+    return star ? { mode: 'party', to: [], via } : to.length ? { mode: 'players', to, via } : { mode: 'gm', to: [], via: [] };
   }
 
   function overview(w: string) {
     const rules = rulesOf(db, w);
     const valid = new Set(players(w));
-    const shares = dmShares(w);
+    const shares = gmShares(w);
     const fshares = fileShares(w);
     const nm = names(db, w);
     const srcRows = all<any>(db, 'SELECT id, name, kind FROM sources WHERE world_id = ?', w);
@@ -200,10 +200,10 @@ function routes(d: Deps) {
     };
   }
 
-  r.get('/overview', requireDM, (_req, res) => res.json(overview(W(res))));
+  r.get('/overview', requireGM, (_req, res) => res.json(overview(W(res))));
 
-  // What a share would do, so the DM can confirm: how many pages and files, what is skipped, whether text stays hidden.
-  r.get('/preview', requireDM, (req, res) => {
+  // What a share would do, so the GM can confirm: how many pages and files, what is skipped, whether text stays hidden.
+  r.get('/preview', requireGM, (req, res) => {
     const w = W(res);
     const kind = modeOf(req.query.kind, ['page', 'file', 'folder']);
     if (kind === 'folder') {
@@ -215,7 +215,7 @@ function routes(d: Deps) {
       const lv = (p: any) => (p.marker_level === 'classified' ? 'classified' : p.marker_level === 'broker' ? 'broker' : normLevel(p.visibility));
       return res.json({
         kind, pages: pages.length, files: files.length,
-        shareable: pages.filter((p) => lv(p) === 'dm' || lv(p) === 'party').length,
+        shareable: pages.filter((p) => lv(p) === 'gm' || lv(p) === 'party').length,
         skippedClassified: pages.filter((p) => lv(p) === 'classified').length + files.filter((f) => normLevel(f.level) === 'classified').length,
         skippedBroker: pages.filter((p) => lv(p) === 'broker').length + files.filter((f) => normLevel(f.level) === 'broker').length,
       });
@@ -234,9 +234,9 @@ function routes(d: Deps) {
     const classifiedText = L.hasClassified(w, pg.path);
     let hiddenParts = false;
     try {
-      const dm = L.get(w, pg.id, { accountId: '', role: 'dm' } as any) as any;
+      const gm = L.get(w, pg.id, { accountId: '', role: 'gm' } as any) as any;
       const pl = L.liftedCopy(w, pg.id);
-      hiddenParts = !!pl && String(dm.body ?? '').trim().length > String(pl.body ?? '').trim().length;
+      hiddenParts = !!pl && String(gm.body ?? '').trim().length > String(pl.body ?? '').trim().length;
     } catch { /* unreadable: say nothing */ }
     return { kind: 'page', title: pg.title, level: pg.marker_level === 'classified' ? 'classified' : lvl, classifiedText, hiddenParts, files: one<any>(db, 'SELECT COUNT(*) AS n FROM libfiles_files WHERE world_id = ? AND page_id = ?', w, pg.id)!.n };
   }
@@ -270,16 +270,16 @@ function routes(d: Deps) {
   };
 
   /**
-   * Tell everyone a share changed. The DM hears every page. A player hears, by id, only the pages they can open now
+   * Tell everyone a share changed. The GM hears every page. A player hears, by id, only the pages they can open now
    * or just lost (sent to that player alone), an id-free libfile signal for a file they hold on a page they cannot
    * open, and the id-free libshare signal. Guests and anyone else hear nothing. Fails closed: no reach, no ids.
    */
   const touch = (w: string, pageIds: string[], before: Reach | null) => {
     const ids = pageIds.slice(0, 200);
-    const dmOnly = (v: any) => v.role === 'dm';
+    const gmOnly = (v: any) => v.role === 'gm';
     for (const id of ids) {
-      d.hub.emit(w, 'page', { id }, dmOnly);
-      d.hub.emit(w, 'libfile', { pageId: id }, dmOnly);
+      d.hub.emit(w, 'page', { id }, gmOnly);
+      d.hub.emit(w, 'libfile', { pageId: id }, gmOnly);
     }
     const after = before ? reachOf(w, ids) : null;
     if (before && after) {
@@ -295,41 +295,41 @@ function routes(d: Deps) {
         if (was?.files || now_?.files) d.hub.emit(w, 'libfile', {}, only);
       }
     }
-    d.hub.emit(w, 'libshare', {}, (v) => v.role === 'dm' || v.role === 'player');
+    d.hub.emit(w, 'libshare', {}, (v) => v.role === 'gm' || v.role === 'player');
   };
 
   function setPage(w: string, by: string, pg: any, mode: Mode, to: string[]) {
     blocked(`“${pg.title}”`, pg);
     const lvl = normLevel(pg.visibility);
     tx(db, () => {
-      try { run(db, `DELETE FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? AND kind = 'dm'`, w, pg.id); } catch { /* sharing not installed */ }
-      if (mode === 'dm') { if (lvl === 'party') L.setLevel(w, pg.id, 'dm', by); return; }
+      try { run(db, `DELETE FROM sourcekeys_shares WHERE world_id = ? AND page_id = ? AND kind = 'gm'`, w, pg.id); } catch { /* sharing not installed */ }
+      if (mode === 'gm') { if (lvl === 'party') L.setLevel(w, pg.id, 'gm', by); return; }
       if (mode === 'party') { if (lvl !== 'party') insertShares(w, by, pg.id, ['*']); return; }
-      if (lvl === 'party') L.setLevel(w, pg.id, 'dm', by);
+      if (lvl === 'party') L.setLevel(w, pg.id, 'gm', by);
       insertShares(w, by, pg.id, to);
     });
     L.touchClassified();
     L.changed(w, [pg.id]);
   }
   const insertShares = (w: string, by: string, pageId: string, to: string[]) => {
-    for (const t of to) run(db, `INSERT OR REPLACE INTO sourcekeys_shares (world_id, page_id, from_id, to_id, kind, created_at) VALUES (?, ?, ?, ?, 'dm', ?)`, w, pageId, by, t, now());
+    for (const t of to) run(db, `INSERT OR REPLACE INTO sourcekeys_shares (world_id, page_id, from_id, to_id, kind, created_at) VALUES (?, ?, ?, ?, 'gm', ?)`, w, pageId, by, t, now());
   };
 
   function setFile(w: string, by: string, f: any, mode: Mode, to: string[]) {
     const lvl = normLevel(f.level);
-    if (lvl === 'classified') throw new HttpError(409, `“${f.name}” is classified and can never be shared. Classified content stays with the DM.`);
-    if (lvl === 'broker') throw new HttpError(409, `“${f.name}” is at the broker level. Change its level to DM only or Party first.`);
+    if (lvl === 'classified') throw new HttpError(409, `“${f.name}” is classified and can never be shared. Classified content stays with the GM.`);
+    if (lvl === 'broker') throw new HttpError(409, `“${f.name}” is at the broker level. Change its level to GM only or Party first.`);
     const pg = pageRow(w, f.page_id);
-    if (mode !== 'dm') blocked(`The page “${pg.title}”`, pg);
+    if (mode !== 'gm') blocked(`The page “${pg.title}”`, pg);
     tx(db, () => {
       run(db, 'DELETE FROM libshare_files WHERE world_id = ? AND file_id = ?', w, f.id);
       if (mode === 'party') {
         run(db, `UPDATE libfiles_files SET level = 'party' WHERE id = ?`, f.id);
         run(db, `INSERT INTO libshare_files (world_id, file_id, to_id, by_id, at) VALUES (?, ?, '*', ?, ?)`, w, f.id, by, now());
       } else if (mode === 'players') {
-        run(db, `UPDATE libfiles_files SET level = 'dm' WHERE id = ?`, f.id);
+        run(db, `UPDATE libfiles_files SET level = 'gm' WHERE id = ?`, f.id);
         for (const t of to) run(db, 'INSERT INTO libshare_files (world_id, file_id, to_id, by_id, at) VALUES (?, ?, ?, ?, ?)', w, f.id, t, by, now());
-      } else run(db, `UPDATE libfiles_files SET level = 'dm' WHERE id = ?`, f.id);
+      } else run(db, `UPDATE libfiles_files SET level = 'gm' WHERE id = ?`, f.id);
     });
     audit(db, w, by, 'libfile.update', `${f.name} share ${mode}`);
   }
@@ -338,22 +338,22 @@ function routes(d: Deps) {
     const sid = newId('lsn_');
     const toIds = mode === 'party' ? ['*'] : to;
     run(db, 'INSERT INTO libshare_sent (id, world_id, kind, item_id, title, to_ids, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', sid, w, kind, itemId, title.slice(0, 200), JSON.stringify(toIds), by, now());
-    d.hub.emit(w, 'libshare-new', { id: sid, kind, itemId, title: title.slice(0, 200) }, (v) => v.role === 'dm' || (v.role === 'player' && (toIds.includes('*') || toIds.includes(v.accountId))));
+    d.hub.emit(w, 'libshare-new', { id: sid, kind, itemId, title: title.slice(0, 200) }, (v) => v.role === 'gm' || (v.role === 'player' && (toIds.includes('*') || toIds.includes(v.accountId))));
     void pageIds;
     return sid;
   }
 
   const needConfirm = (res: any, message: string) => res.status(409).json({ error: message, needsConfirm: true });
 
-  r.put('/share', requireDM, (req, res) => {
+  r.put('/share', requireGM, (req, res) => {
     const w = W(res);
     const by = me(res);
     const b = req.body ?? {};
     const kind = modeOf(b.kind, ['page', 'file', 'folder']);
-    const mode = modeOf(b.mode ?? b.to, kind === 'folder' ? ['party', 'players', 'dm', 'off'] : ['party', 'players', 'dm']);
-    const mm: Mode = mode === 'off' ? 'dm' : (mode as Mode);
+    const mode = modeOf(b.mode ?? b.to, kind === 'folder' ? ['party', 'players', 'gm', 'off'] : ['party', 'players', 'gm']);
+    const mm: Mode = mode === 'off' ? 'gm' : (mode as Mode);
     const to = mm === 'players' ? cleanPlayers(w, b.players) : [];
-    const notify = b.notify === true && mm !== 'dm';
+    const notify = b.notify === true && mm !== 'gm';
     let title = '';
     let itemId = '';
     const touched: string[] = [];
@@ -363,21 +363,21 @@ function routes(d: Deps) {
 
     if (kind === 'page') {
       const pg = pageRow(w, b.id);
-      if (mm !== 'dm' && L.hasClassified(w, pg.path) && normLevel(pg.visibility) !== 'classified' && b.confirm !== true) return needConfirm(res, `“${pg.title}” has classified text. Players never see it, only the party parts of the page. Share anyway?`);
+      if (mm !== 'gm' && L.hasClassified(w, pg.path) && normLevel(pg.visibility) !== 'classified' && b.confirm !== true) return needConfirm(res, `“${pg.title}” has classified text. Players never see it, only the party parts of the page. Share anyway?`);
       before = reachOf(w, [pg.id]);
       setPage(w, by, pg, mm, to);
       if (b.withFiles === true) for (const f of all<any>(db, 'SELECT * FROM libfiles_files WHERE world_id = ? AND page_id = ?', w, pg.id)) {
-        if (['party', 'dm'].includes(normLevel(f.level))) setFile(w, by, f, mm, to);
+        if (['party', 'gm'].includes(normLevel(f.level))) setFile(w, by, f, mm, to);
       }
       title = pg.title; itemId = pg.id; touched.push(pg.id);
       audit(db, w, by, 'libshare.page', `${pg.path} ${mm}${to.length ? ` ${to.length} players` : ''}`);
     } else if (kind === 'file') {
       const f = fileRow(w, b.id);
       const pg = pageRow(w, f.page_id);
-      if (mm !== 'dm' && b.withPage === true && L.hasClassified(w, pg.path) && b.confirm !== true) return needConfirm(res, `The page “${pg.title}” has classified text. Players never see it, only the party parts of the page. Share the page anyway?`);
+      if (mm !== 'gm' && b.withPage === true && L.hasClassified(w, pg.path) && b.confirm !== true) return needConfirm(res, `The page “${pg.title}” has classified text. Players never see it, only the party parts of the page. Share the page anyway?`);
       before = reachOf(w, [pg.id]);
       setFile(w, by, f, mm, to);
-      if (b.withPage === true && mm !== 'dm') setPage(w, by, pg, mm, to);
+      if (b.withPage === true && mm !== 'gm') setPage(w, by, pg, mm, to);
       title = f.name; itemId = f.id; touched.push(pg.id);
       audit(db, w, by, 'libshare.file', `${f.name} ${mm}${to.length ? ` ${to.length} players` : ''}`);
     } else {
@@ -391,11 +391,11 @@ function routes(d: Deps) {
       const rule: FolderRule = { sourceId, path, mode: 'party', players: [], by, at: now() };
       const inside = folderPages(w, rule);
       if (!inside.length && mode !== 'off') throw new HttpError(404, 'There is nothing in that folder');
-      if (mode !== 'off' && mm !== 'dm' && b.confirm !== true) return needConfirm(res, `Share everything in “${label}”${path ? '' : ' (the whole source)'}, including pages and files added later? Classified and broker pages are skipped.`);
+      if (mode !== 'off' && mm !== 'gm' && b.confirm !== true) return needConfirm(res, `Share everything in “${label}”${path ? '' : ' (the whole source)'}, including pages and files added later? Classified and broker pages are skipped.`);
       before = reachOf(w, inside.map((p) => p.id));
       tx(db, () => {
         run(db, 'DELETE FROM libshare_folders WHERE world_id = ? AND source_id = ? AND path = ?', w, sourceId, path);
-        if (mm !== 'dm') run(db, 'INSERT INTO libshare_folders (world_id, source_id, path, mode, players, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)', w, sourceId, path, mm, JSON.stringify(to), by, now());
+        if (mm !== 'gm') run(db, 'INSERT INTO libshare_folders (world_id, source_id, path, mode, players, by_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)', w, sourceId, path, mm, JSON.stringify(to), by, now());
       });
       title = path ? path.split('/').pop() || path : srcLabel; itemId = `${sourceId}|${path}`;
       for (const p of inside) touched.push(p.id);
@@ -408,7 +408,7 @@ function routes(d: Deps) {
     res.json({ ok: true, sent, ...overview(w) });
   });
 
-  // ---- Players: what is new from the DM ----
+  // ---- Players: what is new from the GM ----
 
   const seenAt = (w: string, acc: string): string => one<any>(db, 'SELECT at FROM libshare_seen WHERE world_id = ? AND account_id = ?', w, acc)?.at ?? '';
 
@@ -416,18 +416,18 @@ function routes(d: Deps) {
     const c = ctx(res);
     const w = W(res);
     const v = c.viewer;
-    if (v.role !== 'dm' && v.role !== 'player') return res.json({ items: [], newCount: 0 });
+    if (v.role !== 'gm' && v.role !== 'player') return res.json({ items: [], newCount: 0 });
     const since = new Date(Date.now() - 30 * 86400_000).toISOString();
     const rows = all<any>(db, 'SELECT * FROM libshare_sent WHERE world_id = ? AND at > ? ORDER BY at DESC LIMIT 200', w, since);
-    const seen = isDM(res) ? now() : seenAt(w, me(res));
-    const lifted = isDM(res) ? new Set<string>() : d.library.liftedPages(w, me(res));
+    const seen = isGM(res) ? now() : seenAt(w, me(res));
+    const lifted = isGM(res) ? new Set<string>() : d.library.liftedPages(w, me(res));
     const nm = names(db, w);
     const items: any[] = [];
     for (const s of rows) {
       const ids: string[] = JSON.parse(s.to_ids || '[]');
-      if (!isDM(res) && !ids.includes('*') && !ids.includes(me(res))) continue;
-      const base: any = { id: s.id, kind: s.kind, itemId: s.item_id, title: s.title, at: s.at, isNew: s.at > seen, from: nm[s.by_id] ?? 'The DM' };
-      if (isDM(res)) { items.push({ ...base, to: ids, toNames: ids.map((x) => (x === '*' ? 'Everyone' : nm[x] ?? 'Someone')) }); continue; }
+      if (!isGM(res) && !ids.includes('*') && !ids.includes(me(res))) continue;
+      const base: any = { id: s.id, kind: s.kind, itemId: s.item_id, title: s.title, at: s.at, isNew: s.at > seen, from: nm[s.by_id] ?? 'The GM' };
+      if (isGM(res)) { items.push({ ...base, to: ids, toNames: ids.map((x) => (x === '*' ? 'Everyone' : nm[x] ?? 'Someone')) }); continue; }
       // Checked again now: it is shown only while this player can still open it.
       const openPage = (pid: string) => {
         const p = one<any>(db, 'SELECT id, title, visibility FROM pages WHERE world_id = ? AND id = ?', w, pid);

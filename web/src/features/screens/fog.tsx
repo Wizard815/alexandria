@@ -1,6 +1,6 @@
-// Fog of war on a map picture, and the DM's choice of which picture the table screen shows.
+// Fog of war on a map picture, and the GM's choice of which picture the table screen shows.
 // The server owns the truth (and keeps marks under fog away from players); this only draws it. Fog is a canvas laid over the
-// map: opaque for players and the table screen, a translucent tint for the DM. The picture itself is not drawn until the fog
+// map: opaque for players and the table screen, a translucent tint for the GM. The picture itself is not drawn until the fog
 // state for it has arrived, so a fogged map never flashes uncovered.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from 'react';
 import { useLoad, useWorld } from '../../lib/world.tsx';
@@ -25,7 +25,7 @@ export function useFog(mapId: string, pic: string, view?: 'players') {
   return { ready: !!fresh, state: fresh, error: q.error, reload: q.reload };
 }
 
-/** Which map picture the table screen shows (the DM's choice). mapId and pic are null until the DM has chosen. */
+/** Which map picture the table screen shows (the GM's choice). mapId and pic are null until the GM has chosen. */
 export function useTableDisplay() {
   const { w } = useWorld();
   const q = useLoad<{ mapId: string | null; pic: string | null; version: number }>(() => w.call('GET', '/fog/table'), [w], ['table-display']);
@@ -48,7 +48,7 @@ export function useMapPictures(view?: 'players') {
   return { options, loading: libMaps.loading || imported.loading };
 }
 
-/** The picture a map shows when nothing says otherwise: the DM's local choice on the Map page, else the first one. */
+/** The picture a map shows when nothing says otherwise: the GM's local choice on the Map page, else the first one. */
 export function pickPicture(options: MapPic[], want: string): MapPic | null {
   return want === 'none' ? null : options.find((o) => o.value === want) ?? options[0] ?? null;
 }
@@ -87,7 +87,7 @@ function paint(c: HTMLCanvasElement, base: string | null, ops: FogOp[]) {
 }
 
 /**
- * The fog, drawn over its parent (which must be positioned). `tint` is the DM's see-through version; players get it opaque.
+ * The fog, drawn over its parent (which must be positioned). `tint` is the GM's see-through version; players get it opaque.
  * `extra` is strokes being drawn that the server has not confirmed yet.
  */
 export function FogCanvas({ state, extra = [], tint = false }: { state: Pick<FogState, 'enabled' | 'base' | 'ops'>; extra?: FogOp[]; tint?: boolean }) {
@@ -122,7 +122,7 @@ export function pictureStyle(pic: MapPic | null, ready: boolean): CSSProperties 
 
 type Tool = 'circle' | 'rect';
 
-/** The DM's fog controls for one map picture: what to draw, and the writes. */
+/** The GM's fog controls for one map picture: what to draw, and the writes. */
 export function useFogEditor(mapId: string, pic: string, fog: { state: FogState | null; reload: () => Promise<void> | void }, onFirstUse?: () => void) {
   const { w } = useWorld();
   const [tool, setTool] = useState<Tool>('circle');

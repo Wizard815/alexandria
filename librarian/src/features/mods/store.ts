@@ -238,7 +238,7 @@ export function setEnabled(db: DB, worldId: string, modId: string, on: boolean, 
   });
 }
 
-/** Change the DM's options. A rule that is on re-applies presets that read an option. */
+/** Change the GM's options. A rule that is on re-applies presets that read an option. */
 export function setOptions(db: DB, worldId: string, modId: string, patch: Record<string, unknown>, by: string | null): { options: Record<string, unknown>; settingsChanged: boolean } {
   return tx(db, () => {
     const m = getMod(db, worldId, modId);
@@ -334,10 +334,10 @@ export interface ActResult { modId: string; action: string; accountId: string; r
 /** May `actor` run `a` on `target`'s character? */
 export function mayAct(a: Action, actor: Actor, target: string): boolean {
   switch (a.by) {
-    case 'dm': return actor.role === 'dm';
+    case 'gm': return actor.role === 'gm';
     case 'owner': return actor.role === 'player' && actor.accountId === target;
     case 'player': return actor.role === 'player';
-    case 'any': return actor.role === 'dm' || (actor.role === 'player' && actor.accountId === target);
+    case 'any': return actor.role === 'gm' || (actor.role === 'player' && actor.accountId === target);
   }
 }
 
@@ -347,7 +347,7 @@ export function planAct(db: DB, worldId: string, m: Installed, actionId: string,
   const a = m.mod.actions.find((x) => x.id === actionId);
   if (!a) throw new HttpError(404, `${m.mod.name} has no action ${String(actionId).slice(0, 40)}`);
   if (roleOf(db, worldId, target) !== 'player') throw new HttpError(404, 'That player is not in this world');
-  if (!mayAct(a, actor, target)) throw new HttpError(403, a.by === 'dm' ? 'Only the DM can do that' : a.by === 'owner' ? 'Only that character\'s player can do that' : 'You cannot do that');
+  if (!mayAct(a, actor, target)) throw new HttpError(403, a.by === 'gm' ? 'Only the GM can do that' : a.by === 'owner' ? 'Only that character\'s player can do that' : 'You cannot do that');
   const rid = a.resource === '*' ? resourceId : a.resource;
   const r = m.mod.resources.find((x) => x.id === rid);
   if (!r) throw new HttpError(400, a.resource === '*' ? `Say which one: ${m.mod.resources.map((x) => x.id).join(', ')}` : `Unknown resource ${String(rid)}`);

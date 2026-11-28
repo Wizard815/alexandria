@@ -69,9 +69,9 @@ const upOk = async (...a: Parameters<typeof upload>) => {
   return r.body;
 };
 async function newSession() {
-  const act = await ok('GET', `${A()}/status`, T.dm);
-  if (act.session) await ok('POST', `${A()}/sessions/${act.session.id}/stop`, T.dm);
-  return (await ok('POST', `${A()}/sessions`, T.dm, { name: 'Test session' })).id as string;
+  const act = await ok('GET', `${A()}/status`, T.gm);
+  if (act.session) await ok('POST', `${A()}/sessions/${act.session.id}/stop`, T.gm);
+  return (await ok('POST', `${A()}/sessions`, T.gm, { name: 'Test session' })).id as string;
 }
 const lines = async (who: string, sid: string) => (await ok('GET', `${A()}/sessions/${sid}/lines`, T[who])).lines as any[];
 const hold = (who: string, sid: string, mic: string | null, kind: string, start: number, end: number) =>
@@ -119,12 +119,12 @@ before(async () => {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  const dm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' });
-  ID.dm = dm.account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Audioland', dmAccountId: ID.dm })).id;
+  const gm = await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' });
+  ID.gm = gm.account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Audioland', gmAccountId: ID.gm })).id;
   for (const name of ['jess', 'tom', 'zed']) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: name, password: 'player pass 123', characterName: name === 'jess' ? 'Jessamine' : name });
     T[name] = j.token;
     ID[name] = j.account.id;
@@ -132,11 +132,11 @@ before(async () => {
   await ok('POST', `${A()}/consent`, T.jess, { agree: true });
   await ok('POST', `${A()}/consent`, T.tom, { agree: true });
   const mic = async (who: string, key: string, body: any) => { MIC[key] = (await ok('POST', `${A()}/mics`, T[who], { deviceId: 'dev-' + key, ...body })).id; };
-  await mic('dm', 'table', { label: 'Table', mode: 'always', playersTranscript: true, aside: false });
-  await mic('dm', 'headset', { label: 'DM headset', mode: 'hold-to-talk', playersTranscript: false, aside: false });
-  await mic('dm', 'dmalways', { label: 'DM private', mode: 'always', playersTranscript: false, aside: false, room: false });
-  await mic('dm', 'talkpub', { label: 'Talk mic', mode: 'hold-to-talk', playersTranscript: true, aside: false });
-  await mic('dm', 'mutable', { label: 'Mute mic', mode: 'hold-to-mute', playersTranscript: true, aside: false });
+  await mic('gm', 'table', { label: 'Table', mode: 'always', playersTranscript: true, aside: false });
+  await mic('gm', 'headset', { label: 'GM headset', mode: 'hold-to-talk', playersTranscript: false, aside: false });
+  await mic('gm', 'dmalways', { label: 'GM private', mode: 'always', playersTranscript: false, aside: false, room: false });
+  await mic('gm', 'talkpub', { label: 'Talk mic', mode: 'hold-to-talk', playersTranscript: true, aside: false });
+  await mic('gm', 'mutable', { label: 'Mute mic', mode: 'hold-to-mute', playersTranscript: true, aside: false });
   await mic('jess', 'jess', { label: 'Jess phone', mode: 'always' });
   await mic('tom', 'tom', { label: 'Tom phone', mode: 'always' });
   await mic('zed', 'zed', { label: 'Zed phone', mode: 'always' });
@@ -150,7 +150,7 @@ test('Audio_consent: players must agree before any upload is accepted', async ()
   assert.equal(r.status, 403, 'no consent, no upload');
   assert.ok(!fs.existsSync(path.join(tmp, 'data', 'audio', W, sid)), 'nothing was stored');
   assert.equal(one<any>(deps.db, 'SELECT COUNT(*) AS n FROM audio_chunks WHERE session_id = ?', sid).n, 0);
-  assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.dm)).lines.length, 0);
+  assert.equal((await ok('GET', `${A()}/sessions/${sid}/lines`, T.gm)).lines.length, 0);
   await ok('POST', `${A()}/consent`, T.zed, { agree: true });
   await upOk('zed', sid, 'zed', 0, 0, 'hello there friend');
   await ok('POST', `${A()}/consent`, T.zed, { agree: false });
@@ -158,17 +158,17 @@ test('Audio_consent: players must agree before any upload is accepted', async ()
   const st = await ok('GET', `${A()}/status`, T.zed);
   assert.equal(st.consent.agreed, false);
   assert.equal(st.recording, true);
-  // the DM's consent text is a world setting
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { recordingConsentText: 'Everyone agrees, ok?' });
+  // the GM's consent text is a world setting
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { recordingConsentText: 'Everyone agrees, ok?' });
   assert.equal((await ok('GET', `${A()}/consent`, T.zed)).text, 'Everyone agrees, ok?');
-  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.dm, { audioRetentionDays: 0 })).status, 400);
+  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.gm, { audioRetentionDays: 0 })).status, 400);
 });
 
 test('Audio_mics: a player has one mic; a player cannot use another account\'s mic', async () => {
   const again = await ok('POST', `${A()}/mics`, T.jess, { deviceId: 'other-device', label: 'New phone', mode: 'hold-to-talk' });
   assert.equal(again.id, MIC.jess, 'the single player mic is reused');
   assert.equal((await ok('GET', `${A()}/mics`, T.jess)).length, 1);
-  assert.ok((await ok('GET', `${A()}/mics`, T.dm)).length >= 8);
+  assert.ok((await ok('GET', `${A()}/mics`, T.gm)).length >= 8);
   await ok('POST', `${A()}/mics`, T.jess, { deviceId: 'dev-jess', label: 'Jess phone', mode: 'always', aside: true, playersTranscript: false });
   const m = (await ok('GET', `${A()}/mics`, T.jess))[0];
   assert.equal(m.aside, false, 'players cannot make an aside mic');
@@ -177,29 +177,29 @@ test('Audio_mics: a player has one mic; a player cannot use another account\'s m
   assert.equal((await upload('tom', sid, 'jess', 0, 0, 'borrowed mic')).status, 403);
   assert.equal((await call('POST', `${A()}/sessions/${sid}/holds`, T.jess, { micId: MIC.jess, kind: 'aside', start: 0, end: 10 })).status, 403, 'players cannot mark asides');
   assert.equal((await call('POST', `${A()}/sessions`, T.jess, {})).status, 403);
-  assert.equal((await call('POST', `${A()}/sessions`, T.dm, {})).status, 409, 'one active session at a time');
+  assert.equal((await call('POST', `${A()}/sessions`, T.gm, {})).status, 409, 'one active session at a time');
   await ok('POST', `${A()}/mics`, T.jess, { deviceId: 'dev-jess', label: 'Jess phone', mode: 'always' });
 });
 
 test('Audio_upload: format, size and ownership are checked', async () => {
   const sid = await newSession();
-  const bad = await call('POST', `${A()}/sessions/${sid}/chunks?mic=${MIC.table}&seq=0&start=0&end=5000`, T.dm, undefined, Buffer.from('not audio at all'));
+  const bad = await call('POST', `${A()}/sessions/${sid}/chunks?mic=${MIC.table}&seq=0&start=0&end=5000`, T.gm, undefined, Buffer.from('not audio at all'));
   assert.equal(bad.status, 415);
-  const big = await call('POST', `${A()}/sessions/${sid}/chunks?mic=${MIC.table}&seq=0&start=0&end=5000`, T.dm, undefined, Buffer.concat([WEBM, Buffer.alloc(2.1 * 1024 * 1024)]));
+  const big = await call('POST', `${A()}/sessions/${sid}/chunks?mic=${MIC.table}&seq=0&start=0&end=5000`, T.gm, undefined, Buffer.concat([WEBM, Buffer.alloc(2.1 * 1024 * 1024)]));
   assert.equal(big.status, 413);
-  const r = await upOk('dm', sid, 'table', 0, 0, 'plain words here');
+  const r = await upOk('gm', sid, 'table', 0, 0, 'plain words here');
   assert.equal(r.status, 'done');
-  const dup = await upload('dm', sid, 'table', 0, 0, 'plain words here');
+  const dup = await upload('gm', sid, 'table', 0, 0, 'plain words here');
   assert.equal(dup.body.duplicate, true);
   assert.ok(fs.existsSync(path.join(tmp, 'data', 'audio', W, sid, MIC.table, '0.webm')), 'stored under audio/<world>/<session>/<mic>/<seq>.webm');
 });
 
 test('Audio_merge: three mics hearing the same words make one line, credited to the closest mic', async () => {
   const sid = await newSession();
-  await upOk('dm', sid, 'table', 0, 10_000, 'the quick brown fox', 0.3);
+  await upOk('gm', sid, 'table', 0, 10_000, 'the quick brown fox', 0.3);
   await upOk('jess', sid, 'jess', 0, 10_000, 'the quick brown fox', 0.8);
   await upOk('tom', sid, 'tom', 0, 10_000, 'the quick brown fox', 0.2);
-  const ls = await lines('dm', sid);
+  const ls = await lines('gm', sid);
   assert.equal(ls.length, 1, JSON.stringify(ls));
   assert.equal(ls[0].text, 'the quick brown fox');
   assert.equal(ls[0].speakerId, ID.jess);
@@ -208,16 +208,16 @@ test('Audio_merge: three mics hearing the same words make one line, credited to 
   assert.equal(ls[0].audience, 'players');
   assert.equal((await lines('tom', sid)).length, 1, 'a player sees it too');
   // a different, later line stays separate
-  await upOk('dm', sid, 'table', 1, 16_000, 'roll for initiative everyone');
-  assert.equal((await lines('dm', sid)).length, 2);
+  await upOk('gm', sid, 'table', 1, 16_000, 'roll for initiative everyone');
+  assert.equal((await lines('gm', sid)).length, 2);
 });
 
 test('Audio_merge: the word-level merge takes the clearest mic for each word', async () => {
   const sid = await newSession();
   // the table mic is unsure of "brawn"; the phone is unsure of "fax"
-  await upOk('dm', sid, 'table', 0, 0, 'the quick brawn fox|p=0.9,0.9,0.2,0.9', 0.5);
+  await upOk('gm', sid, 'table', 0, 0, 'the quick brawn fox|p=0.9,0.9,0.2,0.9', 0.5);
   await upOk('tom', sid, 'tom', 0, 0, 'the quick brown fax|p=0.9,0.9,0.9,0.2', 0.5);
-  const ls = await lines('dm', sid);
+  const ls = await lines('gm', sid);
   assert.equal(ls.length, 1, JSON.stringify(ls));
   assert.equal(ls[0].text, 'the quick brown fox', 'better than either mic alone');
 });
@@ -226,31 +226,31 @@ test('Audio_merge: words the best mic missed are filled in from another mic', as
   const sid = await newSession();
   await upOk('jess', sid, 'jess', 0, 0, 'we open the heavy door', 0.8);
   await upOk('tom', sid, 'tom', 0, 0, 'we open the door', 0.2);
-  const ls = await lines('dm', sid);
+  const ls = await lines('gm', sid);
   assert.equal(ls.length, 1);
   assert.equal(ls[0].text, 'we open the heavy door');
 });
 
-test('Audio_aside: an aside makes overlapping lines from every mic DM-only', async () => {
+test('Audio_aside: an aside makes overlapping lines from every mic GM-only', async () => {
   const sid = await newSession();
   // Before the aside: ordinary table talk.
-  await upOk('dm', sid, 'table', 0, 0, 'welcome back adventurers');
-  // The DM talks into the headset (hold to talk) while the table and a phone also hear it.
-  await upOk('dm', sid, 'headset', 0, 20_000, `the ${SECRET} is hidden`);
-  await hold('dm', sid, 'headset', 'talk', 20_000, 21_800);
-  await upOk('dm', sid, 'table', 1, 20_000, `the ${SECRET} is hidden`);
+  await upOk('gm', sid, 'table', 0, 0, 'welcome back adventurers');
+  // The GM talks into the headset (hold to talk) while the table and a phone also hear it.
+  await upOk('gm', sid, 'headset', 0, 20_000, `the ${SECRET} is hidden`);
+  await hold('gm', sid, 'headset', 'talk', 20_000, 21_800);
+  await upOk('gm', sid, 'table', 1, 20_000, `the ${SECRET} is hidden`);
   await upOk('jess', sid, 'jess', 0, 20_000, `the ${SECRET} is hidden`);
   // Different speech, partly overlapping the end of the aside
   await upOk('tom', sid, 'tom', 0, 21_700, 'what did he say');
   // Later table talk is public again.
-  await upOk('dm', sid, 'table', 2, 40_000, 'back to the story');
-  const dmLines = await lines('dm', sid);
-  const secret = dmLines.filter((l) => l.text.includes(SECRET));
-  assert.equal(secret.length, 1, JSON.stringify(dmLines));
-  assert.equal(secret[0].audience, 'dm');
-  assert.equal(dmLines.find((l) => l.text === 'what did he say')!.audience, 'dm', 'a partial overlap fails closed');
-  assert.equal(dmLines.find((l) => l.text === 'welcome back adventurers')!.audience, 'players');
-  assert.equal(dmLines.find((l) => l.text === 'back to the story')!.audience, 'players');
+  await upOk('gm', sid, 'table', 2, 40_000, 'back to the story');
+  const gmLines = await lines('gm', sid);
+  const secret = gmLines.filter((l) => l.text.includes(SECRET));
+  assert.equal(secret.length, 1, JSON.stringify(gmLines));
+  assert.equal(secret[0].audience, 'gm');
+  assert.equal(gmLines.find((l) => l.text === 'what did he say')!.audience, 'gm', 'a partial overlap fails closed');
+  assert.equal(gmLines.find((l) => l.text === 'welcome back adventurers')!.audience, 'players');
+  assert.equal(gmLines.find((l) => l.text === 'back to the story')!.audience, 'players');
   const pl = await lines('jess', sid);
   assert.deepEqual(pl.map((l) => l.text).sort(), ['back to the story', 'welcome back adventurers']);
   assert.ok(!JSON.stringify(pl).includes(SECRET));
@@ -259,16 +259,16 @@ test('Audio_aside: an aside makes overlapping lines from every mic DM-only', asy
 test('Audio_aside: only lines that overlap the aside are hidden, the ones just before it stay with the table', async () => {
   const sid = await newSession();
   // Table talk that ends 150 ms before the aside starts, and a line that really overlaps it.
-  await upOk('dm', sid, 'table', 0, 14_000, 'last words before the whisper', 0.5, 19_850);
-  await upOk('dm', sid, 'headset', 0, 20_000, `the ${SECRET} is hidden`, 0.5, 21_800);
-  await hold('dm', sid, 'headset', 'talk', 20_000, 21_800);
-  await upOk('dm', sid, 'table', 1, 19_900, 'half spoken over the aside', 0.5, 20_400);
-  await upOk('dm', sid, 'table', 2, 22_300, 'and after it we go on', 0.5, 24_000);
-  const dmLines = await lines('dm', sid);
-  assert.equal(dmLines.find((l) => l.text === 'last words before the whisper')?.audience, 'players', 'a line that ends before the aside stays public');
-  assert.equal(dmLines.find((l) => l.text === 'and after it we go on')?.audience, 'players', 'and so does the one after it');
-  const overlap = dmLines.find((l) => l.text.includes('half spoken'));
-  assert.ok(!overlap || overlap.audience === 'dm', 'a line overlapping the aside fails closed');
+  await upOk('gm', sid, 'table', 0, 14_000, 'last words before the whisper', 0.5, 19_850);
+  await upOk('gm', sid, 'headset', 0, 20_000, `the ${SECRET} is hidden`, 0.5, 21_800);
+  await hold('gm', sid, 'headset', 'talk', 20_000, 21_800);
+  await upOk('gm', sid, 'table', 1, 19_900, 'half spoken over the aside', 0.5, 20_400);
+  await upOk('gm', sid, 'table', 2, 22_300, 'and after it we go on', 0.5, 24_000);
+  const gmLines = await lines('gm', sid);
+  assert.equal(gmLines.find((l) => l.text === 'last words before the whisper')?.audience, 'players', 'a line that ends before the aside stays public');
+  assert.equal(gmLines.find((l) => l.text === 'and after it we go on')?.audience, 'players', 'and so does the one after it');
+  const overlap = gmLines.find((l) => l.text.includes('half spoken'));
+  assert.ok(!overlap || overlap.audience === 'gm', 'a line overlapping the aside fails closed');
   const pl = JSON.stringify(await lines('jess', sid));
   assert.ok(!pl.includes(SECRET) && !pl.includes('half spoken'));
   assert.ok(pl.includes('last words before the whisper'));
@@ -276,49 +276,49 @@ test('Audio_aside: only lines that overlap the aside are hidden, the ones just b
 
 test('Audio_aside: talk running straight into an aside is cut at the aside, not spliced into it', async () => {
   const sid = await newSession();
-  // Back-to-back table chunks: public talk, then (with no pause) a DM aside the table mic also hears.
-  await upOk('dm', sid, 'table', 0, 0, 'the ferry costs two silver a head and double after dark friends');
-  await hold('dm', sid, null, 'aside', 5000, 10_000);
-  await upOk('dm', sid, 'headset', 0, 5000, `remember the ${SECRET} owns the captains`);
-  await upOk('dm', sid, 'table', 1, 5000, `remember the ${SECRET} owns the captains`);
+  // Back-to-back table chunks: public talk, then (with no pause) a GM aside the table mic also hears.
+  await upOk('gm', sid, 'table', 0, 0, 'the ferry costs two silver a head and double after dark friends');
+  await hold('gm', sid, null, 'aside', 5000, 10_000);
+  await upOk('gm', sid, 'headset', 0, 5000, `remember the ${SECRET} owns the captains`);
+  await upOk('gm', sid, 'table', 1, 5000, `remember the ${SECRET} owns the captains`);
   const pl = await lines('jess', sid);
   assert.deepEqual(pl.map((l) => l.text), ['the ferry costs two silver a head and double after dark friends'], 'the public line survives whole');
   assert.ok(!JSON.stringify(pl).includes(SECRET));
-  const dmLines = await lines('dm', sid);
-  const aside = dmLines.find((l) => l.text.includes(SECRET))!;
-  assert.equal(aside.audience, 'dm');
+  const gmLines = await lines('gm', sid);
+  const aside = gmLines.find((l) => l.text.includes(SECRET))!;
+  assert.equal(aside.audience, 'gm');
   assert.ok(!aside.text.includes('ferry'), 'the aside line holds only aside words');
 });
 
 test('Audio_aside: an explicit aside key window arriving after the line removes it from players', async () => {
   const sid = await newSession();
   const feed = listen(T.jess);
-  const dmFeed = listen(T.dm);
-  await feed.ready; await dmFeed.ready;
-  await upOk('dm', sid, 'table', 0, 0, `${SECRET} treasure map`);
+  const gmFeed = listen(T.gm);
+  await feed.ready; await gmFeed.ready;
+  await upOk('gm', sid, 'table', 0, 0, `${SECRET} treasure map`);
   assert.equal((await lines('jess', sid)).length, 1, 'visible until the aside is recorded');
-  await hold('dm', sid, null, 'aside', 100, 1500);
-  assert.equal((await lines('jess', sid)).length, 0, 'now DM-only');
-  assert.equal((await lines('dm', sid)).length, 1);
+  await hold('gm', sid, null, 'aside', 100, 1500);
+  assert.equal((await lines('jess', sid)).length, 0, 'now GM-only');
+  assert.equal((await lines('gm', sid)).length, 1);
   await wait(100);
-  feed.stop(); dmFeed.stop();
+  feed.stop(); gmFeed.stop();
   // The player was told to drop the line, without the text.
   const rm = feed.events.filter((e) => e.type === 'transcript-line' && e.data.removed);
   assert.equal(rm.length, 1);
   assert.ok(Object.keys(rm[0].data).every((k) => ['id', 'rev', 'removed', 'sessionId'].includes(k)));
-  const secretSeenByDm = dmFeed.events.filter((e) => e.type === 'transcript-line' && JSON.stringify(e.data).includes(SECRET));
-  assert.ok(secretSeenByDm.length >= 1, 'the DM stream carries it');
+  const secretSeenByGm = gmFeed.events.filter((e) => e.type === 'transcript-line' && JSON.stringify(e.data).includes(SECRET));
+  assert.ok(secretSeenByGm.length >= 1, 'the GM stream carries it');
 });
 
-test('Audio_audience: a mic with players\' transcript off is DM-only; players never receive DM lines (REST and live)', async () => {
+test('Audio_audience: a mic with players\' transcript off is GM-only; players never receive GM lines (REST and live)', async () => {
   const sid = await newSession();
   const feed = listen(T.jess);
-  const dmFeed = listen(T.dm);
-  await feed.ready; await dmFeed.ready;
-  await upOk('dm', sid, 'dmalways', 0, 0, `${SECRET} the duke is a vampire`);
+  const gmFeed = listen(T.gm);
+  await feed.ready; await gmFeed.ready;
+  await upOk('gm', sid, 'dmalways', 0, 0, `${SECRET} the duke is a vampire`);
   await upOk('jess', sid, 'jess', 0, 30_000, 'I search the room');
-  const dl = await lines('dm', sid);
-  assert.equal(dl.find((l) => l.text.includes(SECRET)).audience, 'dm');
+  const dl = await lines('gm', sid);
+  assert.equal(dl.find((l) => l.text.includes(SECRET)).audience, 'gm');
   assert.equal(dl.find((l) => l.text === 'I search the room').audience, 'players');
   const pl = await lines('jess', sid);
   assert.equal(pl.length, 1);
@@ -327,47 +327,47 @@ test('Audio_audience: a mic with players\' transcript off is DM-only; players ne
   assert.equal(pl[0].sources, undefined);
   assert.equal(pl[0].words, undefined);
   // guests and non-members get nothing
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'guest' });
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'guest' });
   const g = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'watcher', password: 'guest pass 1234' });
   assert.equal((await call('GET', `${A()}/sessions/${sid}/lines`, g.token)).status, 403);
-  // the DM marks a public line DM-only later: it disappears from players
-  await ok('PATCH', `${A()}/lines/${pl[0].id}`, T.dm, { audience: 'dm' });
+  // the GM marks a public line GM-only later: it disappears from players
+  await ok('PATCH', `${A()}/lines/${pl[0].id}`, T.gm, { audience: 'gm' });
   assert.equal((await lines('jess', sid)).length, 0);
   assert.equal((await call('PATCH', `${A()}/lines/${pl[0].id}`, T.jess, { audience: 'players' })).status, 403, 'players cannot change audiences');
   await wait(100);
-  feed.stop(); dmFeed.stop();
+  feed.stop(); gmFeed.stop();
   for (const raw of feed.raw) assert.ok(!raw.includes(SECRET), `leaked to a player's live stream: ${raw}`);
-  assert.ok(dmFeed.raw.some((r) => r.includes(SECRET)));
+  assert.ok(gmFeed.raw.some((r) => r.includes(SECRET)));
   const playerLineEvents = feed.events.filter((e) => e.type === 'transcript-line');
   assert.ok(playerLineEvents.some((e) => e.data.text === 'I search the room'));
-  assert.ok(playerLineEvents.some((e) => e.data.removed), 'told to drop the line the DM hid');
+  assert.ok(playerLineEvents.some((e) => e.data.removed), 'told to drop the line the GM hid');
   // the typed API for the session log
-  const sl = sessionLines(deps.db, W, sid, { includeDm: false });
+  const sl = sessionLines(deps.db, W, sid, { includeGm: false });
   assert.ok(sl.every((l) => !l.text.includes(SECRET)));
-  assert.equal(sessionLines(deps.db, W, sid, { includeDm: true }).length, 2);
+  assert.equal(sessionLines(deps.db, W, sid, { includeGm: true }).length, 2);
   assert.ok(listSessions(deps.db, W).some((s) => s.id === sid));
 });
 
 test('Audio_holds: hold-to-talk keeps only words inside talk windows; hold-to-mute drops words inside', async () => {
   const sid = await newSession();
   // words are 0.4 s apart: one@0 two@0.4 three@0.8 four@1.2 (ms after the chunk start)
-  await upOk('dm', sid, 'talkpub', 0, 60_000, 'one two three four');
-  assert.equal((await lines('dm', sid)).length, 0, 'no talk window: nothing kept');
-  await hold('dm', sid, 'talkpub', 'talk', 60_000, 60_800);
-  let ls = await lines('dm', sid);
+  await upOk('gm', sid, 'talkpub', 0, 60_000, 'one two three four');
+  assert.equal((await lines('gm', sid)).length, 0, 'no talk window: nothing kept');
+  await hold('gm', sid, 'talkpub', 'talk', 60_000, 60_800);
+  let ls = await lines('gm', sid);
   assert.equal(ls.length, 1);
   assert.equal(ls[0].text, 'one two');
   assert.equal(ls[0].audience, 'players');
   // mute
-  await upOk('dm', sid, 'mutable', 0, 70_000, 'alpha beta gamma delta');
-  assert.equal((await lines('dm', sid)).find((l) => l.text.startsWith('alpha')).text, 'alpha beta gamma delta');
-  await hold('dm', sid, 'mutable', 'mute', 70_700, 71_700);
-  ls = await lines('dm', sid);
+  await upOk('gm', sid, 'mutable', 0, 70_000, 'alpha beta gamma delta');
+  assert.equal((await lines('gm', sid)).find((l) => l.text.startsWith('alpha')).text, 'alpha beta gamma delta');
+  await hold('gm', sid, 'mutable', 'mute', 70_700, 71_700);
+  ls = await lines('gm', sid);
   assert.equal(ls.find((l) => l.text.startsWith('alpha')).text, 'alpha beta');
   // a mic that is off is refused
-  await ok('POST', `${A()}/mics`, T.dm, { deviceId: 'dev-off', label: 'Unused', mode: 'off' });
-  const off = (await ok('GET', `${A()}/mics`, T.dm)).find((m: any) => m.label === 'Unused');
-  const r = await call('POST', `${A()}/sessions/${sid}/chunks?mic=${off.id}&seq=0&start=0&end=5000`, T.dm, undefined, chunk('ignored'));
+  await ok('POST', `${A()}/mics`, T.gm, { deviceId: 'dev-off', label: 'Unused', mode: 'off' });
+  const off = (await ok('GET', `${A()}/mics`, T.gm)).find((m: any) => m.label === 'Unused');
+  const r = await call('POST', `${A()}/sessions/${sid}/chunks?mic=${off.id}&seq=0&start=0&end=5000`, T.gm, undefined, chunk('ignored'));
   assert.equal(r.status, 409);
 });
 
@@ -377,11 +377,11 @@ test('Audio_pending: no model means the audio is kept and a retry transcribes it
   const r = await upOk('jess', sid, 'jess', 0, 0, 'saved for later');
   modelUp = true;
   assert.equal(r.status, 'pending');
-  assert.equal((await lines('dm', sid)).length, 0);
+  assert.equal((await lines('gm', sid)).length, 0);
   assert.ok(fs.existsSync(path.join(tmp, 'data', 'audio', W, sid, MIC.jess, '0.webm')));
-  const retry = await ok('POST', `${A()}/retry`, T.dm);
+  const retry = await ok('POST', `${A()}/retry`, T.gm);
   assert.ok(retry.transcribed >= 1);
-  const ls = await lines('dm', sid);
+  const ls = await lines('gm', sid);
   assert.equal(ls[0].text, 'saved for later');
 });
 
@@ -395,21 +395,21 @@ test('Audio_retention: old raw audio is deleted, transcripts stay', async () => 
   assert.ok(engine(deps).runRetention(Date.now() + 31 * 864e5) >= 1);
   assert.ok(!fs.existsSync(file));
   assert.equal(one<any>(deps.db, 'SELECT file FROM audio_chunks WHERE session_id = ?', sid).file, null);
-  assert.equal((await lines('dm', sid))[0].text, 'old memories');
+  assert.equal((await lines('gm', sid))[0].text, 'old memories');
   // a world can shorten it
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { audioRetentionDays: 1 });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { audioRetentionDays: 1 });
   const sid2 = await newSession();
   await upOk('jess', sid2, 'jess', 0, 0, 'recent news');
   run(deps.db, 'UPDATE audio_chunks SET created_at = ? WHERE session_id = ?', new Date(Date.now() - 2 * 864e5).toISOString(), sid2);
   assert.equal(engine(deps).runRetention(), 1);
-  await ok('PATCH', `/api/worlds/${W}/settings`, T.dm, { audioRetentionDays: 30 });
+  await ok('PATCH', `/api/worlds/${W}/settings`, T.gm, { audioRetentionDays: 30 });
 });
 
 test('Audio_recording: the recording indicator is a live event for everyone', async () => {
   const feed = listen(T.jess);
   await feed.ready;
   const sid = await newSession();
-  await ok('POST', `${A()}/sessions/${sid}/stop`, T.dm);
+  await ok('POST', `${A()}/sessions/${sid}/stop`, T.gm);
   await wait(100);
   feed.stop();
   const rec = feed.events.filter((e) => e.type === 'recording');
@@ -451,5 +451,5 @@ test('Audio_backup: the admin backup is a tar.gz with the database and the audio
   // the old plain download
   const plain = await fetch(`${base}/api/admin/backup?db=1`, { headers: { Authorization: `Bearer ${T.admin}` } });
   assert.equal(Buffer.from(await plain.arrayBuffer()).toString('latin1', 0, 15), 'SQLite format 3');
-  assert.equal((await call('GET', '/api/admin/backup', T.dm)).status, 403);
+  assert.equal((await call('GET', '/api/admin/backup', T.gm)).status, 403);
 });

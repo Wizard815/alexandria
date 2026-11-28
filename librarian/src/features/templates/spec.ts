@@ -1,4 +1,4 @@
-// What a DM template is: its kind, the shape of each kind's spec, and how a spec is cleaned (every write goes through
+// What a GM template is: its kind, the shape of each kind's spec, and how a spec is cleaned (every write goes through
 // cleanTemplate, so the store only ever holds a valid template). Pure: no database, no model.
 import { HttpError } from '../../core/util.ts';
 
@@ -62,7 +62,7 @@ export interface EventSpec {
   checks: boolean;
   /** Most coin one event may give, in copper (the world's encounter cap still applies). */
   maxRewardCp: number;
-  /** How consequences are noted for the DM ("always say who might remember"). */
+  /** How consequences are noted for the GM ("always say who might remember"). */
   consequences: string;
 }
 /**
@@ -190,7 +190,7 @@ export const templateText = (t: TemplateInput): string[] => {
 
 /** The guide as the assistant reads it (context for the model). */
 export function guideText(t: { name: string; kind: Kind; description: string; spec: Spec }): string {
-  const L: string[] = [`Guide "${t.name}" (${KIND_LABEL[t.kind]}). The DM wrote it for this kind of request: follow it.`];
+  const L: string[] = [`Guide "${t.name}" (${KIND_LABEL[t.kind]}). The GM wrote it for this kind of request: follow it.`];
   if (t.description) L.push(t.description);
   const sp: any = t.spec;
   if (t.kind === 'guide') {

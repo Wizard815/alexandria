@@ -4,7 +4,7 @@
 import type { Deps } from '../../app.ts';
 import { all, one, run } from '../../core/db.ts';
 import { id, now, parseJson } from '../../core/util.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { CATEGORIES, type Category } from './cues.ts';
 
 export const SCHEMA = `
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS active_log (
   mode TEXT NOT NULL DEFAULT 'active', trigger TEXT NOT NULL DEFAULT 'line', line_id TEXT, speaker TEXT NOT NULL DEFAULT '', cue TEXT NOT NULL DEFAULT '',
   category TEXT NOT NULL DEFAULT '', tool TEXT NOT NULL DEFAULT '', args TEXT NOT NULL DEFAULT '{}', calls TEXT NOT NULL DEFAULT '[]', summary TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL DEFAULT 'rules', confidence REAL NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'done', result TEXT NOT NULL DEFAULT '',
-  undo TEXT, reversible INTEGER NOT NULL DEFAULT 0, visible TEXT NOT NULL DEFAULT 'dm', rule_key TEXT NOT NULL DEFAULT '', wrong INTEGER NOT NULL DEFAULT 0,
+  undo TEXT, reversible INTEGER NOT NULL DEFAULT 0, visible TEXT NOT NULL DEFAULT 'gm', rule_key TEXT NOT NULL DEFAULT '', wrong INTEGER NOT NULL DEFAULT 0,
   decided_at TEXT, expires_at TEXT, latency_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS active_log_world ON active_log(world_id, at);
@@ -38,7 +38,7 @@ export const DEFAULT_PRESETS: Record<string, Preset> = {
   '3': { name: 'Full takeover', cats: allAuto() },
 };
 
-export interface Listen { dm: boolean; players: boolean; room: boolean }
+export interface Listen { gm: boolean; players: boolean; room: boolean }
 export interface State { mode: 'assistant' | 'active'; wakeWord: string; cats: Cats; presets: Record<string, Preset>; prev: Cats | null; listen: Listen; askTtlMin: number; scan: boolean }
 
 const cleanCats = (v: unknown, base: Cats = DEFAULT_CATS): Cats => {
@@ -60,7 +60,7 @@ export function getState(d: Deps, worldId: string): State {
   const listen = parseJson<Partial<Listen>>(r?.listen, {});
   return {
     mode: r?.mode === 'active' ? 'active' : 'assistant', wakeWord: r?.wake_word || 'Minerva', cats: cleanCats(parseJson(r?.cats, {})), presets,
-    prev: r?.prev ? cleanCats(parseJson(r.prev, {})) : null, listen: { dm: listen.dm !== false, players: listen.players !== false, room: listen.room === true },
+    prev: r?.prev ? cleanCats(parseJson(r.prev, {})) : null, listen: { gm: listen.gm !== false, players: listen.players !== false, room: listen.room === true },
     askTtlMin: Number.isInteger(r?.ask_ttl_min) ? r.ask_ttl_min : 10, scan: r ? !!r.scan : true,
   };
 }
@@ -90,7 +90,7 @@ export const sessionOverride = (d: Deps, worldId: string, sessionId: string): 'a
 export type Status = 'done' | 'failed' | 'undone' | 'pending' | 'rejected' | 'dismissed' | 'expired' | 'blocked';
 export interface LogRow {
   id: string; worldId: string; sessionId: string | null; at: string; mode: 'assistant' | 'active'; trigger: string; lineId: string | null; speaker: string; cue: string; category: string;
-  tool: string; args: unknown; calls: { tool: string; args: any }[]; summary: string; source: string; confidence: number; status: Status; result: string; reversible: boolean; visible: 'dm' | 'table' | 'players';
+  tool: string; args: unknown; calls: { tool: string; args: any }[]; summary: string; source: string; confidence: number; status: Status; result: string; reversible: boolean; visible: 'gm' | 'table' | 'players';
   wrong: boolean; decidedAt: string | null; expiresAt: string | null; latencyMs: number | null; ruleKey: string;
 }
 const view = (r: any): LogRow => ({
@@ -101,16 +101,16 @@ const view = (r: any): LogRow => ({
 
 export interface NewLog {
   sessionId?: string | null; mode?: 'assistant' | 'active'; trigger: string; lineId?: string | null; speaker?: string; cue?: string; category: string; tool: string; args?: unknown; calls?: unknown[]; summary: string;
-  source?: string; confidence?: number; status: Status; result?: string; undo?: unknown; visible?: 'dm' | 'table' | 'players'; ruleKey?: string; expiresAt?: string | null; latencyMs?: number | null;
+  source?: string; confidence?: number; status: Status; result?: string; undo?: unknown; visible?: 'gm' | 'table' | 'players'; ruleKey?: string; expiresAt?: string | null; latencyMs?: number | null;
 }
 export function addLog(d: Deps, worldId: string, n: NewLog): LogRow {
   const lid = id('alog_');
   run(d.db, `INSERT INTO active_log (id, world_id, session_id, at, mode, trigger, line_id, speaker, cue, category, tool, args, calls, summary, source, confidence, status, result, undo, reversible, visible, rule_key, expires_at, latency_ms, decided_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     lid, worldId, n.sessionId ?? null, now(), n.mode ?? 'active', n.trigger, n.lineId ?? null, (n.speaker ?? '').slice(0, 80), (n.cue ?? '').slice(0, 300), n.category, n.tool, JSON.stringify(n.args ?? {}).slice(0, 4000), JSON.stringify(n.calls ?? []).slice(0, 8000),
-    n.summary.slice(0, 400), n.source ?? 'rules', n.confidence ?? 0, n.status, (n.result ?? '').slice(0, 1500), n.undo ? JSON.stringify(n.undo) : null, n.undo ? 1 : 0, n.visible ?? 'dm', n.ruleKey ?? '', n.expiresAt ?? null, n.latencyMs ?? null, n.status === 'pending' ? null : now());
+    n.summary.slice(0, 400), n.source ?? 'rules', n.confidence ?? 0, n.status, (n.result ?? '').slice(0, 1500), n.undo ? JSON.stringify(n.undo) : null, n.undo ? 1 : 0, n.visible ?? 'gm', n.ruleKey ?? '', n.expiresAt ?? null, n.latencyMs ?? null, n.status === 'pending' ? null : now());
   const row = getLog(d, worldId, lid)!;
-  d.hub.emit(worldId, 'active', { kind: row.status === 'pending' ? 'card' : 'log', id: lid }, dmOnly);
+  d.hub.emit(worldId, 'active', { kind: row.status === 'pending' ? 'card' : 'log', id: lid }, gmOnly);
   return row;
 }
 export const getLog = (d: Deps, worldId: string, logId: string): LogRow | null => { const r = one<any>(d.db, 'SELECT * FROM active_log WHERE id = ? AND world_id = ?', logId, worldId); return r ? view(r) : null; };
@@ -123,7 +123,7 @@ export function setLog(d: Deps, worldId: string, logId: string, p: { status?: St
   if (p.wrong !== undefined) { sets.push('wrong = ?'); vals.push(p.wrong ? 1 : 0); }
   if (p.decided) { sets.push('decided_at = ?'); vals.push(now()); }
   if (sets.length) run(d.db, `UPDATE active_log SET ${sets.join(', ')} WHERE id = ? AND world_id = ?`, ...vals, logId, worldId);
-  d.hub.emit(worldId, 'active', { kind: 'log', id: logId }, dmOnly);
+  d.hub.emit(worldId, 'active', { kind: 'log', id: logId }, gmOnly);
 }
 export function listLog(d: Deps, worldId: string, o: { status?: string; limit?: number; sessionId?: string } = {}): LogRow[] {
   expireCards(d, worldId);

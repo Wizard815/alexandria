@@ -81,7 +81,7 @@
           "Deal",
           "Problem"
         ],
-        "instructions": "Keep it to what the DM needs at the counter.",
+        "instructions": "Keep it to what the GM needs at the counter.",
         "folder": "People/Merchants"
       }
     },
@@ -257,7 +257,7 @@
         "sections": [
           "Rumours"
         ],
-        "instructions": "Mark each one true, half true or false for the DM.",
+        "instructions": "Mark each one true, half true or false for the GM.",
         "folder": "Places"
       }
     },

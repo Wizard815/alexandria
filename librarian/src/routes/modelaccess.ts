@@ -1,4 +1,4 @@
-// Admin: who has been calling models, and who may use the /v1 gateway besides the DM and the admin.
+// Admin: who has been calling models, and who may use the /v1 gateway besides the GM and the admin.
 //
 //   GET    /api/admin/models/activity            { jobs, callers, recent }   per job: last call, calls in the last hour and day, which features
 //   GET    /api/admin/models/activity/gateway    { since, calls, users }      the /v1 call log and per-account totals today vs caps (no prompts)
@@ -34,7 +34,7 @@ export function accessRoutes(d: Deps) {
       allowed: rows.map((x) => ({ kind: x.subject_kind, id: x.subject_id, name: x.name ?? null, dailyRequests: x.daily_requests, dailyTokens: x.daily_tokens, note: x.note, at: x.at })),
       defaults: {
         listed: { dailyRequests: num(d.env.ALX_V1_DAILY_REQUESTS, 200), dailyTokens: num(d.env.ALX_V1_DAILY_TOKENS, 100_000), ratePerMinute: num(d.env.ALX_V1_RATE_PER_MIN, 20) },
-        dm: { dailyRequests: num(d.env.ALX_V1_DAILY_REQUESTS_DM, 5000), dailyTokens: num(d.env.ALX_V1_DAILY_TOKENS_DM, 2_000_000), ratePerMinute: num(d.env.ALX_V1_RATE_PER_MIN_DM, 120) },
+        gm: { dailyRequests: num(d.env.ALX_V1_DAILY_REQUESTS_GM, 5000), dailyTokens: num(d.env.ALX_V1_DAILY_TOKENS_GM, 2_000_000), ratePerMinute: num(d.env.ALX_V1_RATE_PER_MIN_GM, 120) },
       },
     });
   });

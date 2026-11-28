@@ -1,7 +1,7 @@
-// DM → Roll20: connect a Roll20 game to this world. Two small scripts carry
+// GM → Roll20: connect a Roll20 game to this world. Two small scripts carry
 // the data (Roll20's Mod scripts cannot reach the internet): the Alexandria
-// Mod script in the game, and the bridge userscript in the DM's browser.
-// Here the DM makes the bridge key, installs both, links Roll20 characters
+// Mod script in the game, and the bridge userscript in the GM's browser.
+// Here the GM makes the bridge key, installs both, links Roll20 characters
 // to players, picks what moves, sends handouts and watches what happened.
 import { useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';

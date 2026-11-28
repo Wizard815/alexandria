@@ -23,7 +23,7 @@ const HIDDEN_TEXT = 'HIDDENTEXT the flagged page of the source';
 const ITEMS: any[] = [
   { id: 1, name: 'Open Page', body: 'Everyone may read this open page about the harbour.', is_private: false },
   { id: 2, name: 'Flagged Page', body: HIDDEN_TEXT, is_private: true },
-  { id: 3, name: 'Mixed Page', body: `Plain words about the guild hall.\n\n> [!secret] DM\n> ${SECRET_BLOCK}\n`, is_private: false },
+  { id: 3, name: 'Mixed Page', body: `Plain words about the guild hall.\n\n> [!secret] GM\n> ${SECRET_BLOCK}\n`, is_private: false },
   { id: 4, name: 'Classified Page', body: CLASSIFIED_TEXT, is_private: false, tags: ['classified'] },
   { id: 5, name: 'Broker Page', body: BROKER_TEXT, is_private: false, tags: ['broker'] },
 ];
@@ -71,13 +71,13 @@ async function boot(env: Record<string, string> = {}) {
     assert.ok(r.status < 300, `${method} ${path} -> ${r.status} ${r.text.slice(0, 300)}`);
     return r.body;
   };
-  const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, dmAccountId: a.account.id })).id as string;
+  const world = async (name: string) => (await ok('POST', '/api/admin/worlds', { name, gmAccountId: a.account.id })).id as string;
   return { ...made, call, ok, admin, accountId: a.account.id as string, world, base };
 }
 
 const API_MAPPING = { transport: 'http', paging: 'none', itemsPath: 'data', idField: 'id', titleField: 'name', bodyField: 'body', tagsField: 'tags', visibilityField: 'is_private', sharedValues: 'false' };
 const player = { accountId: 'p', role: 'player' as const };
-const dmViewer = { accountId: 'a', role: 'dm' as const };
+const gmViewer = { accountId: 'a', role: 'gm' as const };
 
 async function waitSync(t: Awaited<ReturnType<typeof boot>>, sourceId: string) {
   const out = await t.ok('POST', `/api/admin/sources/${sourceId}/sync?wait=1`);
@@ -134,7 +134,7 @@ test('TestConnections_MigrationMakesOneConnectionPerCredentialSet', async () => 
   const db = t.deps.db;
   const w1 = await t.world('One');
   const w2 = await t.world('Two');
-  const ins = (sid: string, wid: string, kind: string, cfg: object) => run(db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES (?, ?, ?, ?, ?, 'dm')`, sid, wid, kind, sid, JSON.stringify(cfg));
+  const ins = (sid: string, wid: string, kind: string, cfg: object) => run(db, `INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES (?, ?, ?, ?, ?, 'gm')`, sid, wid, kind, sid, JSON.stringify(cfg));
   // The way sources were stored before connections: everything in one config, and an older kind name.
   ins('s_k1', w1, 'kanka', { campaignId: '11', token: KANKA_TOKEN });
   ins('s_k2', w2, 'kanka-api', { campaignId: '22', token: KANKA_TOKEN });
@@ -200,7 +200,7 @@ test('TestConnections_OneConnectionServesTwoWorldsAndTwoSourcesFeedOneWorld', as
   await waitSync(t, s1.id);
   await waitSync(t, s2.id);
   await waitSync(t, s3.id);
-  const titles = (wid: string) => (t.deps.library.list(wid, dmViewer) as any[]).map((p) => p.title).sort();
+  const titles = (wid: string) => (t.deps.library.list(wid, gmViewer) as any[]).map((p) => p.title).sort();
   // Alpha reads items 1-3 from "alpha" and 4-5 from "beta" (two sources, one world); Beta reads 4-5.
   assert.deepEqual(titles(w1), ['Broker Page', 'Classified Page', 'Flagged Page', 'Mixed Page', 'Open Page']);
   assert.deepEqual(titles(w2), ['Broker Page', 'Classified Page']);
@@ -217,12 +217,12 @@ test('TestConnections_OneConnectionServesTwoWorldsAndTwoSourcesFeedOneWorld', as
 
 test('TestAudience_LevelRule', () => {
   assert.equal(levelForAudience('auto', 'party', 'party'), 'party');
-  assert.equal(levelForAudience('auto', 'dm', 'party'), 'dm');
-  assert.equal(levelForAudience('dm', 'party', 'party'), 'dm');
-  assert.equal(levelForAudience('dm', 'broker', 'broker'), 'dm', 'dm is at least dm');
-  assert.equal(levelForAudience('dm', 'classified', 'classified'), 'classified', 'it never lowers a level');
-  assert.equal(levelForAudience('party', 'dm', 'party'), 'party', 'the source flag is overridden');
-  assert.equal(levelForAudience('party', 'dm', 'broker'), 'broker', 'a marker still applies');
+  assert.equal(levelForAudience('auto', 'gm', 'party'), 'gm');
+  assert.equal(levelForAudience('gm', 'party', 'party'), 'gm');
+  assert.equal(levelForAudience('gm', 'broker', 'broker'), 'gm', 'gm is at least gm');
+  assert.equal(levelForAudience('gm', 'classified', 'classified'), 'classified', 'it never lowers a level');
+  assert.equal(levelForAudience('party', 'gm', 'party'), 'party', 'the source flag is overridden');
+  assert.equal(levelForAudience('party', 'gm', 'broker'), 'broker', 'a marker still applies');
   assert.equal(levelForAudience('party', 'party', 'classified'), 'classified');
 });
 
@@ -234,7 +234,7 @@ const everything = (lib: any, wid: string, viewer: any) => {
 const dbCopies = (db: any, wid: string, col: 'player' | 'broker' | 'ai') => all<any>(db, `SELECT title, ${col}_body AS body, ${col}_blocks AS blocks, ${col}_properties AS props, ${col}_frontmatter AS fm FROM pages WHERE world_id = ?`, wid)
   .map((r) => JSON.stringify(r)).join('\n');
 
-test('TestAudience_DmNeverShowsAnythingToPlayersAndPartyKeepsSecretsOut', async () => {
+test('TestAudience_GmNeverShowsAnythingToPlayersAndPartyKeepsSecretsOut', async () => {
   const t = await boot();
   const c = await t.ok('POST', '/api/admin/connections', { kind: 'api', name: 'Wiki API', config: { ...API_MAPPING, url: 'https://api.example.com/all/list' } });
   const wid = await t.world('Audience World');
@@ -249,16 +249,16 @@ test('TestAudience_DmNeverShowsAnythingToPlayersAndPartyKeepsSecretsOut', async 
   let text = everything(lib, wid, player);
   for (const leak of [HIDDEN_TEXT, SECRET_BLOCK, CLASSIFIED_TEXT, BROKER_TEXT]) assert.ok(!text.includes(leak), `auto leaked ${leak.slice(0, 20)}`);
 
-  // dm: nothing from this source reaches a player, whatever the source says.
-  const dmOn = await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'dm' });
-  assert.equal(dmOn.audience, 'dm');
-  assert.equal(dmOn.audience_label, 'DM only');
+  // gm: nothing from this source reaches a player, whatever the source says.
+  const gmOn = await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'gm' });
+  assert.equal(gmOn.audience, 'gm');
+  assert.equal(gmOn.audience_label, 'GM only');
   assert.deepEqual(playerTitles(), []);
   assert.equal(all<any>(t.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND player_body IS NOT NULL', wid).length, 0, 'no player copy exists');
   assert.equal(everything(lib, wid, player), '');
   assert.deepEqual((lib.search(wid, 'harbour', player) as any[]).length, 0, 'search shows players nothing');
-  assert.ok(everything(lib, wid, dmViewer).includes('Everyone may read'), 'the DM still has it all');
-  // ... and a fresh sync under dm keeps it that way.
+  assert.ok(everything(lib, wid, gmViewer).includes('Everyone may read'), 'the GM still has it all');
+  // ... and a fresh sync under gm keeps it that way.
   await waitSync(t, src.id);
   assert.deepEqual(playerTitles(), []);
   assert.equal(all<any>(t.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND player_body IS NOT NULL', wid).length, 0);
@@ -269,7 +269,7 @@ test('TestAudience_DmNeverShowsAnythingToPlayersAndPartyKeepsSecretsOut', async 
   assert.match(refused.body.error, /confirm/i);
   assert.deepEqual(playerTitles(), [], 'a refused change changes nothing');
   await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'party', confirmParty: true });
-  assert.ok(all<any>(t.deps.db, `SELECT detail FROM audit WHERE action = 'source.audience'`).some((r) => /dm -> party \(confirmed/.test(r.detail)), 'party is recorded');
+  assert.ok(all<any>(t.deps.db, `SELECT detail FROM audit WHERE action = 'source.audience'`).some((r) => /gm -> party \(confirmed/.test(r.detail)), 'party is recorded');
   // party: the flagged page is shared too; secret blocks, broker and classified pages are not.
   assert.deepEqual(playerTitles(), ['Flagged Page', 'Mixed Page', 'Open Page']);
   text = everything(lib, wid, player);
@@ -286,8 +286,8 @@ test('TestAudience_DmNeverShowsAnythingToPlayersAndPartyKeepsSecretsOut', async 
   assert.deepEqual(playerTitles(), ['Flagged Page', 'Mixed Page', 'Open Page']);
   assert.ok(!everything(lib, wid, player).includes('SECRETBLOCK'));
 
-  // Switching back rebuilds the copies: dm hides everything again, auto follows the source again.
-  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'dm' });
+  // Switching back rebuilds the copies: gm hides everything again, auto follows the source again.
+  await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'gm' });
   assert.deepEqual(playerTitles(), []);
   assert.equal(all<any>(t.deps.db, 'SELECT id FROM pages WHERE world_id = ? AND player_body IS NOT NULL', wid).length, 0);
   const auto = await t.ok('PATCH', `/api/admin/sources/${src.id}`, { audience: 'auto' });
@@ -296,7 +296,7 @@ test('TestAudience_DmNeverShowsAnythingToPlayersAndPartyKeepsSecretsOut', async 
   text = everything(lib, wid, player);
   for (const leak of [HIDDEN_TEXT, SECRET_BLOCK, CLASSIFIED_TEXT, BROKER_TEXT]) assert.ok(!text.includes(leak), `auto again leaked ${leak.slice(0, 20)}`);
   const rows = all<any>(t.deps.db, 'SELECT title, visibility FROM pages WHERE world_id = ? ORDER BY title', wid);
-  assert.deepEqual(rows.map((r) => `${r.title}:${r.visibility}`), ['Broker Page:broker', 'Classified Page:classified', 'Flagged Page:dm', 'Mixed Page:party', 'Open Page:party']);
+  assert.deepEqual(rows.map((r) => `${r.title}:${r.visibility}`), ['Broker Page:broker', 'Classified Page:classified', 'Flagged Page:gm', 'Mixed Page:party', 'Open Page:party']);
 });
 
 test('TestAudience_CreatedAsPartyNeedsConfirmationAndPlayersGetNothingFromTheAgentTool', async () => {
@@ -308,21 +308,21 @@ test('TestAudience_CreatedAsPartyNeedsConfirmationAndPlayersGetNothingFromTheAge
   assert.equal((await t.call('POST', `/api/admin/worlds/${wid}/sources`, t.admin, { ...body, audience: 'nonsense' })).status, 400);
   const src = await t.ok('POST', `/api/admin/worlds/${wid}/sources`, { ...body, confirmParty: true });
   assert.equal(src.audience, 'party');
-  // The DM's tool tells the agent what is connected; a player gets nothing.
-  const dmView = await t.ok('GET', `/api/worlds/${wid}/world-sources`);
-  assert.equal(dmView.sources[0].audience, 'party');
-  assert.equal(dmView.sources[0].audience_label, 'Shared with players');
-  assert.match(dmView.summary, /Shared shared wiki|Shared wiki \(.*shared with players/i);
+  // The GM's tool tells the agent what is connected; a player gets nothing.
+  const gmView = await t.ok('GET', `/api/worlds/${wid}/world-sources`);
+  assert.equal(gmView.sources[0].audience, 'party');
+  assert.equal(gmView.sources[0].audience_label, 'Shared with players');
+  assert.match(gmView.summary, /Shared shared wiki|Shared wiki \(.*shared with players/i);
   const inv = await t.ok('POST', `/api/worlds/${wid}/invites`, { role: 'player' });
   const joined = (await t.call('POST', '/api/join', null, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' })).body;
   const mine = await t.call('GET', `/api/worlds/${wid}/world-sources`, joined.token);
   assert.equal(mine.status, 200);
   assert.deepEqual(mine.body, { sources: [] });
   assert.ok(!mine.text.includes('Shared wiki'));
-  // The tool is listed for the DM only.
+  // The tool is listed for the GM only.
   const { allTools } = await import('../src/routes/mcpServer.ts');
   const tool = allTools().find((x: any) => x.name === 'world_sources') as any;
-  assert.ok(tool?.dmOnly, 'world_sources is a DM-only read tool');
+  assert.ok(tool?.gmOnly, 'world_sources is a GM-only read tool');
   assert.equal(tool.write, undefined);
 });
 
@@ -437,7 +437,7 @@ test('TestCrawl_FetchesSavesCountsLevelsThenEmbedsEveryPage', async () => {
   assert.equal(p.fetched, 5);
   assert.equal(p.saved, 5);
   assert.equal(p.errors, 0);
-  assert.deepEqual(p.levels, { party: 2, broker: 1, dm: 1, classified: 1 }, 'levels found: open and mixed are party, the flagged page dm');
+  assert.deepEqual(p.levels, { party: 2, broker: 1, gm: 1, classified: 1 }, 'levels found: open and mixed are party, the flagged page gm');
   assert.equal(p.sources.done, 1);
   assert.equal(p.embedding.state, 'done');
   assert.ok(p.embedding.chunks >= 3 && p.embedding.pagesDone >= 3, JSON.stringify(p.embedding));
@@ -456,14 +456,14 @@ test('TestCrawl_FetchesSavesCountsLevelsThenEmbedsEveryPage', async () => {
   const after1 = await t.ok('GET', `/api/admin/worlds/${wid}/overview`);
   assert.equal(after1.embeddings.pages.pending, 0);
   assert.equal(after1.embeddings.pages.indexed, after1.embeddings.pages.eligible);
-  // Pages are counted once each, not once per copy: a shared page has a DM copy and a party copy and is still one page.
+  // Pages are counted once each, not once per copy: a shared page has a GM copy and a party copy and is still one page.
   const copies = Object.values(after1.embeddings.scopes as Record<string, any>).reduce((n: number, s: any) => n + s.eligible, 0);
   assert.equal(after1.embeddings.pages.eligible, 4, 'five pages, one of them classified (never embedded)');
   assert.ok(copies > after1.embeddings.pages.eligible, 'the per-scope copies add up to more than the pages');
   assert.ok(after1.embeddings.pages.eligible <= after1.pages, 'never "700 of 1017 pages" in a world of 555');
   assert.ok(p.embedding.pagesDone <= p.embedding.pagesTotal, `${p.embedding.pagesDone} of ${p.embedding.pagesTotal}: never "556 of 555"`);
   assert.equal(p.embedding.pagesDone, 4);
-  assert.ok(after1.embeddings.dmChunks >= 4, 'DM-side chunks of every page but the classified one');
+  assert.ok(after1.embeddings.gmChunks >= 4, 'GM-side chunks of every page but the classified one');
   assert.ok(after1.embeddings.partyChunks >= 2, 'player-side chunks only for the shared pages');
   // Nothing a player may not read, and nothing classified, was sent to the embeddings model.
   const sent = gate.embedTexts.join('\n');
@@ -523,7 +523,7 @@ test('TestCrawl_CancelKeepsTheWorldItsSourcesAndWhatWasFetched', async () => {
   assert.ok(one(t.deps.db, 'SELECT 1 FROM worlds WHERE id = ?', wid));
   assert.ok(one(t.deps.db, 'SELECT 1 FROM sources WHERE id = ?', src.id));
   assert.ok(one(t.deps.db, 'SELECT 1 FROM connections WHERE id = ?', c.id));
-  const titles = (t.deps.library.list(wid, dmViewer) as any[]).map((p) => p.title).sort();
+  const titles = (t.deps.library.list(wid, gmViewer) as any[]).map((p) => p.title).sort();
   assert.deepEqual(titles, ['Flagged Page', 'Open Page'], 'page one was saved before the cancel');
   assert.equal((await t.ok('GET', `/api/admin/worlds/${wid}/sources`))[0].last_status.startsWith('stopped'), true);
   // The crawl can be started again after a cancel.
@@ -531,7 +531,7 @@ test('TestCrawl_CancelKeepsTheWorldItsSourcesAndWhatWasFetched', async () => {
   const again = await pollCrawl(t, wid, (x) => x.id !== stopped.id && x.status !== 'running');
   assert.equal(again.status, 'ok');
   assert.equal(again.progress.embedding.state, 'done');
-  assert.equal((t.deps.library.list(wid, dmViewer) as any[]).length, 5);
+  assert.equal((t.deps.library.list(wid, gmViewer) as any[]).length, 5);
 });
 
 test('TestCrawl_AFailingSourceIsCountedAndTheCrawlSaysError', async () => {

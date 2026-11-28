@@ -1,5 +1,5 @@
 // What every admin page is called, in one place: the menu, the find-a-page filter and the page headers read these, so a
-// page has one short name, one icon and one line of description. A leaf module (no imports), like dmnames.ts.
+// page has one short name, one icon and one line of description. A leaf module (no imports), like gmnames.ts.
 
 export type AdminGroupId = 'worlds' | 'sources' | 'ai' | 'access' | 'server';
 
@@ -15,9 +15,9 @@ export const ADMIN_GROUPS: { id: AdminGroupId; label: string; icon: string }[] =
 
 /** Keyed by the route under /admin/ ('' is the overview). The key order is the menu order inside a group. */
 export const ADMIN_NAMES: Record<string, AdminName> = {
-  '': { group: 'top', label: 'Overview', icon: 'fa-gauge', desc: 'Worlds, connections, models and who is waiting on a DM.' },
+  '': { group: 'top', label: 'Overview', icon: 'fa-gauge', desc: 'Worlds, connections, models and who is waiting on a GM.' },
 
-  worlds: { group: 'worlds', label: 'Worlds', icon: 'fa-globe', desc: 'Make worlds and choose each one’s DM.' },
+  worlds: { group: 'worlds', label: 'Worlds', icon: 'fa-globe', desc: 'Make worlds and choose each one’s GM.' },
   accounts: { group: 'worlds', label: 'People', icon: 'fa-users', desc: 'Accounts, roles and password resets.' },
   library: { group: 'worlds', label: 'Library', icon: 'fa-book', desc: 'The pages and files of every world.' },
 

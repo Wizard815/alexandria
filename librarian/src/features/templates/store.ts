@@ -1,5 +1,5 @@
-// The DM's templates and guides, per world, with every earlier version kept. Web research settings live here too
-// (DM only: never in the world settings that players can read).
+// The GM's templates and guides, per world, with every earlier version kept. Web research settings live here too
+// (GM only: never in the world settings that players can read).
 import type { DB } from '../../core/db.ts';
 import { all, one, run } from '../../core/db.ts';
 import { HttpError, id, now, parseJson } from '../../core/util.ts';
@@ -101,7 +101,7 @@ export interface WebConfig {
   /** OpenRouter: a provider saved in Admin → Models (blank: the first OpenRouter one), and the model to search with (blank: the chat job's). */
   providerId: string;
   model: string;
-  /** DM-only words the DM allowed in queries (classified words can never be allowed). */
+  /** GM-only words the GM allowed in queries (classified words can never be allowed). */
   allowTerms: string[];
   /** Results per query. */
   maxResults: number;

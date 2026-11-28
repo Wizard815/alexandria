@@ -48,7 +48,7 @@ export function DdbWarning({ short = false }: { short?: boolean }) {
   );
 }
 
-/** The Character module: the imported summary, read-only, with Update for the owner and the DM. */
+/** The Character module: the imported summary, read-only, with Update for the owner and the GM. */
 export function CharacterMod({ c, onUpdate }: { c: DdbCharacter; onUpdate?: () => void }) {
   if (!c?.name) return <span className="tiny muted">No character imported yet.</span>;
   const spellsBy = c.spells.reduce<Record<number, string[]>>((o, s) => { (o[s.level] ??= []).push(s.name); return o; }, {});
@@ -136,10 +136,10 @@ interface Applied { character: DdbCharacter; warning: string; applied: string[];
 
 /**
  * Read a character (link or pasted JSON), show what will change, then import.
- * Items go through Inventory one by one, so a player's wait for the DM's
+ * Items go through Inventory one by one, so a player's wait for the GM's
  * approval like any other new item.
  */
-export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onDone }: { account: string; own: boolean; dm: boolean; url?: string; onClose: () => void; onDone: (msg: string) => void }) {
+export function ImportModal({ account, own, gm, url: startUrl = '', onClose, onDone }: { account: string; own: boolean; gm: boolean; url?: string; onClose: () => void; onDone: (msg: string) => void }) {
   const { w } = useWorld();
   const act = useAction();
   const [url, setUrl] = useState(startUrl);
@@ -156,7 +156,7 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
     setPreview(out.character);
   });
   const go = () => act.run(async () => {
-    const out = await w.call<Applied>('POST', path, { ...src(), apply: { health: opt.health, conditions: opt.conditions, name: opt.name, stats: opt.stats, sheetStats: opt.sheetStats, counters: opt.counters, spells: dm && opt.spells } });
+    const out = await w.call<Applied>('POST', path, { ...src(), apply: { health: opt.health, conditions: opt.conditions, name: opt.name, stats: opt.stats, sheetStats: opt.sheetStats, counters: opt.counters, spells: gm && opt.spells } });
     let sent = 0, skipped = 0;
     if (opt.items && preview?.items.length) {
       const have = await w.call<any>('GET', '/inventory', undefined, { owner: own ? 'me' : account });
@@ -170,7 +170,7 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
       setProgress('');
     }
     const parts = [`Imported ${out.character.name}`];
-    if (sent) parts.push(`${sent} item${sent === 1 ? '' : 's'} sent to Inventory${!dm ? ' for the DM to approve' : ''}`);
+    if (sent) parts.push(`${sent} item${sent === 1 ? '' : 's'} sent to Inventory${!gm ? ' for the GM to approve' : ''}`);
     if (skipped) parts.push(`${skipped} already there`);
     if (out.learned) parts.push(`${out.learned} known spell${out.learned === 1 ? '' : 's'} added`);
     onDone([...parts, ...out.notes].join('. '));
@@ -213,8 +213,8 @@ export function ImportModal({ account, own, dm, url: startUrl = '', onClose, onD
             {box('name', `Use “${preview.name}” as the character name`)}
             {box('stats', 'Class, level and ability scores for spells and mana')}
             {((preview.uses?.length ?? 0) + (preview.hitDice?.length ?? 0)) > 0 && box('counters', `Counters for ${[...(preview.uses ?? []).map((u) => u.name), 'hit dice'].slice(0, 4).join(', ')}${(preview.uses?.length ?? 0) > 3 ? '…' : ''}`, '(same names are updated)')}
-            {preview.items.length > 0 && box('items', `Send ${preview.items.length} items to Inventory`, dm ? '(skips ones already there)' : '(the DM approves them; skips ones already there)')}
-            {dm && preview.spells.length > 0 && box('spells', `Add ${preview.spells.length} known spells`, '(ones in this world’s spell list)')}
+            {preview.items.length > 0 && box('items', `Send ${preview.items.length} items to Inventory`, gm ? '(skips ones already there)' : '(the GM approves them; skips ones already there)')}
+            {gm && preview.spells.length > 0 && box('spells', `Add ${preview.spells.length} known spells`, '(ones in this world’s spell list)')}
           </div>
           {progress && <span className="tiny muted" role="status">{progress}</span>}
           <ErrorBox error={act.error} />

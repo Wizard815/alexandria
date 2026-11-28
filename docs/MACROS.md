@@ -2,7 +2,7 @@
 
 The gateway keeps a list of **actions** (next turn, long rest, play a pad, show
 a stage card, start recording, run a light scene, roll dice...). A **macro** is
-a named list of actions. You can run a macro from a button (DM → Macros), a key,
+a named list of actions. You can run a macro from a button (GM → Macros), a key,
 or a web request. Every run is audited.
 
 All endpoints are under `/api/worlds/:world`:
@@ -11,16 +11,16 @@ All endpoints are under `/api/worlds/:world`:
 |---|---|
 | `GET /actions` | the actions you may run, with typed arguments |
 | `POST /actions/run` `{action, args}` | run one action |
-| `GET/POST /actions/macros`, `PUT/DELETE /actions/macros/:id` | macros (DM) |
+| `GET/POST /actions/macros`, `PUT/DELETE /actions/macros/:id` | macros (GM) |
 | `POST /actions/macros/:id/run` `{args}` | run a macro; a report per step |
 | `GET /actions/bindings?scope=web\|app` | your key bindings |
 | `POST /actions/bindings`, `DELETE /actions/bindings/:id` | change them |
-| `POST /actions/macros/:id/triggers`, `GET /actions/triggers`, `DELETE /actions/triggers/:id` | trigger URLs (DM) |
+| `POST /actions/macros/:id/triggers`, `GET /actions/triggers`, `DELETE /actions/triggers/:id` | trigger URLs (GM) |
 | `POST /api/trigger/<token>` | the public trigger (no sign-in) |
 
 Macros run with the rights of whoever runs them. Each action lists the roles
-that may run it: almost everything is DM-only; players can roll dice. A macro
-is DM-only unless you tick "Players may run it", and then it may only contain
+that may run it: almost everything is GM-only; players can roll dice. A macro
+is GM-only unless you tick "Players may run it", and then it may only contain
 player-safe actions.
 
 ## Macros
@@ -34,7 +34,7 @@ step's argument. Trigger URLs and `run` calls may override only those.
 Example, "Combat starts": `lights.scene` Red alert, `sound.mood` x 0.9 y 0.9,
 `stage.show` combat, `combat.start`.
 
-A **macro template** (DM → Templates & guides) is a Minerva prompt with `{{blanks}}`; **Make a macro**
+A **macro template** (GM → Templates & guides) is a Minerva prompt with `{{blanks}}`; **Make a macro**
 turns it into a macro whose blanks are its parameters. See [TEMPLATES.md](TEMPLATES.md).
 
 ## Key bindings
@@ -52,7 +52,7 @@ needs Ctrl, Alt or Meta so a binding never swallows typing.
    type `KC_F13` ... `KC_F24`. These keys exist on no normal keyboard, so
    nothing else uses them. (Alternatively `LCTL(LALT(LSFT(KC_1)))` for
    Ctrl+Alt+Shift+1.)
-3. In Alexandria: DM → Macros → Key bindings → **Press a key**, press the
+3. In Alexandria: GM → Macros → Key bindings → **Press a key**, press the
    key on the keyboard, choose the macro, **Bind**.
 4. Keep the Alexandria tab focused for `web` bindings. Global hotkeys, which
    work with another window in front, need the installed app (coming).
@@ -61,7 +61,7 @@ On Linux/Wayland some browsers don't see F13+; use the modifier combination.
 
 ## Trigger URLs
 
-DM → Macros → Trigger URLs → pick a macro → **Create URL**. The URL is shown
+GM → Macros → Trigger URLs → pick a macro → **Create URL**. The URL is shown
 **once**; copy it then. It runs exactly that macro, as you, at most N times a
 minute (default 6), until revoked. It can read nothing and open no other
 route; the reply says only which steps ran or failed. Treat the URL like a
@@ -102,7 +102,7 @@ Method *POST*. **Android**: HTTP Shortcuts app (or Tasker *HTTP Request*), metho
 
 ## Lights
 
-DM → Lights. All local-network; secrets (Hue username, Home Assistant token)
+GM → Lights. All local-network; secrets (Hue username, Home Assistant token)
 are never sent back. Off by default.
 
 - **WLED**: host. Sends `POST http://<ip>/json/state`.

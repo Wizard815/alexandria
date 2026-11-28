@@ -5,7 +5,7 @@
 //
 // It keeps no conversation. Every call starts fresh from a short brief built
 // here from what this player may see: their sheet (HP, conditions, goals the
-// DM set), their items, the combat tracker as they see it, tonight's party
+// GM set), their items, the combat tracker as they see it, tonight's party
 // summary and the last lines the table heard, their own goals and journal, a
 // few rules passages and a few library chunks shared with the party. So the
 // prompt stays small (a 4K to 8K context is plenty) and the server's slots
@@ -119,7 +119,7 @@ const NAME = /\b[A-Z][a-z'’]+(?:[ -](?:of |de )?[A-Z][a-z'’]+)+\b/g;
 const GAME_WORDS = new Set(('opportunity attack action actions bonus reaction saving save throw throws advantage disadvantage strength dexterity constitution '
   + 'intelligence wisdom charisma stealth perception athletics acrobatics insight investigation sleight hand armor armour class hit points dice '
   + 'short long rest sneak cunning inspiration initiative round turn help hide dash disengage dodge ready search use object magic cover heavily '
-  + 'lightly obscured difficult terrain concentration death dungeon master dm game player character potion healing srd d&d').split(' '));
+  + 'lightly obscured difficult terrain concentration death dungeon master gm game player character potion healing srd d&d').split(' '));
 /** Names of two or more capitalised words in the answer that the brief and the question never mention. */
 export function unknownNames(answer: string, known: string): string[] {
   const k = known.toLowerCase().replace(/\s+/g, ' ');
@@ -165,7 +165,7 @@ export function briefBudget(d: Deps): number {
   return Math.max(2000, Math.min(16_000, Math.round((tokens - 1200) * 3.5)));
 }
 
-/** The character: name, the sheet's health and conditions, goals the DM set for them. */
+/** The character: name, the sheet's health and conditions, goals the GM set for them. */
 function characterPart(d: Deps, worldId: string, accountId: string): string {
   const m = one<any>(d.db, 'SELECT a.display_name AS name, m.character_name AS ch FROM members m JOIN accounts a ON a.id = m.account_id WHERE m.world_id = ? AND m.account_id = ?', worldId, accountId);
   const L: string[] = [];
@@ -188,9 +188,9 @@ function characterPart(d: Deps, worldId: string, accountId: string): string {
       if (!L.some((x) => x.startsWith('Conditions:'))) L.push(`Conditions: ${fx.length ? fx.join(', ') : 'none'}.`);
     }
   }
-  if (tableExists(d, 'sheet_dm_notes')) {
-    const goals = all<any>(d.db, "SELECT text, done FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 6", worldId, accountId);
-    if (goals.length) L.push(`Goals from the DM: ${goals.map((g) => `${clip(flat(g.text), 120)}${g.done ? ' (done)' : ''}`).join('; ')}.`);
+  if (tableExists(d, 'sheet_gm_notes')) {
+    const goals = all<any>(d.db, "SELECT text, done FROM sheet_gm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 6", worldId, accountId);
+    if (goals.length) L.push(`Goals from the GM: ${goals.map((g) => `${clip(flat(g.text), 120)}${g.done ? ' (done)' : ''}`).join('; ')}.`);
   }
   return L.join('\n');
 }
@@ -317,7 +317,7 @@ export function kitPart(d: Deps, worldId: string, accountId: string): string {
 
 /**
  * The story so far as this player knows it: the published session log (party level), the party's arcs, their own
- * goals and the DM's goals for them, their latest journal, and what they bought from the broker. Nothing DM-only.
+ * goals and the GM's goals for them, their latest journal, and what they bought from the broker. Nothing GM-only.
  */
 export function recapPart(d: Deps, worldId: string, accountId: string): string {
   const L: string[] = [];
@@ -331,9 +331,9 @@ export function recapPart(d: Deps, worldId: string, accountId: string): string {
     if (v.goals.length) L.push(`Their goals and quests:\n${v.goals.map((g) => `- ${g.title} (${g.heat ?? 'ongoing'}): ${clip(plain(g.body.replace(/^#.*$/m, '')), 200)}`).join('\n')}`);
     if (v.journal.length) L.push(`Their latest journal:\n${v.journal.slice(-2).map((j) => `- ${j.title}: ${clip(plain(j.body.replace(/^#.*$/m, '')), 300)}`).join('\n')}`);
   }
-  if (tableExists(d, 'sheet_dm_notes')) {
-    const goals = all<any>(d.db, "SELECT text, done FROM sheet_dm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 8", worldId, accountId);
-    if (goals.length) L.push(`Quests from the DM:\n${goals.map((g) => `- ${clip(plain(g.text), 160)}${g.done ? ' (done)' : ''}`).join('\n')}`);
+  if (tableExists(d, 'sheet_gm_notes')) {
+    const goals = all<any>(d.db, "SELECT text, done FROM sheet_gm_notes WHERE world_id = ? AND account_id = ? AND kind = 'goal' ORDER BY done, created_at LIMIT 8", worldId, accountId);
+    if (goals.length) L.push(`Quests from the GM:\n${goals.map((g) => `- ${clip(plain(g.text), 160)}${g.done ? ' (done)' : ''}`).join('\n')}`);
   }
   if (tableExists(d, 'broker_requests')) {
     const bought = all<any>(d.db, "SELECT question, answer FROM broker_requests WHERE world_id = ? AND account_id = ? AND answer IS NOT NULL AND answer <> '' AND status IN ('answered', 'noted') ORDER BY created_at DESC LIMIT 3", worldId, accountId);

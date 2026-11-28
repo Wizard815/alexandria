@@ -1,6 +1,6 @@
 // Admin → Source files: the pictures, maps and library files held for each world and source, how big they are, when they were fetched and
 // how much disk they take. A source's files come back with its next sync ("Fetch again"); only library files can be deleted here.
-// A file only a world's DM may see is shown as "a DM-only file" to an admin who is not that DM.
+// A file only a world's GM may see is shown as "a GM-only file" to an admin who is not that GM.
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth.tsx';
@@ -48,7 +48,7 @@ function FileTable({ files, total, what, action }: { files: FileRow[]; total: nu
         <thead><tr><th>Name</th><th>Kind</th><th className="num">Size</th><th>Fetched</th>{action && <th />}</tr></thead>
         <tbody>{shown.map((f) => (
           <tr key={f.id}>
-            <td className="gws-wrap">{f.name === null ? <span className="muted gws-hidden">a DM-only file</span> : <span className="mono small">{f.name}</span>}</td>
+            <td className="gws-wrap">{f.name === null ? <span className="muted gws-hidden">a GM-only file</span> : <span className="mono small">{f.name}</span>}</td>
             <td><Pill>{f.kind}</Pill></td><td className="num">{bytes(f.size)}</td><td className="small">{ago(f.at)}</td>
             {action && <td>{action(f)}</td>}
           </tr>
@@ -78,7 +78,7 @@ function WorldFiles({ w, onChanged, toast }: { w: SourceFilesWorld; onChanged: (
   const empty = !w.sources.length && !w.library.count;
   return (
     <Section title={<span className="row wrap" style={{ gap: 10 }}>{w.name}{w.view === 'counts' && <Pill>counts and shared names only</Pill>}</span>}
-      lead={empty ? 'No sources and no library files.' : w.view === 'dm' ? 'You are this world’s DM, so every name is shown.' : 'You are not this world’s DM. Files its players cannot see are counted but not named.'}>
+      lead={empty ? 'No sources and no library files.' : w.view === 'gm' ? 'You are this world’s GM, so every name is shown.' : 'You are not this world’s GM. Files its players cannot see are counted but not named.'}>
       <ErrorBox error={a.error} />
       {w.sources.map((s) => (
         <div key={s.id} className="gws-source">
@@ -99,11 +99,11 @@ function WorldFiles({ w, onChanged, toast }: { w: SourceFilesWorld; onChanged: (
         <div className="gws-source-head">
           <div className="stack tight">
             <strong>Library files</strong>
-            <span className="small muted">Added by the DM or fetched for a page · {plural(w.library.count, 'file')} · {bytes(w.library.bytes)}{w.library.hiddenCount ? ` · ${w.library.hiddenCount} DM-only` : ''}</span>
+            <span className="small muted">Added by the GM or fetched for a page · {plural(w.library.count, 'file')} · {bytes(w.library.bytes)}{w.library.hiddenCount ? ` · ${w.library.hiddenCount} GM-only` : ''}</span>
           </div>
         </div>
         <FileTable files={w.library.files} total={w.library.count} what="library files"
-          action={(f) => (f.hidden ? <span className="tiny faint">DM only</span> : <button type="button" className="btn small danger" disabled={a.busy} onClick={() => setDel(f)}>Delete</button>)} />
+          action={(f) => (f.hidden ? <span className="tiny faint">GM only</span> : <button type="button" className="btn small danger" disabled={a.busy} onClick={() => setDel(f)}>Delete</button>)} />
       </div>
       {del && (
         <Modal title="Delete this file?" onClose={() => setDel(null)}>

@@ -41,7 +41,7 @@ export function listRoutes(app: any): RouteDef[] {
 }
 
 // ---- markers -----------------------------------------------------------------------
-export type Who = 'dm' | 'jess' | 'tom' | 'guest' | 'dm2';
+export type Who = 'gm' | 'jess' | 'tom' | 'guest' | 'gm2';
 export interface Marker {
   id: string;
   token: string;
@@ -67,7 +67,7 @@ export function mark(id: string, seen: Who[], where: string, opts: { ai?: boolea
   // Classified text is checked by 8-word runs, so it is a whole sentence.
   const text = opts.long ? `The sealed vault beneath the old lighthouse opens only for bearers of ${token} and none other` : token;
   // What everyone at the table may read, a guest may read.
-  const all = seen.includes('dm') && seen.includes('jess') && seen.includes('tom');
+  const all = seen.includes('gm') && seen.includes('jess') && seen.includes('tom');
   markers[id] = { id, token, text, seen: all ? [...seen, 'guest'] : seen, ai: opts.ai ?? true, where, eventsOk: opts.eventsOk };
   return text;
 }

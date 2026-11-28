@@ -2,7 +2,7 @@
 // asks for a ticket for one file (checked like a normal file request) and
 // puts /api/media/<kind>/<ticket> in the tag. A ticket is signed, names one
 // file and one account, and expires; the file's permission is checked again
-// every time it is used, so when the DM stops something players lose it.
+// every time it is used, so when the GM stops something players lose it.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 const secret = randomBytes(32);

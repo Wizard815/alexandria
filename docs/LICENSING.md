@@ -13,7 +13,7 @@ competing with Alexandria.
 - Read, download, build and run Alexandria.
 - Run it for your own table, your friends, your club or your Discord, online or
   in person.
-- Use it while you DM, including games where players pay you to run them.
+- Use it while you run games as the GM, including games where players pay you to run them.
 - Change it, fix it and share your changes back with a pull request.
 - Write mods, templates and worlds for it, and share them.
 - Use pieces of it inside your own project, as long as that project doesn't

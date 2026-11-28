@@ -18,7 +18,7 @@ export interface Recipe {
   minLevel: number | null;
   manaCost: number | null;
   visibility: 'visible' | 'hidden';
-  dmNotes: string;
+  gmNotes: string;
   draft: boolean;
   createdBy: string;
   createdAt: string;
@@ -27,7 +27,7 @@ export interface Recipe {
 
 export const rowToRecipe = (r: any): Recipe => ({
   id: r.id, resultId: r.result_id, prereqs: parseJson<string[]>(r.prereqs, []), items: parseJson<RecipeItem[]>(r.items, []), stats: parseJson(r.stats, {}),
-  minLevel: r.min_level ?? null, manaCost: r.mana_cost ?? null, visibility: r.visibility === 'hidden' ? 'hidden' : 'visible', dmNotes: r.dm_notes ?? '', draft: !!r.draft,
+  minLevel: r.min_level ?? null, manaCost: r.mana_cost ?? null, visibility: r.visibility === 'hidden' ? 'hidden' : 'visible', gmNotes: r.gm_notes ?? '', draft: !!r.draft,
   createdBy: r.created_by ?? '', createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
@@ -92,7 +92,7 @@ export function normalizeRecipe(raw: any, resolve: (ref: string) => WorldSpell |
     minLevel: optInt(raw.minLevel, 'The minimum level', 1, 20),
     manaCost: optInt(raw.manaCost, 'The mana cost to learn', 0, 999),
     visibility: raw.visibility === 'hidden' ? 'hidden' : 'visible',
-    dmNotes: typeof raw.dmNotes === 'string' ? raw.dmNotes.slice(0, 4000) : '',
+    gmNotes: typeof raw.gmNotes === 'string' ? raw.gmNotes.slice(0, 4000) : '',
     draft: raw.draft === true,
   };
 }

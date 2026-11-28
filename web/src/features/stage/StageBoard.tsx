@@ -56,7 +56,7 @@ export function StageCards({ view, controls }: { view: StageView; controls?: (c:
   );
 }
 
-/** For players (and the player Live page): whatever the DM has put on the board. */
+/** For players (and the player Live page): whatever the GM has put on the board. */
 export default function StageBoard({ embedded = false }: { embedded?: boolean }) {
   const s = useStage();
   if (s.loading && !s.data) return embedded ? <Loading what="the stage" /> : <div className="page"><Loading what="the stage" /></div>;
@@ -64,7 +64,7 @@ export default function StageBoard({ embedded = false }: { embedded?: boolean })
     <>
       <style>{LIB_CSS + CSS}</style>
       <ErrorBox error={s.error} />
-      {s.data && (s.data.cards.length ? <StageCards view={s.data} /> : <section className="card"><h2>The stage is quiet</h2><p className="muted">When the DM shows something (a map, a person, a shop, the fight), it appears here.</p></section>)}
+      {s.data && (s.data.cards.length ? <StageCards view={s.data} /> : <section className="card"><h2>The stage is quiet</h2><p className="muted">When the GM shows something (a map, a person, a shop, the fight), it appears here.</p></section>)}
     </>
   );
   return embedded ? <div className="stack loose">{body}</div> : <div className="page"><div className="stack loose"><h1>Stage</h1>{body}</div></div>;

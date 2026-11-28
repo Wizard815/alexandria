@@ -1,8 +1,8 @@
 // Owlbear Rodeo: play a casual online session on an Owlbear Rodeo map, with this world's map pictures and fog of war.
 //
-// The extension (web/owlbear/) is served by this server at /owlbear/, so the DM adds
+// The extension (web/owlbear/) is served by this server at /owlbear/, so the GM adds
 // https://<this server>/owlbear/manifest.json in Owlbear Rodeo and nothing else needs hosting. It runs in every
-// browser in the Owlbear room, but only the GM's copy holds the link key (alx_obr_..., made on DM → Setup → Owlbear
+// browser in the Owlbear room, but only the GM's copy holds the link key (alx_obr_..., made on GM → Setup → Owlbear
 // Rodeo) and does the work:
 //   - it puts the linked map picture into the Owlbear scene as the map (the table screen's picture by default),
 //   - Alexandria leads (default): this world's fog for that picture is drawn as one locked fog shape on top, kept
@@ -16,9 +16,9 @@
 import { Router, type Express, type Request, type Response } from 'express';
 import fs from 'node:fs';
 import type { Deps } from '../../app.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { type DB, all, one, run } from '../../core/db.ts';
-import { dmOnly } from '../../core/events.ts';
+import { gmOnly } from '../../core/events.ts';
 import { HttpError, now, secret, sha256, str } from '../../core/util.ts';
 import { imageVisibleTo, mapImagesFor } from '../../intake/records.ts';
 import { ctx, me } from '../../routes/_shared.ts';
@@ -80,7 +80,7 @@ function status(d: Deps, l: Link) {
 
 const LEADS: Lead[] = ['alexandria', 'owlbear'];
 
-/** Change what the link shows (from the extension or the DM page). */
+/** Change what the link shows (from the extension or the GM page). */
 function setLink(d: Deps, l: Link, b: any) {
   const follow = b.follow === undefined ? !!l.follow : !!b.follow;
   const mapId = b.mapId === undefined ? l.map_id : b.mapId === null ? null : str(b.mapId, 'mapId', { max: 60 }) || null;
@@ -90,7 +90,7 @@ function setLink(d: Deps, l: Link, b: any) {
   const cells = b.cells === undefined ? l.cells : Math.round(Number(b.cells));
   if (!Number.isFinite(cells) || cells < 0 || cells > 400) throw new HttpError(400, 'cells must be 0 (picture size) to 400');
   run(d.db, 'UPDATE owlbear_links SET follow = ?, map_id = ?, pic = ?, lead = ?, cells = ? WHERE world_id = ?', follow ? 1 : 0, mapId, pic, lead, cells, l.world_id);
-  d.hub.emit(l.world_id, 'owlbear', {}, dmOnly);
+  d.hub.emit(l.world_id, 'owlbear', {}, gmOnly);
   return linkOf(d.db, l.world_id)!;
 }
 
@@ -100,8 +100,8 @@ function linkFromKey(db: DB, req: Request): Link {
   if (!token.startsWith(KEY_PREFIX)) throw new HttpError(401, 'Send the Owlbear Rodeo link key');
   const l = one<Link>(db, 'SELECT * FROM owlbear_links WHERE key_hash = ?', sha256(token));
   if (!l) throw new HttpError(401, 'That Owlbear Rodeo link key is not valid (made a new one?)');
-  // The key belongs to a DM; a DM who lost the world loses the link.
-  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'dm'", l.world_id, l.created_by)) throw new HttpError(403, 'The DM who made this key no longer runs the world');
+  // The key belongs to a GM; a GM who lost the world loses the link.
+  if (!one(db, "SELECT 1 FROM members WHERE world_id = ? AND account_id = ? AND role = 'gm'", l.world_id, l.created_by)) throw new HttpError(403, 'The GM who made this key no longer runs the world');
   const was = l.last_seen_at;
   run(db, 'UPDATE owlbear_links SET last_seen_at = ? WHERE world_id = ?', now(), l.world_id);
   return { ...l, last_seen_at: was };
@@ -186,7 +186,7 @@ function appRoutes(app: Express, d: Deps) {
     const l = L(res);
     const room = cleanName(req.query.room, 120), player = cleanName(req.query.player, 60);
     if (room !== l.room || player !== l.player) run(db, 'UPDATE owlbear_links SET room = ?, player = ? WHERE world_id = ?', room, player, l.world_id);
-    if (!l.last_seen_at || Date.now() - Date.parse(l.last_seen_at) > ONLINE_MS) d.hub.emit(l.world_id, 'owlbear', {}, dmOnly);
+    if (!l.last_seen_at || Date.now() - Date.parse(l.last_seen_at) > ONLINE_MS) d.hub.emit(l.world_id, 'owlbear', {}, gmOnly);
     const w = one<any>(db, 'SELECT id, slug, name FROM worlds WHERE id = ?', l.world_id);
     res.json({ world: { id: w.id, slug: w.slug, name: w.name }, version: EXTENSION_VERSION, pictures: pictures(d, l.world_id).map(({ value, label, group }) => ({ value, label, group })), ...status(d, l) });
   });
@@ -229,7 +229,7 @@ function worldRoutes(d: Deps) {
   const r = Router({ mergeParams: true });
   const { db } = d;
   const W = (res: Response) => ctx(res).world.id;
-  r.use(requireDM);
+  r.use(requireGM);
 
   r.get('/', (req, res) => {
     const w = W(res);
@@ -303,7 +303,7 @@ const feature: Feature = {
     {
       name: 'owlbear_status',
       description: 'Owlbear Rodeo link: is the extension connected, which map picture the Owlbear scene shows, who leads the fog (Alexandria or Owlbear).',
-      dmOnly: true,
+      gmOnly: true,
       props: {},
       call: () => ({ method: 'GET', path: '/owlbear' }),
     },

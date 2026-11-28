@@ -197,7 +197,7 @@ export const STT_MODE_LABELS: Record<SttMode, string> = {
   auto: 'Auto (device when it has a GPU)',
 };
 
-/** A short line for a mic's speech to text, as the DM sees it. */
+/** A short line for a mic's speech to text, as the GM sees it. */
 export function sttLine(s: { mode: SttMode; device: null | { state: string; backend: string; model: string; rtf: number | null; backlog: number; progress: number | null; note: string }; chunks: { device: number; server: number; awaiting: number; pending: number } } | undefined): { where: 'device' | 'server' | 'loading'; text: string } {
   if (!s) return { where: 'server', text: '' };
   const c = s.chunks;

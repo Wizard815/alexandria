@@ -1,6 +1,6 @@
-// Guides in the DM's assistant. When a request matches a guide (its triggers, or "use guide X"), the harness calls
+// Guides in the GM's assistant. When a request matches a guide (its triggers, or "use guide X"), the harness calls
 // applyGuides before the first model call: the guide's steps that only read (the library, neighbouring places, the
-// exemplar pages) run here, the web step becomes a web_research call (a card for the DM unless Auto is on), and what
+// exemplar pages) run here, the web step becomes a web_research call (a card for the GM unless Auto is on), and what
 // they found rides in the model's context with the guide itself. The chat shows "Using guide: <name>" and each step.
 // Everything is read as the assistant may read it (the AI copy: never classified text).
 import type { Deps } from '../../app.ts';
@@ -54,7 +54,7 @@ function earlierSearch(d: Deps, chatId: string, guideId: string, query: string):
   return null;
 }
 
-/** "this template", "change the template", "add a step": the DM is working on the template itself. */
+/** "this template", "change the template", "add a step": the GM is working on the template itself. */
 const ABOUT_TEMPLATE = /\b(templates?|guides?|this (?:one|spec)|add (?:a |another )?(?:step|section|place|trigger)|(?:change|edit|improve|update|rename|tweak) (?:it|this))\b/i;
 
 /** The template a chat was started from (agent_chats.template), from the world's templates. */
@@ -72,15 +72,15 @@ export async function applyGuides(d: Deps, r: GuideRun): Promise<Applied | null>
   let matched = matchGuides(r.text, list);
   // A template chat (started from one template, kept apart from the main chats) always has its template at hand:
   // asked about the template itself, the assistant gets its content to change it; asked to make something, the
-  // template is followed as if the DM had named it.
+  // template is followed as if the GM had named it.
   const pinned = pinnedTemplate(d, r.chatId, list);
   let about = '';
   if (pinned) {
-    if (ABOUT_TEMPLATE.test(r.text)) about = `TEMPLATE CHAT: this chat is about the DM's ${KIND_LABEL[pinned.kind].toLowerCase()} "${pinned.name}" (id ${pinned.id}: change it with update_dm_template). It is now:\n${JSON.stringify({ name: pinned.name, description: pinned.description, triggers: pinned.triggers, spec: pinned.spec }).slice(0, 4000)}`;
+    if (ABOUT_TEMPLATE.test(r.text)) about = `TEMPLATE CHAT: this chat is about the GM's ${KIND_LABEL[pinned.kind].toLowerCase()} "${pinned.name}" (id ${pinned.id}: change it with update_gm_template). It is now:\n${JSON.stringify({ name: pinned.name, description: pinned.description, triggers: pinned.triggers, spec: pinned.spec }).slice(0, 4000)}`;
     else if (pinned.enabled && !matched.some((m) => m.t.id === pinned.id)) matched = [{ t: pinned, why: 'named' as const, hits: [pinned.name] }, ...matched].slice(0, 2);
   }
   // Like a guide: a template that would carry classified words is never sent.
-  if (about && wouldBeRefused(d, about)) about = `TEMPLATE CHAT: this chat is about one of the DM's templates, which repeats classified text, so its content is not shown here. Ask the DM to edit it on the Templates page.`;
+  if (about && wouldBeRefused(d, about)) about = `TEMPLATE CHAT: this chat is about one of the GM's templates, which repeats classified text, so its content is not shown here. Ask the GM to edit it on the Templates page.`;
   if (!matched.length) return about ? { context: about, notes: [], cites: [] } : null;
   const ai = { ...r.viewer, audience: 'ai' } as Viewer;
   const ctx: string[] = [];
@@ -168,7 +168,7 @@ export async function applyGuides(d: Deps, r: GuideRun): Promise<Applied | null>
           webDone = true;
           const res = await r.exec('web_research', { queries: [q], purpose: `Guide ${g.name}: ${clip(referenceIn(r.text) || r.text, 80)}`, guide: g.id });
           if (res.proposed) {
-            found.push(`Web research for "${q}" waits for the DM's approval (a card in the chat). Draft from the library now and mark where real-world details will go; the search results come in a later message.`);
+            found.push(`Web research for "${q}" waits for the GM's approval (a card in the chat). Draft from the library now and mark where real-world details will go; the search results come in a later message.`);
             note.steps.push({ kind: 'web', label, status: 'waiting', detail: `search "${q}": waiting for your approval` });
           } else if (res.ran?.ok) {
             const j = parseJson<any>(res.content, null);
@@ -194,11 +194,11 @@ export async function applyGuides(d: Deps, r: GuideRun): Promise<Applied | null>
   // Where the result goes: a story event and a spell have their own tools; everything else is a library page.
   const save = [
     kinds.has('event') ? 'Save a quick event with save_encounter_template (kind event, with its places); it is sent later from Encounters → Story events.' : '',
-    kinds.has('spell') ? 'Save a new spell with save_homebrew_spell (it stays DM only until the DM shares it).' : '',
-    [...kinds].some((k) => k !== 'event' && k !== 'spell') ? 'Write a new page with save_page: DM only (visibility dm) unless the DM asks otherwise, in the guide\'s folder. End the page with a "Sources" section: library pages as [[Title]], web results as links.' : '',
+    kinds.has('spell') ? 'Save a new spell with save_homebrew_spell (it stays GM only until the GM shares it).' : '',
+    [...kinds].some((k) => k !== 'event' && k !== 'spell') ? 'Write a new page with save_page: GM only (visibility gm) unless the GM asks otherwise, in the guide\'s folder. End the page with a "Sources" section: library pages as [[Title]], web results as links.' : '',
   ].filter(Boolean).join('\n');
   return {
-    context: `GUIDE IN USE: ${names}. The DM wrote ${notes.length === 1 ? 'this guide' : 'these guides'} for this kind of request; follow the steps, the structure and the tone. The chat already shows "Using guide: ${names}"; do not repeat it.\n${save}\n\n${ctx.join('\n\n---\n\n')}${about ? `\n\n${about}` : ''}`.slice(0, 14_000),
+    context: `GUIDE IN USE: ${names}. The GM wrote ${notes.length === 1 ? 'this guide' : 'these guides'} for this kind of request; follow the steps, the structure and the tone. The chat already shows "Using guide: ${names}"; do not repeat it.\n${save}\n\n${ctx.join('\n\n---\n\n')}${about ? `\n\n${about}` : ''}`.slice(0, 14_000),
     notes, cites,
   };
 }

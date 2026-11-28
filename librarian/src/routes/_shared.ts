@@ -5,18 +5,18 @@ import { DEFAULT_SETTINGS, type Viewer, type WorldSettings } from '../core/polic
 import { parseJson } from '../core/util.ts';
 
 export const ctx = (res: Response) => res.locals.w as WorldCtx;
-export const isDM = (res: Response) => ctx(res).viewer.role === 'dm';
+export const isGM = (res: Response) => ctx(res).viewer.role === 'gm';
 export const me = (res: Response) => ctx(res).viewer.accountId;
 
 /**
- * Who a read is answered for. A DM who adds ?view=players gets exactly what a player gets: the screen lying on the table is
- * seen by the players, so it asks for their copy instead of trusting the page to hide things. `keepAccount` keeps the DM's
- * account id (for a signed picture address) while still dropping the role; otherwise the id goes too, so nothing the DM
- * authored or owns ("only me" marks, the DM's own combatant) can match. Anyone else always gets their own view.
+ * Who a read is answered for. A GM who adds ?view=players gets exactly what a player gets: the screen lying on the table is
+ * seen by the players, so it asks for their copy instead of trusting the page to hide things. `keepAccount` keeps the GM's
+ * account id (for a signed picture address) while still dropping the role; otherwise the id goes too, so nothing the GM
+ * authored or owns ("only me" marks, the GM's own combatant) can match. Anyone else always gets their own view.
  */
 export function readerFor(req: Request, res: Response, keepAccount = false): Viewer {
   const v = ctx(res).viewer;
-  if (v.role !== 'dm' || req.query.view !== 'players') return v;
+  if (v.role !== 'gm' || req.query.view !== 'players') return v;
   return { accountId: keepAccount ? v.accountId : '', role: 'player' };
 }
 
@@ -24,7 +24,7 @@ export function settings(res: Response): WorldSettings {
   return { ...DEFAULT_SETTINGS, ...parseJson(ctx(res).world.settings, {}) };
 }
 
-export function memberIds(db: DB, worldId: string, roles: string[] = ['dm', 'player', 'guest']): string[] {
+export function memberIds(db: DB, worldId: string, roles: string[] = ['gm', 'player', 'guest']): string[] {
   return all<{ account_id: string; role: string }>(db, 'SELECT account_id, role FROM members WHERE world_id = ?', worldId)
     .filter((m) => roles.includes(m.role))
     .map((m) => m.account_id);

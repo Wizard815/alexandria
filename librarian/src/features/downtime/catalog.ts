@@ -1,13 +1,13 @@
 // Downtime activities: the tiers (common to legendary, each with a default
 // length), the shape of an activity, and the ones that come with Alexandria.
-// A world adds its own (the DM, or a player when the world allows it), and
-// the DM can change or hide any of these per world.
+// A world adds its own (the GM, or a player when the world allows it), and
+// the GM can change or hide any of these per world.
 import { HttpError } from '../../core/util.ts';
 
 export const TIERS = ['common', 'uncommon', 'rare', 'very-rare', 'legendary'] as const;
 export type Tier = (typeof TIERS)[number];
 export const TIER_LABEL: Record<Tier, string> = { common: 'Common', uncommon: 'Uncommon', rare: 'Rare', 'very-rare': 'Very rare', legendary: 'Legendary' };
-/** Work days each tier takes unless an activity says otherwise. The DM changes them in World settings (downtimeTierDays). */
+/** Work days each tier takes unless an activity says otherwise. The GM changes them in World settings (downtimeTierDays). */
 export const DEFAULT_TIER_DAYS: Record<Tier, number> = { common: 1, uncommon: 3, rare: 7, 'very-rare': 30, legendary: 90 };
 
 /** What finishing gives. `hidden`: the player only learns there is a reward, not what it is, until it is given. */
@@ -74,7 +74,7 @@ export function checkReward(v: unknown, at = 'reward'): Reward {
 }
 export const hasReward = (r: Reward) => !!(r.text || r.cp || r.item);
 
-/** Check an activity from the DM, a player, an import or the assistant. */
+/** Check an activity from the GM, a player, an import or the assistant. */
 export function checkActivity(raw: any, id: string): Activity {
   if (!raw || typeof raw !== 'object') throw bad('An activity must be an object');
   const tier = raw.tier === undefined || raw.tier === null || raw.tier === '' ? 'common' : tierOf(raw.tier);
@@ -98,7 +98,7 @@ export function checkActivity(raw: any, id: string): Activity {
 
 /**
  * The ready-made activities. They are data in the rule file (mods/downtime.alxmod.json, presets.downtimePremade), so a
- * DM's own version of the rule can ship its own list. Ids start with "pre-". A bad entry is skipped.
+ * GM's own version of the rule can ship its own list. Ids start with "pre-". A bad entry is skipped.
  */
 export function premadeFrom(v: unknown): Activity[] {
   const out: Activity[] = [];

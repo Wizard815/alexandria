@@ -1,16 +1,16 @@
 // One conversation with the assistant. The reply streams in as it is written
 // (live 'agent' events, with the chat polled as a fallback), can be stopped,
-// quotes its sources as links to library pages, and (for the DM) shows
+// quotes its sources as links to library pages, and (for the GM) shows
 // actions waiting for approval right under the message that proposed them.
 // The same component runs the desktop panel, the pop-out window and, with
-// `phone`, the DM phone's Ask tab (big targets, quick prompts, hold-to-talk),
+// `phone`, the GM phone's Ask tab (big targets, quick prompts, hold-to-talk),
 // so every feature lands in both.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ErrorBox, useAction } from '../../ui/index.tsx';
 import { useLoad, useWorld } from '../../lib/world.tsx';
 import { useAuth } from '../../lib/auth.tsx';
-import { buzz } from '../dmphone/hooks.ts';
+import { buzz } from '../gmphone/hooks.ts';
 import { AloudToggle, OPEN_CHAT, chatKey, claimSpoken, rememberChat, rememberedChat, speakAloud, stopSpeaking, useReadAloud } from './aloud.tsx';
 import { AutoSwitch, ChatMessages, ChatSwitcher, MicButton, type Act, type ChatRow, type ChatState, type Item, type Live } from './ChatParts.tsx';
 import { PREFILL_EVENT, takePrefill } from './prefill.ts';
@@ -31,8 +31,8 @@ const remembered = rememberedChat;
 const remember = rememberChat;
 
 type Quick = { label: string; send?: string; fill?: string; needs?: 'page' };
-const QUICK: Record<'dm' | 'player', Quick[]> = {
-  dm: [
+const QUICK: Record<'gm' | 'player', Quick[]> = {
+  gm: [
     { label: 'Summarise this page', send: 'Summarise this page: the key facts and what the party could do with it, in a few bullets.', needs: 'page' },
     { label: 'Make a statblock', fill: 'Make a statblock for ' },
     { label: 'What happened last session?', send: 'What happened last session? Give me the key events and open threads.' },
@@ -45,16 +45,16 @@ const QUICK: Record<'dm' | 'player', Quick[]> = {
   ],
 };
 
-/** Something the DM's phone adds to every message (the combatant picked on the Now tab). `get` reads it fresh at send time. */
+/** Something the GM's phone adds to every message (the combatant picked on the Now tab). `get` reads it fresh at send time. */
 export interface ChatContext { label: string; get: () => Promise<string | undefined>; drop: () => void }
 
 export interface ChatProps {
-  harness: 'dm' | 'player'; page?: string; placeholder?: string;
+  harness: 'gm' | 'player'; page?: string; placeholder?: string;
   /** A player's table helper instead of the broker. */
   mode?: 'helper';
   /** Chats about one template (its id): created with it and listed apart from the main chats. */
   template?: string;
-  /** The DM phone's layout: big targets, a pinned input, quick prompts and hold-to-talk. */
+  /** The GM phone's layout: big targets, a pinned input, quick prompts and hold-to-talk. */
   phone?: boolean;
   /** Phone: shown at the top of the chat (the session summary). */
   header?: ReactNode;
@@ -69,7 +69,7 @@ export interface ChatProps {
 }
 
 export default function Chat({ harness, page, placeholder, mode, template, phone, header, context, attachable, quickPrompts, onEditQuick, prefill }: ChatProps) {
-  const { w, info, on, isDM } = useWorld();
+  const { w, info, on, isGM } = useWorld();
   const { world = '' } = useParams();
   const navigate = useNavigate();
   const [chat, setChat] = useState<ChatState | null>(null);
@@ -81,7 +81,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   const [live, setLive] = useState<Live | null>(null);
   const [model, setModel] = useState<boolean | null>(null);
   const [alwaysAsk, setAlwaysAsk] = useState<string[]>([]);
-  // The tools the DM let run without a card (agentAutoApprove), kept live by the settings event.
+  // The tools the GM let run without a card (agentAutoApprove), kept live by the settings event.
   const trusted: string[] = Array.isArray((info.settings as any)?.agentAutoApprove) ? (info.settings as any).agentAutoApprove : [];
   // Auto mode: the world's setting (kept live by the settings event). `autoNow` shows a tap at once, until the server's answer arrives.
   const [autoNow, setAutoNow] = useState<boolean | null>(null);
@@ -118,7 +118,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   // The list asked for (the broker's or the helper's; main chats or one template's) and what a new chat is made with.
   const listPath = (tpl?: string) => { const q = new URLSearchParams(); if (mode) q.set('mode', mode); if (tpl) q.set('template', tpl); const t = q.toString(); return `/agent/chats${t ? `?${t}` : ''}`; };
   const newBody = (folder?: string) => ({ ...(mode ? { mode } : {}), ...(template ? { template } : {}), ...(folder ? { folder } : {}) });
-  // Folders outside a session, recent chats during one (or whichever the DM picked).
+  // Folders outside a session, recent chats during one (or whichever the GM picked).
   const [view, setViewState] = useState<ChatView>(rememberedView);
   const setView = (v: ChatView) => { setViewState(v); rememberView(v); };
   const sess = useLoad<any>(() => w.call('GET', '/sessionchat/current'), [w], ['chat-session']);
@@ -156,14 +156,14 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     // The main chat also lists every template chat, in the tree's own Templates branch (never mixed in with the rest).
     if (!template) w.call<{ chats: ChatRow[] }>('GET', listPath('only')).then((r) => setTplList((r.chats ?? []).filter((c) => !!c.template))).catch(() => {});
   }, [w, mode, template]);
-  // Template names for that branch (the DM's templates; built-in starters are named from their id).
+  // Template names for that branch (the GM's templates; built-in starters are named from their id).
   useEffect(() => {
-    if (template || !isDM || harness !== 'dm' || !tplList.length) return;
+    if (template || !isGM || harness !== 'gm' || !tplList.length) return;
     let alive = true;
     // Built-in starters come as `starters` where the server lists them; else their names are made from the id.
     w.call<{ templates: { id: string; name: string }[]; starters?: { id: string; name: string }[] }>('GET', '/templates').then((r) => { if (alive) setTplNames(Object.fromEntries([...(r.starters ?? []), ...(r.templates ?? [])].map((x) => [x.id, x.name]))); }).catch(() => {});
     return () => { alive = false; };
-  }, [w, template, isDM, harness, tplList.length]);
+  }, [w, template, isGM, harness, tplList.length]);
   useEffect(() => { refreshList(); }, [refreshList, chat?.id, chat?.busy]);
 
   const open = useCallback(async (id: string) => {
@@ -173,12 +173,12 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   }, [w, key, setError, leaveIncognito]);
   // The notice for a spoken request asks for its chat to be shown.
   useEffect(() => {
-    const h = (e: Event) => { const id = (e as CustomEvent).detail?.chatId; if (id && harness === 'dm') void open(id); };
+    const h = (e: Event) => { const id = (e as CustomEvent).detail?.chatId; if (id && harness === 'gm') void open(id); };
     window.addEventListener(OPEN_CHAT, h);
     return () => window.removeEventListener(OPEN_CHAT, h);
   }, [open, harness]);
 
-  // Read a finished reply aloud (DM only, if switched on). What was already in the chat when it opened is never read.
+  // Read a finished reply aloud (GM only, if switched on). What was already in the chat when it opened is never read.
   useEffect(() => {
     if (!chat) return;
     const done = chat.messages.filter((m) => m.role === 'assistant' && m.status === 'done' && m.text.trim());
@@ -187,11 +187,11 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     for (const m of fresh) seen.current.ids.add(m.id);
     const last = fresh.at(-1);
     if (last && phone) buzz([10, 40, 10]);
-    if (last && aloud && isDM && harness === 'dm' && claimSpoken(last.id)) void speakAloud(info.id, client.token, last.text).then((n) => setAloudNote(n ?? ''));
-  }, [chat, aloud, isDM, harness, phone, info.id, client]);
+    if (last && aloud && isGM && harness === 'gm' && claimSpoken(last.id)) void speakAloud(info.id, client.token, last.text).then((n) => setAloudNote(n ?? ''));
+  }, [chat, aloud, isGM, harness, phone, info.id, client]);
   useEffect(() => { if (!aloud) setAloudNote(''); }, [aloud]);
 
-  // The title of the page that is attached, and whether a fight is running (DM only: only the DM's assistant is given it).
+  // The title of the page that is attached, and whether a fight is running (GM only: only the GM's assistant is given it).
   useEffect(() => {
     setDropPage(false);
     setPageTitle('');
@@ -202,7 +202,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   }, [w, page]);
   // A request put in the box from elsewhere (a template's "Ask the assistant"): shown, not sent.
   useEffect(() => {
-    if (harness !== 'dm') return;
+    if (harness !== 'gm') return;
     const fill = (t: string) => { if (!t) return; setText(t); setTimeout(() => { box.current?.focus(); box.current?.setSelectionRange(t.length, t.length); }, 30); };
     fill(takePrefill());
     const onFill = (e: Event) => { takePrefill(); fill(String((e as CustomEvent).detail ?? '')); };
@@ -215,12 +215,12 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     setText(t);
     setTimeout(() => { box.current?.focus(); box.current?.setSelectionRange(t.length, t.length); }, 30);
   }, [prefill?.text, prefill?.n]);
-  const loadCombat = useCallback(() => { if (isDM) w.call<any>('GET', '/live/combat').then((c) => setCombat({ active: !!c.active, round: c.round })).catch(() => {}); }, [w, isDM]);
+  const loadCombat = useCallback(() => { if (isGM) w.call<any>('GET', '/live/combat').then((c) => setCombat({ active: !!c.active, round: c.round })).catch(() => {}); }, [w, isGM]);
   useEffect(() => { loadCombat(); return on(['combat'], loadCombat); }, [on, loadCombat]);
 
   // Text selected on the page (outside this panel) is offered as context. A phone has no page behind the chat.
   useEffect(() => {
-    if (harness !== 'dm' || phone) return;
+    if (harness !== 'gm' || phone) return;
     let t: ReturnType<typeof setTimeout> | undefined;
     const check = () => {
       clearTimeout(t);
@@ -264,7 +264,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     return () => clearInterval(t);
   }, [chat?.busy, chat?.id, load]);
   useEffect(() => { if (!chat?.busy) setLive(null); }, [chat?.busy]);
-  // Follow the reply while the DM is at the bottom; scrolled up to read, leave them there and offer a way back.
+  // Follow the reply while the GM is at the bottom; scrolled up to read, leave them there and offer a way back.
   const onScroll = () => { const el = log.current; if (!el) return; const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80; sticky.current = near; setAway(!near); };
   const toEnd = () => { sticky.current = true; setAway(false); end.current?.scrollIntoView?.({ block: 'end' }); };
   useEffect(() => { if (sticky.current) end.current?.scrollIntoView?.({ block: 'end' }); }, [chat?.messages.length, chat?.actions.length, chat?.actions.map((a) => a.status).join(), live?.text.length]);
@@ -375,7 +375,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     finally { setSavingAuto(false); setAutoNow(null); }
   };
 
-  const libraryHref = useCallback((id: string) => `/w/${world}/${isDM ? 'dm/' : ''}library?page=${encodeURIComponent(id)}`, [world, isDM]);
+  const libraryHref = useCallback((id: string) => `/w/${world}/${isGM ? 'gm/' : ''}library?page=${encodeURIComponent(id)}`, [world, isGM]);
   const goLink = (e: React.MouseEvent) => {
     const a = (e.target as HTMLElement).closest?.('a.wikilink') as HTMLAnchorElement | null;
     const href = a?.getAttribute('href');
@@ -404,10 +404,10 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
     </div>
   );
   const nav = (ph?: boolean) => (template ? <ChatSwitcher phone={ph} s={switcher} /> : <ChatNav s={switcher} t={tree} phone={ph} recent={<ChatSwitcher phone={ph} s={switcher} />} />);
-  const dmCards = harness === 'dm' && isDM;
-  const messages = <ChatMessages phone={phone} items={items} live={live} isDM={isDM} auto={autoOn} retry={retry} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={decide} cardTools={dmCards ? { edit: editAction, trust: trustAction } : undefined} />;
-  const modeSwitch = dmCards && <AutoSwitch phone={phone} on={autoOn} saving={savingAuto} onToggle={() => void toggleAuto()} alwaysAsk={alwaysAsk} trusted={trusted} untrust={untrust} />;
-  const bulk = dmCards && pending >= 2 && (
+  const gmCards = harness === 'gm' && isGM;
+  const messages = <ChatMessages phone={phone} items={items} live={live} isGM={isGM} auto={autoOn} retry={retry} libraryHref={libraryHref} onLink={goLink} onNavigate={navigate} decide={decide} cardTools={gmCards ? { edit: editAction, trust: trustAction } : undefined} />;
+  const modeSwitch = gmCards && <AutoSwitch phone={phone} on={autoOn} saving={savingAuto} onToggle={() => void toggleAuto()} alwaysAsk={alwaysAsk} trusted={trusted} untrust={untrust} />;
+  const bulk = gmCards && pending >= 2 && (
     <div className={phone ? 'row ag-bulk' : 'row ag-bulk'} role="group" aria-label="All waiting changes" data-testid="ag-bulk">
       <span className={phone ? 'sub' : 'tiny muted'}>{pending} changes waiting</span>
       <button type="button" className={phone ? 'b ok' : 'btn small primary'} disabled={busy} onClick={() => void decideAll('approve')} data-testid="ag-approve-all">Approve all</button>
@@ -416,7 +416,7 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
   );
   const jump = away && <button type="button" className={phone ? 'b chip ag-jump' : 'btn small ag-jump'} onClick={toEnd} data-testid="ag-jump"><i className="fa-solid fa-arrow-down" aria-hidden="true" /> Latest</button>;
   const noModel = model === false && <p className="tiny muted">No chat model is set yet (Admin → Models). Dice, the date and simple combat commands still work.</p>;
-  const hello = harness === 'dm' ? 'Ask about your world, the last session, the rules or the fight. It can propose changes; nothing happens until you approve it.' : 'Ask about what your character knows: places, people, what happened, your items.';
+  const hello = harness === 'gm' ? 'Ask about your world, the last session, the rules or the fight. It can propose changes; nothing happens until you approve it.' : 'Ask about what your character knows: places, people, what happened, your items.';
 
   if (phone) {
     return (
@@ -441,15 +441,15 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
           <div className="flow ask-chips" aria-label="Quick asks">
             {context && <button type="button" className="b chip on" aria-label={`Do not send ${context.label}`} title="Sent with your message. Tap to drop it." onClick={context.drop}><i className="fa-solid fa-khanda" aria-hidden="true" /> {context.label} <i className="fa-solid fa-xmark" aria-hidden="true" /></button>}
             {attachable && <button type="button" className="b chip" aria-label={`Attach ${attachable.label}`} title="Send this combatant with your message" onClick={attachable.attach}><i className="fa-solid fa-plus" aria-hidden="true" /> {attachable.label}</button>}
-            {isDM && combat?.active && <span className="pill gold" title="The fight now is sent with your message"><i className="fa-solid fa-khanda" aria-hidden="true" /> Round {combat.round}</span>}
+            {isGM && combat?.active && <span className="pill gold" title="The fight now is sent with your message"><i className="fa-solid fa-khanda" aria-hidden="true" /> Round {combat.round}</span>}
             {(quickPrompts ?? []).map((q) => <button key={q.label} type="button" className="b chip" disabled={busy || working} onClick={() => void send(q.text)}>{q.label}</button>)}
             {onEditQuick && <button type="button" className="b chip" aria-label="Edit quick prompts" title="Edit quick prompts" onClick={onEditQuick} data-testid="quick-edit"><i className="fa-solid fa-pen" aria-hidden="true" /></button>}
-            {isDM && harness === 'dm' && <AloudToggle phone note={aloudNote} />}
+            {isGM && harness === 'gm' && <AloudToggle phone note={aloudNote} />}
           </div>
           <form className="row ask-form" onSubmit={(e) => { e.preventDefault(); void send(); }}>
             <label className="grow"><span className="sr-only">Message</span>
               <textarea ref={box} data-ag-input rows={1} value={text} placeholder={placeholder ?? 'Ask…'} enterKeyHint="send" onChange={(e) => setText(e.target.value)} /></label>
-            {isDM && <MicButton hold disabled={busy || working} onText={addText} onError={setError} />}
+            {isGM && <MicButton hold disabled={busy || working} onText={addText} onError={setError} />}
             {working
               ? <button type="button" className="b danger" onClick={stop} aria-label="Stop the answer"><i className="fa-solid fa-stop" aria-hidden="true" /></button>
               : <button type="submit" className="b primary" disabled={busy || !text.trim()} aria-label="Send"><i className="fa-solid fa-paper-plane" aria-hidden="true" /></button>}
@@ -479,19 +479,19 @@ export default function Chat({ harness, page, placeholder, mode, template, phone
         {attachedPage && <span className="chip gold" title="The page you are looking at is sent with your message"><i className="fa-solid fa-file-lines" aria-hidden="true" /> {pageTitle || 'This page'} <button type="button" className="ag-x" aria-label="Do not send this page" onClick={() => setDropPage(true)}>×</button></span>}
         {page && dropPage && <button type="button" className="chip" onClick={() => setDropPage(false)}>Attach this page</button>}
         {selection && <span className="chip gold" title={selection}><i className="fa-solid fa-i-cursor" aria-hidden="true" /> “{selection.slice(0, 40)}{selection.length > 40 ? '…' : ''}” <button type="button" className="ag-x" aria-label="Do not send the selection" onClick={() => setSelection('')}>×</button></span>}
-        {isDM && combat?.active && <span className="chip teal" title="The fight now is sent with your message"><i className="fa-solid fa-khanda" aria-hidden="true" /> Combat, round {combat.round}</span>}
+        {isGM && combat?.active && <span className="chip teal" title="The fight now is sent with your message"><i className="fa-solid fa-khanda" aria-hidden="true" /> Combat, round {combat.round}</span>}
       </div>
       <div className="row ag-quick" aria-label="Quick actions">
         {quick.map((q) => <button key={q.label} type="button" className="chip ag-quick-btn" disabled={busy || working} onClick={() => { if (q.send) void send(q.send); else { setText(q.fill ?? ''); focusInput(); } }}>{q.label}</button>)}
         <button type="button" className="chip ag-quick-btn" onClick={() => void fresh()}>New chat</button>
         {!template && <button type="button" className="chip ag-quick-btn" title="Not saved, deleted when you leave it" onClick={() => void incognito()}><i className="fa-solid fa-user-secret" aria-hidden="true" /> Incognito</button>}
-        {isDM && harness === 'dm' && <AloudToggle note={aloudNote} />}
+        {isGM && harness === 'gm' && <AloudToggle note={aloudNote} />}
       </div>
       <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); void send(); }}>
         <label className="grow" style={{ flex: 1 }}><span className="sr-only">Message</span>
           <textarea ref={box} data-ag-input rows={2} style={{ width: '100%' }} value={text} placeholder={placeholder ?? 'Ask…'} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!working) void send(); } }} />
         </label>
-        {isDM && <MicButton disabled={busy || working} onText={addText} />}
+        {isGM && <MicButton disabled={busy || working} onText={addText} />}
         {working
           ? <button type="button" className="btn small danger" onClick={stop} aria-label="Stop the answer"><i className="fa-solid fa-stop" aria-hidden="true" /> Stop</button>
           : <button type="submit" className="btn primary small" disabled={busy || !text.trim()}>Send</button>}

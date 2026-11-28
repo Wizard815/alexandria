@@ -53,7 +53,7 @@
   "aliases": [
    "Influence action"
   ],
-  "text": "With the **Influence** action you urge a monster to do something. Make a Charisma (Deception, Intimidation, Performance, or Persuasion) or Wisdom (Animal Handling) check. The DM chooses the skill and the DC, based on the monster's attitude and what you ask. Influence is not a way to control a creature."
+  "text": "With the **Influence** action you urge a monster to do something. Make a Charisma (Deception, Intimidation, Performance, or Persuasion) or Wisdom (Animal Handling) check. The GM chooses the skill and the DC, based on the monster's attitude and what you ask. Influence is not a way to control a creature."
  },
  {
   "term": "Magic",
@@ -78,7 +78,7 @@
   "aliases": [
    "Search action"
   ],
-  "text": "When you take the **Search** action you make a Wisdom check to discern something that isn't obvious: Insight, Medicine, Perception, or Survival, as the DM decides."
+  "text": "When you take the **Search** action you make a Wisdom check to discern something that isn't obvious: Insight, Medicine, Perception, or Survival, as the GM decides."
  },
  {
   "term": "Study",
@@ -86,7 +86,7 @@
   "aliases": [
    "Study action"
   ],
-  "text": "When you take the **Study** action you make an Intelligence check to analyze information or recall lore: Arcana, History, Investigation, Nature, or Religion, as the DM decides."
+  "text": "When you take the **Study** action you make an Intelligence check to analyze information or recall lore: Arcana, History, Investigation, Nature, or Religion, as the GM decides."
  },
  {
   "term": "Utilize",
@@ -225,7 +225,7 @@
    "Initiative roll",
    "Surprise"
   ],
-  "text": "At the start of combat every participant makes a Dexterity check called **Initiative** to determine the order of turns. The DM rolls once for each group of identical monsters. Turns proceed from the highest total to the lowest; ties among monsters are decided by the DM and ties among players by the players. The order stays the same from round to round. A creature that is Surprised has Disadvantage on its Initiative roll."
+  "text": "At the start of combat every participant makes a Dexterity check called **Initiative** to determine the order of turns. The GM rolls once for each group of identical monsters. Turns proceed from the highest total to the lowest; ties among monsters are decided by the GM and ties among players by the players. The order stays the same from round to round. A creature that is Surprised has Disadvantage on its Initiative roll."
  },
  {
   "term": "Concentration",
@@ -278,6 +278,6 @@
    "DC",
    "Saving Throw DC"
   ],
-  "text": "A **Difficulty Class (DC)** is the number a D20 Test must meet or exceed to succeed. A saving throw DC for a spell is 8 plus your spellcasting ability modifier plus your Proficiency Bonus. The DM sets DCs for ability checks: 5 very easy, 10 easy, 15 medium, 20 hard, 25 very hard, 30 nearly impossible."
+  "text": "A **Difficulty Class (DC)** is the number a D20 Test must meet or exceed to succeed. A saving throw DC for a spell is 8 plus your spellcasting ability modifier plus your Proficiency Bonus. The GM sets DCs for ability checks: 5 very easy, 10 easy, 15 medium, 20 hard, 25 very hard, 30 nearly impossible."
  }
 ]

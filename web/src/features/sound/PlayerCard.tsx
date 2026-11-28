@@ -1,14 +1,14 @@
 // The player's own sound settings: three switches (all start off) and a
-// volume for each. Per device; the DM can see who has what on.
+// volume for each. Per device; the GM can see who has what on.
 import { useEffect } from 'react';
 import { Switch } from '../../ui/index.tsx';
 import { useWorld } from '../../lib/world.tsx';
 import { loadSwitches, updateSwitches, useSwitches } from './switches.ts';
 
 const ROWS: ['music' | 'ambience' | 'sfx', string, string][] = [
-  ['music', 'Play the DM’s music', 'Music the DM sends to players’ devices.'],
-  ['ambience', 'Play the DM’s ambience', 'Rain, a crowded tavern, a crackling hearth.'],
-  ['sfx', 'Play the DM’s sound effects and voices', 'Thunder, doors, and lines the DM reads aloud.'],
+  ['music', 'Play the GM’s music', 'Music the GM sends to players’ devices.'],
+  ['ambience', 'Play the GM’s ambience', 'Rain, a crowded tavern, a crackling hearth.'],
+  ['sfx', 'Play the GM’s sound effects and voices', 'Thunder, doors, and lines the GM reads aloud.'],
 ];
 
 export default function SoundCard() {

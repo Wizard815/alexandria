@@ -1,7 +1,7 @@
 // Spotify: sign in with Authorization Code + PKCE, map events to playlists,
-// start a playlist on the DM's own active Spotify device. Everything goes
+// start a playlist on the GM's own active Spotify device. Everything goes
 // through Deps.fetch so tests use a fake. Spotify audio is never sent to
-// players: this only controls the DM's Spotify app.
+// players: this only controls the GM's Spotify app.
 import { createHash, randomBytes } from 'node:crypto';
 import type { Deps } from '../../app.ts';
 import { one, run } from '../../core/db.ts';
@@ -20,7 +20,7 @@ function ensure(d: Deps, worldId: string) {
   return row(d, worldId)!;
 }
 
-/** What the DM page may see: never a token. */
+/** What the GM page may see: never a token. */
 export function spotifyStatus(d: Deps, worldId: string) {
   const r = row(d, worldId);
   return {

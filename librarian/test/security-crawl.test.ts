@@ -2,9 +2,9 @@
 // secret spot; then every route, live event, MCP tool, search and file is read
 // as each kind of viewer, and a recording fake stands in for every model.
 //
-//   1. DM-only, broker and classified markers never reach a player.
-//   2. A player's private marker never reaches another player or the DM.
-//   3. The party chat marker never reaches the DM.
+//   1. GM-only, broker and classified markers never reach a player.
+//   2. A player's private marker never reaches another player or the GM.
+//   3. The party chat marker never reaches the GM.
 //   4. A classified marker never reaches any model request or MCP response.
 //
 // Routes are found by walking the Express router stack, so a new route is
@@ -50,7 +50,7 @@ before(async () => {
   const h = { ...http, deps };
   S = await makeAccounts(h);
   // Live streams are open before anything is seeded, so every event of the seeding is captured.
-  for (const who of ['dm', 'jess', 'tom', 'guest'] as const) taps[who] = new EventTap(`${baseOf(server)}/api/worlds/${S.W}/events`, S.T[who]);
+  for (const who of ['gm', 'jess', 'tom', 'guest'] as const) taps[who] = new EventTap(`${baseOf(server)}/api/worlds/${S.W}/events`, S.T[who]);
   await new Promise((r) => setTimeout(r, 100));
   await seedContent(h, S);
   await new Promise((r) => setTimeout(r, 150));
@@ -137,7 +137,7 @@ function pool(ns: string, param: string): string[] {
 /** Query strings a route takes (the crawl asks each way, and without any). */
 function queries(p: string): string[] {
   const words = ['harbour', 'vault', 'council', 'smuggler', 'lighthouse', 'zqx', 'secret', 'Ambusher', 'Goblin', 'Odda', 'classified'];
-  const owners = ['me', 'party', S.ID.jess, S.ID.tom, S.ID.dm].map((o) => `?owner=${o}`);
+  const owners = ['me', 'party', S.ID.jess, S.ID.tom, S.ID.gm].map((o) => `?owner=${o}`);
   if (/\/(inventory|live\/ledger)\/?$/.test(p)) return owners;
   if (/\/files\/?$/.test(p)) return [...S.ids.page.slice(0, 40).map((x) => `?page=${encodeURIComponent(x)}`), '?page=x'];
   if (/\/library\/search$/.test(p)) return words.flatMap((w) => [`?q=${w}`, `?q=${w}&semantic=1`]);
@@ -190,7 +190,7 @@ interface CrawlResult { leaks: string[]; requests: number; reached: Set<string> 
 /** GET every route as one viewer and report markers that viewer must not see. */
 async function crawlGets(v: Who2, check: (text: string) => Marker[] = (t) => leaksFor(v.who, t)): Promise<CrawlResult> {
   const out: CrawlResult = { leaks: [], requests: 0, reached: new Set() };
-  const own = v.who === 'dm' ? S.ID.dm : S.ID[v.who as 'jess' | 'tom' | 'guest'];
+  const own = v.who === 'gm' ? S.ID.gm : S.ID[v.who as 'jess' | 'tom' | 'guest'];
   for (const r of routes.filter((x) => x.method === 'GET' && !SKIP_GET.some((re) => re.test(x.path)))) {
     for (const url of urlsFor(r)) {
       const res = await call('GET', url, v.token, undefined, v.headers);
@@ -226,8 +226,8 @@ test('TestSecurityCrawl_CrawlerSeesWhatPlayersMaySee', async () => {
     const page = await get(`/library/pages/${S.pages.shared.id}`);
     assert.ok(page.includes(tok('public_page')), 'shared page text');
     assert.ok(!page.includes(tok('secret_block')));
-    assert.ok((await get(`/library/pages/${S.pages.dm.id}`)).includes('Page not found'), 'a DM page is not found');
-    assert.ok((await get('/whiteboard')).includes(tok('whiteboard_dm')));
+    assert.ok((await get(`/library/pages/${S.pages.gm.id}`)).includes('Page not found'), 'a GM page is not found');
+    assert.ok((await get('/whiteboard')).includes(tok('whiteboard_gm')));
     assert.ok((await get('/clock/events')).includes(tok('clock_party')));
     assert.ok((await get('/people')).includes(tok('quote_party')));
     assert.ok((await get('/sessionchat/chat/party')).includes(tok('chat_party')));
@@ -235,17 +235,17 @@ test('TestSecurityCrawl_CrawlerSeesWhatPlayersMaySee', async () => {
     assert.ok((await get(`/audio/sessions/ses_crawl/lines`)).includes(tok('transcript_public')));
   }
   assert.ok(taps.jess.text.includes(tok('chat_party')), 'live events reach the player');
-  assert.ok(taps.dm.text.includes('event:'), 'the DM stream works');
-  // The DM sees the DM side.
-  const dmPage = await call('GET', `/api/worlds/${S.W}/library/pages/${S.pages.dm.id}`, S.T.dm);
-  assert.ok(dmPage.text.includes(tok('dm_page')));
-  const cls = await call('GET', `/api/worlds/${S.W}/library/pages/${S.pages.classified.id}`, S.T.dm);
-  assert.ok(cls.text.includes(tok('classified_page')), 'the DM reads classified pages in the app');
-  const asModel = await call('GET', `/api/worlds/${S.W}/library/pages/${S.pages.classified.id}`, S.T.dm, undefined, CALLER_MODEL);
+  assert.ok(taps.gm.text.includes('event:'), 'the GM stream works');
+  // The GM sees the GM side.
+  const gmPage = await call('GET', `/api/worlds/${S.W}/library/pages/${S.pages.gm.id}`, S.T.gm);
+  assert.ok(gmPage.text.includes(tok('gm_page')));
+  const cls = await call('GET', `/api/worlds/${S.W}/library/pages/${S.pages.classified.id}`, S.T.gm);
+  assert.ok(cls.text.includes(tok('classified_page')), 'the GM reads classified pages in the app');
+  const asModel = await call('GET', `/api/worlds/${S.W}/library/pages/${S.pages.classified.id}`, S.T.gm, undefined, CALLER_MODEL);
   assert.equal(asModel.status, 404, 'a model does not');
 });
 
-test('TestSecurityCrawl_PlayersGetNoDmOrClassifiedContent', async () => {
+test('TestSecurityCrawl_PlayersGetNoGmOrClassifiedContent', async () => {
   const leaks: string[] = [];
   let reached = new Set<string>();
   for (const v of viewers()) {
@@ -296,7 +296,7 @@ test('TestSecurityCrawl_PlayerPostsThatReturnData', async () => {
     assert.ok(Array.isArray(bulk.json), `bulk -> ${bulk.status} ${bulk.text.slice(0, 200)}`);
     const got = (bulk.json as any[]).map((p) => p.id);
     assert.ok(got.includes(S.pages.shared.id));
-    for (const k of ['dm', 'broker', 'classified']) assert.ok(!got.includes(S.pages[k].id), `${k} page in bulk`);
+    for (const k of ['gm', 'broker', 'classified']) assert.ok(!got.includes(S.pages[k].id), `${k} page in bulk`);
   }
   report(leaks);
 });
@@ -310,7 +310,7 @@ test('TestSecurityCrawl_SearchNeverFindsASecretMarker', async () => {
   const W = `/api/worlds/${S.W}`;
   const words = Object.values(markers).flatMap((m) => [m.token, m.token.replace(/-/g, ' ')]);
   const queries = [...new Set([...words, 'zqx', 'vault lighthouse sealed bearers', 'smuggler queen'])];
-  for (const v of [...viewers().filter((x) => !x.label.includes('read key')), { who: 'dm' as Who, token: S.T.dm, label: 'dm session' }]) {
+  for (const v of [...viewers().filter((x) => !x.label.includes('read key')), { who: 'gm' as Who, token: S.T.gm, label: 'gm session' }]) {
     for (const q of queries) {
       for (const url of [`${W}/search?q=${encodeURIComponent(q)}&kinds=page,person,term,transcript,log,item&limit=50`, `${W}/library/search?q=${encodeURIComponent(q)}`, `${W}/library/search?q=${encodeURIComponent(q)}&semantic=1`, `${W}/modules/rules/search?q=${encodeURIComponent(q)}`]) {
         const res = await call('GET', url, v.token);
@@ -344,8 +344,8 @@ test('TestSecurityCrawl_PlayersMcpEndpointLeaksNothing', async () => {
   for (const [who, key] of [['jess', S.K.jessRead], ['tom', S.K.tomRead]] as const) {
     const tools = toolsFor(false).filter((t) => !t.playerOnly || true);
     const listed = (await rpc(key, 'tools/list', {})).result.tools.map((t: any) => t.name);
-    for (const t of tools) if (!t.write && !t.dmOnly) assert.ok(listed.includes(t.name) || t.playerOnly, `${t.name} is listed`);
-    for (const t of tools) if (t.dmOnly) assert.ok(!listed.includes(t.name), `${t.name} is DM-only and hidden from a player key`);
+    for (const t of tools) if (!t.write && !t.gmOnly) assert.ok(listed.includes(t.name) || t.playerOnly, `${t.name} is listed`);
+    for (const t of tools) if (t.gmOnly) assert.ok(!listed.includes(t.name), `${t.name} is GM-only and hidden from a player key`);
     assert.ok(!listed.some((n: string) => toolsFor(true).find((t) => t.name === n)?.write), 'no write tool for a read key');
     for (const name of listed) {
       const tool = toolsFor(false).find((t) => t.name === name)!;
@@ -377,7 +377,7 @@ test('TestSecurityCrawl_PlayersOfflinePrefetchLeaksNothing', async () => {
     }
     const list = (await call('GET', `/api/worlds/${S.W}/library/pages`, v.token)).json as any[];
     const ids = list.map((p) => p.id);
-    for (const k of ['dm', 'broker', 'classified']) assert.ok(!ids.includes(S.pages[k].id), `${k} page is listed for a player`);
+    for (const k of ['gm', 'broker', 'classified']) assert.ok(!ids.includes(S.pages[k].id), `${k} page is listed for a player`);
     const bulk = await call('POST', `/api/worlds/${S.W}/library/pages/bulk`, v.token, { ids });
     for (const m of leaksFor(v.who, bulk.text)) leaks.push(`${v.label}: prefetch bulk leaked "${m.id}"`);
   }
@@ -388,36 +388,36 @@ test('TestSecurityCrawl_ImportedPicturesFollowTheirPageAndNeverReachAPlayerWitho
   const W = `/api/worlds/${S.W}`;
   const pageOf = (ext: string) => one<any>(deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', S.W, ext).id as string;
   const bytes = async (url: string) => { const r = await fetch(baseOf(server) + url); return { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString('latin1') }; };
-  // The DM's view of a shared page has its picture, through a ticket made for the DM.
-  const hall = (await call('GET', `${W}/library/pages/${pageOf('imp-hall')}`, S.T.dm)).json;
+  // The GM's view of a shared page has its picture, through a ticket made for the GM.
+  const hall = (await call('GET', `${W}/library/pages/${pageOf('imp-hall')}`, S.T.gm)).json;
   assert.match(hall.banner, /^\/api\/media\/intake\//);
-  assert.equal(ticketOwner(hall.banner.split('/').pop()), S.ID.dm);
+  assert.equal(ticketOwner(hall.banner.split('/').pop()), S.ID.gm);
   assert.ok((await bytes(hall.banner)).text.includes(tok('import_image_party')));
-  // The page lists every picture of it to the DM (by name, which carries the marker); the DM-only second picture is the DM's alone.
-  assert.deepEqual(hall.pictures.map((x: any) => x.name).sort(), [tok('import_image_dm'), tok('import_image_party')].sort());
+  // The page lists every picture of it to the GM (by name, which carries the marker); the GM-only second picture is the GM's alone.
+  assert.deepEqual(hall.pictures.map((x: any) => x.name).sort(), [tok('import_image_gm'), tok('import_image_party')].sort());
   // A player gets the shared picture of a shared page, with a ticket made for them, and only that one.
   for (const who of ['jess', 'tom', 'guest'] as const) {
     const pg = (await call('GET', `${W}/library/pages/${pageOf('imp-hall')}`, S.T[who])).json;
     assert.match(pg.banner, /^\/api\/media\/intake\//, who);
     assert.equal(ticketOwner(pg.banner.split('/').pop()), S.ID[who]);
     assert.deepEqual(pg.pictures.map((x: any) => x.name), [tok('import_image_party')], `${who} is listed only the shared picture`);
-    assert.ok(!JSON.stringify(pg).includes(tok('import_image_dm')) && !JSON.stringify(pg).includes(S.ids.intakeimage.find((x: string) => x.endsWith('img-b-dm'))!), `${who}: no name or id of the DM-only second picture`);
+    assert.ok(!JSON.stringify(pg).includes(tok('import_image_gm')) && !JSON.stringify(pg).includes(S.ids.intakeimage.find((x: string) => x.endsWith('img-b-gm'))!), `${who}: no name or id of the GM-only second picture`);
     const got = await bytes(pg.banner);
     assert.equal(got.status, 200);
-    assert.ok(got.text.includes(tok('import_image_party')) && !got.text.includes(tok('import_image_dm')) && !got.text.includes(tok('import_image_dmpage')));
-    // A DM-only picture, or one of a DM-only page, is not served even on a ticket made for this very player.
+    assert.ok(got.text.includes(tok('import_image_party')) && !got.text.includes(tok('import_image_gm')) && !got.text.includes(tok('import_image_dmpage')));
+    // A GM-only picture, or one of a GM-only page, is not served even on a ticket made for this very player.
     for (const iid of S.ids.intakeimage.filter((x) => !x.endsWith('img-a-party'))) {
       const r = await bytes(`/api/media/intake/${mintTicket({ w: S.W, k: 'intake', f: iid, a: S.ID[who] })}`);
       assert.equal(r.status, 404, `${who} ${iid}`);
-      for (const m of ['import_image_dm', 'import_image_dmpage']) assert.ok(!r.text.includes(tok(m)));
+      for (const m of ['import_image_gm', 'import_image_dmpage']) assert.ok(!r.text.includes(tok(m)));
     }
-    assert.equal((await call('GET', `${W}/library/pages/${pageOf('imp-dm')}`, S.T[who])).status, 404);
+    assert.equal((await call('GET', `${W}/library/pages/${pageOf('imp-gm')}`, S.T[who])).status, 404);
   }
   // A ticket for a member of another world gets nothing.
-  assert.equal((await bytes(`/api/media/intake/${mintTicket({ w: S.W, k: 'intake', f: S.ids.intakeimage[0], a: S.ID.dm2 })}`)).status, 404);
-  // The DM's calendars are not a player's.
-  for (const who of ['jess', 'tom', 'guest'] as const) assert.ok(!(await call('GET', `${W}/intake/calendars`, S.T[who])).text.includes(tok('calendar_dm')), who);
-  assert.ok((await call('GET', `${W}/intake/calendars`, S.T.dm)).text.includes(tok('calendar_dm')));
+  assert.equal((await bytes(`/api/media/intake/${mintTicket({ w: S.W, k: 'intake', f: S.ids.intakeimage[0], a: S.ID.gm2 })}`)).status, 404);
+  // The GM's calendars are not a player's.
+  for (const who of ['jess', 'tom', 'guest'] as const) assert.ok(!(await call('GET', `${W}/intake/calendars`, S.T[who])).text.includes(tok('calendar_gm')), who);
+  assert.ok((await call('GET', `${W}/intake/calendars`, S.T.gm)).text.includes(tok('calendar_gm')));
 });
 
 test('TestSecurityCrawl_PlayersFilesAndMediaLeakNothing', async () => {
@@ -429,14 +429,14 @@ test('TestSecurityCrawl_PlayersFilesAndMediaLeakNothing', async () => {
     const direct = await call('GET', `${W}/stage/images/${img}`, S.T[who]);
     assert.equal(direct.status, 404);
     assert.ok(!direct.text.includes(tok('stage_image')));
-    // A ticket the DM holds does not open it for a player, and a made-up one opens nothing.
+    // A ticket the GM holds does not open it for a player, and a made-up one opens nothing.
     assert.equal((await call('GET', `/api/media/stage/${'a'.repeat(20)}.${'b'.repeat(20)}`)).status, 404);
   }
-  // The DM can fetch it, and a ticket the DM holds fetches it for whoever holds it: tickets are for one account, so players are never handed one.
-  const dmView = await cardsOf(S.T.dm);
-  const ticketed = JSON.stringify(dmView).match(/\/api\/media\/stage\/([\w.-]+)/);
-  assert.ok(ticketed, 'the DM stage view has a picture ticket');
-  assert.equal(ticketOwner(ticketed![1]), S.ID.dm);
+  // The GM can fetch it, and a ticket the GM holds fetches it for whoever holds it: tickets are for one account, so players are never handed one.
+  const gmView = await cardsOf(S.T.gm);
+  const ticketed = JSON.stringify(gmView).match(/\/api\/media\/stage\/([\w.-]+)/);
+  assert.ok(ticketed, 'the GM stage view has a picture ticket');
+  assert.equal(ticketOwner(ticketed![1]), S.ID.gm);
   for (const who of ['jess', 'tom'] as const) {
     const cards = JSON.stringify(await cardsOf(S.T[who]));
     for (const m of leaksFor(who, cards)) assert.fail(`${who} stage view leaked ${m.id}`);
@@ -448,7 +448,7 @@ test('TestSecurityCrawl_PlayersFilesAndMediaLeakNothing', async () => {
   const other = await call('GET', `${W}/inventory/images/${itemImg}`, S.T.tom);
   assert.equal(other.status, 404);
   assert.ok(!other.text.includes(tok('item_image')));
-  // Sound and voice files: a player gets none until the DM sends them.
+  // Sound and voice files: a player gets none until the GM sends them.
   for (const who of ['jess', 'tom'] as const) {
     for (const u of [`${W}/sound/file/music/x`, `${W}/sound/file/sfx/x`, `${W}/voice/file/x.mp3`, `${W}/sound/file/music/x/ticket`, `${W}/voice/file/x.mp3/ticket`]) {
       const res = await call('GET', u, S.T[who]);
@@ -461,11 +461,11 @@ test('TestSecurityCrawl_LibraryFilesFollowTheirPageAndTheirOwnLevel', async () =
   const W = `/api/worlds/${S.W}`;
   const bytes = async (url: string) => { const r = await fetch(baseOf(server) + url); return { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString('latin1') }; };
   const idOf = (name: string) => one<any>(deps.db, 'SELECT id FROM libfiles_files WHERE world_id = ? AND name LIKE ?', S.W, name === 'libfile_classified' ? 'vault-notes.txt' : `%${tok(name)}%`).id as string;
-  const hidden = ['libfile_dm_on_party', 'libfile_broker', 'libfile_classified', 'libfile_on_dmpage'];
-  // The DM lists all of them (this is also how the seeded names are proved to land).
-  const dmList = (await call('GET', `${W}/files`, S.T.dm)).text;
-  for (const m of ['libfile_party', ...hidden.filter((x) => x !== 'libfile_classified')]) assert.ok(dmList.includes(tok(m)), `the DM sees ${m}`);
-  assert.ok(dmList.includes('vault-notes.txt'));
+  const hidden = ['libfile_gm_on_party', 'libfile_broker', 'libfile_classified', 'libfile_on_dmpage'];
+  // The GM lists all of them (this is also how the seeded names are proved to land).
+  const gmList = (await call('GET', `${W}/files`, S.T.gm)).text;
+  for (const m of ['libfile_party', ...hidden.filter((x) => x !== 'libfile_classified')]) assert.ok(gmList.includes(tok(m)), `the GM sees ${m}`);
+  assert.ok(gmList.includes('vault-notes.txt'));
   for (const who of ['jess', 'tom', 'guest'] as const) {
     const list = await call('GET', `${W}/files`, S.T[who]);
     assert.ok(list.text.includes(tok('libfile_party')), `${who} sees the control file`);
@@ -483,31 +483,31 @@ test('TestSecurityCrawl_LibraryFilesFollowTheirPageAndTheirOwnLevel', async () =
     assert.equal(ok.status, 200);
     assert.ok(ok.text.includes(tok('libfile_party')));
   }
-  // The DM's ticket opens each of them (the seed landed), and a model acting for the DM never gets the classified one.
-  for (const m of hidden) assert.ok((await bytes(`/api/media/libfile/${mintTicket({ w: S.W, k: 'libfile', f: idOf(m), a: S.ID.dm })}`)).text.includes(tok(m)), `the DM's ticket opens ${m}`);
-  const asModel = await fetch(`${baseOf(server)}${W}/files`, { headers: { Authorization: `Bearer ${S.T.dm}`, 'X-Alexandria-Caller': 'model' } });
+  // The GM's ticket opens each of them (the seed landed), and a model acting for the GM never gets the classified one.
+  for (const m of hidden) assert.ok((await bytes(`/api/media/libfile/${mintTicket({ w: S.W, k: 'libfile', f: idOf(m), a: S.ID.gm })}`)).text.includes(tok(m)), `the GM's ticket opens ${m}`);
+  const asModel = await fetch(`${baseOf(server)}${W}/files`, { headers: { Authorization: `Bearer ${S.T.gm}`, 'X-Alexandria-Caller': 'model' } });
   const modelText = await asModel.text();
   assert.ok(!modelText.includes('vault-notes.txt'), 'the AI copy omits classified files');
-  assert.ok(modelText.includes(tok('libfile_dm_on_party')));
-  assert.equal((await fetch(`${baseOf(server)}${W}/files/${idOf('libfile_classified')}`, { headers: { Authorization: `Bearer ${S.T.dm}`, 'X-Alexandria-Caller': 'model' } })).status, 404);
+  assert.ok(modelText.includes(tok('libfile_gm_on_party')));
+  assert.equal((await fetch(`${baseOf(server)}${W}/files/${idOf('libfile_classified')}`, { headers: { Authorization: `Bearer ${S.T.gm}`, 'X-Alexandria-Caller': 'model' } })).status, 404);
   // An admin who is not in the world, through the admin library, gets the party copy only.
   const adm = await call('GET', `/api/admin/library/worlds/${S.W}/files`, S.T.ads);
   assert.ok(adm.text.includes(tok('libfile_party')));
   for (const m of hidden) assert.ok(!adm.text.includes(tok(m)), `the admin was told about ${m}`);
 });
 
-test('TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheDmMayRead', async () => {
-  // The DM searched for a secret: the words are in the search log, and an admin who is not this world's DM sees counts only.
+test('TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheGmMayRead', async () => {
+  // The GM searched for a secret: the words are in the search log, and an admin who is not this world's GM sees counts only.
   const logged = all<any>(deps.db, 'SELECT q FROM gwstatus_searches WHERE world_id = ?', S.W);
-  assert.ok(logged.some((r) => r.q.includes(tok('dm_search_query').toLowerCase())), 'the DM search was logged');
+  assert.ok(logged.some((r) => r.q.includes(tok('gm_search_query').toLowerCase())), 'the GM search was logged');
   const gets = routes.filter((r) => r.method === 'GET' && r.path.startsWith('/api/admin/gwstatus/'));
   assert.ok(gets.length >= 4, 'the status routes are found by the crawl');
   for (const token of [S.T.ads]) {
     for (const r of gets) {
       const res = await call('GET', r.path, token);
       assert.equal(res.status, 200, r.path);
-      // What the party may read (a shared file's name) may be shown; anything that only the DM may read may not.
-      assert.deepEqual(markersIn(res.text).filter((m) => !m.seen.includes('jess')).map((m) => m.id), [], `${r.path} showed a marker to an admin who is not the DM`);
+      // What the party may read (a shared file's name) may be shown; anything that only the GM may read may not.
+      assert.deepEqual(markersIn(res.text).filter((m) => !m.seen.includes('jess')).map((m) => m.id), [], `${r.path} showed a marker to an admin who is not the GM`);
     }
   }
   const s = await call('GET', '/api/admin/gwstatus/searches?days=30', S.T.ads);
@@ -516,24 +516,24 @@ test('TestSecurityCrawl_AdminStatusPagesNeverShowWhatOnlyTheDmMayRead', async ()
   for (const r of gets) assert.ok([401, 403, 404].includes((await call('GET', r.path, S.T.jess)).status));
 });
 
-test('TestSecurityCrawl_DmNeverSeesPartyChatOrAnotherPlayersPrivateNotes', async () => {
+test('TestSecurityCrawl_GmNeverSeesPartyChatOrAnotherPlayersPrivateNotes', async () => {
   const leaks: string[] = [];
-  for (const v of [{ who: 'dm' as Who, token: S.T.dm, label: 'dm session' }, { who: 'dm' as Who, token: S.K.dmRead, label: 'dm read key' }, { who: 'dm' as Who, token: S.K.dmWrite, label: 'dm write key' }, { who: 'dm' as Who, token: S.T.dm, label: 'dm session as a model', headers: CALLER_MODEL }]) {
+  for (const v of [{ who: 'gm' as Who, token: S.T.gm, label: 'gm session' }, { who: 'gm' as Who, token: S.K.gmRead, label: 'gm read key' }, { who: 'gm' as Who, token: S.K.gmWrite, label: 'gm write key' }, { who: 'gm' as Who, token: S.T.gm, label: 'gm session as a model', headers: CALLER_MODEL }]) {
     const r = await crawlGets(v);
     leaks.push(...r.leaks);
     // The party chat is refused outright.
     assert.equal((await call('GET', `/api/worlds/${S.W}/sessionchat/chat/party`, v.token, undefined, v.headers)).status, 403);
   }
-  // Through MCP too: the DM's write key can read tools but the party chat tool is for players only.
-  const tools = (await call('POST', '/mcp', S.K.dmWrite, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json.result.tools.map((t: any) => t.name);
+  // Through MCP too: the GM's write key can read tools but the party chat tool is for players only.
+  const tools = (await call('POST', '/mcp', S.K.gmWrite, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json.result.tools.map((t: any) => t.name);
   assert.ok(!tools.includes('read_party_chat'));
   for (const name of tools) {
     const tool = toolsFor(true).find((t) => t.name === name)!;
     if (tool.write) continue;
     const args: Record<string, unknown> = {};
     for (const k of tool.required ?? []) args[k] = 'harbour';
-    const res = await call('POST', '/mcp', S.K.dmWrite, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } });
-    for (const m of leaksFor('dm', JSON.stringify(res.json))) leaks.push(`dm mcp ${name} leaked "${m.id}"`);
+    const res = await call('POST', '/mcp', S.K.gmWrite, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } });
+    for (const m of leaksFor('gm', JSON.stringify(res.json))) leaks.push(`gm mcp ${name} leaked "${m.id}"`);
   }
   report(leaks);
 });
@@ -556,7 +556,7 @@ async function agentAnswer(token: string, chatId: string, body: unknown) {
 
 test('TestSecurityAI_NoModelRequestOrMcpAnswerHasClassifiedContent', async () => {
   const W = `/api/worlds/${S.W}`;
-  const dm = (m: string, u: string, b?: unknown) => call(m, `${W}${u}`, S.T.dm, b);
+  const gm = (m: string, u: string, b?: unknown) => call(m, `${W}${u}`, S.T.gm, b);
   const pageIds = S.ids.page;
   models.plan.tools = (offered) => [
     { name: 'search_library', args: { query: 'vault lighthouse sealed harbour council' } },
@@ -577,63 +577,63 @@ test('TestSecurityAI_NoModelRequestOrMcpAnswerHasClassifiedContent', async () =>
   const q = await call('POST', `${W}/broker/quote`, S.T.tom, { question: 'What does the lighthouse keeper know about the vault?', length: 'full' });
   assert.ok(q.status < 500, q.text);
   const tomCalls = models.calls.slice(c1);
-  const dmStart = models.calls.length;
+  const gmStart = models.calls.length;
 
-  // 1. The DM agent: prefetch and tools, with the classified page on screen and its words selected and asked about.
+  // 1. The GM agent: prefetch and tools, with the classified page on screen and its words selected and asked about.
   const chat = S.ids.agentchat[0];
   const asks = [
     { text: 'What is under the old lighthouse? Search the library and read the vault page, list people and check combat.', page: S.pages.classified.path },
     { text: 'Who are the harbour council and what do the sealed vault bearers know? Read the page.', page: S.pages.classified.id, selection: txt('classified_page') },
     { text: 'Summarise the harbour council for me.', page: S.pages.shared.id, selection: 'The harbour is run by a council of seven captains.' },
   ];
-  for (const a of asks) await agentAnswer(S.T.dm, chat, a);
+  for (const a of asks) await agentAnswer(S.T.gm, chat, a);
 
   // 2. Sculpting: every template.
-  const templates = (await dm('GET', '/sculpt/templates')).json.templates;
+  const templates = (await gm('GET', '/sculpt/templates')).json.templates;
   assert.ok(templates.length >= 5, 'built-in templates');
   for (const t of templates) {
-    const r = await dm('POST', '/sculpt/run', { templateId: t.id, values: {} });
+    const r = await gm('POST', '/sculpt/run', { templateId: t.id, values: {} });
     assert.ok(r.status < 500, `sculpt ${t.name} -> ${r.status} ${r.text.slice(0, 200)}`);
   }
 
   // 3. The session log: draft and revise.
-  const draft = await dm('POST', '/sessionlog/drafts', { audioSessionId: 'ses_crawl', title: 'Again' });
+  const draft = await gm('POST', '/sessionlog/drafts', { audioSessionId: 'ses_crawl', title: 'Again' });
   assert.ok(draft.status < 300, draft.text);
-  const rev = await dm('POST', `/sessionlog/drafts/${draft.json.id}/revise`, { instruction: 'Make it shorter and mention the harbour.' });
+  const rev = await gm('POST', `/sessionlog/drafts/${draft.json.id}/revise`, { instruction: 'Make it shorter and mention the harbour.' });
   assert.ok(rev.status < 300, rev.text);
 
   // 4. A statblock from a page (including the classified one), quick-gen flavour, the voice.
-  for (const pageId of [S.pages.shared.id, S.pages.classified.id, S.pages.dm.id]) await dm('POST', '/agent/statblock', { pageId });
-  await dm('POST', '/quickgen/flavour', { kind: 'item', text: 'A rare dagger from the harbour' });
-  const preset = (await dm('GET', '/voice/presets')).json?.[0]?.id ?? (await dm('POST', '/voice/presets', { name: 'Narrator', voice: 'af_heart', speed: 1 })).json?.id;
-  const spoken = await dm('POST', '/voice/speak', { text: 'Welcome to the harbour.', presetId: preset, target: 'table' });
-  await dm('GET', '/quickgen/items?rarity=rare&count=20');
+  for (const pageId of [S.pages.shared.id, S.pages.classified.id, S.pages.gm.id]) await gm('POST', '/agent/statblock', { pageId });
+  await gm('POST', '/quickgen/flavour', { kind: 'item', text: 'A rare dagger from the harbour' });
+  const preset = (await gm('GET', '/voice/presets')).json?.[0]?.id ?? (await gm('POST', '/voice/presets', { name: 'Narrator', voice: 'af_heart', speed: 1 })).json?.id;
+  const spoken = await gm('POST', '/voice/speak', { text: 'Welcome to the harbour.', presetId: preset, target: 'table' });
+  await gm('GET', '/quickgen/items?rarity=rare&count=20');
 
   // 5. The broker: routing and answering.
-  await dm('POST', '/broker/classify', { question: 'What is in the vault under the old lighthouse?' });
+  await gm('POST', '/broker/classify', { question: 'What is in the vault under the old lighthouse?' });
 
   // 5b. A recorded chunk of the table: the transcription model is sent a prompt of names from the library.
-  const mic = await dm('POST', '/audio/mics', { deviceId: 'dev-crawl', label: 'Crawl mic', mode: 'always' });
+  const mic = await gm('POST', '/audio/mics', { deviceId: 'dev-crawl', label: 'Crawl mic', mode: 'always' });
   assert.ok(mic.status < 300, mic.text);
-  const rec = await dm('POST', '/audio/sessions', { name: 'Live crawl' });
+  const rec = await gm('POST', '/audio/sessions', { name: 'Live crawl' });
   assert.ok(rec.status < 300, rec.text);
-  const chunk = await call('POST', `${W}/audio/sessions/${rec.json.id}/chunks?mic=${mic.json.id}&seq=0&start=0&end=3000`, S.T.dm, new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3, 4]), { 'Content-Type': 'audio/webm' });
+  const chunk = await call('POST', `${W}/audio/sessions/${rec.json.id}/chunks?mic=${mic.json.id}&seq=0&start=0&end=3000`, S.T.gm, new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3, 4]), { 'Content-Type': 'audio/webm' });
   assert.ok(chunk.status < 300, `${chunk.status} ${chunk.text}`);
-  await dm('POST', `/audio/sessions/${rec.json.id}/stop`, {});
+  await gm('POST', `/audio/sessions/${rec.json.id}/stop`, {});
   {
     const sent = models.calls.filter((c) => c.path.endsWith('/audio/transcriptions')).map((c) => c.body).join('\n');
-    for (const id of ['dm_title_hint', 'dm_page', 'broker_page', 'classified_page']) assert.ok(!sent.includes(tok(id)), `the transcription prompt carried "${id}"`);
+    for (const id of ['gm_title_hint', 'gm_page', 'broker_page', 'classified_page']) assert.ok(!sent.includes(tok(id)), `the transcription prompt carried "${id}"`);
   }
 
   // 6. Embeddings: index every page.
-  const re = await dm('POST', '/search/reindex');
+  const re = await gm('POST', '/search/reindex');
   assert.ok(re.status < 300, re.text);
-  await call('GET', `${W}/search?q=vault+lighthouse&kinds=page&semantic=1`, S.T.dm);
-  await call('GET', `${W}/library/search?q=vault&semantic=1`, S.T.dm);
+  await call('GET', `${W}/search?q=vault+lighthouse&kinds=page&semantic=1`, S.T.gm);
+  await call('GET', `${W}/library/search?q=vault&semantic=1`, S.T.gm);
 
-  // 7. MCP with a DM write key: every tool, with the classified page as its subject where it takes one.
+  // 7. MCP with a GM write key: every tool, with the classified page as its subject where it takes one.
   const mcpLeaks: string[] = [];
-  const rpc = async (method: string, params: unknown) => (await call('POST', '/mcp', S.K.dmWrite, { jsonrpc: '2.0', id: 2, method, params })).text;
+  const rpc = async (method: string, params: unknown) => (await call('POST', '/mcp', S.K.gmWrite, { jsonrpc: '2.0', id: 2, method, params })).text;
   for (const t of toolsFor(true)) {
     const refs = /page|read|statblock/.test(t.name) ? [...pageIds, 'WorldLore/Classified Lore.md'] : ['x'];
     for (const ref of refs) {
@@ -653,10 +653,10 @@ test('TestSecurityAI_NoModelRequestOrMcpAnswerHasClassifiedContent', async () =>
       for (const m of classifiedIn(text)) mcpLeaks.push(`mcp ${t.name}(${ref.slice(0, 24)}) returned "${m.id}"`);
     }
   }
-  // Every GET the DM could make as a model.
-  const asModel = await crawlGets({ who: 'dm', token: S.T.dm, label: 'dm as a model', headers: CALLER_MODEL }, (t) => classifiedIn(t));
+  // Every GET the GM could make as a model.
+  const asModel = await crawlGets({ who: 'gm', token: S.T.gm, label: 'gm as a model', headers: CALLER_MODEL }, (t) => classifiedIn(t));
   mcpLeaks.push(...asModel.leaks);
-  const asKey = await crawlGets({ who: 'dm', token: S.K.dmWrite, label: 'dm write key (mcp client)', headers: CALLER_MODEL }, (t) => classifiedIn(t));
+  const asKey = await crawlGets({ who: 'gm', token: S.K.gmWrite, label: 'gm write key (mcp client)', headers: CALLER_MODEL }, (t) => classifiedIn(t));
   mcpLeaks.push(...asKey.leaks);
 
   // 8. Everything any model was sent.
@@ -667,26 +667,26 @@ test('TestSecurityAI_NoModelRequestOrMcpAnswerHasClassifiedContent', async () =>
   for (const c of models.calls.filter((x) => !exempt.has(x))) for (const m of classifiedIn(c.body)) sent.push(`model request ${c.path} carried "${m.id}"`);
   // The prompts do carry library content (so the check above means something).
   const inCalls = (calls: typeof models.calls, id: string) => calls.some((c) => hay(c.body).includes(tok(id).toLowerCase()));
-  assert.ok(inCalls(models.calls.slice(dmStart), 'dm_page'), 'the DM agent is given DM pages');
+  assert.ok(inCalls(models.calls.slice(gmStart), 'gm_page'), 'the GM agent is given GM pages');
   assert.ok(inCalls(jessCalls, 'public_page'), 'the player assistant is given shared pages');
-  // What a player's assistant or the broker is sent holds nothing that player may not see; what the DM's is sent holds no player's private notes.
+  // What a player's assistant or the broker is sent holds nothing that player may not see; what the GM's is sent holds no player's private notes.
   for (const [who, calls] of [['jess', jessCalls], ['tom', tomCalls]] as const) for (const c of calls) for (const m of leaksFor(who, c.given)) sent.push(`${who}'s model request ${c.path} carried "${m.id}" (${m.where})`);
-  for (const c of [...seedCalls, ...models.calls.slice(dmStart)].filter((x) => !x.path.endsWith('/embeddings'))) for (const m of leaksFor('dm', c.given)) sent.push(`a DM-side model request ${c.path} carried "${m.id}" (${m.where})`);
+  for (const c of [...seedCalls, ...models.calls.slice(gmStart)].filter((x) => !x.path.endsWith('/embeddings'))) for (const m of leaksFor('gm', c.given)) sent.push(`a GM-side model request ${c.path} carried "${m.id}" (${m.where})`);
   report([...sent, ...mcpLeaks]);
 });
 
-test('TestSecurityAI_ClassifiedTextTypedByTheDmIsRefusedNotSent', async () => {
+test('TestSecurityAI_ClassifiedTextTypedByTheGmIsRefusedNotSent', async () => {
   const W = `/api/worlds/${S.W}`;
   const before = models.calls.length;
   const phrase = txt('classified_page');
-  const dm = (m: string, u: string, b?: unknown) => call(m, `${W}${u}`, S.T.dm, b);
+  const gm = (m: string, u: string, b?: unknown) => call(m, `${W}${u}`, S.T.gm, b);
   const tries = [
-    dm('POST', '/quickgen/flavour', { kind: 'item', text: phrase }),
-    dm('POST', '/voice/speak', { text: phrase, presetId: (await dm('GET', '/voice/presets')).json?.[0]?.id, target: 'table' }),
-    dm('POST', `/sessionlog/drafts/${S.ids.draft[0]}/revise`, { instruction: `Add this: ${phrase}` }),
-    dm('POST', '/sculpt/run', { template: 'npc', values: { name: phrase } }),
-    call('POST', `/v1/chat/completions`, S.T.dm, { messages: [{ role: 'user', content: phrase }] }),
-    call('POST', `/v1/embeddings`, S.T.dm, { input: [phrase] }),
+    gm('POST', '/quickgen/flavour', { kind: 'item', text: phrase }),
+    gm('POST', '/voice/speak', { text: phrase, presetId: (await gm('GET', '/voice/presets')).json?.[0]?.id, target: 'table' }),
+    gm('POST', `/sessionlog/drafts/${S.ids.draft[0]}/revise`, { instruction: `Add this: ${phrase}` }),
+    gm('POST', '/sculpt/run', { template: 'npc', values: { name: phrase } }),
+    call('POST', `/v1/chat/completions`, S.T.gm, { messages: [{ role: 'user', content: phrase }] }),
+    call('POST', `/v1/embeddings`, S.T.gm, { input: [phrase] }),
   ];
   for (const r of await Promise.all(tries)) assert.ok(r.status < 500 || r.status === 503, `refused cleanly: ${r.status} ${r.text.slice(0, 120)}`);
   assert.equal(models.calls.slice(before).filter((c) => c.body.includes(tok('classified_page'))).length, 0, 'nothing carrying classified text was sent');
@@ -701,7 +701,7 @@ test('TestSecurityAI_ClassifiedTextTypedByTheDmIsRefusedNotSent', async () => {
  * Every route a player may legitimately call to change something (answer a quick event, move an item,
  * write a note...). Any other route that is not a read must refuse a player outright (401, 403 or 404):
  * a 400 or 409 would mean the handler ran before it asked who is calling. A new player route is added here
- * on purpose, in review; a new DM route needs nothing and is checked automatically.
+ * on purpose, in review; a new GM route needs nothing and is checked automatically.
  */
 const PLAYER_ROUTES = [
   'DELETE /agent/chats/:id', 'PATCH /agent/chats/:id', 'DELETE /inventory/:iid', 'DELETE /live/presence', 'DELETE /map/:mapId/marks/:mid', 'DELETE /profiles/me/blocks/:bid', 'DELETE /sessionchat/messages/:mid',
@@ -709,8 +709,8 @@ const PLAYER_ROUTES = [
   // Spells: a player edits their own spell sheet (when the world allows it), casts, asks to learn and takes back their own request.
   'PUT /spells/characters/:aid', 'POST /spells/cast', 'POST /spells/learn', 'POST /spells/learn/:lid/cancel',
   // Sheet: a player arranges their own sheet and changes their own HP, conditions and mana (each one only their own; the log keeps it).
-  'PUT /sheet/me/modules', 'POST /sheet/:aid/vitals', 'POST /sheet/:aid/mana', 'PATCH /sheet/:aid/dm-notes/:nid', 'POST /sheet/:aid/rerolls',
-  // Sheet: a player imports their own character from D&D Beyond (the DM imports onto anyone's).
+  'PUT /sheet/me/modules', 'POST /sheet/:aid/vitals', 'POST /sheet/:aid/mana', 'PATCH /sheet/:aid/gm-notes/:nid', 'POST /sheet/:aid/rerolls',
+  // Sheet: a player imports their own character from D&D Beyond (the GM imports onto anyone's).
   'POST /sheet/:aid/import/ddb',
   'POST /agent/chats', 'POST /agent/chats/:id/messages', 'POST /agent/chats/:id/stop', 'POST /agent/chats/folders/rename',
   'POST /approvals/:id/ack', 'POST /approvals/:id/dispute',
@@ -733,7 +733,7 @@ const PLAYER_ROUTES = [
   'POST /mods/:id/act',
   // DownTime: a player starts, pauses and stops their own tasks, picks in a Downtime round, and asks the helper to rank or rate activities.
   'POST /downtime/tasks', 'PATCH /downtime/tasks/:id', 'DELETE /downtime/tasks/:id', 'POST /downtime/rounds/:rid/pick', 'POST /downtime/suggest', 'POST /downtime/decide', 'POST /downtime/tasks/:id/join', 'POST /downtime/tasks/:id/leave',
-  // Data systems: a player runs record actions the rule gives them and answers the DM's prompts (checked per action).
+  // Data systems: a player runs record actions the rule gives them and answers the GM's prompts (checked per action).
   'POST /mods/:id/records/:action', 'POST /mods/:id/prompts/round/:round/answer',
   // The quick helper: a question to the small model (it reads only what this player may see and changes nothing).
   'POST /helper/quick',
@@ -743,7 +743,7 @@ const PLAYER_ROUTES = [
 /** Routes outside a world that are for any signed-in person, or for no one signed in. */
 const EVERYONE = /^(POST|PUT|DELETE) \/api\/(setup|auth\/(login|reset|logout)|join|me\/(theme|password)|keys(\/:id)?|admin-auth\/(login|logout)|media\/|intake\/)/;
 
-test('TestSecurityAuth_PlayersCannotCallDmRoutes', async () => {
+test('TestSecurityAuth_PlayersCannotCallGmRoutes', async () => {
   const mine = new Set(PLAYER_ROUTES.map((x) => `${x.split(' ')[0]} /api/worlds/:world${x.split(' ')[1]}`));
   const writes = routes.filter((r) => r.method !== 'GET' && r.method !== 'HEAD');
   const have = new Set(writes.map((r) => `${r.method} ${r.path}`));
@@ -760,7 +760,7 @@ test('TestSecurityAuth_PlayersCannotCallDmRoutes', async () => {
       }
     }
   }
-  assert.deepEqual([...new Set(bad)], [], '\nA player got past a DM route (the handler ran instead of refusing):');
+  assert.deepEqual([...new Set(bad)], [], '\nA player got past a GM route (the handler ran instead of refusing):');
   // The routes players may call still work for a player with a real body: the list is not just stale.
   assert.equal((await call('PUT', `/api/worlds/${S.W}/live/presence`, S.T.jess, { location: 'Dock' })).status, 200);
 });
@@ -770,19 +770,19 @@ test('TestSecurityAuth_OtherWorldsAreClosedToEveryone', async () => {
   assert.ok(ids.length >= 3);
   const bad: string[] = [];
   // Someone who is in one world gets nothing from another, whatever they ask for and with whatever key.
-  const other = await http.ok('POST', '/api/keys', S.T.dm2, { scope: 'scribe', worldId: S.W2, label: 'w2 write', access: 'write' });
+  const other = await http.ok('POST', '/api/keys', S.T.gm2, { scope: 'scribe', worldId: S.W2, label: 'w2 write', access: 'write' });
   for (const r of routes.filter((x) => x.path.startsWith('/api/worlds/:world/') && !/\/events$/.test(x.path))) {
-    for (const [label, token, world] of [['dm of world 1 in world 2', S.T.dm, S.W2], ['jess in world 2', S.T.jess, S.W2], ['dm of world 2 in world 1', S.T.dm2, S.W], ['a key of world 2 in world 1', other.key, S.W], ['a key of world 1 in world 2', S.K.dmWrite, S.W2]] as const) {
+    for (const [label, token, world] of [['gm of world 1 in world 2', S.T.gm, S.W2], ['jess in world 2', S.T.jess, S.W2], ['gm of world 2 in world 1', S.T.gm2, S.W], ['a key of world 2 in world 1', other.key, S.W], ['a key of world 1 in world 2', S.K.gmWrite, S.W2]] as const) {
       for (const url of urlsFor(r, world).slice(0, 3)) {
         const res = await call(r.method, url, token, r.method === 'GET' ? undefined : {});
         if (![401, 403, 404].includes(res.status)) bad.push(`${label}: ${r.method} ${url.replace(world, ':w')} -> ${res.status}`);
-        for (const m of leaksFor(label.startsWith('dm of world 2') || label.startsWith('a key of world 2') ? 'dm2' : 'jess', res.text)) bad.push(`${label}: ${url} leaked ${m.id}`);
+        for (const m of leaksFor(label.startsWith('gm of world 2') || label.startsWith('a key of world 2') ? 'gm2' : 'jess', res.text)) bad.push(`${label}: ${url} leaked ${m.id}`);
       }
     }
   }
-  // A page of another world asked for by id or path in this world is not found, for the DM too.
+  // A page of another world asked for by id or path in this world is not found, for the GM too.
   for (const p of ids) for (const ref of [p.id, p.path]) {
-    const res = await call('GET', `/api/worlds/${S.W}/library/pages/${encodeURIComponent(ref)}`, S.T.dm);
+    const res = await call('GET', `/api/worlds/${S.W}/library/pages/${encodeURIComponent(ref)}`, S.T.gm);
     if (res.status !== 404) bad.push(`world 1 served page ${ref} of world 2 -> ${res.status}`);
   }
   assert.deepEqual(bad, []);
@@ -815,7 +815,7 @@ test('TestSecurityAuth_RevokedAndSignedOutCredentialsStopWorking', async () => {
 test('TestSecurityAuth_ReadKeysCannotWrite', async () => {
   const bad: string[] = [];
   const writes = routes.filter((r) => r.method !== 'GET' && r.method !== 'HEAD' && !/^\/api\/(setup|auth\/login|auth\/reset|join|admin-auth\/login)/.test(r.path) && !/^\/api\/intake|^\/mcp|^\/api\/media|^\/api\/trigger|^\/api\/roll20\/bridge|^\/api\/owlbear\/|^\/api\/foundry\/bridge/.test(r.path));
-  for (const [label, key] of [['jess read key', S.K.jessRead], ['dm read key', S.K.dmRead]] as const) {
+  for (const [label, key] of [['jess read key', S.K.jessRead], ['gm read key', S.K.gmRead]] as const) {
     for (const r of writes) for (const url of urlsFor(r).slice(0, 4)) {
       const res = await call(r.method, url, key, {});
       if (res.status !== 403) bad.push(`${label}: ${r.method} ${url} -> ${res.status}`);
@@ -823,22 +823,22 @@ test('TestSecurityAuth_ReadKeysCannotWrite', async () => {
   }
   assert.deepEqual(bad, []);
   // The Foundry bridge routes take only a Foundry bridge key: any other key is not signed in there.
-  for (const r of routes.filter((x) => x.path.startsWith('/api/foundry/bridge'))) for (const key of [S.K.jessRead, S.K.dmRead]) assert.equal((await call(r.method, r.path.replace(':ref', '1').replace(':id', 'x'), key, r.method === 'GET' ? undefined : {})).status, 401, r.path);
+  for (const r of routes.filter((x) => x.path.startsWith('/api/foundry/bridge'))) for (const key of [S.K.jessRead, S.K.gmRead]) assert.equal((await call(r.method, r.path.replace(':ref', '1').replace(':id', 'x'), key, r.method === 'GET' ? undefined : {})).status, 401, r.path);
   // The Roll20 bridge routes take only a Roll20 bridge key: any other key is not signed in there.
-  for (const r of routes.filter((x) => x.path.startsWith('/api/roll20/bridge'))) for (const key of [S.K.jessRead, S.K.dmRead]) assert.equal((await call(r.method, r.path, key, {})).status, 401, r.path);
+  for (const r of routes.filter((x) => x.path.startsWith('/api/roll20/bridge'))) for (const key of [S.K.jessRead, S.K.gmRead]) assert.equal((await call(r.method, r.path, key, {})).status, 401, r.path);
   // The Owlbear Rodeo extension's routes take only an Owlbear link key: any other key is not signed in there.
-  for (const r of routes.filter((x) => x.path.startsWith('/api/owlbear/') && !x.path.startsWith('/api/owlbear/pic'))) for (const key of [S.K.jessRead, S.K.dmRead]) assert.equal((await call(r.method, r.path, key, r.method === 'GET' ? undefined : {})).status, 401, r.path);
+  for (const r of routes.filter((x) => x.path.startsWith('/api/owlbear/') && !x.path.startsWith('/api/owlbear/pic'))) for (const key of [S.K.jessRead, S.K.gmRead]) assert.equal((await call(r.method, r.path, key, r.method === 'GET' ? undefined : {})).status, 401, r.path);
   // A write key whose owner is a player is read-only too: players cannot make one.
   const made = await call('POST', '/api/keys', S.T.jess, { scope: 'scribe', worldId: S.W, label: 'sneaky', access: 'write' });
   assert.equal(made.status, 403);
   // And through MCP a read key cannot call a write tool even if it names one.
   for (const t of toolsFor(true).filter((x) => x.write)) {
-    const r = await call('POST', '/mcp', S.K.dmRead, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: t.name, arguments: {} } });
+    const r = await call('POST', '/mcp', S.K.gmRead, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: t.name, arguments: {} } });
     assert.ok(r.json.error || r.json.result?.isError, `${t.name} refused for a read key`);
   }
 });
 
-test('TestSecurityAuth_AdminsAreNotDmsAndPushKeysCannotRead', async () => {
+test('TestSecurityAuth_AdminsAreNotGmsAndPushKeysCannotRead', async () => {
   const W = `/api/worlds/${S.W}`;
   const worldGets = routes.filter((r) => r.method === 'GET' && r.path.startsWith('/api/worlds/:world/') && !/\/events$/.test(r.path));
   const admin = await call('GET', '/api/me', S.T.admin);
@@ -860,19 +860,19 @@ test('TestSecurityAuth_AdminsAreNotDmsAndPushKeysCannotRead', async () => {
   assert.equal((await call('GET', '/api/me', S.push.key)).status, 401);
   assert.equal((await call('POST', '/mcp', S.push.key, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).status, 401);
   assert.equal((await call('POST', `/api/intake/${S.push.sourceId}x/entries`, S.push.key, { entries: [] })).status, 403, 'a push key is for one source');
-  assert.equal((await call('POST', `/api/intake/${S.push.sourceId}/entries`, S.K.dmWrite, { entries: [] })).status, 401, 'an account key is not a push key');
+  assert.equal((await call('POST', `/api/intake/${S.push.sourceId}/entries`, S.K.gmWrite, { entries: [] })).status, 401, 'an account key is not a push key');
   void W;
 });
 
 test('TestSecurityAuth_MediaTicketsAreSignedAndForOneAccountAndKind', async () => {
   const W = `/api/worlds/${S.W}`;
-  const dmView = JSON.stringify((await call('GET', `${W}/stage`, S.T.dm)).json);
-  const ticket = dmView.match(/\/api\/media\/stage\/([\w.-]+)/)![1];
-  assert.equal((await call('GET', `/api/media/stage/${ticket}`)).status, 200, 'the DM ticket opens the picture');
+  const gmView = JSON.stringify((await call('GET', `${W}/stage`, S.T.gm)).json);
+  const ticket = gmView.match(/\/api\/media\/stage\/([\w.-]+)/)![1];
+  assert.equal((await call('GET', `/api/media/stage/${ticket}`)).status, 200, 'the GM ticket opens the picture');
   // Another kind of file does not open with it.
   assert.equal((await call('GET', `/api/media/sound/${ticket}`)).status, 404);
   assert.equal((await call('GET', `/api/media/voice/${ticket}`)).status, 404);
-  // Changing the account or the picture breaks the signature: a player cannot turn the DM's ticket into theirs.
+  // Changing the account or the picture breaks the signature: a player cannot turn the GM's ticket into theirs.
   const [body, mac] = ticket.split('.');
   const edit = (patch: Record<string, unknown>) => `${Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url').toString()), ...patch })).toString('base64url')}.${mac}`;
   for (const patch of [{ a: S.ID.jess }, { w: S.W2 }, { exp: Date.now() + 1e12 }, { f: 'stg_other' }]) assert.equal((await call('GET', `/api/media/stage/${edit(patch)}`)).status, 404, JSON.stringify(patch));
@@ -885,12 +885,12 @@ test('TestSecurityAuth_MediaTicketsAreSignedAndForOneAccountAndKind', async () =
   assert.ok(!jessCards.includes(tok('stage_card_tom')), 'a card shown to tom is not in the view of jess');
   // Hiding a picture takes it away even from a ticket already handed out (the check runs on every request).
   const card = S.ids.card[1];
-  await call('POST', `${W}/stage/cards/${card}/show`, S.T.dm, { to: [S.ID.tom] });
+  await call('POST', `${W}/stage/cards/${card}/show`, S.T.gm, { to: [S.ID.tom] });
   const shown = JSON.stringify((await call('GET', `${W}/stage`, S.T.tom)).json);
   const tomTicket = ticketsIn(shown)[0];
   assert.ok(tomTicket, 'tom is shown the picture');
   assert.equal((await call('GET', `/api/media/stage/${tomTicket}`)).status, 200);
-  await call('POST', `${W}/stage/cards/${card}/hide`, S.T.dm, {});
+  await call('POST', `${W}/stage/cards/${card}/hide`, S.T.gm, {});
   assert.equal((await call('GET', `/api/media/stage/${tomTicket}`)).status, 404, 'hiding the card takes the picture away');
 });
 
@@ -899,16 +899,16 @@ test('TestSecurityAuth_MediaTicketsAreSignedAndForOneAccountAndKind', async () =
 test('TestSecurityCrawl_LiveEventsCarryNoSecretsToTheWrongViewer', async () => {
   // Make some more things happen while the streams are open.
   const W = `/api/worlds/${S.W}`;
-  await call('PATCH', `${W}/live/combatants/${all<any>(deps.db, 'SELECT id FROM combatants WHERE world_id = ? LIMIT 1', S.W)[0].id}`, S.T.dm, { damage: 3 });
-  await call('POST', `${W}/live/combat/next`, S.T.dm, {});
+  await call('PATCH', `${W}/live/combatants/${all<any>(deps.db, 'SELECT id FROM combatants WHERE world_id = ? LIMIT 1', S.W)[0].id}`, S.T.gm, { damage: 3 });
+  await call('POST', `${W}/live/combat/next`, S.T.gm, {});
   await call('POST', `${W}/sessionchat/chat/party`, S.T.tom, { body: `${tok('chat_party')} again` });
   await new Promise((r) => setTimeout(r, 300));
   const leaks: string[] = [];
-  for (const who of ['jess', 'tom', 'guest', 'dm'] as const) {
+  for (const who of ['jess', 'tom', 'guest', 'gm'] as const) {
     for (const m of leaksFor(who, taps[who].text).filter((x) => !x.eventsOk)) leaks.push(`${who}'s live stream carried "${m.id}" (${m.where})`);
     for (const t of ticketsIn(taps[who].text)) if (ticketOwner(t) !== S.ID[who]) leaks.push(`${who}'s live stream carried a ticket made for someone else`);
   }
-  assert.ok(taps.jess.text.length > 500 && taps.dm.text.length > taps.jess.text.length, 'the streams carried the seeding');
+  assert.ok(taps.jess.text.length > 500 && taps.gm.text.length > taps.jess.text.length, 'the streams carried the seeding');
   report(leaks);
   void MODEL_HOST;
 });
@@ -923,29 +923,29 @@ test('TestSecurityCrawl_PlayersStillGetNothingAfterEverythingElseHasRun', async 
 });
 
 /** Seeded secrets that no HTTP response carries to anyone (bytes of a picture), so they are checked another way. */
-const NOT_IN_JSON = new Set(['dm_search_query', 'libfile_party', 'libfile_dm_on_party', 'libfile_broker', 'libfile_classified', 'libfile_on_dmpage', 'stage_image', 'item_image', 'import_image_party', 'import_image_dm', 'import_image_dmpage', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
+const NOT_IN_JSON = new Set(['gm_search_query', 'libfile_party', 'libfile_gm_on_party', 'libfile_broker', 'libfile_classified', 'libfile_on_dmpage', 'stage_image', 'item_image', 'import_image_party', 'import_image_gm', 'import_image_dmpage', 'audit_path', 'key_secret_jess', 'key_secret_tom', 'key_secret_blanket']);
 
 test('TestSecurityCrawl_EverySeededSecretCanBeReadByWhoOwnsIt', () => {
   // A crawl that never saw a secret proves nothing about it. Every marker was read, in some response or stream,
-  // by someone who may read it (the DM for DM-only things, a player for a player's own).
-  for (const who of ['dm', 'jess', 'tom', 'guest'] as const) if (taps[who]) noteRead(who, taps[who].text);
-  const missing = Object.values(markers).filter((m) => !m.seen.includes('dm2') && !NOT_IN_JSON.has(m.id) && ![...m.seen].some((w) => readBy.get(m.id)?.has(w)));
+  // by someone who may read it (the GM for GM-only things, a player for a player's own).
+  for (const who of ['gm', 'jess', 'tom', 'guest'] as const) if (taps[who]) noteRead(who, taps[who].text);
+  const missing = Object.values(markers).filter((m) => !m.seen.includes('gm2') && !NOT_IN_JSON.has(m.id) && ![...m.seen].some((w) => readBy.get(m.id)?.has(w)));
   assert.deepEqual(missing.map((m) => `${m.id} (${m.where})`), [], '\nNo one allowed to read these was ever shown them: the seed did not land, or the crawl cannot reach them');
 });
 
 test('TestSecurityCrawl_TheCrawlerCatchesALeakWhenOneIsMade', async () => {
   const W = `/api/worlds/${S.W}`;
-  // Share a DM-only page by mistake: the player crawl must notice.
-  assert.equal((await call('PUT', `${W}/library/pages/${S.pages.dm.id}/level`, S.T.dm, { level: 'party' })).status, 200);
+  // Share a GM-only page by mistake: the player crawl must notice.
+  assert.equal((await call('PUT', `${W}/library/pages/${S.pages.gm.id}/level`, S.T.gm, { level: 'party' })).status, 200);
   const player = await crawlGets(viewers()[0]);
-  assert.ok(player.leaks.some((l) => l.includes('"dm_page"')), 'the player crawl flags a shared DM page');
-  assert.equal((await call('PUT', `${W}/library/pages/${S.pages.dm.id}/level`, S.T.dm, { level: 'dm' })).status, 200);
-  // Downgrade a classified page to DM-only by mistake: the AI crawl must notice (models read DM-only pages).
-  assert.equal((await call('PUT', `${W}/library/pages/${S.pages.classified.id}/level`, S.T.dm, { level: 'dm' })).status, 200);
-  const model = await crawlGets({ who: 'dm', token: S.T.dm, label: 'dm as a model', headers: CALLER_MODEL }, (t) => classifiedIn(t));
+  assert.ok(player.leaks.some((l) => l.includes('"gm_page"')), 'the player crawl flags a shared GM page');
+  assert.equal((await call('PUT', `${W}/library/pages/${S.pages.gm.id}/level`, S.T.gm, { level: 'gm' })).status, 200);
+  // Downgrade a classified page to GM-only by mistake: the AI crawl must notice (models read GM-only pages).
+  assert.equal((await call('PUT', `${W}/library/pages/${S.pages.classified.id}/level`, S.T.gm, { level: 'gm' })).status, 200);
+  const model = await crawlGets({ who: 'gm', token: S.T.gm, label: 'gm as a model', headers: CALLER_MODEL }, (t) => classifiedIn(t));
   assert.ok(model.leaks.some((l) => l.includes('"classified_page"')), 'the AI crawl flags a classified page a model can read');
-  assert.equal((await call('PUT', `${W}/library/pages/${S.pages.classified.id}/level`, S.T.dm, { level: 'classified' })).status, 200);
-  const again = await crawlGets({ who: 'dm', token: S.T.dm, label: 'dm as a model', headers: CALLER_MODEL }, (t) => classifiedIn(t));
+  assert.equal((await call('PUT', `${W}/library/pages/${S.pages.classified.id}/level`, S.T.gm, { level: 'classified' })).status, 200);
+  const again = await crawlGets({ who: 'gm', token: S.T.gm, label: 'gm as a model', headers: CALLER_MODEL }, (t) => classifiedIn(t));
   assert.deepEqual(again.leaks, []);
 });
 
@@ -959,11 +959,11 @@ test('TestSecurityCrawl_KeyPagesAreOnlyForTheKeyHolderUntilShared', async () => 
   assert.equal(a.status, 200);
   assert.ok(a.text.includes(tok('key_page_jess')) && !a.text.includes(tok('key_page_jess_secret')));
   for (const [who, t] of [['tom', S.T.tom], ['guest', S.T.guest]] as const) assert.equal((await page(S.pages.keyJess.id, t)).status, 404, who);
-  // A blanket key's page: no player opens it, and the escalation holds it for the DM alone.
+  // A blanket key's page: no player opens it, and the escalation holds it for the GM alone.
   const blanket = one<any>(deps.db, 'SELECT id FROM pages WHERE world_id = ? AND external_id = ?', S.W, 'kanka:4').id;
   for (const t of [S.T.jess, S.T.tom, S.T.guest]) assert.equal((await page(blanket, t)).status, 404);
-  const q = (await call('GET', `${W}/source-keys/escalations`, S.T.dm)).text;
-  assert.ok(q.includes(tok('blanket_page')), 'the DM queue has the hidden context');
+  const q = (await call('GET', `${W}/source-keys/escalations`, S.T.gm)).text;
+  assert.ok(q.includes(tok('blanket_page')), 'the GM queue has the hidden context');
   for (const [who, t] of [['jess', S.T.jess], ['tom', S.T.tom]] as const) {
     const look = await call('GET', `${W}/source-keys/lookup?q=Blanket`, t);
     assert.ok(!leaksFor(who, look.text).length, `${who}'s lookup`);

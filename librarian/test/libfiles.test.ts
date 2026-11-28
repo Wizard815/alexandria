@@ -44,10 +44,10 @@ async function boot(opts: { fetch?: typeof fetch; env?: Record<string, string> }
   const T: Record<string, string> = {};
   const ID: Record<string, string> = {};
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Filesland', dmAccountId: ID.dm })).id;
-  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  const W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Filesland', gmAccountId: ID.gm })).id;
+  const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
   const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: 'jess', password: 'player pass 123', characterName: 'Jess' });
   T.jess = j.token;
   ID.jess = j.account.id;
@@ -62,7 +62,7 @@ async function boot(opts: { fetch?: typeof fetch; env?: Record<string, string> }
   return { base, deps: made.deps, W, tmp, T, ID, call, up, bytes, ok, close: () => { server.close(); server.closeAllConnections?.(); fs.rmSync(tmp, { recursive: true, force: true }); } };
 }
 
-const page = (e: Env, p: string, visibility: string, body = 'text') => e.ok('PUT', `/api/worlds/${e.W}/library/pages`, e.T.dm, { path: p, visibility, body });
+const page = (e: Env, p: string, visibility: string, body = 'text') => e.ok('PUT', `/api/worlds/${e.W}/library/pages`, e.T.gm, { path: p, visibility, body });
 const listFor = async (e: Env, token: string, pageId: string) => (await e.ok('GET', `/api/worlds/${e.W}/files?page=${pageId}`, token)).files as any[];
 
 test('TestLibFiles_SniffAcceptsPicturesPdfAndText', () => {
@@ -98,17 +98,17 @@ test('TestLibFiles_UploadValidationAndSizeCap', async () => {
     const q = `page=${pg.id}&name=map.png&kind=map`;
     assert.equal((await e.up(e.T.jess, q, PNG())).status, 403, 'players cannot upload');
     assert.equal((await e.up(undefined, q, PNG())).status, 401);
-    assert.equal((await e.up(e.T.dm, q, '')).status, 400, 'empty');
-    assert.equal((await e.up(e.T.dm, 'page=' + pg.id + '&name=x.svg', '<svg/>')).status, 415);
-    assert.equal((await e.up(e.T.dm, 'page=' + pg.id + '&name=x.png', '<svg onload=1/>')).status, 415, 'a name is not a type');
-    assert.equal((await e.up(e.T.dm, q, Buffer.concat([PNG(), Buffer.alloc(1024 * 1024)]))).status, 413, 'over the cap');
-    assert.equal((await e.up(e.T.dm, `page=${pg.id}&name=a.pdf&kind=map`, PDF())).status, 400, 'a map must be a picture');
-    assert.equal((await e.up(e.T.dm, `page=${pg.id}&name=a.png&level=secretish`, PNG())).status, 400, 'a bad level is refused, not defaulted to party');
-    assert.equal((await e.up(e.T.dm, `page=${pg.id}x&name=a.png`, PNG())).status, 404, 'unknown page');
+    assert.equal((await e.up(e.T.gm, q, '')).status, 400, 'empty');
+    assert.equal((await e.up(e.T.gm, 'page=' + pg.id + '&name=x.svg', '<svg/>')).status, 415);
+    assert.equal((await e.up(e.T.gm, 'page=' + pg.id + '&name=x.png', '<svg onload=1/>')).status, 415, 'a name is not a type');
+    assert.equal((await e.up(e.T.gm, q, Buffer.concat([PNG(), Buffer.alloc(1024 * 1024)]))).status, 413, 'over the cap');
+    assert.equal((await e.up(e.T.gm, `page=${pg.id}&name=a.pdf&kind=map`, PDF())).status, 400, 'a map must be a picture');
+    assert.equal((await e.up(e.T.gm, `page=${pg.id}&name=a.png&level=secretish`, PNG())).status, 400, 'a bad level is refused, not defaulted to party');
+    assert.equal((await e.up(e.T.gm, `page=${pg.id}x&name=a.png`, PNG())).status, 404, 'unknown page');
     assert.equal(all(e.deps.db, 'SELECT * FROM libfiles_files').length, 0);
-    const good = await e.up(e.T.dm, q, PNG());
+    const good = await e.up(e.T.gm, q, PNG());
     assert.equal(good.status, 201);
-    assert.equal(good.body.level, 'dm', 'no level means DM-only');
+    assert.equal(good.body.level, 'gm', 'no level means GM-only');
     assert.equal(good.body.mime, 'image/png');
   } finally { e.close(); }
 });
@@ -116,13 +116,13 @@ test('TestLibFiles_UploadValidationAndSizeCap', async () => {
 test('TestLibFiles_NewFilePageInAChosenFolder', async () => {
   const e = await boot();
   try {
-    const r = await e.up(e.T.dm, 'folder=Handouts/Act%201&title=Harbour%20Map&name=h.png&kind=map&level=party', PNG());
+    const r = await e.up(e.T.gm, 'folder=Handouts/Act%201&title=Harbour%20Map&name=h.png&kind=map&level=party', PNG());
     assert.equal(r.status, 201);
     assert.equal(r.body.pageCreated, true);
     assert.equal(r.body.page.path, 'Handouts/Act 1/Harbour Map.md');
     const pg = one<any>(e.deps.db, 'SELECT visibility FROM pages WHERE id = ?', r.body.page.id);
     assert.equal(pg.visibility, 'party');
-    assert.equal((await e.up(e.T.dm, 'folder=Handouts/Act%201&title=Harbour%20Map&name=h.png', PNG())).status, 409);
+    assert.equal((await e.up(e.T.gm, 'folder=Handouts/Act%201&title=Harbour%20Map&name=h.png', PNG())).status, 409);
     const jess = await listFor(e, e.T.jess, r.body.page.id);
     assert.equal(jess.length, 1);
     assert.equal(jess[0].level, undefined, 'a player is not told the level');
@@ -133,40 +133,40 @@ test('TestLibFiles_LevelsDecideWhoSeesAFile', async () => {
   const e = await boot();
   try {
     const party = await page(e, 'lore/Open.md', 'party');
-    const secret = await page(e, 'lore/Secret.md', 'dm');
-    const up = async (pg: any, level: string, name: string) => (await e.up(e.T.dm, `page=${pg.id}&name=${name}&level=${level}`, PNG(name))).body;
+    const secret = await page(e, 'lore/Secret.md', 'gm');
+    const up = async (pg: any, level: string, name: string) => (await e.up(e.T.gm, `page=${pg.id}&name=${name}&level=${level}`, PNG(name))).body;
     const fParty = await up(party, 'party', 'p.png');
-    const fDm = await up(party, 'dm', 'dm.png');
+    const fGm = await up(party, 'gm', 'gm.png');
     const fBroker = await up(party, 'broker', 'b.png');
     const fClass = await up(party, 'classified', 'c.png');
     const fOnSecret = await up(secret, 'party', 'onsecret.png');
-    // The DM sees everything with its level.
-    const dmList = await listFor(e, e.T.dm, party.id);
-    assert.deepEqual(dmList.map((f) => f.level).sort(), ['broker', 'classified', 'dm', 'party']);
+    // The GM sees everything with its level.
+    const gmList = await listFor(e, e.T.gm, party.id);
+    assert.deepEqual(gmList.map((f) => f.level).sort(), ['broker', 'classified', 'gm', 'party']);
     // A player: only the party-level file of a shared page.
     assert.deepEqual((await listFor(e, e.T.jess, party.id)).map((f) => f.name), ['p.png']);
-    assert.equal((await e.call('GET', `/api/worlds/${e.W}/files?page=${secret.id}`, e.T.jess)).status, 404, 'a DM-only page is not found');
+    assert.equal((await e.call('GET', `/api/worlds/${e.W}/files?page=${secret.id}`, e.T.jess)).status, 404, 'a GM-only page is not found');
     const all1 = (await e.ok('GET', `/api/worlds/${e.W}/files`, e.T.jess)).files as any[];
     assert.deepEqual(all1.map((f) => f.name), ['p.png']);
-    for (const f of [fDm, fBroker, fClass, fOnSecret]) {
+    for (const f of [fGm, fBroker, fClass, fOnSecret]) {
       assert.equal((await e.call('GET', `/api/worlds/${e.W}/files/${f.id}`, e.T.jess)).status, 404, f.name);
       const t = await e.bytes(`/api/media/libfile/${mintTicket({ w: e.W, k: 'libfile', f: f.id, a: e.ID.jess })}`);
       assert.equal(t.status, 404, `a ticket made for jess does not open ${f.name}`);
     }
-    // A model asking for the DM's view never sees a classified file.
-    const asModel = await fetch(`${e.base}/api/worlds/${e.W}/files?page=${party.id}`, { headers: { Authorization: `Bearer ${e.T.dm}`, 'X-Alexandria-Caller': 'model' } });
+    // A model asking for the GM's view never sees a classified file.
+    const asModel = await fetch(`${e.base}/api/worlds/${e.W}/files?page=${party.id}`, { headers: { Authorization: `Bearer ${e.T.gm}`, 'X-Alexandria-Caller': 'model' } });
     const names = ((await asModel.json()) as any).files.map((f: any) => f.name).sort();
-    assert.deepEqual(names, ['b.png', 'dm.png', 'p.png']);
-    assert.equal((await fetch(`${e.base}/api/worlds/${e.W}/files/${fClass.id}`, { headers: { Authorization: `Bearer ${e.T.dm}`, 'X-Alexandria-Caller': 'model' } })).status, 404);
-    // Lowering the page to DM-only takes the party file away at once, even on a ticket already handed out.
+    assert.deepEqual(names, ['b.png', 'gm.png', 'p.png']);
+    assert.equal((await fetch(`${e.base}/api/worlds/${e.W}/files/${fClass.id}`, { headers: { Authorization: `Bearer ${e.T.gm}`, 'X-Alexandria-Caller': 'model' } })).status, 404);
+    // Lowering the page to GM-only takes the party file away at once, even on a ticket already handed out.
     const ticket = (await listFor(e, e.T.jess, party.id))[0].url as string;
     assert.equal((await e.bytes(ticket)).status, 200);
-    await e.ok('PUT', `/api/worlds/${e.W}/library/pages/${party.id}/level`, e.T.dm, { level: 'dm' });
+    await e.ok('PUT', `/api/worlds/${e.W}/library/pages/${party.id}/level`, e.T.gm, { level: 'gm' });
     assert.equal((await e.bytes(ticket)).status, 404, 'checked again on every fetch');
-    // Making the file DM-only does the same.
-    await e.ok('PUT', `/api/worlds/${e.W}/library/pages/${party.id}/level`, e.T.dm, { level: 'party' });
+    // Making the file GM-only does the same.
+    await e.ok('PUT', `/api/worlds/${e.W}/library/pages/${party.id}/level`, e.T.gm, { level: 'party' });
     assert.equal((await e.bytes(ticket)).status, 200);
-    await e.ok('PATCH', `/api/worlds/${e.W}/files/${fParty.id}`, e.T.dm, { level: 'dm' });
+    await e.ok('PATCH', `/api/worlds/${e.W}/files/${fParty.id}`, e.T.gm, { level: 'gm' });
     assert.equal((await e.bytes(ticket)).status, 404);
   } finally { e.close(); }
 });
@@ -175,7 +175,7 @@ test('TestLibFiles_TicketsAreSignedForOneAccountAndKind', async () => {
   const e = await boot();
   try {
     const pg = await page(e, 'lore/Open.md', 'party');
-    const f = (await e.up(e.T.dm, `page=${pg.id}&name=p.png&level=party`, PNG('ticketbytes'))).body;
+    const f = (await e.up(e.T.gm, `page=${pg.id}&name=p.png&level=party`, PNG('ticketbytes'))).body;
     const ticket = f.url.split('/').pop() as string;
     const got = await e.bytes(f.url);
     assert.equal(got.status, 200);
@@ -187,7 +187,7 @@ test('TestLibFiles_TicketsAreSignedForOneAccountAndKind', async () => {
     const edit = (patch: Record<string, unknown>) => `${Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url').toString()), ...patch })).toString('base64url')}.${mac}`;
     assert.equal((await e.bytes(`/api/media/libfile/${edit({ a: e.ID.jess })}`)).status, 404);
     assert.equal((await e.bytes(`/api/media/libfile/${edit({ exp: Date.now() + 1e12 })}`)).status, 404);
-    assert.equal((await e.bytes(`/api/media/libfile/${mintTicket({ w: e.W, k: 'intake', f: f.id, a: e.ID.dm })}`)).status, 404, 'wrong kind');
+    assert.equal((await e.bytes(`/api/media/libfile/${mintTicket({ w: e.W, k: 'intake', f: f.id, a: e.ID.gm })}`)).status, 404, 'wrong kind');
     assert.equal((await e.bytes(`/api/media/libfile/${mintTicket({ w: e.W, k: 'libfile', f: f.id, a: 'acc_nobody' })}`)).status, 404, 'not a member');
     // Headers: no sniffing, no scripts.
     const raw = await fetch(base(e) + f.url);
@@ -198,7 +198,7 @@ test('TestLibFiles_TicketsAreSignedForOneAccountAndKind', async () => {
     assert.equal(JSON.parse(Buffer.from(mine.url.split('/').pop().split('.')[0], 'base64url').toString()).a, e.ID.jess);
     assert.equal((await e.bytes(mine.url)).status, 200);
     // The file is gone when its page is.
-    await e.ok('DELETE', `/api/worlds/${e.W}/library/pages/${pg.id}`, e.T.dm);
+    await e.ok('DELETE', `/api/worlds/${e.W}/library/pages/${pg.id}`, e.T.gm);
     assert.equal((await e.bytes(f.url)).status, 404);
     assert.equal(all(e.deps.db, 'SELECT * FROM libfiles_files').length, 0);
   } finally { e.close(); }
@@ -209,7 +209,7 @@ test('TestLibFiles_TextFilesAreServedAsPlainText', async () => {
   const e = await boot();
   try {
     const pg = await page(e, 'lore/Open.md', 'party');
-    const f = (await e.up(e.T.dm, `page=${pg.id}&name=notes.md&level=party&kind=rules`, '# Rules\n<b>not html</b>')).body;
+    const f = (await e.up(e.T.gm, `page=${pg.id}&name=notes.md&level=party&kind=rules`, '# Rules\n<b>not html</b>')).body;
     const r = await fetch(base(e) + f.url);
     assert.match(r.headers.get('content-type') ?? '', /^text\/plain/);
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
@@ -220,11 +220,11 @@ test('TestLibFiles_MapsAppearForTheMapPageOnlyWhenVisible', async () => {
   const e = await boot();
   try {
     const open = await page(e, 'lore/Open.md', 'party');
-    await e.up(e.T.dm, `page=${open.id}&name=world.png&kind=map&level=party`, PNG('w'));
-    await e.up(e.T.dm, `page=${open.id}&name=dm-map.png&kind=map&level=dm`, PNG('d'));
-    await e.up(e.T.dm, `page=${open.id}&name=handout.png&kind=handout&level=party`, PNG('h'));
+    await e.up(e.T.gm, `page=${open.id}&name=world.png&kind=map&level=party`, PNG('w'));
+    await e.up(e.T.gm, `page=${open.id}&name=gm-map.png&kind=map&level=gm`, PNG('d'));
+    await e.up(e.T.gm, `page=${open.id}&name=handout.png&kind=handout&level=party`, PNG('h'));
     assert.deepEqual((await e.ok('GET', `/api/worlds/${e.W}/files/maps`, e.T.jess)).map((f: any) => f.name), ['world.png']);
-    assert.deepEqual((await e.ok('GET', `/api/worlds/${e.W}/files/maps`, e.T.dm)).map((f: any) => f.name), ['dm-map.png', 'world.png']);
+    assert.deepEqual((await e.ok('GET', `/api/worlds/${e.W}/files/maps`, e.T.gm)).map((f: any) => f.name), ['gm-map.png', 'world.png']);
   } finally { e.close(); }
 });
 
@@ -257,7 +257,7 @@ function fakes(calls: Call[], failKanka = false, lkStep: { failUpload?: number }
 }
 const addSource = (e: Env, kind: string, cfg: Record<string, unknown>, pageId: string, ext: string) => {
   const id = `src_${Math.random().toString(36).slice(2, 10)}`;
-  run(e.deps.db, 'INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES (?, ?, ?, ?, ?, ?)', id, e.W, kind, kind === 'kanka-api' ? 'My Kanka' : 'My LK', JSON.stringify(cfg), 'dm');
+  run(e.deps.db, 'INSERT INTO sources (id, world_id, kind, name, config, default_visibility) VALUES (?, ?, ?, ?, ?, ?)', id, e.W, kind, kind === 'kanka-api' ? 'My Kanka' : 'My LK', JSON.stringify(cfg), 'gm');
   run(e.deps.db, 'UPDATE pages SET source_id = ?, external_id = ? WHERE id = ?', id, ext, pageId);
   return id;
 };
@@ -268,12 +268,12 @@ test('TestLibFiles_KankaWriteBackSendsAnEntityAssetAndNeverClassified', async ()
   try {
     const pg = await page(e, 'Characters/Aldric.md', 'party');
     const src = addSource(e, 'kanka-api', { apiUrl: KANKA, campaignId: '77', token: 'kanka_token_0123456789abcdef' }, pg.id, 'kanka:555');
-    // The option exists for a party or DM file, not for a classified one.
-    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${pg.id}&level=dm`, e.T.dm)).target.app, 'Kanka');
-    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${pg.id}&level=classified`, e.T.dm)).target, null);
+    // The option exists for a party or GM file, not for a classified one.
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${pg.id}&level=gm`, e.T.gm)).target.app, 'Kanka');
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${pg.id}&level=classified`, e.T.gm)).target, null);
     assert.equal((await e.call('GET', `/api/worlds/${e.W}/files/targets?page=${pg.id}`, e.T.jess)).status, 403);
 
-    const r = await e.up(e.T.dm, `page=${pg.id}&name=aldric.png&level=party&send=${src}`, PNG());
+    const r = await e.up(e.T.gm, `page=${pg.id}&name=aldric.png&level=party&send=${src}`, PNG());
     assert.equal(r.status, 201);
     assert.equal(r.body.remote.id, '9001');
     assert.equal(r.body.remote.error, null);
@@ -287,20 +287,20 @@ test('TestLibFiles_KankaWriteBackSendsAnEntityAssetAndNeverClassified', async ()
     assert.equal(calls[0].form.file, undefined);
     assert.equal(calls[0].form.name, 'aldric.png');
 
-    // A DM-only file goes up as admin-only.
-    await e.up(e.T.dm, `page=${pg.id}&name=notes.pdf&level=dm&send=${src}`, PDF());
+    // A GM-only file goes up as admin-only.
+    await e.up(e.T.gm, `page=${pg.id}&name=notes.pdf&level=gm&send=${src}`, PDF());
     assert.equal(calls[1].form.visibility_id, '2');
 
     // Classified: refused before anything is stored or sent.
     const before = calls.length;
-    const c = await e.up(e.T.dm, `page=${pg.id}&name=secret.png&level=classified&send=${src}`, PNG('s'));
+    const c = await e.up(e.T.gm, `page=${pg.id}&name=secret.png&level=classified&send=${src}`, PNG('s'));
     assert.equal(c.status, 400);
     assert.equal(calls.length, before);
     assert.equal(all(e.deps.db, `SELECT * FROM libfiles_files WHERE level = 'classified'`).length, 0);
     // A classified file stays local even when sent later; so does one made classified after.
-    const keep = (await e.up(e.T.dm, `page=${pg.id}&name=late.png&level=dm`, PNG('late'))).body;
-    await e.ok('PATCH', `/api/worlds/${e.W}/files/${keep.id}`, e.T.dm, { level: 'classified' });
-    assert.equal((await e.call('POST', `/api/worlds/${e.W}/files/${keep.id}/send`, e.T.dm, {})).status, 400);
+    const keep = (await e.up(e.T.gm, `page=${pg.id}&name=late.png&level=gm`, PNG('late'))).body;
+    await e.ok('PATCH', `/api/worlds/${e.W}/files/${keep.id}`, e.T.gm, { level: 'classified' });
+    assert.equal((await e.call('POST', `/api/worlds/${e.W}/files/${keep.id}/send`, e.T.gm, {})).status, 400);
     assert.equal(calls.length, before);
     // Players cannot send.
     assert.equal((await e.call('POST', `/api/worlds/${e.W}/files/${keep.id}/send`, e.T.jess, {})).status, 403);
@@ -316,13 +316,13 @@ test('TestLibFiles_WriteBackFailureKeepsTheLocalCopyAndCanBeRetried', async () =
   try {
     const pg = await page(e, 'Characters/Aldric.md', 'party');
     const src = addSource(e, 'kanka-api', { apiUrl: KANKA, campaignId: '77', token: 'kanka_token_0123456789abcdef' }, pg.id, 'kanka:555');
-    const r = await e.up(e.T.dm, `page=${pg.id}&name=a.png&level=dm&send=${src}`, PNG());
+    const r = await e.up(e.T.gm, `page=${pg.id}&name=a.png&level=gm&send=${src}`, PNG());
     assert.equal(r.status, 201, 'the upload itself worked');
     assert.match(r.body.remote.error, /refused/);
     assert.equal(r.body.remote.id, null);
     assert.equal(all(e.deps.db, 'SELECT * FROM libfiles_files').length, 1);
     fail = false;
-    const again = await e.ok('POST', `/api/worlds/${e.W}/files/${r.body.id}/send`, e.T.dm, {});
+    const again = await e.ok('POST', `/api/worlds/${e.W}/files/${r.body.id}/send`, e.T.gm, {});
     assert.equal(again.remote.id, '9001');
     assert.equal(again.remote.error, null);
   } finally { e.close(); }
@@ -334,7 +334,7 @@ test('TestLibFiles_LegendKeeperWriteBackAndHiddenWhereUnsupported', async () => 
   try {
     const lk = await page(e, 'Places/Harbour.md', 'party');
     const src = addSource(e, 'legendkeeper-api', { apiUrl: LK, apiKey: 'lk_write_key_1234' }, lk.id, 'res_harbour');
-    const r = await e.up(e.T.dm, `page=${lk.id}&name=harbour.png&kind=map&level=party&send=${src}`, PNG());
+    const r = await e.up(e.T.gm, `page=${lk.id}&name=harbour.png&kind=map&level=party&send=${src}`, PNG());
     assert.equal(r.status, 201);
     assert.equal(r.body.remote.id, 'asset_77');
     // Three calls: sign, PUT the bytes to storage (no API key there), register the asset. Never a multipart POST /assets.
@@ -351,21 +351,21 @@ test('TestLibFiles_LegendKeeperWriteBackAndHiddenWhereUnsupported', async () => 
     assert.deepEqual(calls[2].json, { uploadKey: 'key_1', name: 'harbour.png' });
     assert.equal(calls[2].auth, 'Bearer lk_write_key_1234');
     // Only pictures: a PDF is not offered for LegendKeeper, and an upload with ?send= is refused before anything is stored.
-    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${lk.id}&level=party&mime=application/pdf`, e.T.dm)).target, null);
-    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${lk.id}&level=party&mime=image/webp`, e.T.dm)).target.app, 'LegendKeeper');
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${lk.id}&level=party&mime=application/pdf`, e.T.gm)).target, null);
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${lk.id}&level=party&mime=image/webp`, e.T.gm)).target.app, 'LegendKeeper');
     const before = calls.length;
-    assert.equal((await e.up(e.T.dm, `page=${lk.id}&name=notes.pdf&level=party&send=${src}`, PDF())).status, 400);
+    assert.equal((await e.up(e.T.gm, `page=${lk.id}&name=notes.pdf&level=party&send=${src}`, PDF())).status, 400);
     assert.equal(calls.length, before);
     // Sources with no upload offer nothing: the generic API (no upload role), the Markdown folder, mcp-kanka, a page with no source.
     const other = await page(e, 'Places/Other.md', 'party');
     const api = addSource(e, 'api', { baseUrl: 'https://api.test' }, other.id, 'x1');
-    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${other.id}`, e.T.dm)).target, null);
-    assert.equal((await e.up(e.T.dm, `page=${other.id}&name=a.png&send=${api}`, PNG('o'))).status, 400);
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${other.id}`, e.T.gm)).target, null);
+    assert.equal((await e.up(e.T.gm, `page=${other.id}&name=a.png&send=${api}`, PNG('o'))).status, 400);
     const mcp = await page(e, 'Places/Mcp.md', 'party');
     addSource(e, 'kanka-mcp', { url: 'https://mcp.test' }, mcp.id, 'kanka:12');
-    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${mcp.id}`, e.T.dm)).target, null);
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${mcp.id}`, e.T.gm)).target, null);
     const plain = await page(e, 'Places/Plain.md', 'party');
-    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${plain.id}`, e.T.dm)).target, null);
+    assert.equal((await e.ok('GET', `/api/worlds/${e.W}/files/targets?page=${plain.id}`, e.T.gm)).target, null);
     assert.equal(calls.length, 3);
   } finally { e.close(); }
 });
@@ -376,7 +376,7 @@ test('TestLibFiles_LegendKeeperStorageFailureIsReportedAndNoAssetIsRegistered', 
   try {
     const lk = await page(e, 'Places/Harbour.md', 'party');
     const src = addSource(e, 'legendkeeper-api', { apiUrl: LK, apiKey: 'lk_write_key_1234' }, lk.id, 'res_harbour');
-    const r = await e.up(e.T.dm, `page=${lk.id}&name=harbour.png&level=party&send=${src}`, PNG());
+    const r = await e.up(e.T.gm, `page=${lk.id}&name=harbour.png&level=party&send=${src}`, PNG());
     assert.equal(r.status, 201, 'the local copy is kept');
     assert.equal(r.body.remote.id, null);
     assert.match(r.body.remote.error, /storage answered 403/);
@@ -386,16 +386,16 @@ test('TestLibFiles_LegendKeeperStorageFailureIsReportedAndNoAssetIsRegistered', 
 
 // ---- the admin library ----------------------------------------------------------------------------
 
-test('TestLibFiles_AdminWhoIsNotTheDmSeesOnlyThePartyCopyAndCannotUpload', async () => {
+test('TestLibFiles_AdminWhoIsNotTheGmSeesOnlyThePartyCopyAndCannotUpload', async () => {
   const e = await boot();
   try {
     const open = await page(e, 'lore/Open.md', 'party', 'Shared words.\n\n> [!secret]\n> hidden words');
-    const secret = await page(e, 'lore/Secret.md', 'dm', 'dm only words');
-    await e.up(e.T.dm, `page=${open.id}&name=p.png&level=party&kind=map`, PNG('partybytes'));
-    await e.up(e.T.dm, `page=${open.id}&name=d.png&level=dm`, PNG('dmbytes'));
-    await e.up(e.T.dm, `page=${secret.id}&name=s.png&level=party`, PNG('onsecretbytes'));
+    const secret = await page(e, 'lore/Secret.md', 'gm', 'gm only words');
+    await e.up(e.T.gm, `page=${open.id}&name=p.png&level=party&kind=map`, PNG('partybytes'));
+    await e.up(e.T.gm, `page=${open.id}&name=d.png&level=gm`, PNG('dmbytes'));
+    await e.up(e.T.gm, `page=${secret.id}&name=s.png&level=party`, PNG('onsecretbytes'));
     const A = `/api/admin/library/worlds/${e.W}`;
-    // The admin is not the DM here: world routes refuse, the admin library answers with the party copy.
+    // The admin is not the GM here: world routes refuse, the admin library answers with the party copy.
     assert.equal((await e.call('GET', `/api/worlds/${e.W}/library/pages`, e.T.admin)).status, 404);
     const worlds = await e.ok('GET', '/api/admin/library/worlds', e.T.admin);
     assert.deepEqual(worlds.map((w: any) => [w.name, w.view, w.role]), [['Filesland', 'party', null]]);
@@ -422,10 +422,10 @@ test('TestLibFiles_AdminWhoIsNotTheDmSeesOnlyThePartyCopyAndCannotUpload', async
     assert.equal((await e.call('GET', `${A}/library/pages`, e.T.jess)).status, 403);
     assert.equal((await e.call('GET', `${A}/library/pages`)).status, 401);
 
-    // An admin who is the world's DM gets the DM view and can upload.
-    await e.ok('PUT', `/api/admin/worlds/${e.W}/members/${one<any>(e.deps.db, 'SELECT id FROM accounts WHERE username = ?', 'wizard').id}`, e.T.admin, { role: 'dm' });
-    const dmView = await e.ok('GET', `${A}/library/pages`, e.T.admin);
-    assert.equal(dmView.length, 2);
+    // An admin who is the world's GM gets the GM view and can upload.
+    await e.ok('PUT', `/api/admin/worlds/${e.W}/members/${one<any>(e.deps.db, 'SELECT id FROM accounts WHERE username = ?', 'wizard').id}`, e.T.admin, { role: 'gm' });
+    const gmView = await e.ok('GET', `${A}/library/pages`, e.T.admin);
+    assert.equal(gmView.length, 2);
     const mine = await e.ok('GET', `${A}/files`, e.T.admin);
     assert.equal(mine.canUpload, true);
     assert.equal(mine.files.length, 3);

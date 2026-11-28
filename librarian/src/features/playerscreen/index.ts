@@ -1,24 +1,24 @@
 // The players' screen: a TV facing the table. It shows only what players may
 // see (stage cards shown to everyone, the spotlight, the combat tracker's
-// player view) plus a media state the DM controls (YouTube links, pictures,
+// player view) plus a media state the GM controls (YouTube links, pictures,
 // slideshows).
 //
 // GET .../screen/players builds everything for the anonymous PLAYER viewer,
-// whoever asks: the screen is opened on the DM's computer with the DM's
-// token, and a DM token must not widen what it shows. Nothing is filtered
-// out of a DM view; the DM view is never built. Pictures go through
+// whoever asks: the screen is opened on the GM's computer with the GM's
+// token, and a GM token must not widen what it shows. Nothing is filtered
+// out of a GM view; the GM view is never built. Pictures go through
 // /api/media/screen/<ticket>, which re-checks on every fetch that the picture
 // is on the board or in the visible media (hiding it takes it away).
 //
 // Media: a queue of items {youtube | image | video}, a mode (off, queue,
 // slideshow, focus), play/pause, loop and a slideshow interval. Writes are
-// DM-only. Videos are library files, served with Range support. A video
+// GM-only. Videos are library files, served with Range support. A video
 // ends the slide when it ends: the screen reports POST /media/ended
 // {id, version}; the server accepts it only for the item showing now, once
 // per version (stale or duplicate reports from other open screens change
 // nothing) and not within a second of the item coming up. An item can instead
-// play for N seconds or loop. A DM- or party-level library file may be shown
-// by the DM's choice (classified never); a file players cannot open in the
+// play for N seconds or loop. A GM- or party-level library file may be shown
+// by the GM's choice (classified never); a file players cannot open in the
 // library is served to the screen only while it is the current, visible item.
 // Players and the screen only receive the visible state: hidden items are
 // never sent, and only the current item is (no spoilers about what is next).
@@ -29,7 +29,7 @@ import { Router, type Request, type Response } from 'express';
 import type { Feature } from '../types.ts';
 import type { Deps } from '../../app.ts';
 import { all, one, run, tx } from '../../core/db.ts';
-import { requireDM } from '../../core/auth.ts';
+import { requireGM } from '../../core/auth.ts';
 import { everyone } from '../../core/events.ts';
 import { combatViewFor } from '../../core/combatView.ts';
 import { HttpError, id as newId, int, now, oneOf, str } from '../../core/util.ts';
@@ -110,7 +110,7 @@ export function resolve(s: Pick<State, 'mode' | 'current_id' | 'focus_id'>, item
   return pool.find((i) => i.id === s.current_id) ?? pool[0] ?? null;
 }
 
-/** May this library file be put on the screen at all? Anything up to DM-only, by the DM's choice; classified never (file or page). */
+/** May this library file be put on the screen at all? Anything up to GM-only, by the GM's choice; classified never (file or page). */
 const showable = (d: Deps, f: { level: string; page_id: string; world_id: string }): boolean => {
   if (normLevel(f.level) === 'classified') return false;
   const pg = one<any>(d.db, 'SELECT visibility FROM pages WHERE id = ? AND world_id = ?', f.page_id, f.world_id);
@@ -210,7 +210,7 @@ const feature: Feature = {
       }
       const f = one<any>(d.db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', t.f, t.w);
       if (!f || (f.family !== 'image' && f.family !== 'video')) throw new HttpError(404, 'Picture not found');
-      // A file players can open themselves is served while it is in the visible media. A file they cannot (the DM chose to
+      // A file players can open themselves is served while it is in the visible media. A file they cannot (the GM chose to
       // show it anyway) only while it is the item on screen right now, in a mode that is not off.
       const ok = mayRead(d, f, PLAYER)
         ? mayFetchScreenPicture(d, t.w, t.f)
@@ -277,8 +277,8 @@ const feature: Feature = {
       };
     }
 
-    /** The DM's whole picture, hidden items included. Thumbnails use the DM's own tickets for the ordinary file routes. */
-    function dmMedia(wid: string, account: string) {
+    /** The GM's whole picture, hidden items included. Thumbnails use the GM's own tickets for the ordinary file routes. */
+    function gmMedia(wid: string, account: string) {
       const s = stateOf(d, wid);
       const items = itemsOf(d, wid);
       const cur = resolve(s, items);
@@ -289,8 +289,8 @@ const feature: Feature = {
           return {
             id: i.id, kind: i.kind, ref: i.ref, title: i.title, hidden: !!i.hidden,
             thumb: i.kind === 'image' || i.kind === 'video' ? `/api/media/${i.ref.startsWith('stg_') ? 'stage' : 'libfile'}/${mintTicket({ w: wid, k: i.ref.startsWith('stg_') ? 'stage' : 'libfile', f: i.ref, a: account })}` : i.kind === 'youtube' ? `https://img.youtube.com/vi/${i.ref}/mqdefault.jpg` : null,
-            // A library file players cannot open in the library: it shows on the screen only by the DM's choice, only while current.
-            ...(f ? { dmOnly: !mayRead(d, f, PLAYER), blocked: !showable(d, f) } : {}),
+            // A library file players cannot open in the library: it shows on the screen only by the GM's choice, only while current.
+            ...(f ? { gmOnly: !mayRead(d, f, PLAYER), blocked: !showable(d, f) } : {}),
             ...(i.kind === 'video' ? { sound: !!i.sound, loopVideo: !!i.loop_video, playSecs: i.play_secs } : {}),
           };
         }),
@@ -304,11 +304,11 @@ const feature: Feature = {
       res.json({ world: { name: c.world.name }, stage: board(c.world.id, acc), media: publicMedia(c.world.id, acc) });
     });
 
-    // ---- the DM's controls ----
-    r.get('/media', requireDM, (_req, res) => res.json(dmMedia(W(res), me(res))));
+    // ---- the GM's controls ----
+    r.get('/media', requireGM, (_req, res) => res.json(gmMedia(W(res), me(res))));
 
-    /** Where the DM can pick pictures and videos from: folders of library files (how many are shown-able, how many players can open) and the world's stage pictures. */
-    r.get('/media/sources', requireDM, (_req, res) => {
+    /** Where the GM can pick pictures and videos from: folders of library files (how many are shown-able, how many players can open) and the world's stage pictures. */
+    r.get('/media/sources', requireGM, (_req, res) => {
       const w = W(res);
       const files = all<any>(db, `SELECT f.*, p.path AS page_path FROM libfiles_files f JOIN pages p ON p.id = f.page_id WHERE f.world_id = ? AND f.family IN ('image', 'video') ORDER BY p.path, f.name LIMIT 1000`, w);
       const folders = new Map<string, { folder: string; images: number; videos: number; shared: number; showable: number }>();
@@ -328,7 +328,7 @@ const feature: Feature = {
       res.json({ folders: [...folders.values()].sort((a, b) => a.folder.localeCompare(b.folder)), files: list, stage });
     });
 
-    /** A picture or video the DM may put on the screen: a stage picture of this world, or a library picture/video (the DM's explicit choice, so DM-level files are fine; classified never). */
+    /** A picture or video the GM may put on the screen: a stage picture of this world, or a library picture/video (the GM's explicit choice, so GM-level files are fine; classified never). */
     const mediaRef = (w: string, raw: unknown): { ref: string; kind: 'image' | 'video'; name: string } => {
       const v = str(raw, 'ref', { max: 200 });
       if (/^stg_[\w-]+$/.test(v)) {
@@ -357,7 +357,7 @@ const feature: Feature = {
       return i;
     };
 
-    r.post('/media/items', requireDM, (req, res) => {
+    r.post('/media/items', requireGM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       let kind: 'youtube' | 'image' | 'video' = oneOf(b.kind, 'kind', ['youtube', 'image', 'video'] as const);
@@ -386,10 +386,10 @@ const feature: Feature = {
         else save(w, {});
       });
       audit(w, me(res), 'screen.queue', `${kind} ${ref}`);
-      res.status(201).json(dmMedia(w, me(res)));
+      res.status(201).json(gmMedia(w, me(res)));
     });
 
-    r.patch('/media/items/:iid', requireDM, (req, res) => {
+    r.patch('/media/items/:iid', requireGM, (req, res) => {
       const w = W(res);
       const i = item(w, req.params.iid);
       const b = req.body ?? {};
@@ -399,10 +399,10 @@ const feature: Feature = {
       const vo = videoOpts(b, i);
       run(db, 'UPDATE screen_media_items SET hidden = ?, title = ?, sound = ?, play_secs = ?, loop_video = ? WHERE id = ?', hidden, title, vo.sound, vo.play_secs, vo.loop_video, i.id);
       save(w, {});
-      res.json(dmMedia(w, me(res)));
+      res.json(gmMedia(w, me(res)));
     });
 
-    r.delete('/media/items/:iid', requireDM, (req, res) => {
+    r.delete('/media/items/:iid', requireGM, (req, res) => {
       const w = W(res);
       const i = item(w, req.params.iid);
       const s = stateOf(d, w);
@@ -414,11 +414,11 @@ const feature: Feature = {
           ...(s.mode === 'focus' && s.focus_id === i.id ? { mode: s.prev_mode, focus_id: null } : {}),
         });
       });
-      res.json(dmMedia(w, me(res)));
+      res.json(gmMedia(w, me(res)));
     });
 
     // New order: the listed ids first, in that order; items not listed keep their place after them.
-    r.put('/media/order', requireDM, (req, res) => {
+    r.put('/media/order', requireGM, (req, res) => {
       const w = W(res);
       const ids = req.body?.ids;
       if (!Array.isArray(ids) || ids.length > MAX_ITEMS || ids.some((x) => typeof x !== 'string')) throw new HttpError(400, 'ids must be a list of item ids');
@@ -426,11 +426,11 @@ const feature: Feature = {
       const order = [...new Set(ids as string[])].filter((x) => have.has(x));
       const rest = itemsOf(d, w).map((i) => i.id).filter((x) => !order.includes(x));
       tx(db, () => { [...order, ...rest].forEach((x, n) => run(db, 'UPDATE screen_media_items SET pos = ? WHERE id = ?', n + 1, x)); save(w, {}); });
-      res.json(dmMedia(w, me(res)));
+      res.json(gmMedia(w, me(res)));
     });
 
     // Load every picture, GIF and video of a library folder, in order of file name, as a slideshow (they mix). Classified files are skipped (and counted), never shown.
-    r.post('/media/folder', requireDM, (req, res) => {
+    r.post('/media/folder', requireGM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       const dir = cleanDir(b.folder);
@@ -454,7 +454,7 @@ const feature: Feature = {
         save(w, { mode: 'slideshow', current_id: first, focus_id: null, playing: 1, ...(interval ? { interval_sec: interval } : {}) }, true);
       });
       audit(w, me(res), 'screen.folder', `${dir || '/'} ${okFiles.length} files`);
-      res.json({ ...dmMedia(w, me(res)), loaded: Math.min(okFiles.length, MAX_ITEMS), skipped: files.length - okFiles.length });
+      res.json({ ...gmMedia(w, me(res)), loaded: Math.min(okFiles.length, MAX_ITEMS), skipped: files.length - okFiles.length });
     });
 
     // A video reports that it has ended. Any member's screen may (the screen is opened with whoever's token), but it only ever
@@ -480,8 +480,8 @@ const feature: Feature = {
     });
 
     // Make a library picture or video open to the party: the file's level, and its page's when that page is only a file page
-    // (no text of its own). A page with text keeps its own level (that would publish the text): the DM opens it in the library.
-    r.post('/media/share', requireDM, (req, res) => {
+    // (no text of its own). A page with text keeps its own level (that would publish the text): the GM opens it in the library.
+    r.post('/media/share', requireGM, (req, res) => {
       const w = W(res);
       const fid = str(req.body?.fileId, 'fileId', { max: 100 });
       const f = one<any>(db, 'SELECT * FROM libfiles_files WHERE id = ? AND world_id = ?', fid, w);
@@ -496,7 +496,7 @@ const feature: Feature = {
       const next = one<any>(db, 'SELECT * FROM libfiles_files WHERE id = ?', f.id)!;
       if (!mayRead(d, next, PLAYER)) {
         run(db, 'UPDATE libfiles_files SET level = ? WHERE id = ?', f.level, f.id);
-        throw new HttpError(409, 'Players still cannot open that file (its page is marked for the DM or the broker). Change that in the library.');
+        throw new HttpError(409, 'Players still cannot open that file (its page is marked for the GM or the broker). Change that in the library.');
       }
       audit(w, me(res), 'screen.share', `${f.name} party`);
       d.hub.emit(w, 'libfile', { pageId: f.page_id }, () => true);
@@ -505,7 +505,7 @@ const feature: Feature = {
     });
 
     // Mode, which item is current, play/pause, loop and interval.
-    r.put('/media', requireDM, (req, res) => {
+    r.put('/media', requireGM, (req, res) => {
       const w = W(res);
       const b = req.body ?? {};
       const s = stateOf(d, w);
@@ -527,11 +527,11 @@ const feature: Feature = {
       if (b.loop !== undefined) patch.loop = b.loop ? 1 : 0;
       if (b.intervalSec !== undefined) patch.interval_sec = int(b.intervalSec, 'intervalSec', { min: 2, max: 3600 })!;
       save(w, patch, restart);
-      res.json(dmMedia(w, me(res)));
+      res.json(gmMedia(w, me(res)));
     });
 
     // Show one item alone until unfocused (id: null).
-    r.post('/media/focus', requireDM, (req, res) => {
+    r.post('/media/focus', requireGM, (req, res) => {
       const w = W(res);
       const s = stateOf(d, w);
       const fid = req.body?.id;
@@ -542,25 +542,25 @@ const feature: Feature = {
         if (i.hidden) throw new HttpError(409, 'That item is hidden; unhide it first');
         save(w, { mode: 'focus', prev_mode: s.mode === 'focus' ? s.prev_mode : s.mode === 'off' ? 'queue' : s.mode, focus_id: i.id });
       }
-      res.json(dmMedia(w, me(res)));
+      res.json(gmMedia(w, me(res)));
     });
 
     for (const [name, dir] of [['next', 1], ['previous', -1]] as const) {
-      r.post(`/media/${name}`, requireDM, (_req, res) => {
+      r.post(`/media/${name}`, requireGM, (_req, res) => {
         const w = W(res);
         const s = stateOf(d, w);
         if (s.mode === 'off') throw new HttpError(409, 'The screen media is off');
         if (s.mode === 'focus') throw new HttpError(409, 'One item is focused; unfocus it first');
         step(d, w, dir);
-        res.json(dmMedia(w, me(res)));
+        res.json(gmMedia(w, me(res)));
       });
     }
 
-    r.post('/media/clear', requireDM, (_req, res) => {
+    r.post('/media/clear', requireGM, (_req, res) => {
       const w = W(res);
       tx(db, () => { run(db, 'DELETE FROM screen_media_items WHERE world_id = ?', w); save(w, { mode: 'off', current_id: null, focus_id: null }); });
       audit(w, me(res), 'screen.clear', '');
-      res.json(dmMedia(w, me(res)));
+      res.json(gmMedia(w, me(res)));
     });
 
     return r;
@@ -568,7 +568,7 @@ const feature: Feature = {
   mcpTools: [
     {
       name: 'queue_media',
-      description: "DM: add something to the players' screen (the TV facing the table). Give a YouTube link as url, or a picture or video as ref (a library file id, never a classified one, or a stage picture id). Set play true to show it right now. Players only ever see what is queued here.",
+      description: "GM: add something to the players' screen (the TV facing the table). Give a YouTube link as url, or a picture or video as ref (a library file id, never a classified one, or a stage picture id). Set play true to show it right now. Players only ever see what is queued here.",
       write: true,
       props: {
         url: { type: 'string', description: 'A youtube.com or youtu.be link' },
@@ -580,7 +580,7 @@ const feature: Feature = {
     },
     {
       name: 'show_media',
-      description: "DM: control the players' screen media. action: off, queue, slideshow, next, previous, pause, resume, clear (empties the queue), or unfocus. To show one queued item alone, give itemId with action focus.",
+      description: "GM: control the players' screen media. action: off, queue, slideshow, next, previous, pause, resume, clear (empties the queue), or unfocus. To show one queued item alone, give itemId with action focus.",
       write: true,
       props: {
         action: { type: 'string', enum: ['off', 'queue', 'slideshow', 'next', 'previous', 'pause', 'resume', 'clear', 'focus', 'unfocus'] },

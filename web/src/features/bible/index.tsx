@@ -4,9 +4,9 @@ import BibleSettings from './BibleSettings.tsx';
 
 const feature: WebFeature = {
   id: 'bible',
-  dmRoutes: [{ path: 'bible', element: <BiblePage /> }],
+  gmRoutes: [{ path: 'bible', element: <BiblePage /> }],
   playerRoutes: [{ path: 'bible', element: <BiblePage /> }],
-  dmNav: [{ to: 'bible' }],
+  gmNav: [{ to: 'bible' }],
   settings: { title: 'Story bible', component: BibleSettings },
   playerNav: [{ to: 'bible', label: 'Story bible', icon: 'fa-book-open' }],
 };

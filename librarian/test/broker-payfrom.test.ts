@@ -31,9 +31,9 @@ const ok = async (method: string, url: string, token?: string, body?: unknown) =
   assert.ok(r.status < 300, `${method} ${url} -> ${r.status} ${JSON.stringify(r.body)}`);
   return r.body;
 };
-const set = (patch: Record<string, unknown>) => ok('PATCH', `/api/worlds/${W}/settings`, T.dm, patch);
+const set = (patch: Record<string, unknown>) => ok('PATCH', `/api/worlds/${W}/settings`, T.gm, patch);
 const coin = (owner: string) => balance(deps.db, W, owner);
-const setCoin = (owner: string, cp: number) => { run(deps.db, 'DELETE FROM ledger WHERE world_id = ? AND owner = ?', W, owner); if (cp) run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Test', ?, ?, 'approved')`, `led_t${Math.random()}`, W, owner, cp, ID.dm, new Date().toISOString()); };
+const setCoin = (owner: string, cp: number) => { run(deps.db, 'DELETE FROM ledger WHERE world_id = ? AND owner = ?', W, owner); if (cp) run(deps.db, `INSERT INTO ledger (id, world_id, owner, amount_cp, note, by_id, at, status) VALUES (?, ?, ?, ?, 'Test', ?, ?, 'approved')`, `led_t${Math.random()}`, W, owner, cp, ID.gm, new Date().toISOString()); };
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alx-bpf-'));
@@ -43,19 +43,19 @@ before(async () => {
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   T.admin = (await ok('POST', '/api/setup', undefined, { username: 'wizard', password: 'correct horse battery' })).token;
-  ID.dm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'dm password 123' })).account.id;
-  T.dm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'dm password 123' })).token;
-  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Payland', dmAccountId: ID.dm })).id;
+  ID.gm = (await ok('POST', '/api/admin/accounts', T.admin, { username: 'dungeon', password: 'gm password 123' })).account.id;
+  T.gm = (await ok('POST', '/api/auth/login', undefined, { username: 'dungeon', password: 'gm password 123' })).token;
+  W = (await ok('POST', '/api/admin/worlds', T.admin, { name: 'Payland', gmAccountId: ID.gm })).id;
   for (const [u, c] of [['jess', 'Jess'], ['tom', 'Tom']]) {
-    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.dm, { role: 'player' });
+    const inv = await ok('POST', `/api/worlds/${W}/invites`, T.gm, { role: 'player' });
     const j = await ok('POST', '/api/join', undefined, { code: inv.code, username: u, password: 'player pass 123', characterName: c });
     T[u] = j.token; ID[u] = j.account.id;
   }
-  await ok('PUT', `/api/worlds/${W}/library/pages`, T.dm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n` });
+  await ok('PUT', `/api/worlds/${W}/library/pages`, T.gm, { path: 'places/Saltmarsh', visibility: 'party', markdown: `---\nknowledge: local\n---\n# Saltmarsh\nSaltmarsh is a fishing town ruled by the harbour council of seven captains.\n` });
 });
 after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-const offer = (price = 500, targets: unknown = 'party', title = 'The lantern route') => ok('POST', `${B()}/offers`, T.dm, { title, teaser: 'Psst.', info: 'Follow the lanterns.', priceCp: price, targets });
+const offer = (price = 500, targets: unknown = 'party', title = 'The lantern route') => ok('POST', `${B()}/offers`, T.gm, { title, teaser: 'Psst.', info: 'Follow the lanterns.', priceCp: price, targets });
 
 test('TestBrokerPayFrom_OptionsShowBothBalancesAndTheSetting', async () => {
   setCoin(ID.jess, 300); setCoin('party', 900);
@@ -66,16 +66,16 @@ test('TestBrokerPayFrom_OptionsShowBothBalancesAndTheSetting', async () => {
   await set({ brokerPartyPay: false });
   const off = await ok('GET', `${B()}/pay-options`, T.jess);
   assert.equal(off.party.allowed, false);
-  assert.match(off.party.reason, /DM/);
+  assert.match(off.party.reason, /GM/);
   await set({ brokerPartyPay: true });
   assert.equal((await call('GET', `${B()}/pay-options`)).status, 401);
 });
 
-test('TestBrokerPayFrom_TheSettingDefaultsOnAndIsDmOnly', async () => {
-  const c = await ok('GET', `/api/worlds/${W}/settings`, T.dm);
+test('TestBrokerPayFrom_TheSettingDefaultsOnAndIsGmOnly', async () => {
+  const c = await ok('GET', `/api/worlds/${W}/settings`, T.gm);
   assert.equal(c.brokerPartyPay, true);
   assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.jess, { brokerPartyPay: false })).status, 403);
-  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.dm, { brokerPartyPay: 'no' })).status, 400);
+  assert.equal((await call('PATCH', `/api/worlds/${W}/settings`, T.gm, { brokerPartyPay: 'no' })).status, 400);
 });
 
 test('TestBrokerPayFrom_OfferPaidFromThePartyPouchIsLoggedForTheParty', async () => {
@@ -92,10 +92,10 @@ test('TestBrokerPayFrom_OfferPaidFromThePartyPouchIsLoggedForTheParty', async ()
   // Another player reads the party log and sees who paid.
   const log = await ok('GET', `/api/worlds/${W}/live/ledger?owner=party`, T.tom);
   assert.ok(log.entries.some((e: any) => e.note.includes('paid by Jess from the party pouch')));
-  // The DM sees who paid and from where.
-  const dm = (await ok('GET', `${B()}/offers`, T.dm)).find((x: any) => x.id === o.id);
-  assert.equal(dm.paid_by_name, 'Jess');
-  assert.equal(dm.paid_from, 'party');
+  // The GM sees who paid and from where.
+  const gm = (await ok('GET', `${B()}/offers`, T.gm)).find((x: any) => x.id === o.id);
+  assert.equal(gm.paid_by_name, 'Jess');
+  assert.equal(gm.paid_from, 'party');
 });
 
 test('TestBrokerPayFrom_OfferPaidFromOwnCoinDefaultsToSelf', async () => {
@@ -104,8 +104,8 @@ test('TestBrokerPayFrom_OfferPaidFromOwnCoinDefaultsToSelf', async () => {
   await ok('POST', `${B()}/offers/${o.id}/pay`, T.tom, {});
   assert.equal(coin(ID.tom), 500);
   assert.equal(coin('party'), 5000);
-  const dm = (await ok('GET', `${B()}/offers`, T.dm)).find((x: any) => x.id === o.id);
-  assert.equal(dm.paid_from, ID.tom, 'own coin is recorded as the payer');
+  const gm = (await ok('GET', `${B()}/offers`, T.gm)).find((x: any) => x.id === o.id);
+  assert.equal(gm.paid_from, ID.tom, 'own coin is recorded as the payer');
 });
 
 test('TestBrokerPayFrom_ADisabledSettingBlocksThePartyPouch', async () => {
@@ -188,10 +188,10 @@ test('TestBrokerPayFrom_AQuotedQuestionCanBePaidFromTheParty', async () => {
   assert.equal(coin('party'), 1000 - q.cost_cp);
   const row = one<any>(deps.db, `SELECT note FROM ledger WHERE world_id = ? AND owner = 'party' AND amount_cp = ?`, W, -q.cost_cp)!;
   assert.match(row.note, /\(paid by Jess from the party pouch\)$/);
-  // The DM sees who paid and from where on the request.
-  const dm = (await ok('GET', B(), T.dm)).requests.find((x: any) => x.id === yes.id);
-  assert.equal(dm.paid_by_name, 'Jess');
-  assert.equal(dm.paid_from, 'party');
+  // The GM sees who paid and from where on the request.
+  const gm = (await ok('GET', B(), T.gm)).requests.find((x: any) => x.id === yes.id);
+  assert.equal(gm.paid_by_name, 'Jess');
+  assert.equal(gm.paid_from, 'party');
   const mine = (await ok('GET', B(), T.jess)).requests.find((x: any) => x.id === yes.id);
   assert.equal(mine.paid_by, undefined, 'players are not told more than they need');
 });
@@ -201,7 +201,7 @@ test('TestBrokerPayFrom_AcceptingAPricedSecretFromTheParty', async () => {
   const q = await ok('POST', `${B()}/quote`, T.tom, { question: 'Where does the smuggler queen hide her treasury?' });
   const asked = await ok('POST', `${B()}/ask`, T.tom, { quoteId: q.quoteId });
   assert.equal(asked.status, 'pricing');
-  await ok('POST', `${B()}/${asked.id}/price`, T.dm, { costCp: 400, waitAmount: 0, waitUnit: 'minutes', clock: 'real', answer: 'Beneath the lighthouse.' });
+  await ok('POST', `${B()}/${asked.id}/price`, T.gm, { costCp: 400, waitAmount: 0, waitUnit: 'minutes', clock: 'real', answer: 'Beneath the lighthouse.' });
   assert.equal((await call('POST', `${B()}/${asked.id}/accept`, T.tom, { from: 'self' })).status, 402);
   assert.equal((await call('POST', `${B()}/${asked.id}/accept`, T.jess, { from: 'party' })).status, 404, 'only the asker accepts');
   const done = await ok('POST', `${B()}/${asked.id}/accept`, T.tom, { from: 'party' });

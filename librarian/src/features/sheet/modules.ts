@@ -1,26 +1,26 @@
 // The sheet is a list of modules the player arranges: built-in ones that show
 // live data (health, mana, inventory, recently seen people and places) and
 // ones the player fills in (people they know as allies or enemies, quick
-// notes, free text, counters, checklists). "From the DM" holds the DM's secret
+// notes, free text, counters, checklists). "From the GM" holds the GM's secret
 // notes and goals for this player; it can be moved but not removed. A module the player marks private
-// is hidden from everyone else, the DM included. "Character" is the summary of
+// is hidden from everyone else, the GM included. "Character" is the summary of
 // a character imported from D&D Beyond (see ddb.ts). "Stats" holds the
 // numbers a player looks up all game (AC, initiative, passives, spell DC…):
 // typed in by the player, or filled by the D&D Beyond import.
 import { HttpError } from '../../core/util.ts';
 import { cleanCharacter } from './ddb.ts';
 
-export const TYPES = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list', 'downtime'] as const;
+export const TYPES = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'gm', 'contacts', 'notes', 'recent', 'text', 'counters', 'list', 'downtime'] as const;
 export type ModuleType = (typeof TYPES)[number];
-/** Modules that show the player's own live data once; the DM always sees them. */
-const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'dm', 'recent', 'downtime'];
+/** Modules that show the player's own live data once; the GM always sees them. */
+const SINGLE: ModuleType[] = ['character', 'stats', 'vitals', 'mana', 'rerolls', 'inventory', 'gm', 'recent', 'downtime'];
 const CAN_BE_PRIVATE: ModuleType[] = ['contacts', 'notes', 'text', 'counters', 'list'];
 const MAX_MODULES = 24;
 const MAX_JSON = 128_000;
 
 export interface Module { id: string; type: ModuleType; title: string; wide: boolean; private: boolean; collapsed: boolean; data?: any }
 
-const TITLES: Record<ModuleType, string> = { character: 'Character', stats: 'Stats', vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', dm: 'From the DM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist', downtime: 'Downtime' };
+const TITLES: Record<ModuleType, string> = { character: 'Character', stats: 'Stats', vitals: 'Health', mana: 'Mana', inventory: 'Inventory', rerolls: 'Re-rolls', gm: 'From the GM', contacts: 'People', notes: 'Quick notes', recent: 'Recently', text: 'Notes', counters: 'Counters', list: 'Checklist', downtime: 'Downtime' };
 
 /** The Stats module's rows on a new sheet; the D&D Beyond import fills the same labels. */
 export const STAT_LABELS = ['AC', 'Initiative', 'Speed', 'Proficiency', 'Passive Perception', 'Passive Insight', 'Passive Investigation', 'Spell save DC', 'Spell attack'];
@@ -33,7 +33,7 @@ export const DEFAULT_MODULES: Module[] = [
   { id: 'mana', type: 'mana', title: TITLES.mana, wide: false, private: false, collapsed: false },
   { id: 'stats', type: 'stats', title: TITLES.stats, wide: false, private: false, collapsed: false, data: { entries: statEntries() } },
   { id: 'counters', type: 'counters', title: TITLES.counters, wide: false, private: false, collapsed: false, data: { entries: [] } },
-  { id: 'dm', type: 'dm', title: TITLES.dm, wide: false, private: false, collapsed: false },
+  { id: 'gm', type: 'gm', title: TITLES.gm, wide: false, private: false, collapsed: false },
   { id: 'notes', type: 'notes', title: TITLES.notes, wide: false, private: false, collapsed: false, data: { text: '' } },
   { id: 'inventory', type: 'inventory', title: TITLES.inventory, wide: false, private: false, collapsed: false },
   { id: 'contacts', type: 'contacts', title: 'People I know', wide: false, private: false, collapsed: false, data: { entries: [] } },

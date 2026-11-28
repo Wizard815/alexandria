@@ -1,6 +1,6 @@
 // Generic API: "Find endpoints". Looks for the app's OpenAPI spec (or samples
 // the base URL and the list URLs given), shows a table of endpoint, guessed
-// role, mapping and confidence, and saves what the DM accepts. An endpoint
+// role, mapping and confidence, and saves what the GM accepts. An endpoint
 // left unused, or with no role, is never called.
 import { useState } from 'react';
 import { useAuth } from '../../lib/auth.tsx';
@@ -79,7 +79,7 @@ export function EndpointReview({ connection, onClose, onDone }: { connection: Co
             </table>
           </div>
         )}
-        {!!eps.length && <p className="tiny muted" style={{ margin: 0 }}>Endpoints that are not ticked, or that have no role, are never called. Records stay DM-only unless a visibility field is mapped and holds a "shared" value. Calendars become the world's calendars; images are downloaded (PNG, JPEG, GIF or WebP, up to 4 MB, a few at a time) and shown on the page they belong to, only to people who may see that page.</p>}
+        {!!eps.length && <p className="tiny muted" style={{ margin: 0 }}>Endpoints that are not ticked, or that have no role, are never called. Records stay GM-only unless a visibility field is mapped and holds a "shared" value. Calendars become the world's calendars; images are downloaded (PNG, JPEG, GIF or WebP, up to 4 MB, a few at a time) and shown on the page they belong to, only to people who may see that page.</p>}
         <ErrorBox error={a.error} />
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn primary" disabled={a.busy || !eps.length || !used} onClick={() => void save()}>Save endpoints</button></div>
       </div>

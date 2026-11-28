@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import type { Feature } from '../types.ts';
 import { all, one, run } from '../../core/db.ts';
-import { requireDM, requirePlayerOrDM } from '../../core/auth.ts';
+import { requireGM, requirePlayerOrGM } from '../../core/auth.ts';
 import { HttpError, id, int, now, oneOf, parseJson, str } from '../../core/util.ts';
 import { ctx, me } from '../../routes/_shared.ts';
 import { toHex, parseColor } from './color.ts';
@@ -73,7 +73,7 @@ const feature: Feature = {
 
     // ---- a player picks their own turn colour ----
     r.get('/me', (_req, res) => res.json({ color: one<{ color: string }>(db, 'SELECT color FROM lights_player_colors WHERE world_id = ? AND account_id = ?', W(res), me(res))?.color ?? null }));
-    r.put('/me', requirePlayerOrDM, (req, res) => {
+    r.put('/me', requirePlayerOrGM, (req, res) => {
       const c = req.body?.color === null || req.body?.color === '' ? null : parseColor(req.body?.color);
       if (req.body?.color && !c) throw new HttpError(400, 'color must be a colour like #ff8800');
       if (!c) run(db, 'DELETE FROM lights_player_colors WHERE world_id = ? AND account_id = ?', W(res), me(res));
@@ -82,7 +82,7 @@ const feature: Feature = {
     });
 
     // ---- status ----
-    r.get('/status', requireDM, (_req, res) => {
+    r.get('/status', requireGM, (_req, res) => {
       const w = W(res);
       const m = memOf(d);
       res.json({
@@ -96,8 +96,8 @@ const feature: Feature = {
     });
 
     // ---- drivers ----
-    r.get('/drivers', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM lights_drivers WHERE world_id = ? ORDER BY name', W(res)).map((x) => driverOut(d, x))));
-    r.post('/drivers', requireDM, (req, res) => {
+    r.get('/drivers', requireGM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM lights_drivers WHERE world_id = ? ORDER BY name', W(res)).map((x) => driverOut(d, x))));
+    r.post('/drivers', requireGM, (req, res) => {
       const kind = oneOf(req.body?.kind, 'kind', KINDS);
       const name = str(req.body?.name, 'name', { max: 60 }).trim();
       if (!name) throw new HttpError(400, 'name is required');
@@ -113,7 +113,7 @@ const feature: Feature = {
       if (!row) throw new HttpError(404, 'Light driver not found');
       return row;
     };
-    r.put('/drivers/:id', requireDM, (req, res) => {
+    r.put('/drivers/:id', requireGM, (req, res) => {
       const row = driver(res, String(req.params.id));
       const cfg = req.body?.config !== undefined ? cleanConfig(row.kind, req.body.config, parseJson(row.config, {})) : parseJson(row.config, {});
       const name = req.body?.name !== undefined ? str(req.body.name, 'name', { max: 60 }).trim() : row.name;
@@ -122,14 +122,14 @@ const feature: Feature = {
       audit(db, W(res), me(res), 'lights.driver.update', `${row.kind} ${name}`);
       res.json(driverOut(d, one(db, 'SELECT * FROM lights_drivers WHERE id = ?', row.id)));
     });
-    r.delete('/drivers/:id', requireDM, (req, res) => {
+    r.delete('/drivers/:id', requireGM, (req, res) => {
       const row = driver(res, String(req.params.id));
       run(db, 'DELETE FROM lights_drivers WHERE id = ?', row.id);
       audit(db, W(res), me(res), 'lights.driver.delete', `${row.kind} ${row.name}`);
       res.json({ ok: true });
     });
     /** The test button: sends once, waits for the answer and says what happened. */
-    r.post('/drivers/:id/test', requireDM, async (req, res) => {
+    r.post('/drivers/:id/test', requireGM, async (req, res) => {
       const row = driver(res, String(req.params.id));
       const color = parseColor(req.body?.color ?? '#00ff66') ?? [0, 255, 102];
       let groups = linksFor(d, W(res)).filter((l) => l.driverId === row.id);
@@ -146,7 +146,7 @@ const feature: Feature = {
       res.json({ ok: results.every((x) => x.ok), results });
     });
     /** Hue: press the bridge's button, then call this. It keeps the username the bridge hands out. */
-    r.post('/drivers/:id/pair', requireDM, async (req, res) => {
+    r.post('/drivers/:id/pair', requireGM, async (req, res) => {
       const row = driver(res, String(req.params.id));
       if (row.kind !== 'hue') throw new HttpError(400, 'Only Philips Hue bridges are paired');
       const cfg = parseJson<Record<string, any>>(row.config, {});
@@ -161,12 +161,12 @@ const feature: Feature = {
     });
 
     // ---- groups ----
-    r.get('/groups', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM lights_groups WHERE world_id = ? ORDER BY name', W(res)).map(groupOut)));
+    r.get('/groups', requireGM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM lights_groups WHERE world_id = ? ORDER BY name', W(res)).map(groupOut)));
     const groupFields = (res: any, b: any, cur?: any) => {
       const drv = driver(res, String(b.driverId ?? cur?.driver_id ?? ''));
       return { driver: drv, name: b.name !== undefined ? str(b.name, 'name', { max: 60 }).trim() : cur.name, target: b.target !== undefined || !cur ? cleanTarget(drv.kind, b.target) : parseJson(cur.target, {}) };
     };
-    r.post('/groups', requireDM, (req, res) => {
+    r.post('/groups', requireGM, (req, res) => {
       const f = groupFields(res, req.body ?? {});
       if (!f.name) throw new HttpError(400, 'name is required');
       if (one<any>(db, 'SELECT COUNT(*) AS n FROM lights_groups WHERE world_id = ?', W(res))!.n >= 60) throw new HttpError(409, 'That is plenty of light groups: remove one first');
@@ -174,21 +174,21 @@ const feature: Feature = {
       run(db, 'INSERT INTO lights_groups (id, world_id, driver_id, name, target, created_at) VALUES (?, ?, ?, ?, ?, ?)', gid, W(res), f.driver.id, f.name, JSON.stringify(f.target), now());
       res.status(201).json(groupOut(one(db, 'SELECT * FROM lights_groups WHERE id = ?', gid)));
     });
-    r.put('/groups/:id', requireDM, (req, res) => {
+    r.put('/groups/:id', requireGM, (req, res) => {
       const cur = one<any>(db, 'SELECT * FROM lights_groups WHERE id = ? AND world_id = ?', String(req.params.id), W(res));
       if (!cur) throw new HttpError(404, 'Light group not found');
       const f = groupFields(res, req.body ?? {}, cur);
       run(db, 'UPDATE lights_groups SET driver_id = ?, name = ?, target = ? WHERE id = ?', f.driver.id, f.name, JSON.stringify(f.target), cur.id);
       res.json(groupOut(one(db, 'SELECT * FROM lights_groups WHERE id = ?', cur.id)));
     });
-    r.delete('/groups/:id', requireDM, (req, res) => {
+    r.delete('/groups/:id', requireGM, (req, res) => {
       if (!run(db, 'DELETE FROM lights_groups WHERE id = ? AND world_id = ?', String(req.params.id), W(res))) throw new HttpError(404, 'Light group not found');
       res.json({ ok: true });
     });
 
     // ---- scenes ----
-    r.get('/scenes', requireDM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM lights_scenes WHERE world_id = ? ORDER BY name', W(res)).map(sceneOut)));
-    r.post('/scenes', requireDM, (req, res) => {
+    r.get('/scenes', requireGM, (_req, res) => res.json(all<any>(db, 'SELECT * FROM lights_scenes WHERE world_id = ? ORDER BY name', W(res)).map(sceneOut)));
+    r.post('/scenes', requireGM, (req, res) => {
       const name = str(req.body?.name, 'name', { max: 60 }).trim();
       if (!name) throw new HttpError(400, 'name is required');
       if (findScene(d, W(res), name)) throw new HttpError(409, 'A scene with that name already exists');
@@ -196,7 +196,7 @@ const feature: Feature = {
       run(db, 'INSERT INTO lights_scenes (id, world_id, name, items, created_at) VALUES (?, ?, ?, ?, ?)', sid, W(res), name, JSON.stringify(cleanItems(db, W(res), req.body ?? {})), now());
       res.status(201).json(sceneOut(one(db, 'SELECT * FROM lights_scenes WHERE id = ?', sid)));
     });
-    r.put('/scenes/:id', requireDM, (req, res) => {
+    r.put('/scenes/:id', requireGM, (req, res) => {
       const cur = one<any>(db, 'SELECT * FROM lights_scenes WHERE id = ? AND world_id = ?', String(req.params.id), W(res));
       if (!cur) throw new HttpError(404, 'Scene not found');
       const b = req.body ?? {};
@@ -207,24 +207,24 @@ const feature: Feature = {
       run(db, 'UPDATE lights_scenes SET name = ?, items = ? WHERE id = ?', name, items, cur.id);
       res.json(sceneOut(one(db, 'SELECT * FROM lights_scenes WHERE id = ?', cur.id)));
     });
-    r.delete('/scenes/:id', requireDM, (req, res) => {
+    r.delete('/scenes/:id', requireGM, (req, res) => {
       if (!run(db, 'DELETE FROM lights_scenes WHERE id = ? AND world_id = ?', String(req.params.id), W(res))) throw new HttpError(404, 'Scene not found');
       // A hook that pointed at it simply stops lighting anything.
       res.json({ ok: true });
     });
-    r.post('/scenes/:id/run', requireDM, (req, res) => {
+    r.post('/scenes/:id/run', requireGM, (req, res) => {
       const out = runScene(d, W(res), String(req.params.id));
       audit(db, W(res), me(res), 'lights.scene', out.scene.name);
       res.json({ ok: true, ...out });
     });
-    r.post('/off', requireDM, (_req, res) => {
+    r.post('/off', requireGM, (_req, res) => {
       const queued = applyItems(d, W(res), [{ group: '', color: '#000000', brightness: 1, effect: '', transitionMs: 400, off: true }]);
       res.json({ ok: true, queued });
     });
 
     // ---- hooks ----
-    r.get('/hooks', requireDM, (_req, res) => res.json(getHooks(d, W(res))));
-    r.put('/hooks', requireDM, (req, res) => {
+    r.get('/hooks', requireGM, (_req, res) => res.json(getHooks(d, W(res))));
+    r.put('/hooks', requireGM, (req, res) => {
       const next = cleanHooks(d, W(res), req.body, getHooks(d, W(res)));
       saveHooks(d, W(res), next);
       audit(db, W(res), me(res), 'lights.hooks', Object.entries(next).filter(([, v]: any) => v.on).map(([k]) => k).join(','));
